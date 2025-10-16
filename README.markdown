@@ -1,29 +1,29 @@
 # Инвестиционный советник: Система рекомендаций на основе ИИ
 
 ## Обзор
-Этот репозиторий содержит исходный код и документацию для desktop-приложения для среднесрочного инвестирования на Московской бирже (MOEX) с ИИ-советником. Приложение даёт утренние рекомендации "купить/продать/держать" на основе технического анализа, анализа новостей и моделей машинного обучения (Scikit-learn: RandomForest, GradientBoosting, SVM). Поддерживает оффлайн-режим (DuckDB), импорт портфеля (CSV/XLSX), бэктестинг, бумажную торговлю и самообучение с обратной связью от пользователя.
+Этот репозиторий содержит документацию для desktop-приложения для среднесрочного инвестирования на Московской бирже (MOEX) с ИИ-советником. Приложение будет давать утренние рекомендации "купить/продать/держать" на основе технического анализа, анализа новостей и моделей машинного обучения (Scikit-learn: RandomForest, GradientBoosting, SVM). Поддерживает оффлайн-режим (DuckDB), импорт портфеля (CSV/XLSX), бэктестинг, бумажную торговлю и самообучение с обратной связью от пользователя.
 
 - **Технологии**: Python 3.9+, PyQt5, DuckDB, Scikit-learn, pandas_ta, feedparser, schedule, pydantic, pytest.
 - **Архитектура**: Модульный монолит с ABC интерфейсами (`AnalyzerInterface`, `DataProvider`), pydantic для типизации, Dependency Injection (DI) через `config.yaml`. Масштабируется до микросервисов (FastAPI/gRPC), облачных хранилищ (PostgreSQL/S3) и продвинутого ИИ (PyTorch, RLHF-подобный подход).
-- **Текущая стадия**: Фаза 1 (Прототип данных и базовый UI), шаги 1.1 (Настройка и модели) и 1.2 (Провайдеры данных) завершены на 16 октября 2025, 10:51 CDT.
+- **Текущая стадия**: На 16 октября 2025, 10:55 CDT, разработка ещё не началась. Завершена подготовка документации в `docs/specs/` (Шаги 1.1 и 1.2), готова структура для старта разработки.
 
 ## Структура репозитория
 ```
 investment_advisor/
-├── src/
+├── src/                    # Папка для исходного кода (пока пустая)
 │   ├── core/               # Базовые модели, логирование, конфигурация
 │   ├── data/               # Провайдеры данных и хранилище
 │   ├── analysis/           # Анализаторы (технический, новости, риски)
 │   ├── ai/                 # ИИ-модели, аггрегатор, бэктестинг
 │   ├── ui/                 # Компоненты UI на PyQt5
-├── tests/                  # Unit, integration, E2E тесты
+├── tests/                  # Папка для тестов (пока пустая)
 ├── docs/
 │   └── specs/              # Пошаговые спецификации
 │       ├── Step1.1-SetupAndModels.md
 │       └── Step1.2-DataProviders.md
 ├── logs/                   # Логи (в .gitignore)
 ├── models/                 # Обученные модели (в .gitignore)
-├── scripts/                # Утилиты
+├── scripts/                # Утилиты (пока пустая)
 ├── InvestmentAdvisorDetailedPlanWithUI.md  # Концепция проекта
 ├── DevelopmentApproachAndIndex.md          # Подход к разработке и индекс документации
 ├── ModularityConcept.md                    # Принципы модульности
@@ -50,29 +50,18 @@ investment_advisor/
    python -m venv venv
    source venv/bin/activate  # или venv\Scripts\activate на Windows
    ```
-3. Установите зависимости:
+3. Установите зависимости (на основе `Step1.1-SetupAndModels.md`):
    ```bash
    pip install -r requirements.txt
    ```
-4. Инициализируйте логирование:
-   ```bash
-   python -c "from src.core.logging_setup import setup_logging; setup_logging()"
-   ```
+   **Примечание**: `requirements.txt` уже содержит зависимости для Шагов 1.1 и 1.2 (`pydantic`, `pytest`, `requests`, `pandas`, `duckdb`, `pyqt5`, `scikit-learn`, `pandas_ta`, `feedparser`, `schedule`, `joblib`, `yfinance`).
 
-### Запуск проекта
-- На текущий момент реализованы шаги 1.1 и 1.2 (настройка, модели, провайдеры данных).
-- Для тестирования моделей и провайдеров:
-  ```bash
-  pytest tests/ --cov=src --cov-report=html
-  ```
-- Пример использования `DataProvider`:
-  ```python
-  from src.data.providers import get_data_provider
-  from datetime import date
-  provider = get_data_provider("moex")
-  quotes = provider.fetch_quotes(["SBER", "GAZP"], date(2025, 10, 1), date(2025, 10, 15))
-  print([q.dict() for q in quotes])
-  ```
+### Подготовка к разработке
+- Разработка ещё не началась, но документация готова для старта.
+- Начните с Шага 1.1 (`Step1.1-SetupAndModels.md`):
+  - Реализуйте структуру репо, pydantic-модели (`Quote`, `Recommendation`, др.), логирование.
+  - Пишите тесты (`tests/test_models.py`) с coverage >80%.
+- Используйте `DevPrompt.md` для подключения ИИ или разработчиков.
 
 ## Документация
 - **`InvestmentAdvisorDetailedPlanWithUI.md`**: Полная концепция проекта, пользовательские сценарии, функции, UI (PyQt5), архитектура, фазы разработки.
@@ -85,12 +74,15 @@ investment_advisor/
 
 ## Процесс разработки
 1. **Прочитайте `DevPrompt.md`** для инструкций по подключению.
-2. **Проверьте текущую стадию** в `DevelopmentApproachAndIndex.md` (например, Фаза 1, Шаг 1.2 завершён).
-3. **Работайте над следующим шагом** (например, `Step1.3-DatabaseManager.md`):
-   - Следуйте `ModularityConcept.md` для интерфейсов, pydantic и DI.
-   - Пишите код в `src/`, тесты в `tests/`.
+2. **Изучите текущую стадию** в `DevelopmentApproachAndIndex.md` (Фаза 1, документация завершена для Шагов 1.1 и 1.2).
+3. **Начните с Шага 1.1** (`Step1.1-SetupAndModels.md`):
+   - Создайте структуру репо (`src/`, `tests/`, др.).
+   - Реализуйте код в `src/core/` (модели, логирование).
+   - Пишите тесты в `tests/` с coverage >80%.
    - Логируйте в `logs/app_YYYYMMDD.log` с форматом `[module] message`.
-4. **Тестируйте**: Используйте `pytest`, coverage >80%.
+4. **Следуйте `ModularityConcept.md`**:
+   - Используйте ABC интерфейсы (`DataProvider`), pydantic (`Quote`, `AnalyzerOutput`), DI (`config.yaml`).
+   - Код: PEP8, black, Google-style docstrings.
 5. **Коммитьте**:
    ```bash
    git checkout -b feature/phase1-<module>
@@ -101,19 +93,23 @@ investment_advisor/
 ## Как внести вклад
 - Следуйте `ModularityConcept.md` для стиля кода (PEP8, black, Google-style docstrings).
 - Используйте `config.yaml` для DI (например, `data_provider: moex`).
-- Пишите тесты: Unit (`tests/test_<module>.py`), integration, E2E.
+- Пишите тесты: Unit (`tests/test_<module>.py`), integration, E2E, coverage >80%.
 - Коммитьте в ветки `feature/<module>-<feature>`, теги для моделей (`vX.Y-<model>`).
 - Логируйте ошибки в `logs/app_YYYYMMDD.log`.
 
 ## Текущие задачи
-- Реализовать `Step1.3-DatabaseManager.md`: Создать `DatabaseManager` для хранения в DuckDB.
+- **Начать разработку с Шага 1.1** (`Step1.1-SetupAndModels.md`):
+  - Создать структуру репо, pydantic-модели, логирование, тесты.
+- **Подготовить Шаг 1.3** (`Step1.3-DatabaseManager.md`): Написать документацию для `DatabaseManager` (DuckDB).
 - Добавить тикеры в `config.yaml` (например, `tickers: ['SBER', 'GAZP']`).
-- Устранить потенциальные проблемы с MOEX API (например, HTTP 503) через fallback.
+- Устранить потенциальные проблемы с MOEX API (например, HTTP 503) в Шаге 1.2.
 
 ## Вопросы
-- Какие тикеры использовать для тестов (по умолчанию: SBER, GAZP)
-- Есть ли предпочтения по версиям зависимостей (например, `pydantic==2.5.0`)
-- Логировать в консоль в дополнение к файлам
+- Какие тикеры использовать для тестов (по умолчанию: SBER, GAZP)?
+- Нужен ли API ключ для MOEX или Tinkoff? Предоставьте или подтвердите публичный доступ.
+- Есть ли предпочтения по версиям зависимостей (например, `pydantic==2.5.0`)?
+- Логировать в консоль в дополнение к файлам?
+- Нужна ли документация для новых шагов (например, `Step1.3-DatabaseManager.md`) перед разработкой?
 
 ## Лицензия
 MIT License (будет добавлена).
