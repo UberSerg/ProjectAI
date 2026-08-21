@@ -138,6 +138,14 @@ Linux/VPS:
 ./scripts/backup/restore-databases.sh ./backups/core_XXX.dump ./backups/memory_XXX.dump
 ```
 
+## AI-assisted development
+
+ProjectAI uses repository-level Cursor rules from `.cursor/rules/`.
+
+The complete development and review workflow is documented in:
+
+`docs/development/AI_WORKFLOW.md`
+
 ## Configuration
 
 Copy `.env.example` → `.env`. Never commit real secrets. Polza keys stay empty until LLM integration stage.
