@@ -1,0 +1,132 @@
+:root {
+  color-scheme: light;
+  --bg: #f3efe6;
+  --panel: #fffdf8;
+  --ink: #1d2430;
+  --muted: #5b6573;
+  --line: #d7d0c3;
+  --ok: #1f7a4c;
+  --error: #a32020;
+  --unknown: #7a6a3a;
+  --accent: #0f4c5c;
+  font-family: "Segoe UI", "IBM Plex Sans", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(15, 76, 92, 0.12), transparent 40%),
+    linear-gradient(180deg, #efe8da 0%, var(--bg) 50%, #e7e1d4 100%);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: rgba(255, 253, 248, 0.92);
+  border-right: 1px solid var(--line);
+  padding: 1.5rem 1rem;
+}
+
+.brand {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 1.5rem;
+  letter-spacing: 0.02em;
+}
+
+.nav {
+  display: block;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.nav.active,
+.nav:hover {
+  background: rgba(15, 76, 92, 0.08);
+  color: var(--ink);
+}
+
+.content {
+  padding: 2rem;
+}
+
+h1 {
+  margin: 0 0 0.35rem;
+  font-size: 2rem;
+}
+
+.subtitle {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+.status-grid {
+  margin-top: 1.5rem;
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.status-row:last-child {
+  border-bottom: none;
+}
+
+.badge {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.badge.ok {
+  color: var(--ok);
+}
+
+.badge.error {
+  color: var(--error);
+}
+
+.badge.unknown {
+  color: var(--unknown);
+}
+
+.banner.error {
+  color: var(--error);
+  background: rgba(163, 32, 32, 0.08);
+  border: 1px solid rgba(163, 32, 32, 0.2);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+}
+
+@media (max-width: 800px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
