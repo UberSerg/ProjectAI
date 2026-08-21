@@ -27,6 +27,7 @@ const STATUS: Record<string, string> = {
   healthy: "Работает",
   degraded: "С ограничениями",
   unknown: "Неизвестно",
+  not_monitored: "Не контролируется",
   info: "Информация",
 };
 
@@ -60,7 +61,9 @@ const ISSUE_TYPE: Record<string, string> = {
 
 const SERVICE: Record<string, string> = {
   core_db: "Основная БД",
-  memory_db: "Память",
+  core_database: "Основная БД",
+  memory_db: "База памяти",
+  memory_database: "База памяти",
   redis: "Redis",
   worker: "Worker",
   scheduler: "Scheduler",

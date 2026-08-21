@@ -12,11 +12,12 @@ function stepMark(status?: string | null): { cls: string; symbol: string } {
   if (s === "WARNING") return { cls: "warn", symbol: "⚠" };
   if (s === "ERROR" || s === "FAILED") return { cls: "err", symbol: "✕" };
   if (s === "RUNNING") return { cls: "run", symbol: "●" };
+  if (s === "PENDING" || s === "") return { cls: "", symbol: "○" };
   return { cls: "", symbol: "○" };
 }
 
 export function WorkflowsPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const focus = params.get("focus");
   const [items, setItems] = useState<Workflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(focus);
@@ -29,7 +30,7 @@ export function WorkflowsPage() {
       .then((list) => {
         setItems(list);
         if (focus) setSelectedId(focus);
-        else if (list[0]) setSelectedId(list[0].id);
+        else if (list[0]) setSelectedId(String(list[0].id));
       })
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
@@ -38,7 +39,15 @@ export function WorkflowsPage() {
     return () => controller.abort();
   }, [focus]);
 
-  const selected = useMemo(() => items.find((item) => String(item.id) === String(selectedId)) ?? null, [items, selectedId]);
+  const selected = useMemo(
+    () => items.find((item) => String(item.id) === String(selectedId)) ?? null,
+    [items, selectedId],
+  );
+
+  function selectWorkflow(id: string) {
+    setSelectedId(id);
+    setParams({ focus: id }, { replace: true });
+  }
 
   if (loading) return <PageState kind="loading" title="Загрузка процессов…" />;
   if (error) return <PageState kind="error">{error}</PageState>;
@@ -67,7 +76,15 @@ export function WorkflowsPage() {
                   <tr
                     key={wf.id}
                     className={`clickable${String(selectedId) === String(wf.id) ? " selected" : ""}`}
-                    onClick={() => setSelectedId(wf.id)}
+                    tabIndex={0}
+                    aria-selected={String(selectedId) === String(wf.id)}
+                    onClick={() => selectWorkflow(String(wf.id))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        selectWorkflow(String(wf.id));
+                      }
+                    }}
                   >
                     <td>
                       <strong>{labels.workflowType(wf.workflow_type) || wf.name}</strong>
@@ -84,7 +101,7 @@ export function WorkflowsPage() {
             </table>
           </div>
 
-          <article className="panel">
+          <article className="panel" key={selected ? String(selected.id) : "empty"}>
             {selected ? (
               <>
                 <h2>{labels.workflowType(selected.workflow_type) || selected.name}</h2>
@@ -117,7 +134,11 @@ export function WorkflowsPage() {
                         <div>
                           <strong>{labels.workflowStep(step.name)}</strong>
                           <div className="muted">{labels.status(step.status)}</div>
-                          {step.error ? <div className="page-state error" style={{ marginTop: "0.35rem" }}>{step.error}</div> : null}
+                          {step.error ? (
+                            <div className="page-state error" style={{ marginTop: "0.35rem" }}>
+                              {step.error}
+                            </div>
+                          ) : null}
                         </div>
                         <StatusBadge status={step.status} />
                       </li>

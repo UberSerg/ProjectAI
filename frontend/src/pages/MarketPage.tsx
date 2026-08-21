@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { type KeyboardEvent, useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
   getInstruments,
@@ -15,6 +15,10 @@ import { formatDate, formatDateRange, formatNumber } from "../utils/format";
 import { labels } from "../utils/labels";
 
 const PAGE_SIZE = 25;
+
+export function instrumentPath(id: string): string {
+  return `/market/instruments/${encodeURIComponent(id)}`;
+}
 
 export function MarketPage() {
   const navigate = useNavigate();
@@ -63,11 +67,17 @@ export function MarketPage() {
   }, [search, assetClass, source, active, page]);
 
   const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / PAGE_SIZE));
-  const sourcesCount = useMemo(() => {
-    const set = new Set<string>();
-    result?.items.forEach((item) => item.sources.forEach((s) => set.add(s)));
-    return set.size;
-  }, [result]);
+
+  function openInstrument(id: string) {
+    navigate(instrumentPath(id));
+  }
+
+  function onRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, id: string) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openInstrument(id);
+    }
+  }
 
   return (
     <section>
@@ -92,7 +102,7 @@ export function MarketPage() {
       <div className="card-grid">
         <MetricCard label="Инструментов" value={formatNumber(summary?.instruments_count ?? result?.total)} />
         <MetricCard label="Свечей" value={formatNumber(summary?.records_count)} />
-        <MetricCard label="Источников" value={formatNumber(Math.max(sourcesCount, summary?.series_count ? 2 : 0))} hint="MOEX / CBR" />
+        <MetricCard label="Источники данных" value="MOEX + ЦБ РФ" />
         <MetricCard label="Последние данные" value={formatDate(summary?.last_successful_update)} />
       </div>
 
@@ -206,20 +216,39 @@ export function MarketPage() {
                 </tr>
               </thead>
               <tbody>
-                {result.items.map((instrument) => (
-                  <tr key={instrument.id} className="clickable" onClick={() => navigate(`/market/${instrument.id}`)}>
-                    <td className="ticker">{instrument.symbol}</td>
-                    <td>{instrument.name}</td>
-                    <td>{labels.assetClass(instrument.asset_class)}</td>
-                    <td>{instrument.sources.join(", ") || "—"}</td>
-                    <td>{formatDateRange(instrument.first_timestamp, instrument.last_timestamp)}</td>
-                    <td className="numeric">{formatNumber(instrument.records_count)}</td>
-                    <td>{labels.dataFreshness(instrument.last_timestamp)}</td>
-                    <td>
-                      <StatusBadge status={instrument.is_active ? "active" : "inactive"} />
-                    </td>
-                  </tr>
-                ))}
+                {result.items.map((instrument) => {
+                  const path = instrumentPath(instrument.id);
+                  return (
+                    <tr
+                      key={instrument.id}
+                      className="clickable"
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`${instrument.symbol}, ${instrument.name}`}
+                      onClick={() => openInstrument(instrument.id)}
+                      onKeyDown={(event) => onRowKeyDown(event, instrument.id)}
+                    >
+                      <td>
+                        <Link
+                          className="ticker-link"
+                          to={path}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {instrument.symbol}
+                        </Link>
+                      </td>
+                      <td>{instrument.name}</td>
+                      <td>{labels.assetClass(instrument.asset_class)}</td>
+                      <td>{instrument.sources.join(", ") || "—"}</td>
+                      <td>{formatDateRange(instrument.first_timestamp, instrument.last_timestamp)}</td>
+                      <td className="numeric">{formatNumber(instrument.records_count)}</td>
+                      <td>{labels.dataFreshness(instrument.last_timestamp)}</td>
+                      <td>
+                        <StatusBadge status={instrument.is_active ? "active" : "inactive"} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

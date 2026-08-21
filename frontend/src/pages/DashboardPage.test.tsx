@@ -15,7 +15,13 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
       status: "ok",
-      services: { core_db: "ok", memory_db: "ok", redis: "ok", worker: "ok" },
+      services: {
+        backend: "ok",
+        core_database: "ok",
+        memory_database: "ok",
+        redis: "ok",
+        worker: "ok",
+      },
     });
     vi.mocked(marketApi.getMarketSummary).mockResolvedValue({
       instruments_count: 43,
@@ -42,7 +48,7 @@ describe("DashboardPage", () => {
     ]);
   });
 
-  it("renders russian overview metrics", async () => {
+  it("renders russian overview metrics and real DB statuses", async () => {
     render(
       <MemoryRouter>
         <DashboardPage />
@@ -51,6 +57,9 @@ describe("DashboardPage", () => {
     expect(await screen.findByText("Обзор")).toBeInTheDocument();
     expect(await screen.findByText("43")).toBeInTheDocument();
     expect(screen.getByText("Система работает нормально")).toBeInTheDocument();
+    expect(screen.getByText("Основная БД")).toBeInTheDocument();
+    expect(screen.getByText("База памяти")).toBeInTheDocument();
+    expect(screen.getAllByText("Работает").length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders error state", async () => {
@@ -66,7 +75,16 @@ describe("DashboardPage", () => {
 
 describe("Navigation", () => {
   it("shows russian nav labels", async () => {
-    vi.mocked(systemApi.getSystemHealth).mockResolvedValue({ status: "ok", services: {} });
+    vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
+      status: "ok",
+      services: {
+        backend: "ok",
+        core_database: "ok",
+        memory_database: "ok",
+        redis: "ok",
+        worker: "ok",
+      },
+    });
     vi.mocked(marketApi.getMarketSummary).mockResolvedValue({
       instruments_count: 0,
       active_instruments_count: 0,

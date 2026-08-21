@@ -33,6 +33,8 @@ export function InstrumentPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    setData(null);
+    setError(null);
     Promise.all([
       getInstrument(instrumentId, controller.signal),
       getCandles(instrumentId, 50, controller.signal),
@@ -60,6 +62,11 @@ export function InstrumentPage() {
 
   return (
     <section>
+      <nav className="breadcrumb" aria-label="Навигация">
+        <Link to="/market">{labels.nav.market}</Link>
+        <span aria-hidden>/</span>
+        <span>{instrument.symbol}</span>
+      </nav>
       <Link className="back-link" to="/market">
         ← {labels.nav.market}
       </Link>

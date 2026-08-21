@@ -2,16 +2,8 @@ import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
 import { getSystemHealth, getSystemInfo, type HealthResponse, type SystemInfo } from "../api/system";
 import { PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { overviewHealthBadgeStatus, resolveServiceStatus, SYSTEM_SERVICES } from "../utils/health";
 import { labels } from "../utils/labels";
-
-const SERVICES = [
-  ["backend", "Backend"],
-  ["core_db", "Core DB"],
-  ["memory_db", "Memory DB"],
-  ["redis", "Redis"],
-  ["worker", "Worker"],
-  ["scheduler", "Scheduler"],
-] as const;
 
 export function SystemPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -68,13 +60,13 @@ export function SystemPage() {
         <article className="panel">
           <div className="page-header" style={{ marginBottom: "0.5rem" }}>
             <h2>Сервисы</h2>
-            <StatusBadge status={health.status} />
+            <StatusBadge status={overviewHealthBadgeStatus(health)} />
           </div>
           <div className="service-list">
-            {SERVICES.map(([key, fallback]) => (
+            {SYSTEM_SERVICES.map((key) => (
               <div className="service-item" key={key}>
-                <span>{labels.service(key) !== key ? labels.service(key) : fallback}</span>
-                <ServiceDot status={health.services[key] ?? (key === "backend" ? health.status : "unknown")} />
+                <span>{labels.service(key)}</span>
+                <ServiceDot status={resolveServiceStatus(health.services, key)} />
               </div>
             ))}
           </div>

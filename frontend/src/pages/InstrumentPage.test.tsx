@@ -31,9 +31,9 @@ describe("InstrumentPage", () => {
     vi.mocked(marketApi.getDataQualityIssues).mockResolvedValue([]);
 
     render(
-      <MemoryRouter initialEntries={["/market/45"]}>
+      <MemoryRouter initialEntries={["/market/instruments/45"]}>
         <Routes>
-          <Route path="/market/:instrumentId" element={<InstrumentPage />} />
+          <Route path="/market/instruments/:instrumentId" element={<InstrumentPage />} />
         </Routes>
       </MemoryRouter>,
     );

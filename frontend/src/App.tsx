@@ -14,6 +14,7 @@ export function App() {
       <Route element={<AppShell />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/market" element={<MarketPage />} />
+        <Route path="/market/instruments/:instrumentId" element={<InstrumentPage />} />
         <Route path="/market/:instrumentId" element={<InstrumentPage />} />
         <Route
           path="/recommendations"

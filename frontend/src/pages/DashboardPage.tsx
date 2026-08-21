@@ -6,20 +6,18 @@ import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import { MetricCard, PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
 import { formatDate, formatDuration, formatNumber } from "../utils/format";
+import {
+  DASHBOARD_SERVICES,
+  overviewHealthBadgeStatus,
+  overviewHealthTitle,
+  resolveServiceStatus,
+} from "../utils/health";
 import { labels } from "../utils/labels";
 
 interface DashboardData {
   health: HealthResponse;
   market: MarketSummary;
   workflows: Workflow[];
-}
-
-function healthTitle(status?: string): string {
-  const s = (status ?? "").toLowerCase();
-  if (s === "ok" || s === "healthy") return "Система работает нормально";
-  if (s === "degraded" || s === "warning") return "Система работает с ограничениями";
-  if (s === "error" || s === "failed") return "Обнаружены проблемы";
-  return "Состояние системы неизвестно";
 }
 
 export function DashboardPage() {
@@ -49,7 +47,15 @@ export function DashboardPage() {
   if (loading) return <PageState kind="loading" title="Загрузка обзора…" />;
   if (error || !data) {
     return (
-      <PageState kind="error" title="Не удалось получить данные" action={<button type="button" onClick={() => load()}>{labels.actions.retry}</button>}>
+      <PageState
+        kind="error"
+        title="Не удалось получить данные"
+        action={
+          <button type="button" onClick={() => load()}>
+            {labels.actions.retry}
+          </button>
+        }
+      >
         {error}
       </PageState>
     );
@@ -59,8 +65,6 @@ export function DashboardPage() {
     .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
     .slice(0, 8);
 
-  const serviceOrder = ["core_db", "memory_db", "redis", "worker"];
-
   return (
     <section>
       <PageHeader title={labels.nav.overview} description="Состояние платформы и рыночных данных" />
@@ -68,9 +72,9 @@ export function DashboardPage() {
       <div className="hero-status">
         <div>
           <h2>ProjectAI</h2>
-          <p className="subtitle">{healthTitle(data.health.status)}</p>
+          <p className="subtitle">{overviewHealthTitle(data.health)}</p>
         </div>
-        <StatusBadge status={data.health.status} />
+        <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
       </div>
 
       <h2>Рыночные данные</h2>
@@ -104,10 +108,10 @@ export function DashboardPage() {
         <article className="panel">
           <h2>Состояние сервисов</h2>
           <div className="service-list">
-            {serviceOrder.map((key) => (
+            {DASHBOARD_SERVICES.map((key) => (
               <div className="service-item" key={key}>
                 <span>{labels.service(key)}</span>
-                <ServiceDot status={data.health.services[key] ?? "unknown"} />
+                <ServiceDot status={resolveServiceStatus(data.health.services, key)} />
               </div>
             ))}
           </div>
@@ -117,7 +121,9 @@ export function DashboardPage() {
       <article className="panel">
         <div className="page-header" style={{ marginBottom: "0.5rem" }}>
           <h2>Последние процессы</h2>
-          <Link to="/workflows">Все процессы</Link>
+          <Link className="inline-link" to="/workflows">
+            Все процессы
+          </Link>
         </div>
         {recent.length === 0 ? (
           <p className="muted">Процессов пока нет.</p>

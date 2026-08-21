@@ -15,7 +15,7 @@ export function StatusBadge({ status }: { status?: string | null }) {
             : raw === "info"
               ? "info"
               : "neutral";
-  return <span className={`badge badge-${tone}`}>{labels.status(status)}</span>;
+  return <span className={`badge badge-${tone}`}>{labels.status(raw)}</span>;
 }
 
 export function PageHeader({
@@ -83,11 +83,18 @@ export function PageState({
 
 export function ServiceDot({ status }: { status?: string | null }) {
   const raw = (status ?? "unknown").toLowerCase();
-  const tone = raw === "ok" || raw === "healthy" ? "success" : raw === "error" || raw === "failed" ? "error" : "neutral";
+  const tone =
+    raw === "ok" || raw === "healthy"
+      ? "success"
+      : raw === "error" || raw === "failed"
+        ? "error"
+        : raw === "warning" || raw === "degraded"
+          ? "warning"
+          : "neutral";
   return (
-    <span className={`service-row`}>
+    <span className="service-row">
       <span className={`dot dot-${tone}`} aria-hidden />
-      <span>{labels.status(status)}</span>
+      <span>{labels.status(raw)}</span>
     </span>
   );
 }
