@@ -16,6 +16,12 @@ Windows (PowerShell): `Copy-Item .env.example .env`
 
 Edit files in `E:\!AI\ProjectAI` with Cursor; containers pick up changes without rebuild for most code edits.
 
+## Healthchecks
+
+- Backend container Docker healthcheck hits `/api/v1/system/health/live` (liveness only).
+- Use `/api/v1/system/health/ready` to verify Core DB + Memory DB + Redis.
+- Dashboard uses `/api/v1/system/health` (includes worker probe).
+
 ## Useful commands
 
 ```bash

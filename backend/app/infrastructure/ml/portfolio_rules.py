@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from app.domain.ports.portfolio import PortfolioDecision, PortfolioPolicy
+from app.domain.ports.portfolio import PortfolioPolicy, PortfolioPolicyInput, PortfolioPolicyOutput
 
 
 class RuleBasedPortfolioPolicy(PortfolioPolicy):
-    def decide(self, context: dict[str, Any]) -> list[PortfolioDecision]:
-        return []
+    def decide(self, policy_input: PortfolioPolicyInput) -> PortfolioPolicyOutput:
+        return PortfolioPolicyOutput(decisions=(), metadata={"impl": "rules"})

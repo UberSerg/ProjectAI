@@ -2,8 +2,8 @@
 
 Docker-first modular monolith foundation for local development in Cursor and later cloud/VPS deployment.
 
-> Historical conceptual documents (`*.markdown`, `docs/specs/`) are preserved for project history.
-> They are **not** the current architectural specification. This README and `docs/architecture/` take priority.
+> Historical conceptual documents (`docs/legacy/`, root `*.markdown`, `docs/specs/`) are preserved for project history.
+> They are **not** the current architectural specification. This `README.md` and `docs/architecture/` take priority.
 
 ## Requirements
 
@@ -36,8 +36,18 @@ docker compose up -d --build
 | Frontend dashboard | http://localhost:5173 |
 | Backend API | http://localhost:8000 |
 | OpenAPI docs | http://localhost:8000/docs |
-| Health | http://localhost:8000/api/v1/system/health |
+| Liveness | http://localhost:8000/api/v1/system/health/live |
+| Readiness | http://localhost:8000/api/v1/system/health/ready |
+| System health (dashboard) | http://localhost:8000/api/v1/system/health |
 | Info | http://localhost:8000/api/v1/system/info |
+
+### Health endpoints
+
+| Endpoint | Purpose | Checks |
+|----------|---------|--------|
+| `/api/v1/system/health/live` | Docker/process liveness | FastAPI process only |
+| `/api/v1/system/health/ready` | Readiness for ordinary traffic | Core DB, Memory DB, Redis |
+| `/api/v1/system/health` | ProjectAI diagnostics / dashboard | Backend + DBs + Redis + Celery worker |
 
 ## Containers
 

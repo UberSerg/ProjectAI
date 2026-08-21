@@ -3,6 +3,7 @@ export type ServiceStatus = "ok" | "error" | "unknown";
 export type HealthResponse = {
   status: ServiceStatus;
   services: {
+    backend?: ServiceStatus;
     core_database?: ServiceStatus;
     memory_database?: ServiceStatus;
     redis?: ServiceStatus;

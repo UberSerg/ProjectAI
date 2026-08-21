@@ -85,8 +85,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # API liveness only — service-level status (incl. worker) is reported by the endpoint/UI
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/system/health >/dev/null"]
+      # Process liveness only — readiness/system health are separate diagnostic endpoints
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/system/health/live >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 20

@@ -17,6 +17,9 @@ Module folders under `backend/app/modules/` are intentional boundaries:
 
 Ports for swappable implementations live in `domain/ports`:
 
-- `TechnicalModel`
-- `PortfolioPolicy`
-- `LLMProvider`
+- `TechnicalModel` + `TechnicalModelInput` / `TechnicalModelOutput`
+- `PortfolioPolicy` + `PortfolioPolicyInput` / `PortfolioPolicyOutput`
+- `LLMProvider` + `LLMMessage` / `LLMResponse`
+
+Contracts use typed domain DTOs (not open `dict[str, Any]` for primary inputs/outputs).
+Optional `metadata` fields remain a narrow JSON-scalar mapping for extensibility.

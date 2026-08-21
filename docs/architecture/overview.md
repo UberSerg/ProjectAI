@@ -28,6 +28,24 @@ Browser -> Frontend (React/Vite)
 - `modules/*` — future analytical domains
 - `worker` — async jobs and schedules
 
+## Health model
+
+| Endpoint | Role |
+|----------|------|
+| `GET /api/v1/system/health/live` | Liveness — process can answer; used by Docker backend healthcheck |
+| `GET /api/v1/system/health/ready` | Readiness — Core DB + Memory DB + Redis |
+| `GET /api/v1/system/health` | System diagnostics — also probes Celery worker; used by dashboard |
+
+Do not wire Docker `depends_on` to worker via the system health endpoint (avoids circular startup).
+
+## Domain ports
+
+Replaceable adapters behind typed contracts in `app/domain/ports`:
+
+- `TechnicalModel` (`TechnicalModelInput` / `TechnicalModelOutput`)
+- `PortfolioPolicy` (`PortfolioPolicyInput` / `PortfolioPolicyOutput`)
+- `LLMProvider` (`LLMMessage` / `LLMResponse`)
+
 ## Non-goals (current stage)
 
 No trading strategies, MOEX ingestion, ML training, Polza live calls, or BUY/SELL recommendations.

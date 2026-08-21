@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from app.domain.ports.technical import TechnicalModel, TechnicalSignal
+from app.domain.ports.technical import (
+    SignalDirection,
+    TechnicalModel,
+    TechnicalModelInput,
+    TechnicalModelOutput,
+)
 
 
 class RuleBasedTechnicalModel(TechnicalModel):
-    def predict(self, features: dict[str, Any]) -> TechnicalSignal:
-        ticker = str(features.get("ticker", "UNKNOWN"))
-        return TechnicalSignal(ticker=ticker, score=0.0, confidence=0.0, metadata={"impl": "rules"})
+    def predict(self, model_input: TechnicalModelInput) -> TechnicalModelOutput:
+        return TechnicalModelOutput(
+            ticker=model_input.ticker,
+            score=0.0,
+            confidence=0.0,
+            direction=SignalDirection.NEUTRAL,
+            metadata={"impl": "rules"},
+        )

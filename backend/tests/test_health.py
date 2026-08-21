@@ -5,6 +5,42 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+def test_liveness_endpoint() -> None:
+    client = TestClient(create_app())
+    response = client.get("/api/v1/system/health/live")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_readiness_endpoint_ok(monkeypatch) -> None:
+    monkeypatch.setattr("app.application.system.health.check_core_database", lambda: True)
+    monkeypatch.setattr("app.application.system.health.check_memory_database", lambda: True)
+    monkeypatch.setattr("app.application.system.health.check_redis", lambda: True)
+
+    client = TestClient(create_app())
+    payload = client.get("/api/v1/system/health/ready").json()
+    assert payload["status"] == "ok"
+    assert payload["services"] == {
+        "core_database": "ok",
+        "memory_database": "ok",
+        "redis": "ok",
+    }
+    assert "worker" not in payload["services"]
+
+
+def test_readiness_endpoint_reports_dependency_failure(monkeypatch) -> None:
+    monkeypatch.setattr("app.application.system.health.check_core_database", lambda: True)
+    monkeypatch.setattr("app.application.system.health.check_memory_database", lambda: False)
+    monkeypatch.setattr("app.application.system.health.check_redis", lambda: True)
+
+    client = TestClient(create_app())
+    payload = client.get("/api/v1/system/health/ready").json()
+    assert payload["status"] == "error"
+    assert payload["services"]["memory_database"] == "error"
+    assert payload["services"]["core_database"] == "ok"
+    assert "worker" not in payload["services"]
+
+
 def test_health_endpoint_structure(monkeypatch) -> None:
     monkeypatch.setattr("app.application.system.health.check_core_database", lambda: True)
     monkeypatch.setattr("app.application.system.health.check_memory_database", lambda: True)
@@ -16,6 +52,7 @@ def test_health_endpoint_structure(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
+    assert payload["services"]["backend"] == "ok"
     assert payload["services"]["core_database"] == "ok"
     assert payload["services"]["memory_database"] == "ok"
     assert payload["services"]["redis"] == "ok"
@@ -31,6 +68,7 @@ def test_health_endpoint_reports_errors(monkeypatch) -> None:
     client = TestClient(create_app())
     payload = client.get("/api/v1/system/health").json()
     assert payload["status"] == "error"
+    assert payload["services"]["backend"] == "ok"
     assert payload["services"]["core_database"] == "error"
     assert payload["services"]["worker"] == "error"
 
