@@ -1,0 +1,183 @@
+name: projectai
+
+services:
+  postgres-core:
+    image: postgres:16-alpine
+    container_name: projectai-postgres-core
+    environment:
+      POSTGRES_DB: ${CORE_DATABASE_NAME}
+      POSTGRES_USER: ${CORE_DATABASE_USER}
+      POSTGRES_PASSWORD: ${CORE_DATABASE_PASSWORD}
+    ports:
+      - "${HOST_CORE_DB_PORT:-5432}:5432"
+    volumes:
+      - projectai_core_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CORE_DATABASE_USER} -d ${CORE_DATABASE_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-memory:
+    image: pgvector/pgvector:pg16
+    container_name: projectai-postgres-memory
+    environment:
+      POSTGRES_DB: ${MEMORY_DATABASE_NAME}
+      POSTGRES_USER: ${MEMORY_DATABASE_USER}
+      POSTGRES_PASSWORD: ${MEMORY_DATABASE_PASSWORD}
+    ports:
+      - "${HOST_MEMORY_DB_PORT:-5433}:5432"
+    volumes:
+      - projectai_memory_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MEMORY_DATABASE_USER} -d ${MEMORY_DATABASE_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: projectai-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${HOST_REDIS_PORT:-6379}:6379"
+    volumes:
+      - projectai_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: projectai-backend
+    command: ["api"]
+    env_file:
+      - .env
+    environment:
+      CORE_DATABASE_HOST: postgres-core
+      MEMORY_DATABASE_HOST: postgres-memory
+      REDIS_HOST: redis
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    ports:
+      - "${HOST_BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./backend/migrations:/app/migrations
+      - ./backend/alembic_core.ini:/app/alembic_core.ini:ro
+      - ./backend/alembic_memory.ini:/app/alembic_memory.ini:ro
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      postgres-memory:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Process liveness only — readiness/system health are separate diagnostic endpoints
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/system/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: projectai-worker
+    command: ["worker"]
+    env_file:
+      - .env
+    environment:
+      CORE_DATABASE_HOST: postgres-core
+      MEMORY_DATABASE_HOST: postgres-memory
+      REDIS_HOST: redis
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      postgres-memory:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping | grep -q pong"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: projectai-scheduler
+    command: ["scheduler"]
+    env_file:
+      - .env
+    environment:
+      CORE_DATABASE_HOST: postgres-core
+      MEMORY_DATABASE_HOST: postgres-memory
+      REDIS_HOST: redis
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: projectai-frontend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "${HOST_FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:5173').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  projectai_core_pgdata:
+  projectai_memory_pgdata:
+  projectai_redis_data:

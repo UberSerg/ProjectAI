@@ -1,3 +1,6 @@
+﻿> **Historical document.** This is the previous ProjectAI concept (desktop/PyQt/DuckDB era).
+> It is retained for history only and is **not** the current architecture.
+> Current entrypoint: `README.md` and `docs/architecture/`.
 # Инвестиционный советник: Система рекомендаций на основе ИИ
 
 ## Обзор
