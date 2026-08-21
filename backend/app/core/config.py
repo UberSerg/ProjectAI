@@ -1,8 +1,11 @@
 """Runtime configuration from environment variables."""
 
+from __future__ import annotations
+
+from datetime import date
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,12 +41,31 @@ class Settings(BaseSettings):
     polza_base_url: str = Field(default="https://api.polza.ai/v1", alias="POLZA_BASE_URL")
     polza_default_model: str = Field(default="", alias="POLZA_DEFAULT_MODEL")
 
+    raw_data_path: str = Field(default="/data/raw", alias="RAW_DATA_PATH")
+    market_update_enabled: bool = Field(default=False, alias="MARKET_UPDATE_ENABLED")
+    market_update_cron: str = Field(default="0 18 * * 1-5", alias="MARKET_UPDATE_CRON")
+    moex_base_url: str = Field(default="https://iss.moex.com", alias="MOEX_BASE_URL")
+    cbr_base_url: str = Field(default="https://www.cbr.ru", alias="CBR_BASE_URL")
+    http_timeout_seconds: float = Field(default=30.0, alias="HTTP_TIMEOUT_SECONDS")
+    http_max_retries: int = Field(default=3, alias="HTTP_MAX_RETRIES")
+    http_retry_backoff_seconds: float = Field(default=1.0, alias="HTTP_RETRY_BACKOFF_SECONDS")
+    market_default_backfill_from: date = Field(
+        default=date(2015, 1, 1), alias="MARKET_DEFAULT_BACKFILL_FROM"
+    )
+
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ]
     )
+
+    @field_validator("market_default_backfill_from", mode="before")
+    @classmethod
+    def _parse_backfill_from(cls, value: object) -> object:
+        if isinstance(value, str):
+            return date.fromisoformat(value)
+        return value
 
     @property
     def core_database_url(self) -> str:

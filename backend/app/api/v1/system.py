@@ -23,6 +23,8 @@ class InfoResponse(BaseModel):
     version: str
     environment: str
     api_version: str
+    market_update_enabled: bool = False
+    raw_storage_path: str = ""
 
 
 @router.get("/health/live", response_model=LivenessResponse)
@@ -51,4 +53,6 @@ def info() -> InfoResponse:
         version=result.version,
         environment=result.environment,
         api_version=result.api_version,
+        market_update_enabled=result.market_update_enabled,
+        raw_storage_path=result.raw_storage_path,
     )

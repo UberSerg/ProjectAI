@@ -71,6 +71,19 @@ Business logic above is **not implemented yet**. Only platform boundaries, dual 
 
 See `docs/architecture/`.
 
+## Market Data V1
+
+MOEX ISS + Bank of Russia ingestion, raw volume storage, workflows and admin UI.
+
+```text
+POST /api/v1/market/backfill
+POST /api/v1/market/update
+GET  /api/v1/market/instruments
+GET  /api/v1/workflows
+```
+
+Details: `docs/market-data/`. Scheduler remains off by default (`MARKET_UPDATE_ENABLED=false`).
+
 ## Common commands
 
 ```bash
