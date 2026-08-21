@@ -16,6 +16,7 @@ export interface Workflow {
   status: string;
   started_at: string | null;
   finished_at: string | null;
+  duration_seconds?: number | null;
   error: string | null;
   steps: WorkflowStep[];
 }

@@ -1,15 +1,12 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
-import {
-  getBatches,
-  getDataQualityIssues,
-  getInstruments,
-  getMarketSummary,
-  type MarketSummary,
-} from "../api/market";
+import { getMarketSummary, type MarketSummary } from "../api/market";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
-import { formatDate, formatNumber, PageState, StatusBadge } from "../components/Ui";
+import { MetricCard, PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { formatDate, formatDuration, formatNumber } from "../utils/format";
+import { labels } from "../utils/labels";
 
 interface DashboardData {
   health: HealthResponse;
@@ -17,24 +14,12 @@ interface DashboardData {
   workflows: Workflow[];
 }
 
-async function loadMarketSummary(signal: AbortSignal): Promise<MarketSummary> {
-  try {
-    return await getMarketSummary(signal);
-  } catch {
-    const [instruments, batches, issues] = await Promise.all([
-      getInstruments({ page: 1, page_size: 10_000 }, signal),
-      getBatches(undefined, signal),
-      getDataQualityIssues(undefined, signal),
-    ]);
-    return {
-      instruments_count: instruments.total,
-      active_instruments_count: instruments.items.filter((item) => item.is_active).length,
-      records_count: instruments.items.reduce((sum, item) => sum + item.records_count, 0),
-      batches_count: batches.length,
-      dq_warnings: issues.filter((issue) => issue.severity === "warning").length,
-      dq_errors: issues.filter((issue) => issue.severity === "error").length,
-    };
-  }
+function healthTitle(status?: string): string {
+  const s = (status ?? "").toLowerCase();
+  if (s === "ok" || s === "healthy") return "Система работает нормально";
+  if (s === "degraded" || s === "warning") return "Система работает с ограничениями";
+  if (s === "error" || s === "failed") return "Обнаружены проблемы";
+  return "Состояние системы неизвестно";
 }
 
 export function DashboardPage() {
@@ -42,56 +27,112 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     const controller = new AbortController();
+    setLoading(true);
+    setError(null);
     Promise.all([
       getSystemHealth(controller.signal),
-      loadMarketSummary(controller.signal),
+      getMarketSummary(controller.signal),
       getWorkflows(controller.signal),
     ])
       .then(([health, market, workflows]) => setData({ health, market, workflows }))
-      .catch((reason: unknown) => setError(errorMessage(reason)))
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
+      })
       .finally(() => setLoading(false));
-    return () => {
-      controller.abort();
-    };
-  }, []);
+    return () => controller.abort();
+  }
 
-  if (loading) return <PageState kind="loading">Loading dashboard metrics…</PageState>;
-  if (error || !data) return <PageState kind="error">Unable to load dashboard: {error}</PageState>;
+  useEffect(() => load(), []);
 
-  const running = data.workflows.filter((workflow) => workflow.status === "running").length;
-  const failed = data.workflows.filter((workflow) => workflow.status === "failed").length;
-  const lastSuccess = data.workflows
-    .filter((workflow) => workflow.status === "succeeded" || workflow.status === "success")
-    .sort((a, b) => (b.finished_at ?? "").localeCompare(a.finished_at ?? ""))[0];
+  if (loading) return <PageState kind="loading" title="Загрузка обзора…" />;
+  if (error || !data) {
+    return (
+      <PageState kind="error" title="Не удалось получить данные" action={<button type="button" onClick={() => load()}>{labels.actions.retry}</button>}>
+        {error}
+      </PageState>
+    );
+  }
+
+  const recent = [...data.workflows]
+    .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
+    .slice(0, 8);
+
+  const serviceOrder = ["core_db", "memory_db", "redis", "worker"];
 
   return (
     <section>
-      <h1>ProjectAI Dashboard</h1>
-      <p className="subtitle">Market data operations overview</p>
+      <PageHeader title={labels.nav.overview} description="Состояние платформы и рыночных данных" />
+
+      <div className="hero-status">
+        <div>
+          <h2>ProjectAI</h2>
+          <p className="subtitle">{healthTitle(data.health.status)}</p>
+        </div>
+        <StatusBadge status={data.health.status} />
+      </div>
+
+      <h2>Рыночные данные</h2>
       <div className="card-grid">
-        <article className="metric-card">
-          <span className="metric-label">System health</span>
-          <StatusBadge status={data.health.status} />
-          <small>{Object.entries(data.health.services).map(([name, status]) => `${name}: ${status}`).join(" · ") || "No service details"}</small>
+        <MetricCard label="Инструментов" value={formatNumber(data.market.instruments_count)} />
+        <MetricCard label="Свечей" value={formatNumber(data.market.records_count)} />
+        <MetricCard label="Рядов ЦБ" value={formatNumber(data.market.series_count ?? 0)} />
+        <MetricCard
+          label="Последние данные"
+          value={formatDate(data.market.last_successful_update ?? null)}
+          hint="по последней успешной загрузке"
+        />
+      </div>
+
+      <div className="dashboard-grid">
+        <article className="panel">
+          <h2>Качество данных</h2>
+          <div className="key-value">
+            <span>Ошибки</span>
+            <strong>{formatNumber(data.market.dq_errors)}</strong>
+          </div>
+          <div className="key-value">
+            <span>Предупреждения</span>
+            <strong>{formatNumber(data.market.dq_warnings)}</strong>
+          </div>
+          {data.market.dq_errors === 0 && data.market.dq_warnings === 0 ? (
+            <p className="muted">Критичных проблем не зафиксировано.</p>
+          ) : null}
         </article>
-        <article className="metric-card">
-          <span className="metric-label">Instruments</span>
-          <strong>{formatNumber(data.market.instruments_count)}</strong>
-          <small>{formatNumber(data.market.active_instruments_count)} active · {formatNumber(data.market.records_count)} records</small>
-        </article>
-        <article className="metric-card">
-          <span className="metric-label">Data quality</span>
-          <strong>{formatNumber(data.market.dq_errors)} errors</strong>
-          <small>{formatNumber(data.market.dq_warnings)} warnings</small>
-        </article>
-        <article className="metric-card">
-          <span className="metric-label">Workflows</span>
-          <strong>{running} running</strong>
-          <small>{failed} failed · last success {formatDate(lastSuccess?.finished_at)}</small>
+
+        <article className="panel">
+          <h2>Состояние сервисов</h2>
+          <div className="service-list">
+            {serviceOrder.map((key) => (
+              <div className="service-item" key={key}>
+                <span>{labels.service(key)}</span>
+                <ServiceDot status={data.health.services[key] ?? "unknown"} />
+              </div>
+            ))}
+          </div>
         </article>
       </div>
+
+      <article className="panel">
+        <div className="page-header" style={{ marginBottom: "0.5rem" }}>
+          <h2>Последние процессы</h2>
+          <Link to="/workflows">Все процессы</Link>
+        </div>
+        {recent.length === 0 ? (
+          <p className="muted">Процессов пока нет.</p>
+        ) : (
+          <div className="workflow-list">
+            {recent.map((wf) => (
+              <Link className="workflow-row" key={wf.id} to={`/workflows?focus=${wf.id}`}>
+                <strong>{labels.workflowType(wf.workflow_type) || wf.name}</strong>
+                <StatusBadge status={wf.status} />
+                <span className="muted">{formatDuration(wf.duration_seconds)}</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </article>
     </section>
   );
 }

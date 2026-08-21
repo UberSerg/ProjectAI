@@ -1,30 +1,38 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import * as workflowsApi from "../api/workflows";
 import { WorkflowsPage } from "./WorkflowsPage";
 
-const mocks = vi.hoisted(() => ({
-  getWorkflows: vi.fn(),
-  getWorkflow: vi.fn(),
-}));
-
-vi.mock("../api/workflows", () => mocks);
+vi.mock("../api/workflows");
 
 describe("WorkflowsPage", () => {
-  it("renders workflow history", async () => {
-    mocks.getWorkflows.mockResolvedValue([
+  it("shows human readable workflow names and steps", async () => {
+    vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([
       {
-        id: "wf-1",
-        name: "Daily market update",
-        workflow_type: "market_update",
-        status: "succeeded",
-        started_at: "2026-08-21T09:00:00Z",
-        finished_at: "2026-08-21T09:05:00Z",
+        id: "9",
+        name: "backfill",
+        workflow_type: "MarketDataBackfill",
+        status: "WARNING",
+        started_at: "2026-08-21T10:00:00Z",
+        finished_at: "2026-08-21T10:00:33Z",
+        duration_seconds: 33,
         error: null,
-        steps: [],
+        steps: [
+          { name: "Download MOEX", status: "SUCCESS" },
+          { name: "Run Data Quality", status: "WARNING" },
+        ],
       },
     ]);
-    render(<WorkflowsPage />);
-    expect(screen.getByRole("heading", { name: "Workflows" })).toBeInTheDocument();
-    expect(await screen.findByText("Daily market update")).toBeInTheDocument();
+
+    render(
+      <MemoryRouter>
+        <WorkflowsPage />
+      </MemoryRouter>,
+    );
+
+    expect((await screen.findAllByText("Загрузка истории котировок")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Получение данных MOEX")).toBeInTheDocument();
+    expect(screen.getByText("Проверка качества")).toBeInTheDocument();
   });
 });

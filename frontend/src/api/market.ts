@@ -7,11 +7,13 @@ export interface Instrument {
   asset_class: string;
   exchange: string | null;
   currency: string;
+  isin?: string | null;
   sources: string[];
   first_timestamp: string | null;
   last_timestamp: string | null;
   records_count: number;
   is_active: boolean;
+  last_close?: number | null;
   mappings?: InstrumentMapping[];
 }
 
@@ -56,9 +58,11 @@ export interface MarketSummary {
   instruments_count: number;
   active_instruments_count: number;
   records_count: number;
+  series_count?: number;
   batches_count: number;
   dq_warnings: number;
   dq_errors: number;
+  last_successful_update?: string | null;
 }
 
 export interface Page<T> {

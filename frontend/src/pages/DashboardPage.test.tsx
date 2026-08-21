@@ -1,44 +1,88 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { App } from "../App";
+import * as marketApi from "../api/market";
+import * as systemApi from "../api/system";
+import * as workflowsApi from "../api/workflows";
 import { DashboardPage } from "./DashboardPage";
 
-const mocks = vi.hoisted(() => ({
-  getSystemHealth: vi.fn(),
-  getMarketSummary: vi.fn(),
-  getInstruments: vi.fn(),
-  getBatches: vi.fn(),
-  getDataQualityIssues: vi.fn(),
-  getWorkflows: vi.fn(),
-}));
-
-vi.mock("../api/system", () => ({ getSystemHealth: mocks.getSystemHealth }));
-vi.mock("../api/market", () => ({
-  getMarketSummary: mocks.getMarketSummary,
-  getInstruments: mocks.getInstruments,
-  getBatches: mocks.getBatches,
-  getDataQualityIssues: mocks.getDataQualityIssues,
-}));
-vi.mock("../api/workflows", () => ({ getWorkflows: mocks.getWorkflows }));
+vi.mock("../api/market");
+vi.mock("../api/system");
+vi.mock("../api/workflows");
 
 describe("DashboardPage", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
+      status: "ok",
+      services: { core_db: "ok", memory_db: "ok", redis: "ok", worker: "ok" },
+    });
+    vi.mocked(marketApi.getMarketSummary).mockResolvedValue({
+      instruments_count: 43,
+      active_instruments_count: 43,
+      records_count: 28250,
+      series_count: 5,
+      batches_count: 10,
+      dq_warnings: 6,
+      dq_errors: 0,
+      last_successful_update: "2026-08-20T00:00:00Z",
+    });
+    vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([
+      {
+        id: "1",
+        name: "update",
+        workflow_type: "MarketDataUpdate",
+        status: "SUCCESS",
+        started_at: "2026-08-21T10:00:00Z",
+        finished_at: "2026-08-21T10:00:04Z",
+        duration_seconds: 4,
+        error: null,
+        steps: [],
+      },
+    ]);
+  });
 
-  it("renders loading state", () => {
-    mocks.getSystemHealth.mockReturnValue(new Promise(() => undefined));
-    mocks.getMarketSummary.mockReturnValue(new Promise(() => undefined));
-    mocks.getWorkflows.mockReturnValue(new Promise(() => undefined));
-    render(<DashboardPage />);
-    expect(screen.getByText("Loading dashboard metrics…")).toBeInTheDocument();
+  it("renders russian overview metrics", async () => {
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Обзор")).toBeInTheDocument();
+    expect(await screen.findByText("43")).toBeInTheDocument();
+    expect(screen.getByText("Система работает нормально")).toBeInTheDocument();
   });
 
   it("renders error state", async () => {
-    mocks.getSystemHealth.mockRejectedValue(new Error("network down"));
-    mocks.getMarketSummary.mockRejectedValue(new Error("network down"));
-    mocks.getInstruments.mockRejectedValue(new Error("network down"));
-    mocks.getBatches.mockRejectedValue(new Error("network down"));
-    mocks.getDataQualityIssues.mockRejectedValue(new Error("network down"));
-    mocks.getWorkflows.mockRejectedValue(new Error("network down"));
-    render(<DashboardPage />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("network down");
+    vi.mocked(marketApi.getMarketSummary).mockRejectedValue(new Error("boom"));
+    render(
+      <MemoryRouter>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Не удалось получить данные")).toBeInTheDocument();
+  });
+});
+
+describe("Navigation", () => {
+  it("shows russian nav labels", async () => {
+    vi.mocked(systemApi.getSystemHealth).mockResolvedValue({ status: "ok", services: {} });
+    vi.mocked(marketApi.getMarketSummary).mockResolvedValue({
+      instruments_count: 0,
+      active_instruments_count: 0,
+      records_count: 0,
+      batches_count: 0,
+      dq_warnings: 0,
+      dq_errors: 0,
+    });
+    vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([]);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Рыночные данные")).toBeInTheDocument();
+    expect(screen.getByText("Процессы")).toBeInTheDocument();
+    expect(screen.getAllByText("Скоро").length).toBeGreaterThan(0);
   });
 });

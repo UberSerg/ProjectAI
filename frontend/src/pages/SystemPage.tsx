@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
 import { getSystemHealth, getSystemInfo, type HealthResponse, type SystemInfo } from "../api/system";
-import { PageState, StatusBadge } from "../components/Ui";
+import { PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { labels } from "../utils/labels";
+
+const SERVICES = [
+  ["backend", "Backend"],
+  ["core_db", "Core DB"],
+  ["memory_db", "Memory DB"],
+  ["redis", "Redis"],
+  ["worker", "Worker"],
+  ["scheduler", "Scheduler"],
+] as const;
 
 export function SystemPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -21,26 +31,53 @@ export function SystemPage() {
     return () => controller.abort();
   }, []);
 
-  if (error) return <PageState kind="error">Unable to load system information: {error}</PageState>;
-  if (!health || !info) return <PageState kind="loading">Loading system information…</PageState>;
+  if (error) return <PageState kind="error">{error}</PageState>;
+  if (!health || !info) return <PageState kind="loading" title="Загрузка сведений о системе…" />;
+
+  const rawPath = info.raw_storage_path ?? info.market_raw_path ?? "—";
 
   return (
     <section>
-      <h1>System</h1>
-      <p className="subtitle">Runtime information and service health</p>
-      <div className="detail-grid">
+      <PageHeader title={labels.nav.system} description="Диагностика окружения и сервисов" />
+
+      <div className="dashboard-grid">
         <article className="panel">
-          <h2>Runtime</h2>
-          <div className="key-value"><span>Application</span><strong>{info.name}</strong></div>
-          <div className="key-value"><span>Version</span><strong>{info.version}</strong></div>
-          <div className="key-value"><span>API version</span><strong>{info.api_version}</strong></div>
-          <div className="key-value"><span>Environment</span><strong>{info.environment}</strong></div>
-          <div className="key-value"><span>Market updates</span><StatusBadge status={info.market_update_enabled == null ? "unknown" : info.market_update_enabled ? "enabled" : "disabled"} /></div>
-          <div className="key-value"><span>Raw market path</span><strong className="mono">{info.raw_storage_path ?? info.market_raw_path ?? "Not reported"}</strong></div>
+          <h2>Приложение</h2>
+          <div className="key-value">
+            <span>Версия ProjectAI</span>
+            <strong>{info.version}</strong>
+          </div>
+          <div className="key-value">
+            <span>Окружение</span>
+            <strong>{info.environment}</strong>
+          </div>
+          <div className="key-value">
+            <span>API</span>
+            <strong>{info.api_version}</strong>
+          </div>
+          <div className="key-value">
+            <span>Автообновление рынка</span>
+            <StatusBadge status={info.market_update_enabled ? "enabled" : "disabled"} />
+          </div>
+          <div className="key-value">
+            <span>RAW-хранилище</span>
+            <strong className="mono">{rawPath}</strong>
+          </div>
         </article>
+
         <article className="panel">
-          <div className="page-header"><h2>Services</h2><StatusBadge status={health.status} /></div>
-          {Object.entries(health.services).length ? Object.entries(health.services).map(([service, status]) => <div className="key-value" key={service}><span>{service.replaceAll("_", " ")}</span><StatusBadge status={status} /></div>) : <p className="muted">No service details reported.</p>}
+          <div className="page-header" style={{ marginBottom: "0.5rem" }}>
+            <h2>Сервисы</h2>
+            <StatusBadge status={health.status} />
+          </div>
+          <div className="service-list">
+            {SERVICES.map(([key, fallback]) => (
+              <div className="service-item" key={key}>
+                <span>{labels.service(key) !== key ? labels.service(key) : fallback}</span>
+                <ServiceDot status={health.services[key] ?? (key === "backend" ? health.status : "unknown")} />
+              </div>
+            ))}
+          </div>
         </article>
       </div>
     </section>
