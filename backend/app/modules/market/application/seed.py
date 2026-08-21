@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -39,8 +39,16 @@ def seed_market_universe(session: Session) -> dict[str, int]:
         ).all()
     }
     for item in INSTRUMENTS:
+        instrument_id = ids[item.symbol]
+        # Keep a single MOEX mapping per instrument (board may change, e.g. RTSI).
+        session.execute(
+            delete(InstrumentSource).where(
+                InstrumentSource.instrument_id == instrument_id,
+                InstrumentSource.source == item.source,
+            )
+        )
         statement = insert(InstrumentSource).values(
-            instrument_id=ids[item.symbol],
+            instrument_id=instrument_id,
             source=item.source,
             external_id=item.symbol,
             board=item.board or "",
@@ -53,7 +61,7 @@ def seed_market_universe(session: Session) -> dict[str, int]:
                     InstrumentSource.external_id,
                     InstrumentSource.board,
                 ],
-                set_={"instrument_id": ids[item.symbol]},
+                set_={"instrument_id": instrument_id},
             )
         )
 

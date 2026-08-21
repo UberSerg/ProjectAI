@@ -17,4 +17,6 @@ Base: `CBR_BASE_URL` (default `https://www.cbr.ru`)
 - KEY_RATE: SOAP `DailyInfoWebServ/DailyInfo.asmx` method `KeyRateXML`
 - RUONIA: SOAP method `RuoniaXML` (best-effort)
 
-Official CBR FX series are stored separately from any exchange FX quotes.
+## Deviations
+
+- RTSI history lives on board `RTSI` (not `SNDX`). IMOEX/RGBI remain on `SNDX`.

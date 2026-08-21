@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from app.core.logging import get_logger
 from app.infrastructure.db.session import core_session
 from app.infrastructure.market.models import Workflow
-from app.modules.market.application.data_quality import run_data_quality_checks
+from app.modules.market.application.data_quality import DataQualityContext, run_data_quality_checks
 from app.modules.market.application.ingest import MarketIngestionService
 from app.modules.market.application.workflows import finish_workflow, get_step, update_step
 from app.worker.celery_app import celery_app
@@ -46,13 +46,23 @@ def market_data_update(workflow_id: int) -> dict:
 
 
 @celery_app.task(name="projectai.market_data_quality_run")
-def market_data_quality_run(workflow_id: int) -> dict:
+def market_data_quality_run(
+    workflow_id: int,
+    mode: str = "operational",
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
     with core_session() as session:
         workflow = session.get(Workflow, workflow_id)
         if workflow is None:
             raise ValueError(f"Workflow {workflow_id} not found")
         update_step(session, get_step(workflow, "Run Data Quality"), "RUNNING")
-        result = run_data_quality_checks(session)
+        context = DataQualityContext(
+            mode="historical" if mode == "historical" else "operational",
+            date_from=date.fromisoformat(date_from) if date_from else None,
+            date_to=date.fromisoformat(date_to) if date_to else None,
+        )
+        result = run_data_quality_checks(session, context)
         status = "WARNING" if result.get("errors") or result.get("warnings") else "SUCCESS"
         update_step(session, get_step(workflow, "Run Data Quality"), status)
         update_step(session, get_step(workflow, "Finish"), "SUCCESS")

@@ -25,7 +25,10 @@ from app.infrastructure.market.models import (
 )
 from app.infrastructure.market.moex_iss import MoexIssProvider
 from app.infrastructure.market.raw_store import RawStore
-from app.modules.market.application.data_quality import run_data_quality_checks
+from app.modules.market.application.data_quality import (
+    DataQualityContext,
+    run_data_quality_checks,
+)
 from app.modules.market.application.incremental import compute_incremental_range
 from app.modules.market.application.seed import seed_market_universe
 from app.modules.market.application.workflows import (
@@ -60,7 +63,9 @@ def _as_decimal(value: Decimal | float | int | None, fallback: Decimal = Decimal
     return Decimal(str(value))
 
 
-def upsert_candles(session: Session, instrument_id: int, records: list[CandleBar], source: str) -> int:
+def upsert_candles(
+    session: Session, instrument_id: int, records: list[CandleBar], source: str
+) -> dict[str, int]:
     rows = []
     for bar in deduplicate_records(records):
         close = _as_decimal(bar.close)
@@ -78,7 +83,21 @@ def upsert_candles(session: Session, instrument_id: int, records: list[CandleBar
             }
         )
     if not rows:
-        return 0
+        return {"received": 0, "inserted": 0, "updated": 0}
+    timestamps = [row["timestamp"] for row in rows]
+    existing = (
+        session.scalar(
+            select(func.count())
+            .select_from(Candle)
+            .where(
+                Candle.instrument_id == instrument_id,
+                Candle.timeframe == "1d",
+                Candle.source == source,
+                Candle.timestamp.in_(timestamps),
+            )
+        )
+        or 0
+    )
     stmt = insert(Candle).values(rows)
     session.execute(
         stmt.on_conflict_do_update(
@@ -93,12 +112,16 @@ def upsert_candles(session: Session, instrument_id: int, records: list[CandleBar
             },
         )
     )
-    return len(rows)
+    return {
+        "received": len(rows),
+        "inserted": len(rows) - int(existing),
+        "updated": int(existing),
+    }
 
 
 def upsert_series_values(
     session: Session, series_id: int, records: list[SeriesPoint], source: str
-) -> int:
+) -> dict[str, int]:
     rows = [
         {
             "series_id": series_id,
@@ -109,7 +132,20 @@ def upsert_series_values(
         for point in deduplicate_records(records)
     ]
     if not rows:
-        return 0
+        return {"received": 0, "inserted": 0, "updated": 0}
+    timestamps = [row["timestamp"] for row in rows]
+    existing = (
+        session.scalar(
+            select(func.count())
+            .select_from(SeriesValue)
+            .where(
+                SeriesValue.series_id == series_id,
+                SeriesValue.source == source,
+                SeriesValue.timestamp.in_(timestamps),
+            )
+        )
+        or 0
+    )
     stmt = insert(SeriesValue).values(rows)
     session.execute(
         stmt.on_conflict_do_update(
@@ -120,7 +156,11 @@ def upsert_series_values(
             },
         )
     )
-    return len(rows)
+    return {
+        "received": len(rows),
+        "inserted": len(rows) - int(existing),
+        "updated": int(existing),
+    }
 
 
 def _series_external_id(code: str) -> str:
@@ -205,9 +245,11 @@ class MarketIngestionService:
                 bars = list(result.records)
                 stats["received"] += len(bars)
                 written = upsert_candles(self.session, instrument.id, bars, "MOEX")
-                stats["inserted"] += written
-                moex_batch.records_received += len(bars)
-                moex_batch.records_inserted += written
+                stats["inserted"] += written["inserted"]
+                stats["updated"] += written["updated"]
+                moex_batch.records_received += written["received"]
+                moex_batch.records_inserted += written["inserted"]
+                moex_batch.records_updated += written["updated"]
             moex_batch.raw_location = ";".join(raw_paths[:20])
             moex_batch.status = "success"
             moex_batch.finished_at = datetime.now(UTC)
@@ -222,7 +264,9 @@ class MarketIngestionService:
                 external_id = _series_external_id(series.code)
                 if mode == "update":
                     last = self.session.scalar(
-                        select(func.max(SeriesValue.timestamp)).where(SeriesValue.series_id == series.id)
+                        select(func.max(SeriesValue.timestamp)).where(
+                            SeriesValue.series_id == series.id
+                        )
                     )
                     range_ = compute_incremental_range(
                         last_timestamp_date=last.date() if last else None,
@@ -239,7 +283,10 @@ class MarketIngestionService:
                 try:
                     result = self.cbr.fetch_series(external_id, start, end)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("cbr_fetch_failed", extra={"series": series.code, "error": str(exc)})
+                    logger.warning(
+                        "cbr_fetch_failed",
+                        extra={"series": series.code, "error": str(exc)},
+                    )
                     cbr_batch.records_rejected += 1
                     stats["rejected"] += 1
                     continue
@@ -256,9 +303,11 @@ class MarketIngestionService:
                 points = list(result.records)
                 stats["received"] += len(points)
                 written = upsert_series_values(self.session, series.id, points, "CBR")
-                stats["inserted"] += written
-                cbr_batch.records_received += len(points)
-                cbr_batch.records_inserted += written
+                stats["inserted"] += written["inserted"]
+                stats["updated"] += written["updated"]
+                cbr_batch.records_received += written["received"]
+                cbr_batch.records_inserted += written["inserted"]
+                cbr_batch.records_updated += written["updated"]
             cbr_batch.raw_location = ";".join(cbr_paths[:20])
             cbr_batch.status = "success" if cbr_batch.records_rejected == 0 else "warning"
             cbr_batch.finished_at = datetime.now(UTC)
@@ -266,8 +315,22 @@ class MarketIngestionService:
             update_step(self.session, get_step(workflow, "Normalize / Persist"), "SUCCESS")
 
             update_step(self.session, get_step(workflow, "Run Data Quality"), "RUNNING")
-            dq = run_data_quality_checks(self.session, batch_id=moex_batch.id)
+            if mode == "backfill":
+                assert date_from and date_to
+                dq_context = DataQualityContext(
+                    mode="historical",
+                    date_from=date_from,
+                    date_to=date_to,
+                    batch_id=moex_batch.id,
+                )
+            else:
+                dq_context = DataQualityContext(
+                    mode="operational",
+                    batch_id=moex_batch.id,
+                )
+            dq = run_data_quality_checks(self.session, dq_context)
             stats["warnings"] = dq.get("warnings", 0)
+            stats["dq"] = dq
             dq_status = "WARNING" if stats["warnings"] or dq.get("errors", 0) else "SUCCESS"
             update_step(self.session, get_step(workflow, "Run Data Quality"), dq_status)
             update_step(self.session, get_step(workflow, "Finish"), "SUCCESS")

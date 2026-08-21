@@ -60,7 +60,9 @@ class MoexIssProvider(MarketDataProvider):
     def fetch_daily_candles(
         self, external_id: str, start_date: date, end_date: date, *, board: str = "TQBR"
     ) -> ProviderFetchResult:
-        market = "index" if board == "SNDX" else "shares"
+        # Index history boards include SNDX (IMOEX/RGBI) and RTSI (RTS Index).
+        index_boards = {"SNDX", "RTSI"}
+        market = "index" if board in index_boards else "shares"
         url = (
             f"{self.base_url}/iss/history/engines/stock/markets/{market}"
             f"/boards/{board}/securities/{external_id}.json"

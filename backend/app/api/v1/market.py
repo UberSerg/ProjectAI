@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -391,18 +391,30 @@ def start_update() -> WorkflowCreated:
     return WorkflowCreated(workflow_id=workflow_id, status="RUNNING")
 
 
+class DataQualityRunRequest(BaseModel):
+    mode: Literal["historical", "operational"] = "operational"
+    date_from: date | None = None
+    date_to: date | None = None
+
+
 @router.post("/data-quality/run", response_model=WorkflowCreated)
-def start_data_quality() -> WorkflowCreated:
+def start_data_quality(body: DataQualityRunRequest | None = None) -> WorkflowCreated:
+    payload = body or DataQualityRunRequest()
     with core_session() as session:
         workflow = create_workflow(
             session,
             "DataQualityCheck",
-            "Data quality check",
+            f"Data quality check ({payload.mode})",
             ["Run Data Quality", "Finish"],
         )
         session.commit()
         workflow_id = workflow.id
-    worker_tasks.market_data_quality_run.delay(workflow_id)
+    worker_tasks.market_data_quality_run.delay(
+        workflow_id,
+        payload.mode,
+        payload.date_from.isoformat() if payload.date_from else None,
+        payload.date_to.isoformat() if payload.date_to else None,
+    )
     return WorkflowCreated(workflow_id=workflow_id, status="RUNNING")
 
 

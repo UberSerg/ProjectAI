@@ -70,7 +70,7 @@ _STOCKS = (
 
 INSTRUMENTS = tuple(InstrumentDefinition(symbol, name) for symbol, name in _STOCKS) + (
     InstrumentDefinition("IMOEX", "MOEX Russia Index", asset_class="index", board="SNDX"),
-    InstrumentDefinition("RTSI", "RTS Index", asset_class="index", board="SNDX"),
+    InstrumentDefinition("RTSI", "RTS Index", asset_class="index", board="RTSI"),
     InstrumentDefinition("RGBI", "Russian Government Bond Index", asset_class="index", board="SNDX"),
 )
 
