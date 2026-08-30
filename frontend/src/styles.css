@@ -451,11 +451,32 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
   .dashboard-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 72px 1fr; }
-  .sidebar { width: 72px; padding: 0.75rem 0.4rem; }
-  .brand-name, .nav-group-title, .soon-tag, .nav span:not(.soon-tag) { display: none; }
-  .brand { justify-content: center; margin: 0.25rem 0 1rem; }
-  .nav { justify-content: center; }
-  .content { padding: 1rem; }
+.row-error td { background: rgba(180, 35, 24, 0.04); }
+.diagnostics-modal { width: min(720px, 100%); }
+.diagnostics-text {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin: 0.75rem 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  resize: vertical;
+}
+.error-boundary {
+  margin: 2rem auto;
+  max-width: 560px;
+  text-align: left;
+}
+.button.secondary, a.button.secondary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  font-weight: 600;
 }

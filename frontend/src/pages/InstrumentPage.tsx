@@ -59,6 +59,10 @@ export function InstrumentPage() {
   if (!data) return <PageState kind="loading" title="Загрузка инструмента…" />;
 
   const { instrument, candles, batches, issues } = data;
+  const sources =
+    instrument.sources?.length
+      ? instrument.sources
+      : [...new Set((instrument.mappings ?? []).map((m) => m.source))];
 
   return (
     <section>
@@ -118,7 +122,7 @@ export function InstrumentPage() {
           </div>
           <div className="key-value">
             <span>Источники</span>
-            <strong>{instrument.sources.join(", ") || "—"}</strong>
+            <strong>{sources.length ? sources.join(", ") : "—"}</strong>
           </div>
           <div className="key-value">
             <span>Актуальность</span>

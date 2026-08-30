@@ -149,6 +149,7 @@ def get_instrument(instrument_id: int) -> dict[str, Any]:
             .order_by(Candle.timestamp.desc())
             .limit(1)
         )
+        sources = sorted({s.source for s in row.sources})
         return {
             "id": str(row.id),
             "symbol": row.symbol,
@@ -158,6 +159,7 @@ def get_instrument(instrument_id: int) -> dict[str, Any]:
             "currency": row.currency,
             "isin": row.isin,
             "is_active": row.is_active,
+            "sources": sources,
             "mappings": [
                 {"source": s.source, "source_symbol": s.external_id, "board": s.board}
                 for s in row.sources

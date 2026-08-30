@@ -8,7 +8,8 @@ export interface Instrument {
   exchange: string | null;
   currency: string;
   isin?: string | null;
-  sources: string[];
+  /** Present on list and detail; derived from mappings when absent. */
+  sources?: string[];
   first_timestamp: string | null;
   last_timestamp: string | null;
   records_count: number;

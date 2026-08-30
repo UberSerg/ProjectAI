@@ -239,7 +239,7 @@ export function MarketPage() {
                       </td>
                       <td>{instrument.name}</td>
                       <td>{labels.assetClass(instrument.asset_class)}</td>
-                      <td>{instrument.sources.join(", ") || "—"}</td>
+                      <td>{(instrument.sources ?? []).join(", ") || "—"}</td>
                       <td>{formatDateRange(instrument.first_timestamp, instrument.last_timestamp)}</td>
                       <td className="numeric">{formatNumber(instrument.records_count)}</td>
                       <td>{labels.dataFreshness(instrument.last_timestamp)}</td>

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
         ]
     )
 
+    tech_log_max_events_per_day: int = Field(default=20_000, alias="TECH_LOG_MAX_EVENTS_PER_DAY")
+    tech_log_client_max_stack_chars: int = Field(default=4000, alias="TECH_LOG_CLIENT_MAX_STACK_CHARS")
+
     @field_validator("market_default_backfill_from", mode="before")
     @classmethod
     def _parse_backfill_from(cls, value: object) -> object:

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import { PageHeader, PageState, StatusBadge } from "../components/Ui";
+import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDateTime, formatDuration } from "../utils/format";
 import { labels } from "../utils/labels";
 
@@ -24,20 +25,29 @@ export function WorkflowsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const list = await getWorkflows(signal);
+    setItems(list);
+    setSelectedId((current) => {
+      if (focus) return focus;
+      if (current && list.some((item) => String(item.id) === String(current))) return current;
+      return list[0] ? String(list[0].id) : null;
+    });
+  }, [focus]);
+
   useEffect(() => {
     const controller = new AbortController();
-    getWorkflows(controller.signal)
-      .then((list) => {
-        setItems(list);
-        if (focus) setSelectedId(focus);
-        else if (list[0]) setSelectedId(String(list[0].id));
-      })
+    setLoading(true);
+    refresh(controller.signal)
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [focus]);
+  }, [refresh]);
+
+  const hasActive = items.some((item) => isWorkflowActive(item.status));
+  usePolling(() => refresh(), 2000, hasActive && !loading && !error);
 
   const selected = useMemo(
     () => items.find((item) => String(item.id) === String(selectedId)) ?? null,

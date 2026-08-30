@@ -212,3 +212,27 @@ class WorkflowStep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     workflow: Mapped[Workflow] = relationship(back_populates="steps")
+
+
+class EventLog(Base):
+    """Same-day operational technology journal (not long-term audit)."""
+
+    __tablename__ = "event_logs"
+    __table_args__ = {"schema": "system"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    level: Mapped[str] = mapped_column(Text, nullable=False)
+    component: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    workflow_id: Mapped[int | None] = mapped_column(BigInteger)
+    batch_id: Mapped[str | None] = mapped_column(Text)
+    instrument_id: Mapped[int | None] = mapped_column(BigInteger)
+    trace_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

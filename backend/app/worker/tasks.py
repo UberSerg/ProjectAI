@@ -71,6 +71,18 @@ def market_data_quality_run(
         return {"workflow_id": workflow_id, "result": result}
 
 
+@celery_app.task(name="projectai.cleanup_technology_log")
+def cleanup_technology_log() -> dict:
+    """Keep system.event_logs bounded to the current UTC day and size limit."""
+    from app.application.system.event_log import cleanup_old_days, enforce_day_limit
+
+    with core_session() as session:
+        deleted_old = cleanup_old_days(session)
+        trimmed = enforce_day_limit(session)
+        session.commit()
+    return {"deleted_old": deleted_old, "trimmed": trimmed}
+
+
 @celery_app.task(name="projectai.market_data_update_scheduled")
 def market_data_update_scheduled() -> dict:
     with core_session() as session:

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { getMarketSummary, type MarketSummary } from "../api/market";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import { MetricCard, PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDate, formatDuration, formatNumber } from "../utils/format";
 import {
   DASHBOARD_SERVICES,
@@ -42,7 +43,19 @@ export function DashboardPage() {
     return () => controller.abort();
   }
 
+  const silentRefresh = useCallback(async () => {
+    const [health, market, workflows] = await Promise.all([
+      getSystemHealth(),
+      getMarketSummary(),
+      getWorkflows(),
+    ]);
+    setData({ health, market, workflows });
+  }, []);
+
   useEffect(() => load(), []);
+
+  const needsPoll = Boolean(data?.workflows.some((item) => isWorkflowActive(item.status)));
+  usePolling(() => silentRefresh(), 10_000, needsPoll && !loading && !error);
 
   if (loading) return <PageState kind="loading" title="Загрузка обзора…" />;
   if (error || !data) {

@@ -25,7 +25,12 @@ def create_celery_app() -> Celery:
         backend=settings.celery_result_backend,
         include=["app.worker.tasks"],
     )
-    beat_schedule = {}
+    beat_schedule = {
+        "technology-log-cleanup-nightly": {
+            "task": "projectai.cleanup_technology_log",
+            "schedule": crontab(minute=5, hour=0),
+        },
+    }
     if settings.market_update_enabled:
         beat_schedule["market-data-daily-update"] = {
             "task": "projectai.market_data_update_scheduled",
