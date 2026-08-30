@@ -48,7 +48,7 @@ backups/
 # Models & data artifacts (trained artifacts only — not Python packages)
 /models/
 data/raw/
-data/processed/
+/data/
 *.pkl
 *.joblib
 *.cbm

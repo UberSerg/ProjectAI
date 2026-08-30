@@ -1,8 +1,20 @@
 """Celery application shared by worker and beat scheduler."""
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import get_settings
+
+
+def _parse_cron(expr: str) -> dict[str, object]:
+    minute, hour, day_of_month, month_of_year, day_of_week = expr.split()
+    return {
+        "minute": minute,
+        "hour": hour,
+        "day_of_month": day_of_month,
+        "month_of_year": month_of_year,
+        "day_of_week": day_of_week,
+    }
 
 
 def create_celery_app() -> Celery:
@@ -13,6 +25,17 @@ def create_celery_app() -> Celery:
         backend=settings.celery_result_backend,
         include=["app.worker.tasks"],
     )
+    beat_schedule = {
+        "technology-log-cleanup-nightly": {
+            "task": "projectai.cleanup_technology_log",
+            "schedule": crontab(minute=5, hour=0),
+        },
+    }
+    if settings.market_update_enabled:
+        beat_schedule["market-data-daily-update"] = {
+            "task": "projectai.market_data_update_scheduled",
+            "schedule": crontab(**_parse_cron(settings.market_update_cron)),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],
@@ -22,7 +45,7 @@ def create_celery_app() -> Celery:
         task_track_started=True,
         worker_prefetch_multiplier=1,
         broker_connection_retry_on_startup=True,
-        beat_schedule={},  # no investment schedules in foundation stage
+        beat_schedule=beat_schedule,
     )
     return app
 

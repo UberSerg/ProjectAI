@@ -1,0 +1,52 @@
+---
+description: Frontend UX and architecture rules for ProjectAI Control Center
+globs: frontend/**
+alwaysApply: false
+---
+
+# ProjectAI Frontend Rules
+
+ProjectAI frontend is a Control Center, not a developer-only admin table.
+
+User-facing UI language is Russian.
+
+Do not translate technical identifiers such as:
+- SBER
+- LKOH
+- MOEX
+- RUB
+- UUID
+- model IDs
+
+Backend enums remain technical. Translate them in the presentation layer.
+
+Do not scatter UI labels and enum translations across JSX.
+Use centralized presentation mappings/utilities.
+
+Frontend communicates with ProjectAI only through API.
+
+Do not perform heavy analytics in the browser.
+
+API access belongs in the frontend API/data layer, not scattered across components.
+
+Pages must handle:
+- loading;
+- empty;
+- error;
+- success.
+
+Prefer readable information hierarchy over dense technical tables.
+
+Technical implementation details may be available in drill-down views but should not dominate normal user screens.
+
+Avoid:
+- giant components;
+- unnecessary UI frameworks;
+- decorative complexity;
+- fake data on unfinished product pages.
+
+Placeholder sections must clearly say they are not implemented.
+
+Use reusable components where they remove real duplication, but do not build a large design system prematurely.
+
+Always verify UI changes against real current ProjectAI data, not only mocked tests.

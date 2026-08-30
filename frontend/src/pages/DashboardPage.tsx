@@ -1,66 +1,157 @@
-import { useEffect, useState } from "react";
-import { fetchHealth, type HealthResponse, type ServiceStatus } from "../api/health";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { errorMessage } from "../api/client";
+import { getMarketSummary, type MarketSummary } from "../api/market";
+import { getSystemHealth, type HealthResponse } from "../api/system";
+import { getWorkflows, type Workflow } from "../api/workflows";
+import { MetricCard, PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { isWorkflowActive, usePolling } from "../hooks/usePolling";
+import { formatDate, formatDuration, formatNumber } from "../utils/format";
+import {
+  DASHBOARD_SERVICES,
+  overviewHealthBadgeStatus,
+  overviewHealthTitle,
+  resolveServiceStatus,
+} from "../utils/health";
+import { labels } from "../utils/labels";
 
-function statusLabel(status: ServiceStatus): string {
-  if (status === "ok") return "OK";
-  if (status === "error") return "ERROR";
-  return "UNKNOWN";
+interface DashboardData {
+  health: HealthResponse;
+  market: MarketSummary;
+  workflows: Workflow[];
 }
 
 export function DashboardPage() {
-  const [backendStatus, setBackendStatus] = useState<ServiceStatus>("unknown");
-  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     const controller = new AbortController();
-    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getSystemHealth(controller.signal),
+      getMarketSummary(controller.signal),
+      getWorkflows(controller.signal),
+    ])
+      .then(([health, market, workflows]) => setData({ health, market, workflows }))
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }
 
-    async function load() {
-      try {
-        const data = await fetchHealth(controller.signal);
-        if (cancelled) return;
-        setHealth(data);
-        setBackendStatus("ok");
-        setError(null);
-      } catch (err) {
-        if (cancelled) return;
-        setBackendStatus("error");
-        setHealth(null);
-        setError(err instanceof Error ? err.message : "Backend unavailable");
-      }
-    }
-
-    void load();
-    const timer = window.setInterval(() => void load(), 10000);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearInterval(timer);
-    };
+  const silentRefresh = useCallback(async () => {
+    const [health, market, workflows] = await Promise.all([
+      getSystemHealth(),
+      getMarketSummary(),
+      getWorkflows(),
+    ]);
+    setData({ health, market, workflows });
   }, []);
 
-  const displayRows = [
-    { label: "Backend", status: backendStatus },
-    { label: "Core DB", status: health?.services.core_database ?? "error" },
-    { label: "Memory DB", status: health?.services.memory_database ?? "error" },
-    { label: "Redis", status: health?.services.redis ?? "error" },
-    { label: "Worker", status: health?.services.worker ?? "error" },
-  ];
+  useEffect(() => load(), []);
+
+  const needsPoll = Boolean(data?.workflows.some((item) => isWorkflowActive(item.status)));
+  usePolling(() => silentRefresh(), 10_000, needsPoll && !loading && !error);
+
+  if (loading) return <PageState kind="loading" title="Загрузка обзора…" />;
+  if (error || !data) {
+    return (
+      <PageState
+        kind="error"
+        title="Не удалось получить данные"
+        action={
+          <button type="button" onClick={() => load()}>
+            {labels.actions.retry}
+          </button>
+        }
+      >
+        {error}
+      </PageState>
+    );
+  }
+
+  const recent = [...data.workflows]
+    .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
+    .slice(0, 8);
 
   return (
     <section>
-      <h1>ProjectAI Dashboard</h1>
-      <p className="subtitle">Platform foundation status</p>
-      {error ? <p className="banner error">Backend unreachable. Showing ERROR states.</p> : null}
-      <div className="status-grid">
-        {displayRows.map((row) => (
-          <div key={row.label} className="status-row">
-            <span>{row.label}</span>
-            <span className={`badge ${row.status}`}>{statusLabel(row.status)}</span>
-          </div>
-        ))}
+      <PageHeader title={labels.nav.overview} description="Состояние платформы и рыночных данных" />
+
+      <div className="hero-status">
+        <div>
+          <h2>ProjectAI</h2>
+          <p className="subtitle">{overviewHealthTitle(data.health)}</p>
+        </div>
+        <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
       </div>
+
+      <h2>Рыночные данные</h2>
+      <div className="card-grid">
+        <MetricCard label="Инструментов" value={formatNumber(data.market.instruments_count)} />
+        <MetricCard label="Свечей" value={formatNumber(data.market.records_count)} />
+        <MetricCard label="Рядов ЦБ" value={formatNumber(data.market.series_count ?? 0)} />
+        <MetricCard
+          label="Последние данные"
+          value={formatDate(data.market.last_successful_update ?? null)}
+          hint="по последней успешной загрузке"
+        />
+      </div>
+
+      <div className="dashboard-grid">
+        <article className="panel">
+          <h2>Качество данных</h2>
+          <div className="key-value">
+            <span>Ошибки</span>
+            <strong>{formatNumber(data.market.dq_errors)}</strong>
+          </div>
+          <div className="key-value">
+            <span>Предупреждения</span>
+            <strong>{formatNumber(data.market.dq_warnings)}</strong>
+          </div>
+          {data.market.dq_errors === 0 && data.market.dq_warnings === 0 ? (
+            <p className="muted">Критичных проблем не зафиксировано.</p>
+          ) : null}
+        </article>
+
+        <article className="panel">
+          <h2>Состояние сервисов</h2>
+          <div className="service-list">
+            {DASHBOARD_SERVICES.map((key) => (
+              <div className="service-item" key={key}>
+                <span>{labels.service(key)}</span>
+                <ServiceDot status={resolveServiceStatus(data.health.services, key)} />
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+
+      <article className="panel">
+        <div className="page-header" style={{ marginBottom: "0.5rem" }}>
+          <h2>Последние процессы</h2>
+          <Link className="inline-link" to="/workflows">
+            Все процессы
+          </Link>
+        </div>
+        {recent.length === 0 ? (
+          <p className="muted">Процессов пока нет.</p>
+        ) : (
+          <div className="workflow-list">
+            {recent.map((wf) => (
+              <Link className="workflow-row" key={wf.id} to={`/workflows?focus=${wf.id}`}>
+                <strong>{labels.workflowType(wf.workflow_type) || wf.name}</strong>
+                <StatusBadge status={wf.status} />
+                <span className="muted">{formatDuration(wf.duration_seconds)}</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </article>
     </section>
   );
 }

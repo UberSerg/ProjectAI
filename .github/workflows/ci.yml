@@ -10,6 +10,63 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres-core:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: projectai_ci
+          POSTGRES_PASSWORD: projectai_ci_core
+          POSTGRES_DB: projectai_core_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U projectai_ci -d projectai_core_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres-memory:
+        # pgvector required by memory Alembic migrations (CREATE EXTENSION vector)
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: projectai_ci
+          POSTGRES_PASSWORD: projectai_ci_memory
+          POSTGRES_DB: projectai_memory_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U projectai_ci -d projectai_memory_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      APP_ENV: test
+      APP_NAME: ProjectAI
+      CORE_DATABASE_HOST: localhost
+      CORE_DATABASE_PORT: "5432"
+      CORE_DATABASE_NAME: projectai_core_test
+      CORE_DATABASE_USER: projectai_ci
+      CORE_DATABASE_PASSWORD: projectai_ci_core
+      MEMORY_DATABASE_HOST: localhost
+      MEMORY_DATABASE_PORT: "5433"
+      MEMORY_DATABASE_NAME: projectai_memory_test
+      MEMORY_DATABASE_USER: projectai_ci
+      MEMORY_DATABASE_PASSWORD: projectai_ci_memory
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      TECH_LOG_MAX_EVENTS_PER_DAY: "20000"
+      TECH_LOG_CLIENT_MAX_STACK_CHARS: "4000"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -23,6 +80,10 @@ jobs:
           uv pip install --system -e ".[dev]"
       - name: Ruff
         run: ruff check app tests
+      - name: Apply core migrations
+        run: alembic -c alembic_core.ini upgrade head
+      - name: Apply memory migrations
+        run: alembic -c alembic_memory.ini upgrade head
       - name: Pytest
         run: pytest -q
 

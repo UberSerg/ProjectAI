@@ -1,0 +1,45 @@
+---
+description: Backend and data architecture rules for ProjectAI
+globs: backend/**
+alwaysApply: false
+---
+
+# ProjectAI Backend Rules
+
+Follow existing modular-monolith boundaries.
+
+Do not put business logic into API route handlers.
+
+HTTP endpoints should validate/request work and delegate to application services.
+
+Long-running operations belong in workers, not synchronous HTTP requests.
+
+Avoid `dict[str, Any]` as a primary domain contract.
+Use typed domain DTO/value objects where the structure is known.
+
+Do not create god services or large generic `utils.py` modules.
+
+Database schema changes use Alembic.
+Do not use `create_all()` as the migration strategy.
+
+Preserve Core DB and Memory DB separation.
+
+Redis is not persistent business storage.
+
+For bulk market data:
+- avoid N+1 queries;
+- avoid row-by-row inserts when batching is appropriate;
+- preserve idempotency;
+- use explicit unique constraints.
+
+External HTTP clients require:
+- timeout;
+- bounded retry where appropriate;
+- error handling;
+- logging without secrets.
+
+Market facts and derived analytics remain separate concepts.
+
+RAW data should remain reproducible where the architecture supports it.
+
+Do not silently change financial/data semantics when uncertain.

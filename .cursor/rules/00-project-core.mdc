@@ -1,0 +1,41 @@
+---
+description: Core architecture and product rules for ProjectAI
+alwaysApply: true
+---
+
+# ProjectAI Core Rules
+
+Before making non-trivial changes, read `docs/development/AI_WORKFLOW.md`.
+
+ProjectAI is a modular monolith.
+
+Preserve boundaries between:
+- domain
+- application
+- infrastructure
+- API
+- modules
+- workers
+- frontend
+
+Do not introduce microservices, CQRS, event buses, new databases, new infrastructure products, or generic frameworks unless explicitly required.
+
+Domain code must not depend directly on FastAPI, SQLAlchemy, Celery, Redis, Polza, HTTP clients, or a concrete ML library.
+
+Prefer simple replaceable implementations behind stable contracts.
+
+Do not prematurely implement future ProjectAI stages.
+
+LLM is for language understanding and high-level reasoning. Prefer deterministic code, statistics, SQL, or local ML for mechanical/computational work.
+
+External LLM access is expected through Polza API.
+
+Real automated trading is out of scope unless explicitly requested.
+
+Decision Memory remains a separate domain and separate database.
+
+ProjectAI is Docker-first.
+
+Do not commit secrets.
+
+When uncertain about business logic, destructive changes, data semantics, or architectural boundaries, ask rather than silently guessing.
