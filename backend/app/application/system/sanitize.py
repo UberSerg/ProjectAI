@@ -11,8 +11,11 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _SENSITIVE_VALUE = re.compile(
-    r"(?i)(?:(?:password|passwd|secret|token|api[_-]?key|authorization|bearer|polza_api_key)"
-    r"\s*[=:]\s*[^\s,;\"']+|bearer\s+[A-Za-z0-9\-._~+/]+=*|authorization\s*:\s*[^\r\n]+)"
+    r"(?i)(?:"
+    r"authorization\s*:\s*[^\r\n]+|"
+    r"bearer\s+[A-Za-z0-9\-._~+/]+=*|"
+    r"(?:password|passwd|secret|token|api[_-]?key|polza_api_key)\s*[=:]\s*[^\s,;\"']+"
+    r")"
 )
 
 
