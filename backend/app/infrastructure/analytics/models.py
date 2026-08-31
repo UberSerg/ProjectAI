@@ -13,11 +13,13 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -29,6 +31,12 @@ class FeatureSet(Base):
     __tablename__ = "feature_sets"
     __table_args__ = (
         UniqueConstraint("code", "version", name="uq_analytics_feature_sets_code_version"),
+        Index(
+            "uq_analytics_feature_sets_one_active_per_code",
+            "code",
+            unique=True,
+            postgresql_where=text("is_active = TRUE"),
+        ),
         {"schema": "analytics"},
     )
 

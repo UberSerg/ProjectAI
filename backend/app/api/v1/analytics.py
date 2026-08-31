@@ -13,6 +13,7 @@ from sqlalchemy import desc, func, select
 from app.infrastructure.analytics.models import FeatureRun, FeatureSet, InstrumentFeatureDaily, SeriesFeatureDaily
 from app.infrastructure.db.session import core_session
 from app.infrastructure.market.models import Instrument
+from app.modules.analytics.application.resolve import FeatureSetResolveError, resolve_feature_set
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.analytics.feature_config import FEATURE_BACKFILL_STEPS
 from app.modules.market.application.workflows import create_workflow
@@ -159,6 +160,13 @@ def _instrument_feature_dict(row: InstrumentFeatureDaily) -> dict[str, Any]:
     }
 
 
+def _resolve_or_http(session, code: str, version: int | None) -> FeatureSet:
+    try:
+        return resolve_feature_set(session, code, version)
+    except FeatureSetResolveError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+
+
 @router.get("/features/sets")
 def list_feature_sets() -> dict[str, Any]:
     with core_session() as session:
@@ -202,6 +210,7 @@ def list_instrument_features(
     date_from: date | None = None,
     date_to: date | None = None,
     feature_set_code: str | None = None,
+    feature_set_version: int | None = Query(None, ge=1),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=500),
 ) -> dict[str, Any]:
@@ -214,10 +223,10 @@ def list_instrument_features(
         if date_to:
             filters.append(InstrumentFeatureDaily.date <= date_to)
         if feature_set_code:
-            fs = session.scalar(select(FeatureSet).where(FeatureSet.code == feature_set_code))
-            if fs is None:
-                raise HTTPException(404, "Feature set not found")
+            fs = _resolve_or_http(session, feature_set_code, feature_set_version)
             filters.append(InstrumentFeatureDaily.feature_set_id == fs.id)
+        elif feature_set_version is not None:
+            raise HTTPException(400, "feature_set_version requires feature_set_code")
         base = select(InstrumentFeatureDaily).where(*filters)
         total = session.scalar(select(func.count()).select_from(base.subquery())) or 0
         rows = session.scalars(
@@ -237,21 +246,12 @@ def list_instrument_features(
 def latest_instrument_features(
     instrument_id: int,
     feature_set_code: str = "basic_daily",
+    feature_set_version: int | None = Query(None, ge=1),
 ) -> dict[str, Any]:
     with core_session() as session:
         if session.get(Instrument, instrument_id) is None:
             raise HTTPException(404, "Instrument not found")
-        fs = session.scalar(
-            select(FeatureSet).where(FeatureSet.code == feature_set_code, FeatureSet.is_active.is_(True))
-        )
-        if fs is None:
-            fs = session.scalar(
-                select(FeatureSet)
-                .where(FeatureSet.code == feature_set_code)
-                .order_by(desc(FeatureSet.version))
-            )
-        if fs is None:
-            raise HTTPException(404, "Feature set not found")
+        fs = _resolve_or_http(session, feature_set_code, feature_set_version)
         row = session.scalar(
             select(InstrumentFeatureDaily)
             .where(

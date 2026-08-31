@@ -10,6 +10,7 @@ from app.api.v1.router import api_router
 from app.application.system.event_log import cleanup_old_days, enforce_day_limit, new_trace_id
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.core.responses import UTF8JSONResponse
 from app.infrastructure.db.session import core_session
 
 logger = get_logger(__name__)
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.1.0",
         lifespan=lifespan,
+        default_response_class=UTF8JSONResponse,
     )
     application.add_middleware(
         CORSMiddleware,

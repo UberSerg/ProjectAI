@@ -121,6 +121,43 @@ def test_diagnostics_text_has_sections(core_db: Session) -> None:
     assert "secret-value" not in text
 
 
+DIAGNOSTICS_UTF8_PROBE = "Аналитика — basic_daily v1 — предупреждение"
+
+
+def test_diagnostics_endpoints_preserve_utf8(core_db: Session, monkeypatch) -> None:
+    """Cyrillic + em dash must survive text/JSON round-trip with charset=utf-8."""
+
+    @contextmanager
+    def _fake_core_session():
+        yield core_db
+
+    monkeypatch.setattr("app.api.v1.system.core_session", _fake_core_session)
+    monkeypatch.setattr("app.main.core_session", _fake_core_session)
+    monkeypatch.setattr(
+        "app.api.v1.system.build_diagnostics_text",
+        lambda _session: DIAGNOSTICS_UTF8_PROBE,
+    )
+    monkeypatch.setattr(
+        "app.api.v1.system.build_diagnostics_payload",
+        lambda _session: {"generated_at": "2026-08-31T00:00:00+00:00", "text": DIAGNOSTICS_UTF8_PROBE},
+    )
+
+    client = TestClient(create_app())
+
+    text_resp = client.get("/api/v1/system/diagnostics/text")
+    assert text_resp.status_code == 200
+    assert "charset=utf-8" in text_resp.headers["content-type"].lower()
+    assert text_resp.content == DIAGNOSTICS_UTF8_PROBE.encode("utf-8")
+    assert text_resp.text == DIAGNOSTICS_UTF8_PROBE
+
+    json_resp = client.get("/api/v1/system/diagnostics")
+    assert json_resp.status_code == 200
+    assert "charset=utf-8" in json_resp.headers["content-type"].lower()
+    assert DIAGNOSTICS_UTF8_PROBE.encode("utf-8") in json_resp.content
+    assert json_resp.json()["text"] == DIAGNOSTICS_UTF8_PROBE
+    assert "\\u" not in json_resp.text or "Аналитика" in json_resp.text
+
+
 def test_client_event_endpoint_accepts_and_sanitizes(core_db: Session, monkeypatch) -> None:
     @contextmanager
     def _fake_core_session():

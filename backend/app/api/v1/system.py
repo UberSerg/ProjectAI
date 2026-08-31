@@ -154,4 +154,5 @@ def diagnostics_json() -> dict[str, Any]:
 def diagnostics_text() -> Response:
     with core_session() as session:
         body = build_diagnostics_text(session)
-    return Response(content=body, media_type="text/plain; charset=utf-8")
+    # Explicit UTF-8 bytes + charset (Windows clients must not guess the encoding).
+    return Response(content=body.encode("utf-8"), media_type="text/plain; charset=utf-8")
