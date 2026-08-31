@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
@@ -16,6 +17,7 @@ export function App() {
         <Route path="/market" element={<MarketPage />} />
         <Route path="/market/instruments/:instrumentId" element={<InstrumentPage />} />
         <Route path="/market/:instrumentId" element={<InstrumentPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
         <Route
           path="/recommendations"
           element={

@@ -12,7 +12,9 @@ from app.application.system.event_log import list_events
 from app.application.system.health import get_system_health
 from app.application.system.info import get_system_info
 from app.application.system.sanitize import sanitize_text
+from app.infrastructure.analytics.models import FeatureRun, FeatureSet, InstrumentFeatureDaily
 from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Series, Workflow
+from app.modules.analytics.application.seed import seed_feature_sets
 
 
 def _svc(services: dict[str, str], key: str, label: str) -> str:
@@ -95,11 +97,95 @@ def build_diagnostics_text(session: Session) -> str:
         f"Series: {series}",
         f"Last market data: {last_ts.isoformat() if last_ts else '—'}",
         "",
-        "=== WORKFLOWS ===",
-        "",
-        "Last 10 processes:",
-        "",
     ]
+
+    seed_feature_sets(session)
+    active_fs = session.scalar(select(FeatureSet).where(FeatureSet.is_active.is_(True)))
+    last_success_run = session.scalar(
+        select(FeatureRun)
+        .where(FeatureRun.status.in_(["SUCCESS", "WARNING"]))
+        .order_by(desc(FeatureRun.finished_at))
+        .limit(1)
+    )
+    analytics_latest = None
+    instrument_feat_rows = 0
+    series_feat_rows = 0
+    invalid_rows = 0
+    warning_rows = 0
+    last_analytics_error = session.scalar(
+        select(FeatureRun).where(FeatureRun.status == "ERROR").order_by(desc(FeatureRun.created_at)).limit(1)
+    )
+    if active_fs:
+        analytics_latest = session.scalar(
+            select(func.max(InstrumentFeatureDaily.date)).where(
+                InstrumentFeatureDaily.feature_set_id == active_fs.id
+            )
+        )
+        instrument_feat_rows = (
+            session.scalar(
+                select(func.count())
+                .select_from(InstrumentFeatureDaily)
+                .where(InstrumentFeatureDaily.feature_set_id == active_fs.id)
+            )
+            or 0
+        )
+        from app.infrastructure.analytics.models import SeriesFeatureDaily
+
+        series_feat_rows = (
+            session.scalar(
+                select(func.count())
+                .select_from(SeriesFeatureDaily)
+                .where(SeriesFeatureDaily.feature_set_id == active_fs.id)
+            )
+            or 0
+        )
+        invalid_rows = (
+            session.scalar(
+                select(func.count())
+                .select_from(InstrumentFeatureDaily)
+                .where(
+                    InstrumentFeatureDaily.feature_set_id == active_fs.id,
+                    InstrumentFeatureDaily.is_valid.is_(False),
+                )
+            )
+            or 0
+        )
+        warning_rows = (
+            session.scalar(
+                select(func.count())
+                .select_from(InstrumentFeatureDaily)
+                .where(
+                    InstrumentFeatureDaily.feature_set_id == active_fs.id,
+                    InstrumentFeatureDaily.quality_flags.contains({"price_discontinuity": True}),
+                )
+            )
+            or 0
+        )
+
+    last_run_ts = (
+        last_success_run.finished_at.isoformat()
+        if last_success_run and last_success_run.finished_at
+        else "—"
+    )
+    lines.extend(
+        [
+            "=== ANALYTICS ===",
+            "",
+            f"Active feature set: {active_fs.code} v{active_fs.version}" if active_fs else "Active feature set: —",
+            f"Last successful feature run: {last_run_ts}",
+            f"Latest calculated market date: {analytics_latest.isoformat() if analytics_latest else '—'}",
+            f"Instrument feature rows: {instrument_feat_rows}",
+            f"Series feature rows: {series_feat_rows}",
+            f"Invalid rows: {invalid_rows}",
+            f"Rows with quality warnings: {warning_rows}",
+            f"Last analytics error: {last_analytics_error.error_message if last_analytics_error else '—'}",
+            "",
+            "=== WORKFLOWS ===",
+            "",
+            "Last 10 processes:",
+            "",
+        ]
+    )
 
     if not workflows:
         lines.append("(none)")

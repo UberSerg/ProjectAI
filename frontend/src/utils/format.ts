@@ -51,3 +51,15 @@ export function formatPrice(value?: number | null): string {
   if (value == null) return "—";
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 4 }).format(value);
 }
+
+/** Decimal fraction → percent string, e.g. 0.0352 → "3,52 %" */
+export function formatPercent(value?: number | null, digits = 2): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${new Intl.NumberFormat("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value * 100)} %`;
+}
+
+export function formatZScore(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)}σ`;
+}

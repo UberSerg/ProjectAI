@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import {
+  getInstrumentFeaturesLatest,
+  hasFeatureQualityWarning,
+  hasInsufficientHistory,
+  type InstrumentFeatures,
+} from "../api/analytics";
 import { errorMessage } from "../api/client";
 import {
   getBatches,
@@ -13,16 +19,17 @@ import {
 } from "../api/market";
 import { Sparkline } from "../components/Sparkline";
 import { MetricCard, PageState, StatusBadge } from "../components/Ui";
-import { formatDate, formatDateTime, formatNumber, formatPrice } from "../utils/format";
+import { formatDate, formatDateTime, formatNumber, formatPercent, formatPrice, formatZScore } from "../utils/format";
 import { labels } from "../utils/labels";
 
-type Tab = "overview" | "quotes" | "batches" | "quality";
+type Tab = "overview" | "quotes" | "batches" | "quality" | "analytics";
 
 interface InstrumentData {
   instrument: Instrument & { last_close?: number | null; isin?: string | null };
   candles: Candle[];
   batches: Batch[];
   issues: DataQualityIssue[];
+  features: InstrumentFeatures | null;
 }
 
 export function InstrumentPage() {
@@ -40,9 +47,10 @@ export function InstrumentPage() {
       getCandles(instrumentId, 50, controller.signal),
       getBatches(instrumentId, controller.signal),
       getDataQualityIssues(instrumentId, controller.signal),
+      getInstrumentFeaturesLatest(instrumentId, controller.signal).catch(() => null),
     ])
-      .then(([instrument, candles, batches, issues]) =>
-        setData({ instrument, candles, batches, issues }),
+      .then(([instrument, candles, batches, issues, features]) =>
+        setData({ instrument, candles, batches, issues, features }),
       )
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
@@ -58,7 +66,7 @@ export function InstrumentPage() {
   }
   if (!data) return <PageState kind="loading" title="Загрузка инструмента…" />;
 
-  const { instrument, candles, batches, issues } = data;
+  const { instrument, candles, batches, issues, features } = data;
   const sources =
     instrument.sources?.length
       ? instrument.sources
@@ -105,6 +113,7 @@ export function InstrumentPage() {
             ["quotes", "Котировки"],
             ["batches", "Загрузки"],
             ["quality", "Качество данных"],
+            ["analytics", "Аналитика"],
           ] as const
         ).map(([id, title]) => (
           <button key={id} type="button" className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>
@@ -237,6 +246,74 @@ export function InstrumentPage() {
             ))
           ) : (
             <p className="muted">Замечаний нет.</p>
+          )}
+        </article>
+      ) : null}
+
+      {tab === "analytics" ? (
+        <article className="panel">
+          <h2>Аналитика</h2>
+          {!features ? (
+            <PageState kind="empty" title="Признаки ещё не рассчитаны" />
+          ) : (
+            <>
+              <div className="key-value">
+                <span>Feature set</span>
+                <strong className="mono">
+                  {features.feature_set_code ?? "basic_daily"} v{features.feature_version}
+                </strong>
+              </div>
+              <div className="key-value">
+                <span>Дата расчёта</span>
+                <strong>{formatDate(features.date)}</strong>
+              </div>
+              {hasFeatureQualityWarning(features.quality_flags) ? (
+                <p>
+                  <StatusBadge status="warning" /> Данные требуют проверки
+                  <span className="muted" title="Подозрительный ценовой разрыв">
+                    {" "}
+                    · Подозрительный ценовой разрыв
+                  </span>
+                </p>
+              ) : null}
+              <div className="card-grid" style={{ marginTop: "1rem" }}>
+                <MetricCard
+                  label="Доходность 1 день"
+                  value={
+                    hasInsufficientHistory(features.quality_flags, "return_1d")
+                      ? "Недостаточно истории"
+                      : formatPercent(features.return_1d)
+                  }
+                />
+                <MetricCard
+                  label="Доходность 5 дней"
+                  value={
+                    hasInsufficientHistory(features.quality_flags, "return_5d")
+                      ? "Недостаточно истории"
+                      : formatPercent(features.return_5d)
+                  }
+                />
+                <MetricCard
+                  label="Доходность 20 дней"
+                  value={
+                    hasInsufficientHistory(features.quality_flags, "return_20d")
+                      ? "Недостаточно истории"
+                      : formatPercent(features.return_20d)
+                  }
+                />
+                <MetricCard label="Волатильность 5 дней" value={formatPercent(features.volatility_5d)} />
+                <MetricCard label="Волатильность 20 дней" value={formatPercent(features.volatility_20d)} />
+                <MetricCard label="Просадка 20 дней" value={formatPercent(features.drawdown_20d)} />
+                <MetricCard label="Изменение объёма" value={formatPercent(features.volume_change_1d)} />
+                <MetricCard label="Z-score объёма 20д" value={formatZScore(features.volume_zscore_20d)} />
+              </div>
+              {features.return_5d != null ? (
+                <>
+                  <h2 style={{ marginTop: "1rem" }}>Return 5d (история)</h2>
+                  <Sparkline values={closes.slice(-30)} />
+                </>
+              ) : null}
+            </>
           )}
         </article>
       ) : null}

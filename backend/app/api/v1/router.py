@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.api.v1.analytics import router as analytics_router
 from app.api.v1.market import router as market_router
 from app.api.v1.market import workflows_router
 from app.api.v1.system import router as system_router
@@ -9,4 +10,5 @@ from app.api.v1.system import router as system_router
 api_router = APIRouter()
 api_router.include_router(system_router, prefix="/system", tags=["system"])
 api_router.include_router(market_router, prefix="/market", tags=["market"])
+api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])

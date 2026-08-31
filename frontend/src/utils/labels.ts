@@ -35,6 +35,8 @@ const WORKFLOW_TYPE: Record<string, string> = {
   MarketDataBackfill: "Загрузка истории котировок",
   MarketDataUpdate: "Обновление рыночных данных",
   DataQualityCheck: "Проверка качества данных",
+  FeatureBackfill: "Пересчёт признаков (история)",
+  FeatureUpdate: "Обновление признаков",
 };
 
 const WORKFLOW_STEP: Record<string, string> = {
@@ -45,6 +47,14 @@ const WORKFLOW_STEP: Record<string, string> = {
   "Normalize / Persist": "Нормализация и запись в БД",
   "Run Data Quality": "Проверка качества",
   Finish: "Завершение",
+  "Resolve feature set": "Подготовка набора признаков",
+  "Resolve universe": "Подготовка universe",
+  "Load source market data": "Загрузка рыночных данных",
+  "Load source quality issues": "Загрузка quality issues",
+  "Calculate instrument features": "Расчёт признаков инструментов",
+  "Calculate series features": "Расчёт признаков series",
+  "Persist batches": "Сохранение результатов",
+  "Run feature quality summary": "Сводка качества признаков",
 };
 
 const ISSUE_TYPE: Record<string, string> = {
@@ -94,6 +104,8 @@ export const labels = {
     update: "Обновить данные",
     backfill: "Загрузить историю",
     dataQuality: "Проверить качество",
+    updateFeatures: "Обновить признаки",
+    backfillFeatures: "Пересчитать историю",
     resetFilters: "Сбросить фильтры",
     retry: "Повторить",
     cancel: "Отмена",
