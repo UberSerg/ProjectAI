@@ -34,6 +34,9 @@ async def lifespan(_app: FastAPI):
         with core_session() as session:
             deleted = cleanup_old_days(session)
             trimmed = enforce_day_limit(session)
+            from app.modules.analytics.application.seed import seed_feature_sets
+
+            seed_feature_sets(session)
         if deleted or trimmed:
             logger.info(
                 "technology_log_safety_cleanup",

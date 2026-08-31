@@ -71,6 +71,44 @@ def market_data_quality_run(
         return {"workflow_id": workflow_id, "result": result}
 
 
+@celery_app.task(name="projectai.feature_backfill")
+def feature_backfill(
+    workflow_id: int,
+    date_from: str,
+    date_to: str | None = None,
+    feature_set_code: str = "basic_daily",
+    feature_set_version: int = 1,
+) -> dict:
+    from app.modules.analytics.application.compute import FeatureComputeService
+
+    with core_session() as session:
+        service = FeatureComputeService(session)
+        return service.run_backfill(
+            date_from=date.fromisoformat(date_from),
+            date_to=date.fromisoformat(date_to) if date_to else None,
+            feature_set_code=feature_set_code,
+            feature_set_version=feature_set_version,
+            workflow_id=workflow_id,
+        )
+
+
+@celery_app.task(name="projectai.feature_update")
+def feature_update(
+    workflow_id: int,
+    feature_set_code: str = "basic_daily",
+    feature_set_version: int = 1,
+) -> dict:
+    from app.modules.analytics.application.compute import FeatureComputeService
+
+    with core_session() as session:
+        service = FeatureComputeService(session)
+        return service.run_update(
+            feature_set_code=feature_set_code,
+            feature_set_version=feature_set_version,
+            workflow_id=workflow_id,
+        )
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""
