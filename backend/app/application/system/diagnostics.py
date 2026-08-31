@@ -13,8 +13,10 @@ from app.application.system.health import get_system_health
 from app.application.system.info import get_system_info
 from app.application.system.sanitize import sanitize_text
 from app.infrastructure.analytics.models import FeatureRun, FeatureSet, InstrumentFeatureDaily
+from app.infrastructure.analytics.relation_models import RelationInput, RelationRun, RelationSet, RelationSnapshot
 from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Series, Workflow
 from app.modules.analytics.application.seed import seed_feature_sets
+from app.modules.relations.application.seed import seed_relation_sets
 
 
 def _svc(services: dict[str, str], key: str, label: str) -> str:
@@ -180,6 +182,59 @@ def build_diagnostics_text(session: Session) -> str:
             f"Rows with quality warnings: {warning_rows}",
             f"Last analytics error: {last_analytics_error.error_message if last_analytics_error else '—'}",
             "",
+        ]
+    )
+
+    seed_relation_sets(session)
+    active_rs = session.scalar(select(RelationSet).where(RelationSet.is_active.is_(True)))
+    last_rel_run = session.scalar(
+        select(RelationRun)
+        .where(RelationRun.status.in_(["SUCCESS", "WARNING", "NO_CHANGES"]))
+        .order_by(desc(RelationRun.finished_at))
+        .limit(1)
+    )
+    latest_as_of = session.scalar(select(func.max(RelationSnapshot.as_of_date)))
+    inputs_active = (
+        session.scalar(select(func.count()).select_from(RelationInput).where(RelationInput.is_active.is_(True)))
+        or 0
+    )
+    snap_total = session.scalar(select(func.count()).select_from(RelationSnapshot)) or 0
+    snap_valid = (
+        session.scalar(
+            select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.is_valid.is_(True))
+        )
+        or 0
+    )
+    snap_invalid = (
+        session.scalar(
+            select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.is_valid.is_(False))
+        )
+        or 0
+    )
+    last_rel_error = session.scalar(
+        select(RelationRun).where(RelationRun.status == "ERROR").order_by(desc(RelationRun.created_at)).limit(1)
+    )
+    last_rel_ts = (
+        last_rel_run.finished_at.isoformat() if last_rel_run and last_rel_run.finished_at else "—"
+    )
+
+    lines.extend(
+        [
+            "=== RELATIONS ===",
+            "",
+            (
+                f"Active relation set: {active_rs.code} v{active_rs.version}"
+                if active_rs
+                else "Active relation set: —"
+            ),
+            f"Active relation inputs: {inputs_active}",
+            f"Last successful relation run: {last_rel_ts}",
+            f"Latest as_of_date: {latest_as_of.isoformat() if latest_as_of else '—'}",
+            f"Snapshots total: {snap_total}",
+            f"Snapshots valid: {snap_valid}",
+            f"Snapshots invalid: {snap_invalid}",
+            f"Last relations error: {last_rel_error.error_message if last_rel_error else '—'}",
+            "",
             "=== WORKFLOWS ===",
             "",
             "Last 10 processes:",
@@ -200,8 +255,24 @@ def build_diagnostics_text(session: Session) -> str:
     lines.extend(["", "=== RUNNING WORKFLOWS ===", ""])
     if not running:
         lines.append("(none)")
+    now_utc = datetime.now(UTC)
     for wf in running:
-        lines.append(f"- id={wf.id} type={wf.workflow_type or wf.name} status={wf.status}")
+        age_min = "—"
+        stale_hint = ""
+        if wf.started_at is not None:
+            started = wf.started_at if wf.started_at.tzinfo else wf.started_at.replace(tzinfo=UTC)
+            age = (now_utc - started).total_seconds() / 60.0
+            age_min = f"{age:.0f}m"
+            # Light signal only — no auto-recovery. Worker death can leave RUNNING forever.
+            if age >= 15:
+                stale_hint = " [POSSIBLY STALE — check meta heartbeat / abort manually if worker restarted]"
+        meta = wf.meta or {}
+        progress = meta.get("as_of_progress") or meta.get("persist_progress") or ""
+        progress_bit = f" progress={progress}" if progress else ""
+        lines.append(
+            f"- id={wf.id} type={wf.workflow_type or wf.name} status={wf.status} "
+            f"age={age_min}{progress_bit}{stale_hint}"
+        )
 
     lines.extend(
         [

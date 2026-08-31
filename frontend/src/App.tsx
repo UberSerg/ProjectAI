@@ -5,6 +5,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { RelationsPage } from "./pages/RelationsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { labels } from "./utils/labels";
@@ -18,6 +19,7 @@ export function App() {
         <Route path="/market/instruments/:instrumentId" element={<InstrumentPage />} />
         <Route path="/market/:instrumentId" element={<InstrumentPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/relations" element={<RelationsPage />} />
         <Route
           path="/recommendations"
           element={

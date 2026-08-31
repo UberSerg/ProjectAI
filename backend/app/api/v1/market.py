@@ -435,6 +435,7 @@ def _workflow_payload(row: Workflow) -> dict[str, Any]:
         "finished_at": finished.isoformat() if finished else None,
         "duration_seconds": duration,
         "error": row.error,
+        "meta": row.meta or {},
         "steps": [
             {
                 "name": step.name,

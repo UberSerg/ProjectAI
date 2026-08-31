@@ -37,6 +37,8 @@ const WORKFLOW_TYPE: Record<string, string> = {
   DataQualityCheck: "Проверка качества данных",
   FeatureBackfill: "Пересчёт признаков (история)",
   FeatureUpdate: "Обновление признаков",
+  RelationsComputeLatest: "Расчёт связей (latest)",
+  RelationsBackfill: "Пересчёт связей (история)",
 };
 
 const WORKFLOW_STEP: Record<string, string> = {
@@ -55,6 +57,13 @@ const WORKFLOW_STEP: Record<string, string> = {
   "Calculate series features": "Расчёт признаков series",
   "Persist batches": "Сохранение результатов",
   "Run feature quality summary": "Сводка качества признаков",
+  "Resolve relation set": "Подготовка набора связей",
+  "Resolve / seed inputs": "Подготовка relation inputs",
+  "Resolve as-of dates": "Определение as_of дат",
+  "Load feature matrix": "Загрузка матрицы признаков",
+  "Calculate relations": "Расчёт связей",
+  "Persist snapshots": "Сохранение snapshots",
+  "Run quality summary": "Сводка качества связей",
 };
 
 const ISSUE_TYPE: Record<string, string> = {
@@ -90,6 +99,7 @@ export const labels = {
     overview: "Обзор",
     market: "Рыночные данные",
     analytics: "Аналитика",
+    relations: "Связи",
     recommendations: "Рекомендации",
     models: "Модели",
     decisionMemory: "Память решений",
@@ -106,6 +116,8 @@ export const labels = {
     dataQuality: "Проверить качество",
     updateFeatures: "Обновить признаки",
     backfillFeatures: "Пересчитать историю",
+    computeRelations: "Рассчитать связи",
+    backfillRelations: "Backfill связей",
     resetFilters: "Сбросить фильтры",
     retry: "Повторить",
     cancel: "Отмена",
