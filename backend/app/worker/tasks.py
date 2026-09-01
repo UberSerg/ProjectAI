@@ -109,6 +109,46 @@ def feature_update(
         )
 
 
+@celery_app.task(name="projectai.relations_compute_latest")
+def relations_compute_latest(
+    workflow_id: int,
+    relation_set_code: str = "basic_relations",
+    relation_set_version: int = 1,
+) -> dict:
+    from app.modules.relations.application.compute import RelationsComputeService
+
+    with core_session() as session:
+        service = RelationsComputeService(session)
+        return service.run_latest(
+            relation_set_code=relation_set_code,
+            relation_set_version=relation_set_version,
+            workflow_id=workflow_id,
+        )
+
+
+@celery_app.task(name="projectai.relations_backfill")
+def relations_backfill(
+    workflow_id: int,
+    as_of_from: str,
+    as_of_to: str | None = None,
+    cadence: str = "WEEKLY",
+    relation_set_code: str = "basic_relations",
+    relation_set_version: int = 1,
+) -> dict:
+    from app.modules.relations.application.compute import RelationsComputeService
+
+    with core_session() as session:
+        service = RelationsComputeService(session)
+        return service.run_backfill(
+            as_of_from=date.fromisoformat(as_of_from),
+            as_of_to=date.fromisoformat(as_of_to) if as_of_to else None,
+            cadence=cadence,
+            relation_set_code=relation_set_code,
+            relation_set_version=relation_set_version,
+            workflow_id=workflow_id,
+        )
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""

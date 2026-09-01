@@ -16,6 +16,7 @@ const primary: NavItem[] = [
 
 const analytics: NavItem[] = [
   { to: "/analytics", label: labels.nav.analytics },
+  { to: "/relations", label: labels.nav.relations },
   { to: "/recommendations", label: labels.nav.recommendations, soon: true },
   { to: "/models", label: labels.nav.models, soon: true },
   { to: "/decision-memory", label: labels.nav.decisionMemory, soon: true },

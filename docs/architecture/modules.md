@@ -5,7 +5,7 @@ Module folders under `backend/app/modules/` are intentional boundaries:
 | Module | Future responsibility |
 |--------|------------------------|
 | market | market data access |
-| relations | dependency/correlation engine |
+| relations | dependency/correlation engine (Relations Engine V1) |
 | technical | technical analysis |
 | news | news/fundamental analysis |
 | risk | risk analysis |

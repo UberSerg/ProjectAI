@@ -1,1 +1,1 @@
-"""Relations module boundary — business logic intentionally empty for now."""
+"""Relations Engine — statistical market structure (no BUY/SELL)."""
