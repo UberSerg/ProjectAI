@@ -6,7 +6,7 @@ Module folders under `backend/app/modules/` are intentional boundaries:
 |--------|------------------------|
 | market | market data access |
 | relations | dependency/correlation engine (Relations Engine V1) |
-| technical | technical analysis |
+| technical | Technical Agent V1 (technical_daily + rules_v1 signals) |
 | news | news/fundamental analysis |
 | risk | risk analysis |
 | recommendations | meta-model outputs |

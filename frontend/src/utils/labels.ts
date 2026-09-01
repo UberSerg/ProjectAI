@@ -39,6 +39,8 @@ const WORKFLOW_TYPE: Record<string, string> = {
   FeatureUpdate: "Обновление признаков",
   RelationsComputeLatest: "Расчёт связей (latest)",
   RelationsBackfill: "Пересчёт связей (история)",
+  TechnicalBackfill: "Пересчёт технического анализа (история)",
+  TechnicalUpdate: "Обновление технического анализа",
 };
 
 const WORKFLOW_STEP: Record<string, string> = {
@@ -64,6 +66,20 @@ const WORKFLOW_STEP: Record<string, string> = {
   "Calculate relations": "Расчёт связей",
   "Persist snapshots": "Сохранение snapshots",
   "Run quality summary": "Сводка качества связей",
+  "Resolve model": "Подготовка модели",
+  "Resolve feature sets": "Подготовка наборов признаков",
+  "Load source market/basic analytics": "Загрузка рынка и базовой аналитики",
+  "Calculate technical features": "Расчёт технических признаков",
+  "Persist technical features": "Сохранение технических признаков",
+  "Build frozen model inputs": "Сборка входов модели",
+  "Evaluate rules model": "Оценка rules-модели",
+  "Persist technical signals": "Сохранение технических сигналов",
+};
+
+const DIRECTION: Record<string, string> = {
+  bullish: "Бычье",
+  neutral: "Нейтральное",
+  bearish: "Медвежье",
 };
 
 const ISSUE_TYPE: Record<string, string> = {
@@ -100,6 +116,7 @@ export const labels = {
     market: "Рыночные данные",
     analytics: "Аналитика",
     relations: "Связи",
+    technical: "Технический анализ",
     recommendations: "Рекомендации",
     models: "Модели",
     decisionMemory: "Память решений",
@@ -118,11 +135,16 @@ export const labels = {
     backfillFeatures: "Пересчитать историю",
     computeRelations: "Рассчитать связи",
     backfillRelations: "Backfill связей",
+    updateTechnical: "Обновить",
+    backfillTechnical: "Backfill",
     resetFilters: "Сбросить фильтры",
     retry: "Повторить",
     cancel: "Отмена",
     start: "Запустить",
     openWorkflow: "Открыть процесс",
+  },
+  tooltips: {
+    confidence: "Уверенность не вероятность",
   },
   assetClass: (value?: string | null) => lookup(ASSET_CLASS, value),
   status: (value?: string | null) => lookup(STATUS, value?.toLowerCase()),
@@ -130,6 +152,7 @@ export const labels = {
   workflowStep: (value?: string | null) => lookup(WORKFLOW_STEP, value),
   issueType: (value?: string | null) => lookup(ISSUE_TYPE, value),
   service: (value?: string | null) => lookup(SERVICE, value),
+  direction: (value?: string | null) => lookup(DIRECTION, value?.toLowerCase()),
   dataFreshness: (last?: string | null): string => {
     if (!last) return "Нет данных";
     const days = Math.floor((Date.now() - new Date(last).getTime()) / 86_400_000);

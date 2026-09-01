@@ -8,10 +8,14 @@ from app.domain.ports.portfolio import (
     PortfolioPolicyOutput,
 )
 from app.domain.ports.technical import (
+    FactorContributions,
+    FeatureSetRef,
     SignalDirection,
+    TechnicalFeatureVector,
     TechnicalModel,
     TechnicalModelInput,
     TechnicalModelOutput,
+    TechnicalQualityContext,
 )
 
 __all__ = [
@@ -22,8 +26,12 @@ __all__ = [
     "PortfolioPolicy",
     "PortfolioPolicyInput",
     "PortfolioPolicyOutput",
+    "FactorContributions",
+    "FeatureSetRef",
     "SignalDirection",
+    "TechnicalFeatureVector",
     "TechnicalModel",
     "TechnicalModelInput",
     "TechnicalModelOutput",
+    "TechnicalQualityContext",
 ]

@@ -17,12 +17,13 @@ import {
   type DataQualityIssue,
   type Instrument,
 } from "../api/market";
+import { getInstrumentTechnicalLatest, type TechnicalSignal } from "../api/technical";
 import { Sparkline } from "../components/Sparkline";
 import { MetricCard, PageState, StatusBadge } from "../components/Ui";
 import { formatDate, formatDateTime, formatNumber, formatPercent, formatPrice, formatZScore } from "../utils/format";
 import { labels } from "../utils/labels";
 
-type Tab = "overview" | "quotes" | "batches" | "quality" | "analytics";
+type Tab = "overview" | "quotes" | "batches" | "quality" | "analytics" | "technical";
 
 interface InstrumentData {
   instrument: Instrument & { last_close?: number | null; isin?: string | null };
@@ -30,6 +31,7 @@ interface InstrumentData {
   batches: Batch[];
   issues: DataQualityIssue[];
   features: InstrumentFeatures | null;
+  technical: TechnicalSignal | null;
 }
 
 export function InstrumentPage() {
@@ -48,9 +50,10 @@ export function InstrumentPage() {
       getBatches(instrumentId, controller.signal),
       getDataQualityIssues(instrumentId, controller.signal),
       getInstrumentFeaturesLatest(instrumentId, controller.signal).catch(() => null),
+      getInstrumentTechnicalLatest(instrumentId, controller.signal).catch(() => null),
     ])
-      .then(([instrument, candles, batches, issues, features]) =>
-        setData({ instrument, candles, batches, issues, features }),
+      .then(([instrument, candles, batches, issues, features, technical]) =>
+        setData({ instrument, candles, batches, issues, features, technical }),
       )
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
@@ -66,11 +69,12 @@ export function InstrumentPage() {
   }
   if (!data) return <PageState kind="loading" title="Загрузка инструмента…" />;
 
-  const { instrument, candles, batches, issues, features } = data;
+  const { instrument, candles, batches, issues, features, technical } = data;
   const sources =
     instrument.sources?.length
       ? instrument.sources
       : [...new Set((instrument.mappings ?? []).map((m) => m.source))];
+  const factors = technical?.factor_contributions;
 
   return (
     <section>
@@ -114,6 +118,7 @@ export function InstrumentPage() {
             ["batches", "Загрузки"],
             ["quality", "Качество данных"],
             ["analytics", "Аналитика"],
+            ["technical", "Технический анализ"],
           ] as const
         ).map(([id, title]) => (
           <button key={id} type="button" className={`tab${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>
@@ -313,6 +318,73 @@ export function InstrumentPage() {
                   <Sparkline values={closes.slice(-30)} />
                 </>
               ) : null}
+            </>
+          )}
+        </article>
+      ) : null}
+
+      {tab === "technical" ? (
+        <article className="panel">
+          <h2>Технический анализ</h2>
+          {!technical ? (
+            <PageState kind="empty" title="Технический сигнал ещё не рассчитан" />
+          ) : (
+            <>
+              <div className="key-value">
+                <span>Модель</span>
+                <strong className="mono">
+                  {technical.model_code}_v{technical.model_version}
+                </strong>
+              </div>
+              <div className="key-value">
+                <span>As of</span>
+                <strong>{formatDate(technical.as_of_date)}</strong>
+              </div>
+              <div className="key-value">
+                <span>Состояние</span>
+                <strong>{labels.direction(technical.direction)}</strong>
+              </div>
+              <div className="key-value">
+                <span>Качество</span>
+                <strong>{technical.is_valid ? "валид" : "невалид"}</strong>
+              </div>
+              <div className="card-grid" style={{ marginTop: "1rem" }}>
+                <MetricCard label="Score" value={technical.score.toFixed(2)} />
+                <MetricCard
+                  label="Confidence"
+                  value={formatPercent(technical.confidence)}
+                  hint={labels.tooltips.confidence}
+                />
+                <MetricCard
+                  label="RSI14"
+                  value={technical.rsi14 != null ? technical.rsi14.toFixed(1) : "—"}
+                />
+                <MetricCard label="SMA20 dist" value={formatPercent(technical.sma20_distance)} />
+                <MetricCard label="EMA20 dist" value={formatPercent(technical.ema20_distance)} />
+                <MetricCard label="ATR14%" value={formatPercent(technical.atr14_pct)} />
+                <MetricCard label="Return 5d" value={formatPercent(technical.return_5d)} />
+                <MetricCard label="Return 20d" value={formatPercent(technical.return_20d)} />
+                <MetricCard label="Volume Z 20d" value={formatZScore(technical.volume_zscore_20d)} />
+              </div>
+              <h2 style={{ marginTop: "1rem" }}>Вклад факторов</h2>
+              <div className="card-grid">
+                <MetricCard
+                  label="Trend"
+                  value={factors?.trend != null ? factors.trend.toFixed(3) : "—"}
+                />
+                <MetricCard
+                  label="Momentum"
+                  value={factors?.momentum != null ? factors.momentum.toFixed(3) : "—"}
+                />
+                <MetricCard
+                  label="RSI"
+                  value={factors?.rsi != null ? factors.rsi.toFixed(3) : "—"}
+                />
+                <MetricCard
+                  label="Volume"
+                  value={factors?.volume != null ? factors.volume.toFixed(3) : "—"}
+                />
+              </div>
             </>
           )}
         </article>
