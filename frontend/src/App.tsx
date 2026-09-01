@@ -7,6 +7,7 @@ import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { RelationsPage } from "./pages/RelationsPage";
 import { SystemPage } from "./pages/SystemPage";
+import { TechnicalPage } from "./pages/TechnicalPage";
 import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { labels } from "./utils/labels";
 
@@ -20,6 +21,7 @@ export function App() {
         <Route path="/market/:instrumentId" element={<InstrumentPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/relations" element={<RelationsPage />} />
+        <Route path="/technical" element={<TechnicalPage />} />
         <Route
           path="/recommendations"
           element={

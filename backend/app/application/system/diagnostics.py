@@ -15,8 +15,10 @@ from app.application.system.sanitize import sanitize_text
 from app.infrastructure.analytics.models import FeatureRun, FeatureSet, InstrumentFeatureDaily
 from app.infrastructure.analytics.relation_models import RelationInput, RelationRun, RelationSet, RelationSnapshot
 from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Series, Workflow
+from app.infrastructure.technical.models import TechnicalRun, TechnicalSignalDaily
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.relations.application.seed import seed_relation_sets
+from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V1_VERSION
 
 
 def _svc(services: dict[str, str], key: str, label: str) -> str:
@@ -235,6 +237,60 @@ def build_diagnostics_text(session: Session) -> str:
             f"Snapshots invalid: {snap_invalid}",
             f"Last relations error: {last_rel_error.error_message if last_rel_error else '—'}",
             "",
+        ]
+    )
+
+    seed_feature_sets(session)
+    tech_fs = session.scalar(
+        select(FeatureSet).where(FeatureSet.code == "technical_daily", FeatureSet.is_active.is_(True))
+    )
+    last_tech_run = session.scalar(
+        select(TechnicalRun)
+        .where(TechnicalRun.status.in_(["SUCCESS", "WARNING", "NO_CHANGES"]))
+        .order_by(desc(TechnicalRun.finished_at))
+        .limit(1)
+    )
+    tech_latest = session.scalar(select(func.max(TechnicalSignalDaily.as_of_date)))
+    tech_signals = session.scalar(select(func.count()).select_from(TechnicalSignalDaily)) or 0
+    tech_bullish = tech_neutral = tech_bearish = tech_invalid = 0
+    if tech_latest is not None:
+        latest_signals = list(
+            session.scalars(select(TechnicalSignalDaily).where(TechnicalSignalDaily.as_of_date == tech_latest))
+        )
+        for sig in latest_signals:
+            if not sig.is_valid:
+                tech_invalid += 1
+            if sig.direction == "bullish":
+                tech_bullish += 1
+            elif sig.direction == "bearish":
+                tech_bearish += 1
+            else:
+                tech_neutral += 1
+    last_tech_error = session.scalar(
+        select(TechnicalRun).where(TechnicalRun.status == "ERROR").order_by(desc(TechnicalRun.finished_at)).limit(1)
+    )
+    last_tech_ts = (
+        last_tech_run.finished_at.isoformat() if last_tech_run and last_tech_run.finished_at else "—"
+    )
+    lines.extend(
+        [
+            "=== TECHNICAL ===",
+            "",
+            f"Active model: {RULES_V1_CODE}_v{RULES_V1_VERSION}",
+            (
+                f"Technical feature set: {tech_fs.code} v{tech_fs.version}"
+                if tech_fs
+                else "Technical feature set: —"
+            ),
+            f"Latest successful run: {last_tech_ts}",
+            f"Latest as-of: {tech_latest.isoformat() if tech_latest else '—'}",
+            f"Signals: {tech_signals}",
+            f"Bullish: {tech_bullish}",
+            f"Neutral: {tech_neutral}",
+            f"Bearish: {tech_bearish}",
+            f"Invalid: {tech_invalid}",
+            f"Latest technical error: {last_tech_error.error_message if last_tech_error else '—'}",
+            "",
             "=== WORKFLOWS ===",
             "",
             "Last 10 processes:",
@@ -267,7 +323,15 @@ def build_diagnostics_text(session: Session) -> str:
             if age >= 15:
                 stale_hint = " [POSSIBLY STALE — check meta heartbeat / abort manually if worker restarted]"
         meta = wf.meta or {}
-        progress = meta.get("as_of_progress") or meta.get("persist_progress") or ""
+        progress = (
+            meta.get("as_of_progress")
+            or meta.get("persist_progress")
+            or (
+                f"{meta.get('processed_instruments')}/{meta.get('total_instruments')}"
+                if meta.get("processed_instruments") is not None
+                else ""
+            )
+        )
         progress_bit = f" progress={progress}" if progress else ""
         lines.append(
             f"- id={wf.id} type={wf.workflow_type or wf.name} status={wf.status} "

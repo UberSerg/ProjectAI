@@ -149,6 +149,46 @@ def relations_backfill(
         )
 
 
+@celery_app.task(name="projectai.technical_backfill")
+def technical_backfill(
+    workflow_id: int,
+    date_from: str,
+    date_to: str | None = None,
+    instrument_ids: list[int] | None = None,
+    model_code: str = "rules",
+    model_version: int = 1,
+) -> dict:
+    from app.modules.technical.application.compute import TechnicalComputeService
+
+    with core_session() as session:
+        service = TechnicalComputeService(session)
+        return service.run_backfill(
+            date_from=date.fromisoformat(date_from),
+            date_to=date.fromisoformat(date_to) if date_to else None,
+            instrument_ids=instrument_ids,
+            model_code=model_code,
+            model_version=model_version,
+            workflow_id=workflow_id,
+        )
+
+
+@celery_app.task(name="projectai.technical_update")
+def technical_update(
+    workflow_id: int,
+    model_code: str = "rules",
+    model_version: int = 1,
+) -> dict:
+    from app.modules.technical.application.compute import TechnicalComputeService
+
+    with core_session() as session:
+        service = TechnicalComputeService(session)
+        return service.run_update(
+            model_code=model_code,
+            model_version=model_version,
+            workflow_id=workflow_id,
+        )
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""

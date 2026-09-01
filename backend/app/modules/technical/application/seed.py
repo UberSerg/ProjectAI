@@ -1,4 +1,4 @@
-"""Idempotent seed for analytics feature sets."""
+"""Idempotent seed for technical_daily feature set."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from app.modules.analytics.feature_config import FEATURE_SETS
 from app.modules.technical.technical_config import TECHNICAL_FEATURE_SETS
 
 
-def seed_feature_sets(session: Session) -> dict[str, int]:
-    """Ensure configured feature sets exist; activate one version per code."""
+def seed_technical_feature_sets(session: Session) -> dict[str, int]:
+    """Ensure technical_daily (+ analytics basic sets) exist; activate one version per code."""
     all_defs = tuple(FEATURE_SETS) + tuple(TECHNICAL_FEATURE_SETS)
     ensured = 0
     for definition in all_defs:
@@ -37,7 +37,7 @@ def seed_feature_sets(session: Session) -> dict[str, int]:
         session.execute(stmt)
         ensured += 1
 
-    # Partial unique index: at most one active row per code.
+    # One active version per code (partial unique index allows different codes).
     session.execute(update(FeatureSet).values(is_active=False))
     activated = 0
     seen_codes: set[str] = set()

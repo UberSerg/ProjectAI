@@ -8,7 +8,7 @@
 
 This document consolidates architectural analysis for future intelligence layers. It is **not** a description of shipped production capabilities.
 
-Current production architecture ends at the layers that are actually delivered (or in active implementation). Everything below Market → Analytics → Relations V1 remains design intent until an explicit implementation stage begins.
+Current production architecture ends at Market → Analytics → Relations V1 → **Technical Agent V1 (implemented on `feature/technical-v1`)**. Dataset/PIT Join and later layers remain design intent until an explicit stage begins.
 
 Related research: [Market Regime / Market State V0 Research](./market-regime-v0-research.md).
 
@@ -21,7 +21,9 @@ Market Data V1
         ↓
 Analytics Feature Layer V1  (basic_daily, PIT, quality flags)
         ↓
-Relations Engine V1         (in progress — do not treat as finished)
+Relations Engine V1
+        ↓
+Technical Agent V1          (**Implemented** — see `technical-agent-v1.md`)
 ```
 
 **What exists today (grounded):**
@@ -30,15 +32,18 @@ Relations Engine V1         (in progress — do not treat as finished)
 |-------|------|--------|
 | Market Data | Factual candles, series, DQ issues | Observation-date alignment; no true publication timestamps for sparse events; no adjusted prices in V1 |
 | Analytics Feature Layer | Versioned derived daily features (`feature_sets`, wide typed tables) | ADR 0004; no look-ahead in calculators; `log_return_1d`, returns, volatility, drawdown, volume features |
-| Relations Engine V1 | Statistical relations with `as_of_date` snapshots | **In progress**; designed ML-ready; does **not** recommend trades; no regime / fundamentals / Technical Agent |
+| Relations Engine V1 | Statistical relations with `as_of_date` snapshots | Shipped; ML-ready; does **not** recommend trades |
+| Technical Agent V1 | Deterministic technical features + rules_v1 signals | Shipped; pure TechnicalModel; PIT frozen input; historical signals |
 
-**Domain ports already reserved (stubs / contracts only):**
+**Domain ports:**
 
-- `TechnicalModel` + `TechnicalModelInput` / `TechnicalModelOutput`
+- `TechnicalModel` + typed `TechnicalModelInput` / `TechnicalModelOutput` (`rules_v1` / RuleBasedTechnicalModel)
 - `PortfolioPolicy`, `LLMProvider`
 - `learning.model_registry` foundation (no training loop yet)
 
-**Explicitly not implemented:** Technical Agent, Fundamental Intelligence, Market Regime, Dataset/PIT Join pipeline, ML Candidate, Meta Model, Recommendations / BUY-SELL.
+**Explicitly not implemented yet:** Fundamental Intelligence, Market Regime, Dataset/PIT Join pipeline, ML Candidate, Meta Model, Recommendations / BUY-SELL.
+
+**Next planned stage:** Dataset / PIT Join V0.
 
 ---
 
