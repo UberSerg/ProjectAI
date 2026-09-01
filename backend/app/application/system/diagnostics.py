@@ -291,6 +291,47 @@ def build_diagnostics_text(session: Session) -> str:
             f"Invalid: {tech_invalid}",
             f"Latest technical error: {last_tech_error.error_message if last_tech_error else '—'}",
             "",
+        ]
+    )
+
+    from app.infrastructure.learning.models import DatasetRun, DatasetSpec
+    from app.modules.learning.application.seed import seed_dataset_specs
+
+    seed_dataset_specs(session)
+    active_ds = session.scalar(select(DatasetSpec).where(DatasetSpec.is_active.is_(True)))
+    last_ds = session.scalar(
+        select(DatasetRun)
+        .where(DatasetRun.status.in_(["SUCCESS", "WARNING"]))
+        .order_by(desc(DatasetRun.finished_at))
+        .limit(1)
+    )
+    last_ds_error = session.scalar(
+        select(DatasetRun).where(DatasetRun.status == "ERROR").order_by(desc(DatasetRun.finished_at)).limit(1)
+    )
+    last_ds_ts = last_ds.finished_at.isoformat() if last_ds and last_ds.finished_at else "—"
+    lines.extend(
+        [
+            "=== DATASET / PIT ===",
+            "",
+            (
+                f"Active dataset spec: {active_ds.code} v{active_ds.version}"
+                if active_ds
+                else "Active dataset spec: —"
+            ),
+            f"Latest successful run: {last_ds_ts}",
+            f"Dataset hash: {last_ds.dataset_hash if last_ds else '—'}",
+            f"Samples: {last_ds.samples_total if last_ds else 0}",
+            f"Eligible 1d: {last_ds.eligible_1d if last_ds else 0}",
+            f"Eligible 5d: {last_ds.eligible_5d if last_ds else 0}",
+            f"Eligible 10d: {last_ds.eligible_10d if last_ds else 0}",
+            f"Eligible 20d: {last_ds.eligible_20d if last_ds else 0}",
+            (
+                "Relations coverage: "
+                f"{(last_ds.coverage_summary or {}).get('relations') if last_ds else 'disabled_phase1'}"
+            ),
+            f"PIT violations: {last_ds.pit_violations if last_ds else 0}",
+            f"Latest dataset error: {last_ds_error.error_message if last_ds_error else '—'}",
+            "",
             "=== WORKFLOWS ===",
             "",
             "Last 10 processes:",

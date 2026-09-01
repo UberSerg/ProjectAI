@@ -189,6 +189,29 @@ def technical_update(
         )
 
 
+@celery_app.task(name="projectai.dataset_build")
+def dataset_build(
+    workflow_id: int,
+    date_from: str,
+    date_to: str | None = None,
+    dataset_spec_code: str = "pit_daily_core",
+    dataset_spec_version: int = 1,
+    instrument_ids: list[int] | None = None,
+) -> dict:
+    from app.modules.learning.application.builder import PITDatasetBuilder
+
+    with core_session() as session:
+        service = PITDatasetBuilder(session)
+        return service.run_build(
+            date_from=date.fromisoformat(date_from),
+            date_to=date.fromisoformat(date_to) if date_to else None,
+            dataset_spec_code=dataset_spec_code,
+            dataset_spec_version=dataset_spec_version,
+            instrument_ids=instrument_ids,
+            workflow_id=workflow_id,
+        )
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""
