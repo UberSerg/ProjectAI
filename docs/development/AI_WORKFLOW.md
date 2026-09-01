@@ -11,17 +11,23 @@ ProjectAI разрабатывается в связке:
 
 Основной цикл разработки:
 
-Owner
-→ ChatGPT
-→ Cursor
-→ Tests
-→ Git commit
-→ GitHub Pull Request
-→ Review
-→ Fixes
-→ Merge
+```text
+architecture discussion
+  → bounded Cursor task
+  → implementation
+  → tests / acceptance (with timeout)
+  → report
+  → review
+  → fix
+  → commit / PR
+```
+
+Owner → ChatGPT → Cursor → Tests → Git commit → GitHub Pull Request → Review → Fixes → Merge.
 
 Cursor не должен самостоятельно начинать следующий функциональный этап после завершения текущего задания.
+
+Долгосрочная цель продукта и архитектурные инварианты: `docs/architecture/future-intelligence-roadmap.md`
+и `.cursor/rules/00-project-core.mdc`. Зрелое состояние системы называется **Kraken** (концепт, не модуль).
 
 ---
 
@@ -114,6 +120,9 @@ MarketDataProvider
 
 Нельзя создавать десятки пустых классов, сервисов и generic framework только потому, что они потенциально понадобятся через год.
 
+Большие этапы дробить на **bounded phases** с явным DoD. Увидев в roadmap Simulator / Meta Model /
+Broker / Fundamentals / Market Regime, Cursor не должен начинать их «заодно» с текущей задачей.
+
 ---
 
 ## 5. Data-first
@@ -152,16 +161,22 @@ ML-модель не заменяется новой только потому, 
 
 Будущий lifecycle модели:
 
+```text
 Training Dataset
 → Candidate
-→ Backtest
-→ Walk-forward validation
+→ Backtest / Walk-forward
 → Candidate vs Champion
-→ Accept / Reject
+→ Accept / Reject / Rollback
+```
+
+Историческая оценка — walk-forward (train on past → evaluate on unseen future).
+Повторные прогоны одного и того же известного периода не считаются независимым рыночным опытом.
 
 Модели должны иметь версии.
 
 Результаты прогнозов должны быть воспроизводимы относительно версии модели.
+
+Prediction Model не равен Trading Policy / Risk / Execution — см. core rules.
 
 ---
 
@@ -195,22 +210,25 @@ LLM не должна использоваться для:
 
 ## 8. Decision Memory
 
-Decision Memory — самостоятельный домен и отдельная PostgreSQL DB.
+Decision Memory — самостоятельный домен и отдельная PostgreSQL DB + pgvector.
 
-В ней в будущем хранится:
+В ней в будущем хранятся immutable snapshots:
 
-- snapshot решения;
-- факторы;
-- версии моделей;
-- прогноз;
-- outcome;
-- review;
-- lessons;
-- embeddings.
+- Decision / Prediction;
+- версии моделей, features, dataset;
+- market / agent / portfolio state;
+- Trading Policy / Risk / Order Intent / Execution / costs;
+- Outcome / PnL / drawdown / Evaluation;
+- Review / lesson;
+- embeddings where useful.
 
 Нельзя задним числом переписывать первоначальное решение после появления результата.
 
 Decision и subsequent review — разные сущности.
+
+Decision Memory **не заменяет** обычные ML datasets / feature store.
+
+Подробнее: `docs/architecture/future-learning.md`.
 
 ---
 
@@ -218,11 +236,18 @@ Decision и subsequent review — разные сущности.
 
 На текущем этапе ProjectAI не совершает реальные брокерские операции.
 
-Система работает с виртуальным портфелем.
+Система должна сначала доказать себя в Historical Simulator / Paper / Signal Mode.
 
 В будущем допускается read-only получение реального пользовательского портфеля.
 
-Любая возможность реальной автоматической торговли является отдельным будущим архитектурным и security-этапом и не должна появляться случайно в рамках другой задачи.
+Путь к реальному исполнению: Simulation → walk-forward → Shadow/Paper → Signal →
+human-confirmed broker → small capital → limited autonomy.
+
+Broker API появляется только как Execution Adapter и не должен требовать переписывания
+prediction / policy / risk.
+
+Любая возможность реальной автоматической торговли является отдельным будущим архитектурным
+и security-этапом и не должна появляться случайно в рамках другой задачи.
 
 ---
 
@@ -353,6 +378,17 @@ HTTP API должно:
 
 Долгий расчёт не должен держать HTTP request открытым.
 
+Acceptance / backfill / длинные pytest / Docker jobs обязаны иметь:
+
+- hard timeout или watchdog;
+- poll interval;
+- stale detection;
+- non-zero exit code при failure.
+
+Нельзя часами polling-ить без deadline.
+
+Background agents не должны незаметно продолжать следующий scope после остановки задачи пользователем.
+
 ---
 
 ## 17. Workflows
@@ -411,13 +447,15 @@ HTTP API должно:
 
 Каждое задание имеет scope.
 
+Большие roadmap-этапы дробить на bounded phases с явным DoD.
+
 Cursor не должен в процессе задачи самостоятельно добавлять:
 
 - новый аналитический модуль;
 - новую ML-модель;
 - новый источник данных;
 - LLM-функционал;
-- trading logic;
+- trading logic / broker / simulator;
 - новую инфраструктурную технологию,
 
 если этого явно не требует задача.
@@ -426,6 +464,12 @@ Cursor не должен в процессе задачи самостоятел
 
 1. не реализовывать его;
 2. записать в `Possible follow-ups` итогового отчёта.
+
+После interrupt / aborted background task:
+
+1. сначала recovery audit working tree (status, diff summary, что успел сделать background task);
+2. не auto-revert без запроса;
+3. не начинать новую реализацию, пока пользователь не подтвердил план recovery.
 
 ---
 
@@ -591,15 +635,15 @@ Legacy документация не должна восприниматься �
 Branch и commit.
 
 ### Deviations
-Отклонения от задания.
+Отклонения от задания — честно, без маскировки.
 
 ### Issues
-Нерешённые проблемы.
+Нерешённые проблемы и known issues.
 
 ### Possible follow-ups
 Полезные идеи вне текущего scope.
 
-После отчёта не начинать следующую задачу самостоятельно.
+После отчёта не начинать следующую задачу самостоятельно. Не начинать следующий roadmap stage автоматически.
 
 ---
 

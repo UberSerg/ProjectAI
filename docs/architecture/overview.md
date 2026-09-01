@@ -1,11 +1,16 @@
 # ProjectAI Architecture Overview
 
-ProjectAI is a **modular monolith** designed for Docker-first local development and later cloud/VPS deployment without rewriting the application.
+ProjectAI is a **Docker-first modular monolith** for local development and later cloud/VPS
+deployment without rewriting the application.
+
+Long-term product direction: a self-learning investment system that must prove itself in
+historical and virtual environments before real execution. The mature conceptual state is
+called **Kraken** (not a code module). See [future-intelligence-roadmap.md](./future-intelligence-roadmap.md).
 
 ## Runtime topology
 
 ```text
-Browser -> Frontend (React/Vite)
+Browser -> Frontend (React/Vite Control Center)
               |
            REST /api/v1
               |
@@ -25,8 +30,22 @@ Browser -> Frontend (React/Vite)
 - `application` — use-cases
 - `domain` — entities/ports (no FastAPI/SQLAlchemy/Celery)
 - `infrastructure` — DB, Redis, LLM/ML adapters
-- `modules/*` — future analytical domains
+- `modules/*` — analytical / learning domains
 - `worker` — async jobs and schedules
+
+## Current analytical foundation
+
+```text
+Market Data V1
+  → Analytics Feature Layer V1
+  → Relations Engine V1
+  → Technical Agent V1
+  → Dataset / PIT Join V0 (Phase 1 backend path)
+```
+
+Later direction (not implemented): Prediction models → Meta Model → Trading Policy →
+Risk → Order Intent → replaceable Execution Adapter (Simulator / Paper / Broker) →
+outcomes → Learning → Decision Memory.
 
 ## Health model
 
@@ -46,6 +65,10 @@ Replaceable adapters behind typed contracts in `app/domain/ports`:
 - `PortfolioPolicy` (`PortfolioPolicyInput` / `PortfolioPolicyOutput`)
 - `LLMProvider` (`LLMMessage` / `LLMResponse`)
 
-## Non-goals (current stage)
+## Non-goals (unless an explicit stage requests them)
 
-No trading strategies, MOEX ingestion, ML training, Polza live calls, or BUY/SELL recommendations.
+- Real broker trading / autonomous live execution
+- Collapsing prediction + policy + risk + execution into one agent
+- Premature Meta Model / Simulator / RL / Fundamentals / Market Regime implementation
+- Microservices, new databases, or generic ML platforms “just in case”
+- Using LLM as calculator or source of truth for numbers / dates

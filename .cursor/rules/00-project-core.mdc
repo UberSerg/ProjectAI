@@ -7,7 +7,8 @@ alwaysApply: true
 
 Before making non-trivial changes, read `docs/development/AI_WORKFLOW.md`.
 
-ProjectAI is a modular monolith.
+ProjectAI is a modular monolith evolving toward a self-learning investment system
+(conceptual mature state: **Kraken**). Kraken is not a module, namespace, or class.
 
 Preserve boundaries between:
 - domain
@@ -18,24 +19,65 @@ Preserve boundaries between:
 - workers
 - frontend
 
-Do not introduce microservices, CQRS, event buses, new databases, new infrastructure products, or generic frameworks unless explicitly required.
+Do not introduce microservices, CQRS, event buses, new databases, new infrastructure
+products, or generic frameworks unless explicitly required.
 
-Domain code must not depend directly on FastAPI, SQLAlchemy, Celery, Redis, Polza, HTTP clients, or a concrete ML library.
+Domain code must not depend directly on FastAPI, SQLAlchemy, Celery, Redis, Polza,
+HTTP clients, or a concrete ML library.
 
 Prefer simple replaceable implementations behind stable contracts.
 
-Do not prematurely implement future ProjectAI stages.
+## Architectural invariants
 
-LLM is for language understanding and high-level reasoning. Prefer deterministic code, statistics, SQL, or local ML for mechanical/computational work.
+1. **Prediction ≠ Trading.** Prediction models forecast. Meta Model estimates trust/usefulness.
+   Trading Policy proposes action. Risk Manager may shrink/block. Execution Adapter only executes
+   an Order Intent. Do not collapse these roles into one service.
 
-External LLM access is expected through Polza API.
+2. **Execution is replaceable.** The same decision pipeline must support Historical Simulator,
+   Paper/Shadow Portfolio, Signal Mode, human-confirmed real execution, and later limited
+   autonomous execution. Prediction / Policy / Risk must not depend on a concrete broker API.
 
-Real automated trading is out of scope unless explicitly requested.
+3. **Point-in-Time is mandatory.** At decision time `t`, only information known `<= t` is allowed.
+   Look-ahead leakage is a hard correctness failure (market, analytics, relations, technical,
+   fundamentals, macro, consensus, model inputs, portfolio state).
 
-Decision Memory remains a separate domain and separate database.
+4. **Labels are future information.** Forward returns / outcomes are `Y` / evaluation only.
+   They must never enter feature vector `X(t)`.
+
+5. **Historical evaluation is walk-forward.** Do not treat repeated runs on the same known period
+   as independent market experience. Train on past → evaluate on unseen future → move forward;
+   retrain only with information available at that moment.
+
+6. **Learning must be durable and reproducible.** Persist datasets, features, models, policy
+   versions, metrics, Decision Memory, agent reliability, regime/state, and outcomes — not
+   “the LLM remembered”. Historical decisions must be replayable.
+
+7. **Candidate → Champion.** New models/policies are not production by default. Require
+   candidate → walk-forward/backtest → comparison → champion → shadow/live evaluation →
+   promote or rollback.
+
+8. **LLM is optional for the core trading loop.** Numerical decisions should run locally
+   (deterministic rules, statistics, SQL, scikit-learn / CatBoost / LightGBM / XGBoost, etc.).
+   Polza/LLM is for language/reasoning (news, reports, explanation, structured extraction assist).
+   LLM is not calculator, source of truth for numbers/dates, or required online decision engine.
+   External LLM access is through Polza API.
+
+9. **Kraken must earn real-money trading.** Path: Historical Simulation → walk-forward →
+   Shadow/Paper → Signal Mode → human-confirmed broker execution → small real capital →
+   limited autonomy. Broker appears only as an Execution Adapter.
+
+10. **Do not prematurely implement future stages.** Seeing Simulator / Meta Model / RL / broker /
+    Fundamentals / Market Regime / new DBs in docs does **not** authorize building them.
+    Implement only the current explicit task scope.
+
+Decision Memory remains a separate domain and separate PostgreSQL + pgvector database.
+It stores immutable decision snapshots; it does not replace ML datasets.
 
 ProjectAI is Docker-first.
 
 Do not commit secrets.
 
-When uncertain about business logic, destructive changes, data semantics, or architectural boundaries, ask rather than silently guessing.
+Real automated trading is out of scope unless explicitly requested.
+
+When uncertain about business logic, destructive changes, data semantics, or architectural
+boundaries, ask rather than silently guessing.

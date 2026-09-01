@@ -26,6 +26,25 @@ Preserve Core DB and Memory DB separation.
 
 Redis is not persistent business storage.
 
+## Data / PIT / ML boundaries
+
+Market facts and derived analytics remain separate concepts.
+
+For historical decisions and ML datasets:
+- use only information known at `as_of` / `t` (point-in-time);
+- keep feature vectors `X` separate from labels `Y` (forward returns / outcomes);
+- pin source versions (feature sets, relation sets, models, dataset specs);
+- treat look-ahead leakage as a hard failure, not a soft warning.
+
+Models behind ports (e.g. `TechnicalModel`) must stay pure: no DB/HTTP/Redis I/O inside
+`predict`. Application services load PIT inputs and build frozen DTOs.
+
+RAW data should remain reproducible where the architecture supports it.
+
+Do not silently change financial/data semantics when uncertain.
+
+## Bulk / external I/O
+
 For bulk market data:
 - avoid N+1 queries;
 - avoid row-by-row inserts when batching is appropriate;
@@ -37,9 +56,3 @@ External HTTP clients require:
 - bounded retry where appropriate;
 - error handling;
 - logging without secrets.
-
-Market facts and derived analytics remain separate concepts.
-
-RAW data should remain reproducible where the architecture supports it.
-
-Do not silently change financial/data semantics when uncertain.

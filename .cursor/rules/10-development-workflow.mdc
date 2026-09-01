@@ -11,6 +11,9 @@ Stay inside the scope of the current task.
 
 Do not implement the next roadmap stage automatically.
 
+Large work must be split into bounded phases. Do not expand scope mid-task because a
+related future stage appears in docs.
+
 If you discover useful work outside the task:
 - do not implement it;
 - report it under `Possible follow-ups`.
@@ -22,7 +25,21 @@ Never:
 - rewrite main history;
 - auto-merge a PR;
 - remove existing migrations;
-- discard user changes.
+- discard user changes;
+- revert or overwrite unrelated uncommitted work.
+
+## Long-running work and interrupts
+
+Acceptance / backfill / full pytest / Docker jobs must use a hard timeout or watchdog.
+Do not poll for hours without a deadline, stale detection, and non-zero exit on failure.
+
+Do not leave background agents silently continuing the next scope after the user stops a task.
+
+After an interrupt or aborted background work: first do a recovery audit of the working tree
+(status, changed files, what the background task touched). Do not auto-revert unless asked.
+Do not start new implementation until the user confirms the recovery plan.
+
+## Checks and reporting
 
 Before declaring work complete, run the relevant real checks:
 - backend tests;
