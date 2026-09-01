@@ -26,7 +26,8 @@ New observations / outcomes
 
 Foundation already includes:
 
-- Core schema `learning` (model registry foundation; Dataset/PIT tables arriving with Dataset V0)
+- Core schema `learning` (model registry foundation; Dataset/PIT tables from Phase 1:
+  `dataset_specs`, `dataset_runs`, `dataset_samples_daily`)
 - `ModelRecord` / `ModelStatus` domain types (where present)
 - Celery worker/scheduler for future jobs
 - Separate Memory DB for Decision Memory (ADR 0002)
@@ -53,6 +54,12 @@ Example:
 ```
 
 A final out-of-sample window should remain untouched until final verification when feasible.
+
+**Selection and tuning (no leakage):** feature selection, hyperparameter tuning, model
+selection, policy tuning, and champion selection must use only information available **inside
+the corresponding training window** for that walk-forward step. Do not tune or pick champions
+using future folds, the final holdout, or full-sample hindsight. The final holdout stays
+untouched until a deliberate final evaluation.
 
 **Warning:** thousands of simulator runs on the **same known period** do not create thousands
 of independent market experiences. They are useful stress/ablation experiments, not new history.

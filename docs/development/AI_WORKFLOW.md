@@ -94,6 +94,11 @@ PortfolioPolicy
 - RuleBasedPolicy
 - ContextualBanditPolicy
 
+**Naming note:** today's domain port `PortfolioPolicy` maps conceptually to future
+**Trading Policy** (desired action proposal). It is **not** Portfolio Manager, Risk Manager,
+or Execution Adapter. Portfolio state / virtual portfolio persistence and broker execution
+remain separate concerns.
+
 LLMProvider
 - PolzaProvider
 
@@ -133,7 +138,7 @@ ProjectAI является data-driven системой.
 
 Сырые данные по возможности сохраняются отдельно от нормализованных.
 
-Основной принцип:
+Основной принцип (упрощённый data umbrella):
 
 RAW
 → NORMALIZED
@@ -142,6 +147,14 @@ RAW
 → DECISION
 → OUTCOME
 → LEARNING
+
+`DECISION` здесь — зонтичный этап, а не один monolith-сервис. Целевой decision path
+(см. `docs/architecture/future-intelligence-roadmap.md`):
+
+Prediction → Trading Policy → Risk Manager → Order Intent → Execution Adapter
+
+Meta Model оценивает полезность/доверие к агентам и моделям; она не подменяет Policy,
+Risk или Execution.
 
 Производные данные не должны уничтожать исходные.
 
@@ -580,7 +593,13 @@ Live external tests выполняются отдельно.
 
 Для значимого архитектурного решения использовать ADR.
 
-Документация должна описывать фактическую систему, а не желаемую.
+**Типы документов:**
+
+- **Layer / status docs** (например `technical-agent-v1.md`, `analytics-feature-layer.md`,
+  `overview.md`) — описывают **реализованную** семантику и текущее состояние слоя.
+- **Roadmap / research docs** (например `future-intelligence-roadmap.md`,
+  `market-regime-v0-research.md`, `future-learning.md`) — описывают **направление**,
+  planned stages и research; не считать их автоматически shipped.
 
 Legacy документация не должна восприниматься как текущая спецификация.
 

@@ -72,7 +72,7 @@ Market Data V1
   → Analytics Feature Layer V1
   → Relations Engine V1
   → Technical Agent V1
-  → Dataset / PIT Join V0 (Phase 1 backend path)
+  → Dataset / PIT Join V0 (Phase 1 backend implemented; Relations join / full Dataset V0 completion pending)
 ```
 
 **Target direction (mostly not implemented):**

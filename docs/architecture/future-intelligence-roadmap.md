@@ -75,6 +75,12 @@ Learning / Evaluation / Retraining
 Decision Memory
 ```
 
+**Current PIT Phase 1 subset (committed backend; not the full diagram above):**
+
+Analytics + Technical features + Technical signal → forward labels (`1/5/10/20` obs).
+Relations join in dataset is **pending Phase 2**. Fundamentals, regime, Meta Model, Policy,
+Risk, Simulator, and broker are not part of Phase 1.
+
 **Role separation (invariant):**
 
 | Layer | Responsibility |
@@ -98,7 +104,7 @@ Relations Engine V1            Implemented  (as_of snapshots)
         ↓
 Technical Agent V1             Implemented  (technical_daily + rules_v1)
         ↓
-Dataset / PIT Join V0          Phase 1 backend working path (not DoD-complete)
+Dataset / PIT Join V0          Phase 1 backend committed (not DoD-complete)
 ```
 
 | Layer | Role | Status |
@@ -107,7 +113,7 @@ Dataset / PIT Join V0          Phase 1 backend working path (not DoD-complete)
 | Analytics | Versioned derived daily features | Implemented (ADR 0004) |
 | Relations V1 | Statistical relations with `as_of_date` | Implemented |
 | Technical Agent V1 | Technical features + pure `rules_v1` signals | Implemented |
-| Dataset / PIT V0 | Honest `X(t)` + forward labels `Y` | **Phase 1 in progress** (see below) |
+| Dataset / PIT V0 | Honest `X(t)` + forward labels `Y` | **Phase 1 backend committed** (Relations Phase 2 pending; see below) |
 
 **Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
 `learning.model_registry` foundation (no training loop yet).
@@ -129,9 +135,9 @@ X(t) = information known <= t
 Y(t, N) = future return after t   (LABEL only)
 ```
 
-### Phase 1 (backend working path — accurate as of Dataset/PIT Phase 1)
+### Phase 1 (backend committed — Dataset/PIT Phase 1)
 
-**In scope / present in working tree:**
+**In scope / present in current codebase:**
 
 - `learning.dataset_specs`, `dataset_runs`, `dataset_samples_daily` (migration `20260901_0009`)
 - seed `pit_daily_core` v1 with explicit feature/label/metadata manifest
@@ -173,8 +179,11 @@ Core DB (today’s module folder may still say `news` — rename when the stage 
 
 ```text
 Corporate Reports → Raw filing → Parser (+ optional LLM assist)
-  → Structured Financial Facts → Derived features → Event Study / ML / Expert
+  → Structured Financial Facts → Derived features → Event Study / ML / Expert (optional)
 ```
+
+**Expert** (optional): LLM-assisted research, narrative interpretation, or explanation —
+**not** an online decision engine and not a substitute for Trading Policy / Risk / Execution.
 
 **Critical PIT:** `period_end ≠ published_at`. A model may use a report only after actual
 publication. Consensus needs its own historical snapshots / timestamps.
@@ -222,9 +231,13 @@ universe history exists.
 After honest datasets:
 
 1. **Prediction ML Candidate** — CatBoost/LightGBM/XGBoost (or similar) on PIT `X → Y`;
-   walk-forward; versioned artifacts.
+   walk-forward; versioned artifacts. **Before Historical Simulator exists, this stage is
+   offline prediction evaluation only** (metrics on unseen future label windows). It is **not**
+   trading validation, portfolio PnL, or policy proof.
 2. **Historical Simulator V0** — same decision pipeline; costs, slippage, delay; many
-   experimental lives. Warning: 10 000 runs on one known period ≠ 10 000 independent markets.
+   experimental lives. **Trading / PnL / policy validation starts here**, once Simulator plus
+   Trading Policy and Risk Manager exist. Warning: 10 000 runs on one known period ≠ 10 000
+   independent markets.
 3. **Trading Policy + Risk Manager + Order Intent** — separate from prediction.
 4. **Learning loop / Candidate–Champion / Meta Model / Market State** — see
    [future-learning.md](./future-learning.md).
@@ -283,11 +296,11 @@ Do not start a stage from documentation alone.
 | # | Stage | Status / intent |
 |---|--------|-----------------|
 | — | Market Data / Analytics / Relations / Technical | **Implemented** |
-| 1 | **Dataset / PIT Join V0** | Phase 1 backend path; Phase 2 Relations + UI + acceptance |
+| 1 | **Dataset / PIT Join V0** | Phase 1 backend committed; Phase 2 Relations + UI + acceptance |
 | 2 | Dataset hardening / acceptance | Prove repeatable hash, leakage audit, coverage honesty |
 | 3 | **Market History Expansion** (+ DQ / corporate-actions awareness) | Depth for serious training |
-| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | Order depends on data readiness |
-| 5 | **Historical Simulator V0** | Walk-forward evaluation of candidates |
+| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | Order depends on data readiness; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk (stages 5–6) |
+| 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |
 | 6 | Trading Policy + Risk + Portfolio simulation | Decision stack without real broker |
 | 7 | Learning loop / Candidate–Champion / Meta Model / Market State | Durable learning |
 | 8 | Shadow / Signal / Broker Execution Adapter / limited real capital | Earn the right to trade |
