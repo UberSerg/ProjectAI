@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -11,7 +11,12 @@ from sqlalchemy import delete, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.infrastructure.analytics.relation_models import RelationLagMetric, RelationSnapshot
+from app.infrastructure.analytics.relation_models import (
+    RelationInput,
+    RelationLagMetric,
+    RelationSet,
+    RelationSnapshot,
+)
 from app.modules.relations.application.calculator import PairRelationResult
 
 # Chunk sizes tuned for Postgres parameter limits (~65k).
@@ -158,3 +163,61 @@ def persist_pair_results(
         lags += len(lag_rows)
 
     return {"written": written, "valid": valid, "invalid": invalid, "lags": lags}
+
+
+def load_relation_inputs_by_codes(session: Session, codes: list[str]) -> dict[str, RelationInput]:
+    if not codes:
+        return {}
+    rows = list(session.scalars(select(RelationInput).where(RelationInput.code.in_(codes))))
+    return {row.code: row for row in rows}
+
+
+def load_pinned_relation_set(session: Session, code: str, version: int) -> RelationSet | None:
+    return session.scalar(select(RelationSet).where(RelationSet.code == code, RelationSet.version == version))
+
+
+def load_relation_snapshots_for_join(
+    session: Session,
+    *,
+    relation_set_id: UUID,
+    relation_set_version: int,
+    pair_ids: list[tuple[UUID, UUID]],
+    windows: list[int],
+    date_from: date,
+    date_to: date,
+    lookback_days: int,
+) -> list[RelationSnapshot]:
+    """Batch-load snapshots for unordered pairs.
+
+    PIT is snapshot.as_of_date (applied in memory: latest as_of <= t).
+    RelationRun.source_watermark is compute lineage only and is not used here.
+    """
+    if not pair_ids:
+        return []
+    ordered = [(a, b) if a < b else (b, a) for a, b in pair_ids]
+    unique_pairs = list({(a, b) for a, b in ordered})
+    lower = date_from - timedelta(days=lookback_days)
+    stmt = select(RelationSnapshot).where(
+        RelationSnapshot.relation_set_id == relation_set_id,
+        RelationSnapshot.relation_set_version == relation_set_version,
+        RelationSnapshot.window_observations.in_(windows),
+        RelationSnapshot.as_of_date <= date_to,
+        RelationSnapshot.as_of_date >= lower,
+        tuple_(RelationSnapshot.input_a_id, RelationSnapshot.input_b_id).in_(unique_pairs),
+    )
+    return list(session.scalars(stmt))
+
+
+def load_lag_metrics_for_snapshots(
+    session: Session,
+    snapshot_ids: list[int],
+) -> dict[int, list[RelationLagMetric]]:
+    if not snapshot_ids:
+        return {}
+    rows = list(
+        session.scalars(select(RelationLagMetric).where(RelationLagMetric.snapshot_id.in_(snapshot_ids)))
+    )
+    by_snap: dict[int, list[RelationLagMetric]] = {}
+    for row in rows:
+        by_snap.setdefault(row.snapshot_id, []).append(row)
+    return by_snap

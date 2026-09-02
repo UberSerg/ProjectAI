@@ -74,6 +74,7 @@ class DatasetLineageV1:
 class DatasetQualityV1:
     feature_state_valid: bool = False
     technical_available: bool = False
+    # True iff at least one pinned relation context is usable for this sample.
     relations_available: bool = False
     quality_flags: dict[str, Any] = field(default_factory=dict)
     label_valid: dict[str, bool] = field(default_factory=dict)

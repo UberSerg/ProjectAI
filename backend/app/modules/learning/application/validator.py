@@ -51,6 +51,11 @@ class PITDatasetValidator:
             if as_of > t:
                 result.fail(f"future relation snapshot {ctx} as_of {as_of} > {t}")
 
+        if sample.quality.relation_as_of_date is not None and sample.quality.relation_as_of_date > t:
+            result.fail(
+                f"future relation snapshot as_of {sample.quality.relation_as_of_date} > {t}"
+            )
+
         labels = sample.labels
         for h, target in (
             (1, labels.target_date_1d),

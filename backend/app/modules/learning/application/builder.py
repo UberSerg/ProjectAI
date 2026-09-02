@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, date, datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,6 +13,12 @@ from sqlalchemy.orm import Session
 from app.application.system.event_log import write_event
 from app.core.logging import get_logger
 from app.infrastructure.analytics.models import InstrumentFeatureDaily
+from app.infrastructure.analytics.relation_repository import (
+    load_lag_metrics_for_snapshots,
+    load_pinned_relation_set,
+    load_relation_inputs_by_codes,
+    load_relation_snapshots_for_join,
+)
 from app.infrastructure.learning.models import DatasetRun, DatasetSpec
 from app.infrastructure.learning.repository import insert_dataset_samples, sample_row
 from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Workflow
@@ -26,14 +33,22 @@ from app.modules.learning.application.contracts import (
 )
 from app.modules.learning.application.hash_util import dataset_hash, sample_content_hash
 from app.modules.learning.application.labels import ForwardReturnLabelCalculator, PriceObservation
+from app.modules.learning.application.relations_join import (
+    RelationIndex,
+    empty_relation_join,
+    extract_all_relation_features,
+    instrument_relation_input_code,
+)
 from app.modules.learning.application.seed import seed_dataset_specs
 from app.modules.learning.application.source_join import merge_phase1_features, select_exact_as_of
 from app.modules.learning.application.validator import PITDatasetValidator, assert_manifest_separation
 from app.modules.learning.dataset_config import (
     DATASET_BUILD_STEPS,
-    PHASE1_RELATIONS_JOIN_ENABLED,
     PIT_DAILY_CORE_CODE,
     PIT_DAILY_CORE_VERSION,
+    is_horizon_training_eligible,
+    is_sample_relation_missing,
+    relation_feature_names,
 )
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 
@@ -100,7 +115,11 @@ class PITDatasetBuilder:
             tech_fs = resolve_feature_set(
                 self.session, spec.technical_feature_set_code, spec.technical_feature_set_version
             )
-            # Pins stay on the spec; Relations join is Phase 2.
+            quality_policy = spec.quality_policy or {}
+            relations_enabled = bool(quality_policy.get("relations_join_enabled", True))
+            relations_optional = bool(quality_policy.get("relations_optional", True))
+            max_relation_age_days = int(quality_policy.get("max_relation_age_days", 8))
+            relation_contexts = list(spec.relation_contexts or [])
             self._mark(workflow, "Resolve pinned source versions", "SUCCESS")
 
             self._mark(workflow, "Resolve universe", "RUNNING")
@@ -191,9 +210,63 @@ class PITDatasetBuilder:
             self._mark(workflow, "Load Technical", "SUCCESS")
 
             self._mark(workflow, "Load Relations", "RUNNING")
-            if PHASE1_RELATIONS_JOIN_ENABLED:
-                raise RuntimeError("Relations join is not enabled in Dataset/PIT Phase 1")
-            self._heartbeat(workflow, relations_join="disabled_phase1")
+            relation_index = RelationIndex.build([], {})
+            subject_input_by_instrument: dict[int, UUID] = {}
+            context_input_ids: dict[str, UUID] = {}
+            relation_set_row = None
+            if relations_enabled:
+                relation_set_row = load_pinned_relation_set(
+                    self.session, spec.relation_set_code, spec.relation_set_version
+                )
+                subject_codes = [instrument_relation_input_code(inst.symbol) for inst in instruments]
+                context_codes = [str(ctx["input_code"]) for ctx in relation_contexts]
+                inputs_by_code = load_relation_inputs_by_codes(
+                    self.session, subject_codes + context_codes
+                )
+                for inst in instruments:
+                    row = inputs_by_code.get(instrument_relation_input_code(inst.symbol))
+                    if row is not None:
+                        subject_input_by_instrument[inst.id] = row.id
+                for ctx in relation_contexts:
+                    row = inputs_by_code.get(str(ctx["input_code"]))
+                    if row is not None:
+                        context_input_ids[str(ctx["key"])] = row.id
+                pair_ids = [
+                    (subj_id, ctx_id)
+                    for subj_id in subject_input_by_instrument.values()
+                    for ctx_id in context_input_ids.values()
+                    if subj_id != ctx_id
+                ]
+                windows = sorted(
+                    {
+                        int(w)
+                        for ctx in relation_contexts
+                        for w in ctx.get("windows", [20, 60, 120])
+                    }
+                )
+                if relation_set_row is not None and pair_ids and windows:
+                    snapshots = load_relation_snapshots_for_join(
+                        self.session,
+                        relation_set_id=relation_set_row.id,
+                        relation_set_version=spec.relation_set_version,
+                        pair_ids=pair_ids,
+                        windows=windows,
+                        date_from=date_from,
+                        date_to=effective_to,
+                        lookback_days=max_relation_age_days + 1,
+                    )
+                    lags_by_snapshot = load_lag_metrics_for_snapshots(
+                        self.session, [snap.id for snap in snapshots]
+                    )
+                    relation_index = RelationIndex.build(snapshots, lags_by_snapshot)
+                self._heartbeat(
+                    workflow,
+                    relations_join="enabled",
+                    relation_set=f"{spec.relation_set_code} v{spec.relation_set_version}",
+                    relation_snapshots=len(relation_index.by_pair_window),
+                )
+            else:
+                self._heartbeat(workflow, relations_join="disabled")
             self._mark(workflow, "Load Relations", "SUCCESS")
 
             # DQ discontinuities
@@ -247,6 +320,10 @@ class PITDatasetBuilder:
                 "eligible_5d": 0,
                 "eligible_10d": 0,
                 "eligible_20d": 0,
+                "rel_expected_feature_slots": 0,
+                "rel_available_feature_slots": 0,
+                "rel_expected_context_slots": 0,
+                "rel_available_context_slots": 0,
                 "rel_context_hits": {},
                 "feature_missing": {},
             }
@@ -283,6 +360,27 @@ class PITDatasetBuilder:
                     if signal is not None:
                         quality_flags.update(signal.quality_flags or {})
 
+                    if relations_enabled:
+                        rel_join = extract_all_relation_features(
+                            contexts=relation_contexts,
+                            subject_input_id=subject_input_by_instrument.get(inst.id),
+                            context_input_ids=context_input_ids,
+                            index=relation_index,
+                            as_of=as_of,
+                            max_age_days=max_relation_age_days,
+                        )
+                    else:
+                        rel_join = empty_relation_join(relation_contexts, reason="disabled")
+                    feature_values.update(rel_join.features)
+                    quality_flags.update(rel_join.quality_flags)
+                    quality_flags["relations_enabled"] = relations_enabled
+                    quality_flags["relations_optional"] = relations_optional
+                    quality_flags["max_relation_age_days"] = max_relation_age_days
+                    if rel_join.as_of_date is not None:
+                        meta["relation_as_of_date"] = rel_join.as_of_date.isoformat()
+                    if rel_join.age_days is not None:
+                        meta["relation_age_days"] = rel_join.age_days
+
                     label_result = label_calc.calculate(prices, as_of=as_of, discontinuity_dates=disc)
 
                     core_valid = bool(basic and basic.is_valid)
@@ -293,7 +391,25 @@ class PITDatasetBuilder:
                         counters["core_invalid"] += 1
                     if not tech_available:
                         counters["technical_missing"] += 1
-                    counters["relation_missing"] += 1
+                    sample_relation_missing = is_sample_relation_missing(
+                        relations_enabled=relations_enabled,
+                        relations_available=rel_join.available,
+                    )
+                    if sample_relation_missing:
+                        counters["relation_missing"] += 1
+                    quality_flags["relation_missing"] = sample_relation_missing
+                    counters["rel_expected_feature_slots"] = (
+                        counters.get("rel_expected_feature_slots", 0) + rel_join.expected_feature_count
+                    )
+                    counters["rel_available_feature_slots"] = (
+                        counters.get("rel_available_feature_slots", 0) + rel_join.available_feature_count
+                    )
+                    counters["rel_expected_context_slots"] = (
+                        counters.get("rel_expected_context_slots", 0) + rel_join.expected_context_count
+                    )
+                    counters["rel_available_context_slots"] = (
+                        counters.get("rel_available_context_slots", 0) + rel_join.available_context_count
+                    )
 
                     for fk, fv in feature_values.items():
                         if fv is None:
@@ -305,7 +421,13 @@ class PITDatasetBuilder:
                         label_ok = bool(label_result.label_valid.get(key))
                         if not label_ok:
                             counters["invalid_labels"] += 1
-                        eligible = core_valid and tech_available and label_ok
+                        eligible = is_horizon_training_eligible(
+                            core_valid=core_valid,
+                            technical_available=tech_available,
+                            label_valid=label_ok,
+                            relations_optional=relations_optional,
+                            relations_available=rel_join.available,
+                        )
                         training_eligible[f"training_eligible_{key}"] = eligible
                         if eligible:
                             counters[f"eligible_{key}"] = counters.get(f"eligible_{key}", 0) + 1
@@ -313,10 +435,12 @@ class PITDatasetBuilder:
                     quality = DatasetQualityV1(
                         feature_state_valid=core_valid,
                         technical_available=tech_available,
-                        relations_available=False,
+                        relations_available=rel_join.available,
                         quality_flags=quality_flags,
                         label_valid=dict(label_result.label_valid),
                         training_eligible=training_eligible,
+                        relation_age_days=rel_join.age_days,
+                        relation_as_of_date=rel_join.as_of_date,
                     )
 
                     lineage = DatasetLineageV1(
@@ -335,6 +459,8 @@ class PITDatasetBuilder:
                         technical_signal_as_of=signal.as_of_date if signal else None,
                         relation_set_code=spec.relation_set_code,
                         relation_set_version=spec.relation_set_version,
+                        relation_snapshot_ids=rel_join.snapshot_ids,
+                        relation_as_of_dates=rel_join.as_of_dates,
                         label_close_t_candle_id=label_result.close_t_candle_id,
                         label_target_candle_ids=label_result.target_candle_ids,
                         dataset_spec_code=spec.code,
@@ -352,7 +478,8 @@ class PITDatasetBuilder:
                         metadata={
                             **meta,
                             "label_flags": label_result.label_flags,
-                            "relations_join": "disabled_phase1",
+                            "relations_join": "enabled" if relations_enabled else "disabled",
+                            "relation_contexts": rel_join.context_meta,
                         },
                     )
                     pit = validator.validate_sample(sample)
@@ -462,10 +589,25 @@ class PITDatasetBuilder:
             dataset_run.dataset_hash = d_hash
             self._mark(workflow, "Calculate hashes", "SUCCESS")
 
+            expected_feat = max(int(counters.get("rel_expected_feature_slots", 0)), 1)
+            expected_ctx = max(int(counters.get("rel_expected_context_slots", 0)), 1)
             coverage = {
                 "relations": {
-                    "join": "disabled_phase1",
-                    "coverage_pct": 0.0,
+                    "join": "enabled" if relations_enabled else "disabled",
+                    "relations_enabled": relations_enabled,
+                    "expected_features_per_sample": len(relation_feature_names(relation_contexts)),
+                    "available_feature_slots": counters.get("rel_available_feature_slots", 0),
+                    "expected_feature_slots": counters.get("rel_expected_feature_slots", 0),
+                    "feature_coverage_pct": round(
+                        100.0 * counters.get("rel_available_feature_slots", 0) / expected_feat, 2
+                    ),
+                    "available_context_slots": counters.get("rel_available_context_slots", 0),
+                    "expected_context_slots": counters.get("rel_expected_context_slots", 0),
+                    "context_coverage_pct": round(
+                        100.0 * counters.get("rel_available_context_slots", 0) / expected_ctx, 2
+                    ),
+                    "samples_missing_all_relations": counters["relation_missing"],
+                    "max_relation_age_days": max_relation_age_days,
                 },
                 "technical_coverage_pct": round(
                     100.0 * (len(samples) - counters["technical_missing"]) / max(len(samples), 1), 2
@@ -490,7 +632,7 @@ class PITDatasetBuilder:
                     "technical_model": f"{spec.technical_model_code} v{spec.technical_model_version}",
                     "technical_model_config_hash": spec.technical_model_config_hash,
                     "relations": f"{spec.relation_set_code} v{spec.relation_set_version}",
-                    "relations_join": "disabled_phase1",
+                    "relations_join": "enabled" if relations_enabled else "disabled",
                 },
                 "relation_contexts": spec.relation_contexts,
                 "quality_policy": spec.quality_policy,
@@ -525,7 +667,10 @@ class PITDatasetBuilder:
                 "relation_set": {
                     "code": spec.relation_set_code,
                     "version": spec.relation_set_version,
-                    "join": "disabled_phase1",
+                    "id": str(relation_set_row.id) if relation_set_row is not None else None,
+                    "join": "enabled" if relations_enabled else "disabled",
+                    "pit": "snapshot.as_of_date",
+                    "run_source_watermark": "compute_lineage_not_pit",
                 },
                 "technical_model": {
                     "code": spec.technical_model_code,

@@ -14,7 +14,12 @@ from app.infrastructure.market.models import Instrument
 from app.modules.analytics.application.resolve import resolve_feature_set
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.learning.application.seed import seed_dataset_specs
-from app.modules.learning.dataset_config import PIT_DAILY_CORE_CODE, PIT_DAILY_CORE_VERSION
+from app.modules.learning.dataset_config import (
+    PIT_DAILY_CORE_CODE,
+    PIT_DAILY_CORE_VERSION,
+    RELATION_CONTEXTS_V1,
+    relation_feature_names,
+)
 
 
 def _ensure_version(session: Session, code: str, version: int) -> FeatureSet:
@@ -66,6 +71,11 @@ def test_seed_dataset_spec_idempotent(core_db: Session) -> None:
     assert roles["return_5d"] == "feature"
     assert roles["forward_return_5d"] == "label"
     assert "forward_return_5d" not in {n for n, r in roles.items() if r == "feature"}
+    for name in relation_feature_names(RELATION_CONTEXTS_V1):
+        assert roles[name] == "feature"
+    assert spec.quality_policy["relation_pit_field"] == "snapshot.as_of_date"
+    assert spec.quality_policy["relation_run_source_watermark"] == "compute_lineage_not_pit"
+    assert spec.quality_policy["relation_missing_means"] == "no_usable_context_for_sample"
 
 
 def test_pinned_feature_set_ignores_active_v2(core_db: Session) -> None:

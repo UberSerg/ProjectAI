@@ -119,6 +119,30 @@ def test_manifest_feature_label_separation() -> None:
     assert leak.has_label_leakage()
 
 
+def test_pit_validator_missing_or_stale_relation_is_not_failure() -> None:
+    validator = PITDatasetValidator(FEATURE_MANIFEST_V1)
+    sample = DatasetSampleV1(
+        instrument_id=1,
+        ticker="SBER",
+        as_of_date=date(2024, 6, 1),
+        features=DatasetFeatureVectorV1(values={"return_5d": 0.01, "rel_imoex_w60_pearson": None}),
+        labels=DatasetLabelsV1(forward_return_5d=0.02, target_date_5d=date(2024, 6, 8)),
+        lineage=DatasetLineageV1(
+            basic_feature_date=date(2024, 6, 1),
+            technical_feature_date=date(2024, 6, 1),
+            technical_signal_as_of=date(2024, 6, 1),
+            relation_as_of_dates={"imoex_w60": None},
+        ),
+        quality=DatasetQualityV1(
+            feature_state_valid=True,
+            technical_available=True,
+            relations_available=False,
+        ),
+    )
+    result = validator.validate_sample(sample)
+    assert result.ok is True
+
+
 def test_pit_validator_rejects_future_relation() -> None:
     validator = PITDatasetValidator(FEATURE_MANIFEST_V1)
     sample = DatasetSampleV1(

@@ -13,9 +13,28 @@ from app.modules.technical.technical_config import (
 PIT_DAILY_CORE_CODE = "pit_daily_core"
 PIT_DAILY_CORE_VERSION = 1
 
-# Phase 1 working path: Analytics + Technical + labels only.
-# relations_join.py stays in the tree but is not imported by PITDatasetBuilder.
-PHASE1_RELATIONS_JOIN_ENABLED = False
+# Dataset V0: Relations PIT join is part of X(t). Pin is basic_relations v1 only.
+RELATIONS_JOIN_ENABLED = True
+
+
+def relation_feature_names(contexts: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for ctx in contexts:
+        key = ctx["key"]
+        for w in ctx.get("windows", [20, 60, 120]):
+            names.append(f"rel_{key}_w{w}_pearson")
+            names.append(f"rel_{key}_w{w}_spearman")
+            if w == 60:
+                names.append(f"rel_{key}_w{w}_rolling_corr_std")
+                names.append(f"rel_{key}_w{w}_sign_consistency")
+        for lag in ctx.get("lags", [1, 2, 3, 4, 5]):
+            names.append(f"rel_{key}_subject_leads_lag{lag}_pearson")
+            names.append(f"rel_{key}_context_leads_lag{lag}_pearson")
+    return names
+
+
+def relation_feature_manifest_entries(contexts: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [{"name": name, "role": "feature", "source": "relations"} for name in relation_feature_names(contexts)]
 
 # Real relation_inputs codes from Relations V1 seed (not invented).
 RELATION_CONTEXTS_V1: list[dict[str, Any]] = [
@@ -75,6 +94,8 @@ FEATURE_MANIFEST_V1: list[dict[str, str]] = [
     {"name": "momentum_contribution", "role": "feature", "source": "technical_agent"},
     {"name": "rsi_contribution", "role": "feature", "source": "technical_agent"},
     {"name": "volume_contribution", "role": "feature", "source": "technical_agent"},
+    # Relations — generated from RELATION_CONTEXTS_V1 so the spec lists full X(t)
+    *relation_feature_manifest_entries(RELATION_CONTEXTS_V1),
     # Labels
     {"name": "forward_return_1d", "role": "label", "source": "market"},
     {"name": "forward_return_5d", "role": "label", "source": "market"},
@@ -86,7 +107,6 @@ FEATURE_MANIFEST_V1: list[dict[str, str]] = [
     {"name": "relation_age_days", "role": "metadata", "source": "relations"},
 ]
 
-# Relation feature names are generated from contexts; also listed for validator.
 RELATION_FEATURE_PREFIXES = ("rel_",)
 
 LABEL_SPEC_V1: dict[str, Any] = {
@@ -101,7 +121,11 @@ QUALITY_POLICY_V1: dict[str, Any] = {
     "require_core_features_valid": True,
     "require_technical_valid": True,
     "relations_optional": True,
-    "relations_join_enabled": PHASE1_RELATIONS_JOIN_ENABLED,
+    "relations_join_enabled": RELATIONS_JOIN_ENABLED,
+    "relations_available_means": "at_least_one_context_usable",
+    "relation_missing_means": "no_usable_context_for_sample",
+    "relation_pit_field": "snapshot.as_of_date",
+    "relation_run_source_watermark": "compute_lineage_not_pit",
     "no_imputation": True,
     "fail_hard_on_pit_violation": True,
 }
@@ -157,19 +181,25 @@ def label_names_from_manifest(manifest: list[dict[str, str]]) -> list[str]:
     return [m["name"] for m in manifest if m.get("role") == "label"]
 
 
-def relation_feature_names(contexts: list[dict[str, Any]]) -> list[str]:
-    names: list[str] = []
-    for ctx in contexts:
-        key = ctx["key"]
-        for w in ctx.get("windows", [20, 60, 120]):
-            names.append(f"rel_{key}_w{w}_pearson")
-            names.append(f"rel_{key}_w{w}_spearman")
-            if w == 60:
-                names.append(f"rel_{key}_w{w}_rolling_corr_std")
-                names.append(f"rel_{key}_w{w}_sign_consistency")
-        lag_w = int(ctx.get("lag_window", 60))
-        for lag in ctx.get("lags", [1, 2, 3, 4, 5]):
-            names.append(f"rel_{key}_subject_leads_lag{lag}_pearson")
-            names.append(f"rel_{key}_context_leads_lag{lag}_pearson")
-        _ = lag_w  # documented: lags come from window-60 snapshots
-    return names
+def is_sample_relation_missing(*, relations_enabled: bool, relations_available: bool) -> bool:
+    """Run-level relation_missing: join is on and the sample has no usable context.
+
+    Disabled join is not missing. Partial coverage (some contexts usable) is not missing.
+    """
+    return relations_enabled and not relations_available
+
+
+def is_horizon_training_eligible(
+    *,
+    core_valid: bool,
+    technical_available: bool,
+    label_valid: bool,
+    relations_optional: bool = True,
+    relations_available: bool = False,
+) -> bool:
+    """Relations are optional for Dataset V0: missing/stale/self does not block eligibility."""
+    if not (core_valid and technical_available and label_valid):
+        return False
+    if relations_optional:
+        return True
+    return relations_available

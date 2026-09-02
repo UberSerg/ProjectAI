@@ -327,7 +327,7 @@ def build_diagnostics_text(session: Session) -> str:
             f"Eligible 20d: {last_ds.eligible_20d if last_ds else 0}",
             (
                 "Relations coverage: "
-                f"{(last_ds.coverage_summary or {}).get('relations') if last_ds else 'disabled_phase1'}"
+                f"{(last_ds.coverage_summary or {}).get('relations') if last_ds else '—'}"
             ),
             f"PIT violations: {last_ds.pit_violations if last_ds else 0}",
             f"Latest dataset error: {last_ds_error.error_message if last_ds_error else '—'}",

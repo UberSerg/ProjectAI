@@ -18,7 +18,7 @@ from app.modules.learning.application.source_join import (
 )
 from app.modules.learning.dataset_config import (
     FEATURE_MANIFEST_V1,
-    PHASE1_RELATIONS_JOIN_ENABLED,
+    RELATIONS_JOIN_ENABLED,
     feature_names_from_manifest,
 )
 
@@ -71,15 +71,15 @@ def _signal(*, score: float, row_id: int = 20, model_version: int = 1) -> Simple
     )
 
 
-def test_phase1_relations_join_disabled() -> None:
-    assert PHASE1_RELATIONS_JOIN_ENABLED is False
+def test_relations_join_enabled_in_config() -> None:
+    assert RELATIONS_JOIN_ENABLED is True
 
 
-def test_builder_does_not_import_relations_join() -> None:
+def test_builder_imports_relations_join() -> None:
     import app.modules.learning.application.builder as builder_mod
 
-    assert "relations_join" not in builder_mod.__dict__
-    assert "extract_relation_features" not in builder_mod.__dict__
+    assert "extract_all_relation_features" in builder_mod.__dict__
+    assert "RelationIndex" in builder_mod.__dict__
 
 
 def test_select_exact_as_of_never_looks_ahead() -> None:
