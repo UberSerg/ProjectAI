@@ -19,9 +19,14 @@ from app.infrastructure.analytics.repository import (
 )
 from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Series, SeriesValue, Workflow
 from app.modules.analytics.application.calculator import CandleObservation, DailyFeatureCalculator
+from app.modules.analytics.application.mechanical_features import (
+    calculate_mechanical_adjusted_features,
+    uses_mechanical_price_basis,
+)
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.analytics.application.series_calculator import SeriesObservation, calculate_series_features
 from app.modules.analytics.feature_config import FEATURE_BACKFILL_STEPS
+from app.modules.market.application.mechanical_adjustment import load_mechanical_actions
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 
 logger = get_logger(__name__, component="analytics-compute")
@@ -170,6 +175,8 @@ class FeatureComputeService:
             instrument_rows = 0
             rows_valid = 0
             rows_invalid = 0
+            mechanical_actions_applied = 0
+            mechanical = uses_mechanical_price_basis(feature_set.parameters)
 
             for instrument in instruments:
                 last_feat = None
@@ -205,12 +212,26 @@ class FeatureComputeService:
                         calc_from = observations[0].date
                         calc_to = observations[-1].date
 
-                records = calculator.calculate(
-                    observations,
-                    discontinuity_dates=discontinuity_by_instrument.get(instrument.id, set()),
-                    date_from=calc_from,
-                    date_to=calc_to,
-                )
+                raw_disc = discontinuity_by_instrument.get(instrument.id, set())
+                if mechanical:
+                    actions = load_mechanical_actions(self.session, instrument.id)
+                    mechanical_actions_applied += len(actions)
+                    ca_dates = {item.event_date for item in actions}
+                    records = calculate_mechanical_adjusted_features(
+                        calculator,
+                        observations,
+                        actions,
+                        discontinuity_dates=raw_disc - ca_dates,
+                        date_from=calc_from,
+                        date_to=calc_to,
+                    )
+                else:
+                    records = calculator.calculate(
+                        observations,
+                        discontinuity_dates=raw_disc,
+                        date_from=calc_from,
+                        date_to=calc_to,
+                    )
                 if records:
                     instrument_rows += upsert_instrument_features(
                         self.session,
@@ -286,6 +307,7 @@ class FeatureComputeService:
                 details={
                     "instrument_rows": instrument_rows,
                     "series_rows": series_rows,
+                    "mechanical_actions_applied": mechanical_actions_applied,
                     "duration_seconds": round(time.perf_counter() - started, 2),
                 },
                 workflow_id=workflow.id,
@@ -298,6 +320,7 @@ class FeatureComputeService:
                 "status": status,
                 "instrument_rows": instrument_rows,
                 "series_rows": series_rows,
+                "mechanical_actions_applied": mechanical_actions_applied,
                 "duration_seconds": round(time.perf_counter() - started, 2),
             }
         except Exception as exc:

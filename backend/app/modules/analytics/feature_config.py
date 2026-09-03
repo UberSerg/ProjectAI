@@ -28,7 +28,29 @@ BASIC_DAILY_V1: FeatureSetDefinition = {
     },
 }
 
-FEATURE_SETS: tuple[FeatureSetDefinition, ...] = (BASIC_DAILY_V1,)
+BASIC_DAILY_V2: FeatureSetDefinition = {
+    "code": "basic_daily",
+    "version": 2,
+    "description": (
+        "Daily features on PIT mechanical-adjusted close/volume "
+        "(SPLIT/REVERSE_SPLIT only; not dividend/total-return)"
+    ),
+    "parameters": {
+        "return_windows": [1, 2, 3, 5, 10, 20],
+        "volatility_windows": [5, 20],
+        "drawdown_window": 20,
+        "volume_zscore_window": 20,
+        "volatility_ddof": 1,
+        "volatility_annualized": False,
+        "max_lookback_observations": 20,
+        "incremental_safety_observations": 25,
+        "price_basis": "mechanical_adjusted",
+        "volume_basis": "mechanical_adjusted",
+        "mechanical_action_types": ["SPLIT", "REVERSE_SPLIT"],
+    },
+}
+
+FEATURE_SETS: tuple[FeatureSetDefinition, ...] = (BASIC_DAILY_V1, BASIC_DAILY_V2)
 
 RETURN_COLUMNS = ("return_1d", "return_2d", "return_3d", "return_5d", "return_10d", "return_20d")
 

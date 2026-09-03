@@ -9,9 +9,11 @@ Analytics Layer stores **derived** market features separately from **factual** m
 
 ## Feature set versioning
 
-Feature semantics are immutable per `(code, version)`. Current active set:
+Feature semantics are immutable per `(code, version)`.
 
-- **basic_daily v1**
+- **basic_daily v1** — RAW close/volume (active)
+- **basic_daily v2** — PIT mechanical-adjusted close/volume for SPLIT / REVERSE_SPLIT
+  only. Not dividend-adjusted. Not total return. Not active by default.
 
 Parameters live in `analytics.feature_sets.parameters` (single source of truth).
 
@@ -54,9 +56,18 @@ Business history: `analytics.feature_runs`. Technical events: `system.event_logs
 
 ## V1 limitations
 
-- `basic_daily` v1 uses **RAW** close. No mechanical-adjusted or total-return columns.
+- `basic_daily` v1 uses **RAW** close. Mechanical-adjusted features live in **v2**, not here.
 - Unresolved `abnormal_price_jump` flags discontinuities; it does **not** classify split vs
-  crash vs dividend (H1+). Raw candles are never modified.
-- Future adjusted / total-return features require a **new feature-set version** (ADR 0005).
-- Row-level quality flags when feature-level would be heavier
-- No long-term audit log for analytics events
+  crash vs dividend. Raw candles are never modified.
+
+## H4A — basic_daily v2 (mechanical adjustment)
+
+Formulas are the same as v1, but close/volume are first scaled onto the share basis of
+sample date `t` using only `SPLIT` / `REVERSE_SPLIT` with `effective_date <= t`.
+
+- price_adj(d|t) = price_raw(d) / Π factor for events with `d < event_date <= t`
+- volume_adj(d|t) = volume_raw(d) × that product
+- factor = after / before
+- A future event (`effective_date > t`) must not change X(t)
+- Dividend gaps stay in the series. H3.1 dividend ingest is deferred (no free PIT feed).
+- `market.candles` stay RAW. Technical / Relations / Dataset still pin v1.

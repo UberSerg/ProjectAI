@@ -46,6 +46,54 @@ def _count_mapping_overlaps(session: Session) -> int:
     return errors
 
 
+def _mechanical_analytics_lines(session: Session) -> list[str]:
+    v2 = session.scalar(select(FeatureSet).where(FeatureSet.code == "basic_daily", FeatureSet.version == 2))
+    ca_count = (
+        session.scalar(
+            select(func.count())
+            .select_from(CorporateAction)
+            .where(CorporateAction.event_type.in_(SPLIT_FEED_EVENT_TYPES))
+        )
+        or 0
+    )
+    if v2 is None:
+        return [
+            "Mechanical adjustment (H4A): basic_daily v2 not seeded",
+            f"Mechanical CA (SPLIT/REVERSE_SPLIT): {ca_count}",
+        ]
+    rows = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentFeatureDaily)
+            .where(InstrumentFeatureDaily.feature_set_id == v2.id)
+        )
+        or 0
+    )
+    latest = session.scalar(
+        select(func.max(InstrumentFeatureDaily.date)).where(InstrumentFeatureDaily.feature_set_id == v2.id)
+    )
+    last_v2 = session.scalar(
+        select(FeatureRun)
+        .where(FeatureRun.feature_set_id == v2.id, FeatureRun.status.in_(["SUCCESS", "WARNING"]))
+        .order_by(desc(FeatureRun.finished_at))
+        .limit(1)
+    )
+    last_err = session.scalar(
+        select(FeatureRun)
+        .where(FeatureRun.feature_set_id == v2.id, FeatureRun.status == "ERROR")
+        .order_by(desc(FeatureRun.created_at))
+        .limit(1)
+    )
+    last_ts = last_v2.finished_at.isoformat() if last_v2 and last_v2.finished_at else "—"
+    return [
+        "Mechanical adjustment (H4A): basic_daily v2 (SPLIT/REVERSE_SPLIT; not total return)",
+        f"V2 history coverage: rows={rows} latest={latest.isoformat() if latest else '—'}",
+        f"Mechanical CA count: {ca_count}",
+        f"Latest V2 run: {last_ts}",
+        f"Latest V2 error: {last_err.error_message if last_err else '—'}",
+    ]
+
+
 def _svc(services: dict[str, str], key: str, label: str) -> str:
     value = services.get(key)
     if value is None:
@@ -200,7 +248,7 @@ def build_diagnostics_text(session: Session) -> str:
             f"historical={source_closed} overlaps={overlap_errors}"
         ),
         "RAW deep history: official ISS/CBR candles available (H3)",
-        "Deep history ML-ready: NO — pending H4 adjusted/TR, H5 versioned recompute, H6 Dataset",
+        "Deep history ML-ready: NO — H4A mechanical only; pending H4B TR, H5, H6",
         "",
     ]
 
@@ -284,6 +332,8 @@ def build_diagnostics_text(session: Session) -> str:
             f"Invalid rows: {invalid_rows}",
             f"Rows with quality warnings: {warning_rows}",
             f"Last analytics error: {last_analytics_error.error_message if last_analytics_error else '—'}",
+            "",
+            *_mechanical_analytics_lines(session),
             "",
         ]
     )

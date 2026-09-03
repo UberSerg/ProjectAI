@@ -5,11 +5,15 @@ ProjectAI Market Data V1 loads and stores factual market history for later analy
 **H0 contract (ADR 0005):** `market.candles` stores **RAW** exchange OHLCV. Do not overwrite
 with adjusted or total-return prices. **H1:** official MOEX ISS splits feed is ingested as `market.corporate_actions`
 (`SPLIT` / `REVERSE_SPLIT` by factor). Events explain jumps; they do not rewrite candles.
-`DIVIDEND` ingest, adjusted prices, and total return are not implemented. **H2:**
+**H3.1 DIVIDEND ingest is deferred:** no trustworthy free historical PIT feed
+(public `/securities/{SECID}/dividends` no longer returns a table; CCI is subscriber-only).
+Do not scrape or invent ex-date / `known_at`. **H4A** mechanical-adjusted Analytics
+(`basic_daily` v2) uses SPLIT / REVERSE_SPLIT only — not total return.
+**H2:**
 `instrument_sources` has `valid_from`/`valid_to` so as-of SECID/board can be resolved.
 **H2.1** fills trusted ISS `history_from` windows for the current cohort only.
 **H3** loads official RAW ISS/CBR history for those proven windows.
-Deep raw history is **not** ML-ready (pending H4/H5/H6).
+Deep raw history is **not** ML-ready (H4A is mechanical only; pending H4B/H5/H6).
 This is not a historical universe. MOEX ISS + CBR are canonical sources.
 
 ## Sources
