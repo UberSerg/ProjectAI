@@ -13,7 +13,13 @@ from app.application.system.health import get_system_health
 from app.application.system.info import get_system_info
 from app.application.system.sanitize import sanitize_text
 from app.infrastructure.analytics.models import FeatureRun, FeatureSet, InstrumentFeatureDaily
-from app.infrastructure.analytics.relation_models import RelationInput, RelationRun, RelationSet, RelationSnapshot
+from app.infrastructure.analytics.relation_models import (
+    RelationInput,
+    RelationLagMetric,
+    RelationRun,
+    RelationSet,
+    RelationSnapshot,
+)
 from app.infrastructure.market.models import (
     Candle,
     CorporateAction,
@@ -95,6 +101,70 @@ def _mechanical_analytics_lines(session: Session) -> list[str]:
         f"Mechanical CA count: {ca_count}",
         f"Latest V2 run: {last_ts}",
         f"Latest V2 error: {last_err.error_message if last_err else '—'}",
+    ]
+
+
+def _relations_version_lines(session: Session, version: int) -> list[str]:
+    row = session.scalar(
+        select(RelationSet).where(RelationSet.code == "basic_relations", RelationSet.version == version)
+    )
+    label = f"Relations V{version}"
+    if row is None:
+        return [f"{label}: basic_relations v{version} not seeded"]
+    params = row.parameters or {}
+    pin_ver = params.get("analytics_feature_set_version")
+    if pin_ver is None:
+        pin_ver = 1
+    basis = params.get("price_basis") or ("raw" if version == 1 else "—")
+    status = "active" if row.is_active else "not active"
+    snaps = (
+        session.scalar(
+            select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.relation_set_id == row.id)
+        )
+        or 0
+    )
+    valid = (
+        session.scalar(
+            select(func.count())
+            .select_from(RelationSnapshot)
+            .where(RelationSnapshot.relation_set_id == row.id, RelationSnapshot.is_valid.is_(True))
+        )
+        or 0
+    )
+    invalid = (
+        session.scalar(
+            select(func.count())
+            .select_from(RelationSnapshot)
+            .where(RelationSnapshot.relation_set_id == row.id, RelationSnapshot.is_valid.is_(False))
+        )
+        or 0
+    )
+    lags = (
+        session.scalar(
+            select(func.count())
+            .select_from(RelationLagMetric)
+            .join(RelationSnapshot, RelationLagMetric.snapshot_id == RelationSnapshot.id)
+            .where(RelationSnapshot.relation_set_id == row.id)
+        )
+        or 0
+    )
+    latest = session.scalar(
+        select(func.max(RelationSnapshot.as_of_date)).where(RelationSnapshot.relation_set_id == row.id)
+    )
+    last_run = session.scalar(
+        select(RelationRun)
+        .where(RelationRun.relation_set_id == row.id, RelationRun.status.in_(["SUCCESS", "WARNING", "NO_CHANGES"]))
+        .order_by(desc(RelationRun.finished_at))
+        .limit(1)
+    )
+    last_ts = last_run.finished_at.isoformat() if last_run and last_run.finished_at else "—"
+    last_status = last_run.status if last_run else "—"
+    return [
+        f"{label}: basic_relations v{version} ({basis}; {status})",
+        f"Analytics pin: basic_daily v{pin_ver}",
+        f"V{version} snapshots: {snaps} valid={valid} invalid={invalid} lags={lags}",
+        f"V{version} latest as_of: {latest.isoformat() if latest else '—'}",
+        f"Latest V{version} run: {last_ts} status={last_status}",
     ]
 
 
@@ -313,7 +383,7 @@ def build_diagnostics_text(session: Session) -> str:
             f"historical={source_closed} overlaps={overlap_errors}"
         ),
         "RAW deep history: official ISS/CBR candles available (H3)",
-        "Deep history ML-ready: NO — H4A/H5A mechanical only; pending H4B TR, H5B, H6",
+        "Deep history ML-ready: NO — H4A/H5A/H5B mechanical only; pending H4B TR, H6",
         "",
     ]
 
@@ -452,6 +522,10 @@ def build_diagnostics_text(session: Session) -> str:
             f"Snapshots valid: {snap_valid}",
             f"Snapshots invalid: {snap_invalid}",
             f"Last relations error: {last_rel_error.error_message if last_rel_error else '—'}",
+            "",
+            *_relations_version_lines(session, 1),
+            "",
+            *_relations_version_lines(session, 2),
             "",
         ]
     )

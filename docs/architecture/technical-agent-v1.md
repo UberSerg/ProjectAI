@@ -217,5 +217,6 @@ Same indicator formulas and scoring as V1, on PIT mechanical-adjusted OHLCV
 - `technical_daily` v1 / `rules` v1 use RAW OHLC and `basic_daily` v1 (released).
 - **H5A:** `technical_daily` v2 / `rules` v2 use PIT mechanical-adjusted OHLCV and
   pin `basic_daily` v2. Same scoring formula; not active. Not dividend/total-return.
-- Relations V2 / Dataset v2 / ML are not implemented.
+- **H5B:** Relations V2 (`basic_relations` v2) pins `basic_daily` v2. Dataset v2 / ML
+  are not implemented.
 - Not a BUY/SELL recommendation   

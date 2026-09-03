@@ -15,11 +15,13 @@ from app.modules.relations.application.seed import seed_relation_inputs, seed_re
 
 def test_seed_relation_sets(core_db: Session) -> None:
     result = seed_relation_sets(core_db)
-    assert result["ensured"] >= 1
+    assert result["ensured"] >= 2
     active = core_db.scalar(select(RelationSet).where(RelationSet.is_active.is_(True)))
     assert active is not None
     assert active.code == "basic_relations"
     assert active.version == 1
+    v2 = core_db.scalar(select(RelationSet).where(RelationSet.code == "basic_relations", RelationSet.version == 2))
+    assert v2 is not None and v2.is_active is False
     assert "windows" in active.parameters
     assert active.parameters["minimum_coverage_ratio"] == 0.8
 

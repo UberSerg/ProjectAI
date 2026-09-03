@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -17,6 +18,7 @@ from app.infrastructure.analytics.relation_models import RelationInput, Relation
 from app.infrastructure.analytics.relation_repository import persist_pair_results
 from app.infrastructure.market.models import SeriesValue, Workflow
 from app.modules.analytics.application.alignment import DatedValue
+from app.modules.analytics.application.resolve import resolve_feature_set
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 from app.modules.relations.application.calculator import InputSeries, RelationCalculator
 from app.modules.relations.application.resolve import resolve_relation_set
@@ -25,6 +27,16 @@ from app.modules.relations.application.transforms import asof_level_then_change
 from app.modules.relations.relation_config import RELATIONS_COMPUTE_STEPS
 
 logger = get_logger(__name__, component="relations-compute")
+
+
+def resolve_analytics_feature_set(session: Session, relation_set: RelationSet) -> FeatureSet:
+    """Pin Analytics source from relation-set parameters. Never use active/latest."""
+    params = relation_set.parameters or {}
+    code = str(params.get("analytics_feature_set_code") or "basic_daily")
+    version = params.get("analytics_feature_set_version")
+    if version is None:
+        version = 1
+    return resolve_feature_set(session, code, int(version))
 
 
 def _iter_as_of_dates(date_from: date, date_to: date, cadence: str) -> list[date]:
@@ -86,6 +98,7 @@ class RelationsComputeService:
         relation_set_code: str = "basic_relations",
         relation_set_version: int = 1,
         workflow_id: int | None = None,
+        input_codes: list[str] | None = None,
     ) -> dict[str, Any]:
         return self._run(
             run_type="BACKFILL",
@@ -95,6 +108,7 @@ class RelationsComputeService:
             relation_set_code=relation_set_code,
             relation_set_version=relation_set_version,
             workflow_id=workflow_id,
+            input_codes=input_codes,
         )
 
     def _run(
@@ -107,6 +121,7 @@ class RelationsComputeService:
         relation_set_code: str,
         relation_set_version: int,
         workflow_id: int | None,
+        input_codes: list[str] | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         workflow = self._resolve_workflow(workflow_id, run_type)
@@ -128,14 +143,15 @@ class RelationsComputeService:
                     select(RelationInput).where(RelationInput.is_active.is_(True)).order_by(RelationInput.code)
                 )
             )
+            if input_codes:
+                wanted = set(input_codes)
+                inputs = [item for item in inputs if item.code in wanted]
             if not inputs:
                 raise RuntimeError("No active relation inputs after seed")
             self._mark(workflow, "Resolve / seed inputs", "SUCCESS")
 
             self._mark(workflow, "Resolve as-of dates", "RUNNING")
-            feature_set = self.session.scalar(select(FeatureSet).where(FeatureSet.is_active.is_(True)))
-            if feature_set is None:
-                raise RuntimeError("No active analytics feature set — run FeatureBackfill first")
+            feature_set = resolve_analytics_feature_set(self.session, relation_set)
 
             max_feat_date = self.session.scalar(
                 select(func.max(InstrumentFeatureDaily.date)).where(
@@ -283,65 +299,87 @@ class RelationsComputeService:
             self._mark(workflow, "Load feature matrix", "SUCCESS")
 
             self._mark(workflow, "Calculate relations", "RUNNING")
-            all_results = []
             input_ids = [inp.id for inp in inputs if inp.id in series_by_id]
-            calc_started = time.perf_counter()
-            for idx, as_of in enumerate(as_of_dates):
+            already = {
+                row
+                for row in self.session.scalars(
+                    select(RelationSnapshot.as_of_date).where(RelationSnapshot.relation_set_id == relation_set.id)
+                )
+            }
+            pending = [d for d in as_of_dates if d not in already]
+            skipped = len(as_of_dates) - len(pending)
+            relation_run.snapshots_skipped = skipped
+            totals = {"written": 0, "valid": 0, "invalid": 0, "lags": 0}
+            pairs_calculated = 0
+            insufficient = 0
+            pairs_expected = (
+                len(input_ids) * max(len(input_ids) - 1, 0) // 2 * len(calculator.windows) * max(len(pending), 1)
+            )
+            self._mark(workflow, "Calculate relations", "SUCCESS")
+            self._mark(workflow, "Persist snapshots", "RUNNING")
+            for idx, as_of in enumerate(pending):
                 as_of_t0 = time.perf_counter()
                 pair_results = calculator.calculate_as_of(
                     series_by_id, as_of_date=as_of, input_ids=input_ids
                 )
-                all_results.extend(pair_results)
-                # Heartbeat every as_of so watchdog/UI see progress (meta must be in API).
-                pairs_expected = (
-                    len(input_ids) * max(len(input_ids) - 1, 0) // 2 * len(calculator.windows) * len(as_of_dates)
-                )
-                workflow.meta = {
-                    **(workflow.meta or {}),
-                    "as_of_progress": f"{idx + 1}/{len(as_of_dates)}",
-                    "as_of_current": as_of.isoformat(),
-                    "pairs_done": len(all_results),
-                    "pairs_expected": pairs_expected,
-                    "last_as_of_calc_s": round(time.perf_counter() - as_of_t0, 2),
-                    "calc_elapsed_s": round(time.perf_counter() - calc_started, 2),
-                }
-                self.session.commit()
-            relation_run.pairs_calculated = len(all_results)
-            self._mark(workflow, "Calculate relations", "SUCCESS")
-
-            self._mark(workflow, "Persist snapshots", "RUNNING")
-            # Larger batches — persist_pair_results is now true bulk SQL
-            batch_size = 2000
-            totals = {"written": 0, "valid": 0, "invalid": 0, "lags": 0}
-            persist_started = time.perf_counter()
-            for i in range(0, len(all_results), batch_size):
-                batch = all_results[i : i + batch_size]
+                pairs_calculated += len(pair_results)
+                insufficient += sum(1 for r in pair_results if r.quality_flags.get("insufficient_samples"))
                 stats = persist_pair_results(
                     self.session,
                     relation_run_id=relation_run.id,
                     relation_set_id=relation_set.id,
                     relation_set_version=relation_set.version,
-                    results=batch,
+                    results=pair_results,
                 )
-                for k in totals:
-                    totals[k] += stats[k]
-                self.session.commit()
+                for key in totals:
+                    totals[key] += stats[key]
                 workflow.meta = {
                     **(workflow.meta or {}),
-                    "persist_progress": f"{min(i + batch_size, len(all_results))}/{len(all_results)}",
+                    "relation_set": f"{relation_set.code} v{relation_set.version}",
+                    "analytics_pin": f"{feature_set.code} v{feature_set.version}",
+                    "as_of_progress": f"{idx + 1}/{len(pending)}",
+                    "as_of_current": as_of.isoformat(),
+                    "as_of_skipped": skipped,
+                    "inputs": len(input_ids),
+                    "pairs_done": pairs_calculated,
+                    "pairs_expected": pairs_expected,
+                    "snapshots_written": totals["written"],
                     "lags_written": totals["lags"],
-                    "persist_elapsed_s": round(time.perf_counter() - persist_started, 2),
+                    "last_as_of_s": round(time.perf_counter() - as_of_t0, 2),
+                    "elapsed_s": round(time.perf_counter() - started, 2),
                 }
+                logger.info(
+                    "relations_heartbeat set=%s v%s pin=%s as_of=%s progress=%s/%s "
+                    "inputs=%s snapshots=%s lags=%s elapsed_s=%.1f last_as_of_s=%.2f",
+                    relation_set.code,
+                    relation_set.version,
+                    f"{feature_set.code} v{feature_set.version}",
+                    as_of.isoformat(),
+                    idx + 1,
+                    len(pending),
+                    len(input_ids),
+                    totals["written"],
+                    totals["lags"],
+                    time.perf_counter() - started,
+                    time.perf_counter() - as_of_t0,
+                )
+                if os.environ.get("RELATIONS_HEARTBEAT_STDOUT") == "1":
+                    print(
+                        f"HEARTBEAT set={relation_set.code} v{relation_set.version} "
+                        f"pin={feature_set.code} v{feature_set.version} "
+                        f"as_of={as_of.isoformat()} progress={idx + 1}/{len(pending)} "
+                        f"inputs={len(input_ids)} snapshots={totals['written']} "
+                        f"lags={totals['lags']} elapsed_s={time.perf_counter() - started:.1f}",
+                        flush=True,
+                    )
                 self.session.commit()
+            relation_run.pairs_calculated = pairs_calculated
             relation_run.snapshots_written = totals["written"]
             relation_run.snapshots_valid = totals["valid"]
             relation_run.snapshots_invalid = totals["invalid"]
             self._mark(workflow, "Persist snapshots", "SUCCESS")
 
             self._mark(workflow, "Run quality summary", "RUNNING")
-            insufficient = sum(
-                1 for r in all_results if r.quality_flags.get("insufficient_samples")
-            )
             if insufficient:
                 write_event(
                     self.session,
@@ -383,6 +421,8 @@ class RelationsComputeService:
                 "snapshots_valid": totals["valid"],
                 "snapshots_invalid": totals["invalid"],
                 "as_of_count": len(as_of_dates),
+                "as_of_computed": len(pending),
+                "as_of_skipped": skipped,
                 "inputs_total": len(inputs),
                 "duration_s": round(duration, 2),
             }

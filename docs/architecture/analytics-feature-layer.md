@@ -70,4 +70,5 @@ sample date `t` using only `SPLIT` / `REVERSE_SPLIT` with `effective_date <= t`.
 - factor = after / before
 - A future event (`effective_date > t`) must not change X(t)
 - Dividend gaps stay in the series. H3.1 dividend ingest is deferred (no free PIT feed).
-- `market.candles` stay RAW. Technical / Relations / Dataset still pin v1.
+- `market.candles` stay RAW. Active Technical / Relations / Dataset still pin v1.
+  **H5B:** `basic_relations` v2 explicitly pins `basic_daily` v2 (not active).

@@ -104,6 +104,24 @@ Prefer `/pairs/detail` for pair + lag profile (avoids N+1).
 
 Sidebar **Связи** → overview, top relations table, filters, pair explorer (lag table), disclaimer. No network graph.
 
+## H5B — basic_relations v2 (mechanical-adjusted)
+
+`basic_relations` v2 is an explicit version. Formulas (Pearson / Spearman, windows
+20/60/120, lags 1..5 both ways, stability, weekly snapshots) are the same as v1.
+
+The version bump is **input semantics**: instrument `log_return_1d` comes from
+**pinned** `basic_daily` v2 (PIT mechanical-adjusted, SPLIT / REVERSE_SPLIT only).
+
+- V2 must **not** resolve active / latest Analytics. Pin stays `basic_daily` v2 even
+  if a later Analytics version becomes active.
+- V1 remains the raw-based historical contract. V1 snapshots / runs are not overwritten.
+- V2 is **not** active. Active remains `basic_relations` v1.
+- Dividend / total-return correlation is **not** implemented.
+- Cadence stays weekly. Dataset v2 is H6.
+
+API: `/overview`, `/snapshots`, `/pairs/detail` accept `relation_set_version`
+(default = active v1).
+
 ## Limitations (honest)
 
 V1 does **not** include:
@@ -114,9 +132,10 @@ V1 does **not** include:
 - fundamental intelligence
 - Technical Agent / Recommendations
 - automated trading signals
-- mechanical-adjusted inputs (`basic_relations` v1 uses Analytics `log_return_1d` on RAW
-  close). Future versions should stop treating split/denomination jumps as correlation
-  shocks, without auto-erasing dividend gaps (ADR 0005).
+- dividend / total-return correlation (V2 is mechanical-adjusted only)
+- mechanical-adjusted inputs in **v1** (`basic_relations` v1 still uses Analytics
+  `log_return_1d` on RAW close). **H5B:** `basic_relations` v2 pins `basic_daily` v2
+  so SPLIT / REVERSE_SPLIT are not treated as correlation shocks. Dividend gaps stay.
 
 **Performance (current universe ~48 inputs):** RelationsComputeLatest ≈ **45 s**; historical WEEKLY backfill (~90–120 days, ~18 as-of) ≈ **10 min**. Acceptable for asynchronous V1. Further profiling only if the universe grows materially.
 
