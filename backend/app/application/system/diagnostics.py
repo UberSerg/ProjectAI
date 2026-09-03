@@ -25,7 +25,7 @@ from app.infrastructure.market.models import (
 )
 from app.infrastructure.technical.models import TechnicalRun, TechnicalSignalDaily
 from app.modules.analytics.application.seed import seed_feature_sets
-from app.modules.market.application.split_events import EVENT_TYPE_SPLIT
+from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 from app.modules.relations.application.seed import seed_relation_sets
 from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V1_VERSION
 
@@ -50,7 +50,7 @@ def build_diagnostics_text(session: Session) -> str:
         session.scalar(
             select(func.count())
             .select_from(CorporateAction)
-            .where(CorporateAction.event_type == EVENT_TYPE_SPLIT)
+            .where(CorporateAction.event_type.in_(SPLIT_FEED_EVENT_TYPES))
         )
         or 0
     )
@@ -133,7 +133,7 @@ def build_diagnostics_text(session: Session) -> str:
         f"Series: {series}",
         f"Last market data: {last_ts.isoformat() if last_ts else '—'}",
         "",
-        f"Corporate actions (SPLIT): {split_count}",
+        f"Corporate actions (SPLIT/REVERSE_SPLIT): {split_count}",
         f"Last SPLIT ingest: {last_split_at}",
         f"Unresolved last SPLIT run: {last_unresolved}",
         "",

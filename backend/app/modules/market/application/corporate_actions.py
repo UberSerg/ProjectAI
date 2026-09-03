@@ -15,10 +15,11 @@ from app.infrastructure.market.moex_iss import MoexIssProvider
 from app.infrastructure.market.raw_store import RawStore
 from app.modules.market.application.data_quality import annotate_jumps_explained_by_splits
 from app.modules.market.application.split_events import (
-    EVENT_TYPE_SPLIT,
     SOURCE_MOEX,
+    SPLIT_FEED_EVENT_TYPES,
     SplitEventDraft,
     SplitParseResult,
+    classify_split_factor,
     payload_for_split,
     validate_split_ratio,
 )
@@ -62,17 +63,27 @@ def resolve_moex_secid(session: Session, secid: str) -> int | None:
 
 def upsert_split_event(session: Session, instrument_id: int, draft: SplitEventDraft) -> str:
     validate_split_ratio(draft.split_before, draft.split_after)
+    if classify_split_factor(draft.adjustment_factor) != draft.event_type:
+        raise ValueError("draft event_type does not match split factor classification")
     existing = session.scalar(
         select(CorporateAction).where(
             CorporateAction.instrument_id == instrument_id,
-            CorporateAction.event_type == EVENT_TYPE_SPLIT,
             CorporateAction.event_date == draft.effective_date,
             CorporateAction.source == draft.source,
             CorporateAction.external_id == draft.secid,
+            CorporateAction.event_type.in_(SPLIT_FEED_EVENT_TYPES),
         )
     )
     payload = payload_for_split(draft)
     if existing is not None:
+        same_semantics = (
+            existing.event_type == draft.event_type
+            and existing.payload == payload
+            and existing.known_at is None
+        )
+        if same_semantics:
+            return "unchanged"
+        existing.event_type = draft.event_type
         existing.payload = payload
         existing.known_at = None
         return "updated"
@@ -80,7 +91,7 @@ def upsert_split_event(session: Session, instrument_id: int, draft: SplitEventDr
         CorporateAction(
             instrument_id=instrument_id,
             event_date=draft.effective_date,
-            event_type=EVENT_TYPE_SPLIT,
+            event_type=draft.event_type,
             payload=payload,
             source=draft.source,
             external_id=draft.secid,
@@ -224,6 +235,7 @@ class SplitIngestionService:
     def _persist(self, parsed: SplitParseResult) -> dict[str, Any]:
         inserted = 0
         updated = 0
+        unchanged = 0
         rejected = parsed.rejected
         unresolved_secids: list[str] = []
         seen_unresolved: set[str] = set()
@@ -232,6 +244,9 @@ class SplitIngestionService:
             try:
                 validate_split_ratio(draft.split_before, draft.split_after)
             except ValueError:
+                rejected += 1
+                continue
+            if classify_split_factor(draft.adjustment_factor) != draft.event_type:
                 rejected += 1
                 continue
             instrument_id = resolve_moex_secid(self.session, draft.secid)
@@ -244,14 +259,17 @@ class SplitIngestionService:
             action = upsert_split_event(self.session, instrument_id, draft)
             if action == "inserted":
                 inserted += 1
-            else:
+            elif action == "updated":
                 updated += 1
+            else:
+                unchanged += 1
         self.session.flush()
         return {
             "received": parsed.received,
             "resolved": resolved,
             "inserted": inserted,
             "updated": updated,
+            "unchanged": unchanged,
             "unresolved": len(unresolved_secids),
             "rejected": rejected,
             "unresolved_secids": unresolved_secids[:20],

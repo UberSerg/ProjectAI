@@ -18,7 +18,7 @@ from app.infrastructure.market.models import (
     DataQualityIssue,
     Instrument,
 )
-from app.modules.market.application.split_events import EVENT_TYPE_SPLIT
+from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 
 DQMode = Literal["historical", "operational"]
 
@@ -194,7 +194,7 @@ def _run_historical(session: Session, context: DataQualityContext) -> dict[str, 
                     details=_jump_details(
                         older,
                         newer,
-                        explained_by_split=(instrument_id, newer.timestamp.date()) in split_dates,
+                        explained_by=split_dates.get((instrument_id, newer.timestamp.date())),
                     ),
                 )
 
@@ -358,7 +358,7 @@ def _run_operational(session: Session, context: DataQualityContext) -> dict[str,
                         details=_jump_details(
                             older,
                             newer,
-                            explained_by_split=(instrument.id, newer.timestamp.date()) in split_dates,
+                            explained_by=split_dates.get((instrument.id, newer.timestamp.date())),
                         ),
                     )
 
@@ -405,17 +405,20 @@ def _run_operational(session: Session, context: DataQualityContext) -> dict[str,
     }
 
 
-def load_split_effective_dates(session: Session) -> set[tuple[int, date]]:
+def load_split_effective_dates(session: Session) -> dict[tuple[int, date], str]:
+    """Map (instrument_id, effective_date) → normalized SPLIT / REVERSE_SPLIT."""
     rows = session.execute(
-        select(CorporateAction.instrument_id, CorporateAction.event_date).where(
-            CorporateAction.event_type == EVENT_TYPE_SPLIT
-        )
+        select(
+            CorporateAction.instrument_id,
+            CorporateAction.event_date,
+            CorporateAction.event_type,
+        ).where(CorporateAction.event_type.in_(SPLIT_FEED_EVENT_TYPES))
     ).all()
-    return {(instrument_id, event_date) for instrument_id, event_date in rows}
+    return {(instrument_id, event_date): event_type for instrument_id, event_date, event_type in rows}
 
 
 def split_explains_jump(session: Session, instrument_id: int, jump_date: date) -> bool:
-    """True when a persisted SPLIT effective_date matches the jump date for the instrument."""
+    """True when a persisted split-feed event effective_date matches the jump date."""
     return (instrument_id, jump_date) in load_split_effective_dates(session)
 
 
@@ -433,12 +436,13 @@ def annotate_jumps_explained_by_splits(session: Session) -> int:
     for issue in issues:
         if issue.instrument_id is None or issue.timestamp is None:
             continue
-        if (issue.instrument_id, issue.timestamp.date()) not in split_dates:
+        event_type = split_dates.get((issue.instrument_id, issue.timestamp.date()))
+        if event_type is None:
             continue
         details = dict(issue.details or {})
-        if details.get("explained_by_corporate_action") == EVENT_TYPE_SPLIT:
+        if details.get("explained_by_corporate_action") == event_type:
             continue
-        details["explained_by_corporate_action"] = EVENT_TYPE_SPLIT
+        details["explained_by_corporate_action"] = event_type
         issue.details = details
         flag_modified(issue, "details")
         annotated += 1
@@ -447,10 +451,10 @@ def annotate_jumps_explained_by_splits(session: Session) -> int:
     return annotated
 
 
-def _jump_details(older: Candle, newer: Candle, *, explained_by_split: bool) -> dict[str, Any]:
+def _jump_details(older: Candle, newer: Candle, *, explained_by: str | None) -> dict[str, Any]:
     details: dict[str, Any] = {"from": str(older.close), "to": str(newer.close)}
-    if explained_by_split:
-        details["explained_by_corporate_action"] = EVENT_TYPE_SPLIT
+    if explained_by:
+        details["explained_by_corporate_action"] = explained_by
     return details
 
 

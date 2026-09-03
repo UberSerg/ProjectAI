@@ -3,8 +3,8 @@
 ProjectAI Market Data V1 loads and stores factual market history for later analytics.
 
 **H0 contract (ADR 0005):** `market.candles` stores **RAW** exchange OHLCV. Do not overwrite
-with adjusted or total-return prices. **H1:** official MOEX ISS `SPLIT` events are ingested
-as `market.corporate_actions` (they explain jumps; they do not rewrite candles).
+with adjusted or total-return prices. **H1:** official MOEX ISS splits feed is ingested as `market.corporate_actions`
+(`SPLIT` / `REVERSE_SPLIT` by factor). Events explain jumps; they do not rewrite candles.
 `DIVIDEND` ingest, adjusted prices, and total return are not implemented. MOEX ISS + CBR
 are canonical sources.
 

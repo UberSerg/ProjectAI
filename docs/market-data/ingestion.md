@@ -24,11 +24,12 @@ normalizer / DQ path — not a direct INSERT into `market.candles`.
 `POST /api/v1/market/corporate-actions/splits` fetches
 `/iss/statistics/engines/stock/splits.json` (`tradedate`, `secid`, `before`, `after`).
 
-Flow: MOEX provider → normalized SPLIT draft → resolve via `instrument_sources` →
-idempotent upsert → annotate matching `abnormal_price_jump` details
-(`explained_by_corporate_action=SPLIT`). Unknown SECIDs are counted, not auto-created.
-`known_at` stays NULL (official feed has no announcement timestamp). RAW candles are not
-rewritten. Dividends / adjusted prices / total return are not ingested here.
+Flow: MOEX provider → draft (source = ISS splits feed) → domain type from factor
+(`after/before`: `>1` SPLIT, `<1` REVERSE_SPLIT, `=1` rejected) → resolve via
+`instrument_sources` → idempotent upsert → annotate matching `abnormal_price_jump`
+with the normalized type. Unknown SECIDs are counted, not auto-created.
+`known_at` stays NULL. RAW candles are not rewritten. Dividends / adjusted prices /
+total return / `DENOMINATION_CHANGE` are not ingested here.
 
 ## RAW
 

@@ -15,10 +15,10 @@ from app.domain.ports.market_data import (
 )
 from app.infrastructure.market.http_client import MarketHttpClient
 from app.modules.market.application.split_events import (
-    EVENT_TYPE_SPLIT,
     SOURCE_MOEX,
     SplitEventDraft,
     SplitParseResult,
+    classify_split_factor,
     split_adjustment_factor,
 )
 
@@ -183,6 +183,9 @@ def _split_row_to_draft(row: dict[str, Any]) -> SplitEventDraft | None:
     except ValueError:
         return None
     factor = split_adjustment_factor(before, after)
+    event_type = classify_split_factor(factor)
+    if event_type is None:
+        return None
     return SplitEventDraft(
         secid=secid,
         effective_date=effective,
@@ -190,7 +193,7 @@ def _split_row_to_draft(row: dict[str, Any]) -> SplitEventDraft | None:
         split_after=after,
         adjustment_factor=factor,
         source=SOURCE_MOEX,
-        event_type=EVENT_TYPE_SPLIT,
+        event_type=event_type,
         known_at=None,
         raw={
             "tradedate": str(trade_date),

@@ -8,10 +8,13 @@ from decimal import Decimal
 from typing import Any
 
 EVENT_TYPE_SPLIT = "SPLIT"
+EVENT_TYPE_REVERSE_SPLIT = "REVERSE_SPLIT"
 SOURCE_MOEX = "MOEX"
+MOEX_SPLITS_FEED = "iss/statistics/engines/stock/splits"
 
 # Official ISS /iss/statistics/engines/stock/splits.json fields only.
 MOEX_SPLIT_FIELDS = ("tradedate", "secid", "before", "after")
+SPLIT_FEED_EVENT_TYPES = frozenset({EVENT_TYPE_SPLIT, EVENT_TYPE_REVERSE_SPLIT})
 
 
 def split_adjustment_factor(before: Decimal, after: Decimal) -> Decimal:
@@ -19,6 +22,15 @@ def split_adjustment_factor(before: Decimal, after: Decimal) -> Decimal:
     if before <= 0 or after <= 0:
         raise ValueError("split before and after must be > 0")
     return after / before
+
+
+def classify_split_factor(factor: Decimal) -> str | None:
+    """Domain type from ratio. Source feed name is not the event type. No DENOMINATION_CHANGE heuristic."""
+    if factor > 1:
+        return EVENT_TYPE_SPLIT
+    if factor > 0 and factor < 1:
+        return EVENT_TYPE_REVERSE_SPLIT
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +62,7 @@ def payload_for_split(draft: SplitEventDraft) -> dict[str, Any]:
         "adjustment_factor": str(draft.adjustment_factor),
         "secid": draft.secid,
         "raw": draft.raw or {},
+        "source_feed": MOEX_SPLITS_FEED,
         "known_at_semantics": "absent_from_source",
     }
 

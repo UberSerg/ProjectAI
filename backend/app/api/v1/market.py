@@ -25,7 +25,7 @@ from app.infrastructure.market.models import (
 )
 from app.modules.market.application.corporate_actions import SPLIT_INGEST_STEPS
 from app.modules.market.application.ingest import BACKFILL_STEPS
-from app.modules.market.application.split_events import EVENT_TYPE_SPLIT
+from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 from app.modules.market.application.workflows import create_workflow
 from app.worker import tasks as worker_tasks
 
@@ -352,7 +352,7 @@ def market_summary() -> dict[str, Any]:
         split_events = session.scalar(
             select(func.count())
             .select_from(CorporateAction)
-            .where(CorporateAction.event_type == EVENT_TYPE_SPLIT)
+            .where(CorporateAction.event_type.in_(SPLIT_FEED_EVENT_TYPES))
         ) or 0
         return {
             "instruments_count": instruments,
