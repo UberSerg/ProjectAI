@@ -179,8 +179,8 @@ def get_instrument(instrument_id: int) -> dict[str, Any]:
 def list_candles(
     instrument_id: int,
     limit: int = Query(50, ge=1, le=5000),
-    date_from: date | None = Query(None, description="Inclusive start date (YYYY-MM-DD)"),
-    date_to: date | None = Query(None, description="Inclusive end date (YYYY-MM-DD)"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
 ) -> dict[str, Any]:
     """RAW daily OHLCV for UI quote explorer. Optional date_from/date_to clamp the window."""
     if date_from is not None and date_to is not None and date_from > date_to:
