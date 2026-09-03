@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -102,16 +101,8 @@ def test_latest_features_explicit_version_and_missing(
 
 def test_latest_features_follows_active_v2(client: TestClient, core_db: Session) -> None:
     seed_feature_sets(core_db)
-    v2 = FeatureSet(
-        code="basic_daily",
-        version=2,
-        description="v2",
-        parameters={},
-        is_active=False,
-        updated_at=datetime.now(UTC),
-    )
-    core_db.add(v2)
-    core_db.flush()
+    v2 = core_db.scalar(select(FeatureSet).where(FeatureSet.code == "basic_daily", FeatureSet.version == 2))
+    assert v2 is not None
     _activate_version(core_db, "basic_daily", 2)
     instrument = _instrument(core_db)
     response = client.get(
