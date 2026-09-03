@@ -327,7 +327,13 @@ def build_diagnostics_text(session: Session) -> str:
             f"Eligible 20d: {last_ds.eligible_20d if last_ds else 0}",
             (
                 "Relations coverage: "
-                f"{(last_ds.coverage_summary or {}).get('relations') if last_ds else '—'}"
+                f"{((last_ds.coverage_summary or {}).get('relations') or {}).get('by_context') if last_ds else '—'}"
+            ),
+            (
+                f"Label eligible 1/5/10/20d: {last_ds.eligible_1d}/{last_ds.eligible_5d}/"
+                f"{last_ds.eligible_10d}/{last_ds.eligible_20d}"
+                if last_ds
+                else "Label eligible 1/5/10/20d: —"
             ),
             f"PIT violations: {last_ds.pit_violations if last_ds else 0}",
             f"Latest dataset error: {last_ds_error.error_message if last_ds_error else '—'}",

@@ -239,6 +239,27 @@ def get_manifest(run_id: int) -> dict[str, Any]:
         return row.manifest or {}
 
 
+@router.get("/datasets/runs/{run_id}/summary")
+def get_run_summary(run_id: int) -> dict[str, Any]:
+    with core_session() as session:
+        row = session.get(DatasetRun, run_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Dataset run not found")
+        spec = session.get(DatasetSpec, row.dataset_spec_id)
+        payload = _run_to_response(row, spec)
+        return {
+            **payload.model_dump(),
+            "coverage": row.coverage_summary or {},
+            "manifest": {
+                "dataset_hash": (row.manifest or {}).get("dataset_hash"),
+                "values_hash": (row.manifest or {}).get("values_hash"),
+                "hash_policy": (row.manifest or {}).get("hash_policy"),
+                "source_versions": (row.manifest or {}).get("source_versions"),
+                "sample_counts": (row.manifest or {}).get("sample_counts"),
+            },
+        }
+
+
 @router.get("/datasets/runs/{run_id}/samples", response_model=list[DatasetSampleResponse])
 def list_samples(
     run_id: int,

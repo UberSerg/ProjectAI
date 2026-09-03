@@ -31,7 +31,12 @@ from app.modules.learning.application.contracts import (
     DatasetQualityV1,
     DatasetSampleV1,
 )
-from app.modules.learning.application.hash_util import dataset_hash, sample_content_hash
+from app.modules.learning.application.hash_util import (
+    dataset_hash,
+    dataset_values_hash,
+    sample_content_hash,
+    sample_values_hash,
+)
 from app.modules.learning.application.labels import ForwardReturnLabelCalculator, PriceObservation
 from app.modules.learning.application.relations_join import (
     RelationIndex,
@@ -157,6 +162,7 @@ class PITDatasetBuilder:
 
             # --- Load sources (batch) ---
             self._mark(workflow, "Load Analytics", "RUNNING")
+            t_load_a = time.perf_counter()
             inst_ids = [i.id for i in instruments]
             basic_rows = list(
                 self.session.scalars(
@@ -172,9 +178,11 @@ class PITDatasetBuilder:
             basic_by_inst: dict[int, dict[date, InstrumentFeatureDaily]] = {}
             for row in basic_rows:
                 basic_by_inst.setdefault(row.instrument_id, {})[row.date] = row
+            load_analytics_sec = round(time.perf_counter() - t_load_a, 3)
             self._mark(workflow, "Load Analytics", "SUCCESS")
 
             self._mark(workflow, "Load Technical", "RUNNING")
+            t_load_t = time.perf_counter()
             tech_rows = list(
                 self.session.scalars(
                     select(InstrumentTechnicalFeatureDaily).where(
@@ -207,9 +215,11 @@ class PITDatasetBuilder:
             signal_by_inst: dict[int, dict[date, TechnicalSignalDaily]] = {}
             for row in signal_rows:
                 signal_by_inst.setdefault(row.instrument_id, {})[row.as_of_date] = row
+            load_technical_sec = round(time.perf_counter() - t_load_t, 3)
             self._mark(workflow, "Load Technical", "SUCCESS")
 
             self._mark(workflow, "Load Relations", "RUNNING")
+            t_load_r = time.perf_counter()
             relation_index = RelationIndex.build([], {})
             subject_input_by_instrument: dict[int, UUID] = {}
             context_input_ids: dict[str, UUID] = {}
@@ -267,6 +277,7 @@ class PITDatasetBuilder:
                 )
             else:
                 self._heartbeat(workflow, relations_join="disabled")
+            load_relations_sec = round(time.perf_counter() - t_load_r, 3)
             self._mark(workflow, "Load Relations", "SUCCESS")
 
             # DQ discontinuities
@@ -325,8 +336,22 @@ class PITDatasetBuilder:
                 "rel_expected_context_slots": 0,
                 "rel_available_context_slots": 0,
                 "rel_context_hits": {},
+                "rel_context_available": {},
                 "feature_missing": {},
+                "label_valid": {"1d": 0, "5d": 0, "10d": 0, "20d": 0},
+                "discontinuity_labels": 0,
+                "feature_valid_samples": 0,
             }
+            for ctx in relation_contexts:
+                counters["rel_context_available"][ctx["key"]] = 0
+                counters["rel_context_hits"][ctx["key"]] = 0
+            timings = {
+                "load_analytics_sec": load_analytics_sec,
+                "load_technical_sec": load_technical_sec,
+                "load_relations_sec": load_relations_sec,
+            }
+            t_build = time.perf_counter()
+            value_hashes: list[str] = []
 
             total = len(instruments)
             for idx, inst in enumerate(instruments):
@@ -389,8 +414,16 @@ class PITDatasetBuilder:
                     )
                     if not core_valid:
                         counters["core_invalid"] += 1
+                    else:
+                        counters["feature_valid_samples"] += 1
                     if not tech_available:
                         counters["technical_missing"] += 1
+                    for ctx_key, ctx_meta in (rel_join.context_meta or {}).items():
+                        counters["rel_context_hits"][ctx_key] = counters["rel_context_hits"].get(ctx_key, 0) + 1
+                        if ctx_meta.get("available"):
+                            counters["rel_context_available"][ctx_key] = (
+                                counters["rel_context_available"].get(ctx_key, 0) + 1
+                            )
                     sample_relation_missing = is_sample_relation_missing(
                         relations_enabled=relations_enabled,
                         relations_available=rel_join.available,
@@ -421,6 +454,8 @@ class PITDatasetBuilder:
                         label_ok = bool(label_result.label_valid.get(key))
                         if not label_ok:
                             counters["invalid_labels"] += 1
+                        else:
+                            counters["label_valid"][key] = counters["label_valid"].get(key, 0) + 1
                         eligible = is_horizon_training_eligible(
                             core_valid=core_valid,
                             technical_available=tech_available,
@@ -431,6 +466,11 @@ class PITDatasetBuilder:
                         training_eligible[f"training_eligible_{key}"] = eligible
                         if eligible:
                             counters[f"eligible_{key}"] = counters.get(f"eligible_{key}", 0) + 1
+                    if any(
+                        str(flag).startswith("price_discontinuity")
+                        for flag in (label_result.label_flags or {})
+                    ):
+                        counters["discontinuity_labels"] += 1
 
                     quality = DatasetQualityV1(
                         feature_state_valid=core_valid,
@@ -511,6 +551,13 @@ class PITDatasetBuilder:
                         },
                     )
                     sample_hashes.append(ch)
+                    vh = sample_values_hash(
+                        instrument_id=inst.id,
+                        as_of_date=as_of.isoformat(),
+                        features=features_dict,
+                        labels=labels_dict,
+                    )
+                    value_hashes.append(vh)
                     persist_rows.append(
                         sample_row(
                             dataset_run_id=dataset_run.id,
@@ -539,6 +586,7 @@ class PITDatasetBuilder:
                     elapsed=round(time.perf_counter() - started, 2),
                 )
 
+            timings["build_sec"] = round(time.perf_counter() - t_build, 3)
             self._mark(workflow, "Build PIT features", "SUCCESS")
             self._mark(workflow, "Build labels", "SUCCESS")
             self._mark(workflow, "Apply quality", "SUCCESS")
@@ -567,7 +615,7 @@ class PITDatasetBuilder:
             self._mark(workflow, "Run PIT validation", "SUCCESS")
 
             self._mark(workflow, "Materialize samples", "RUNNING")
-            # batch insert
+            t_persist = time.perf_counter()
             batch_size = 1000
             for i in range(0, len(persist_rows), batch_size):
                 insert_dataset_samples(self.session, persist_rows[i : i + batch_size])
@@ -576,6 +624,7 @@ class PITDatasetBuilder:
                     samples_built=min(i + batch_size, len(persist_rows)),
                     elapsed=round(time.perf_counter() - started, 2),
                 )
+            timings["persist_sec"] = round(time.perf_counter() - t_persist, 3)
             self._mark(workflow, "Materialize samples", "SUCCESS")
 
             self._mark(workflow, "Calculate hashes", "RUNNING")
@@ -587,11 +636,39 @@ class PITDatasetBuilder:
                 sample_hashes=sample_hashes,
             )
             dataset_run.dataset_hash = d_hash
+            v_hash = dataset_values_hash(
+                dataset_spec_code=spec.code,
+                dataset_spec_version=spec.version,
+                date_from=date_from.isoformat(),
+                date_to=effective_to.isoformat(),
+                sample_hashes=value_hashes,
+            )
             self._mark(workflow, "Calculate hashes", "SUCCESS")
 
+            n_samples = max(len(samples), 1)
             expected_feat = max(int(counters.get("rel_expected_feature_slots", 0)), 1)
             expected_ctx = max(int(counters.get("rel_expected_context_slots", 0)), 1)
+            by_context = {}
+            for ctx in relation_contexts:
+                key = ctx["key"]
+                hits = int(counters["rel_context_hits"].get(key, 0))
+                avail = int(counters["rel_context_available"].get(key, 0))
+                by_context[key] = {
+                    "input_code": ctx.get("input_code"),
+                    "available": avail,
+                    "expected": hits or n_samples,
+                    "coverage_pct": round(100.0 * avail / max(hits or n_samples, 1), 2),
+                }
+            timings["total_sec"] = round(time.perf_counter() - started, 3)
             coverage = {
+                "features": {
+                    "valid_samples": counters["feature_valid_samples"],
+                    "core_invalid": counters["core_invalid"],
+                    "top_missing": sorted(counters["feature_missing"].items(), key=lambda x: -x[1])[:15],
+                },
+                "technical_coverage_pct": round(
+                    100.0 * (len(samples) - counters["technical_missing"]) / n_samples, 2
+                ),
                 "relations": {
                     "join": "enabled" if relations_enabled else "disabled",
                     "relations_enabled": relations_enabled,
@@ -606,12 +683,22 @@ class PITDatasetBuilder:
                     "context_coverage_pct": round(
                         100.0 * counters.get("rel_available_context_slots", 0) / expected_ctx, 2
                     ),
+                    "by_context": by_context,
                     "samples_missing_all_relations": counters["relation_missing"],
                     "max_relation_age_days": max_relation_age_days,
                 },
-                "technical_coverage_pct": round(
-                    100.0 * (len(samples) - counters["technical_missing"]) / max(len(samples), 1), 2
-                ),
+                "labels": {
+                    "valid": counters["label_valid"],
+                    "invalid": counters["invalid_labels"],
+                    "discontinuity_exclusions": counters["discontinuity_labels"],
+                    "eligible": {
+                        "1d": counters.get("eligible_1d", 0),
+                        "5d": counters.get("eligible_5d", 0),
+                        "10d": counters.get("eligible_10d", 0),
+                        "20d": counters.get("eligible_20d", 0),
+                    },
+                },
+                "timings": timings,
                 "top_missing_features": sorted(
                     counters["feature_missing"].items(), key=lambda x: -x[1]
                 )[:15],
@@ -621,6 +708,11 @@ class PITDatasetBuilder:
                 "dataset_code": spec.code,
                 "dataset_version": spec.version,
                 "dataset_hash": d_hash,
+                "values_hash": v_hash,
+                "hash_policy": {
+                    "dataset_hash": "features+labels+lineage_surrogate_ids",
+                    "values_hash": "features+labels_only_no_row_ids",
+                },
                 "date_from": date_from.isoformat(),
                 "date_to": effective_to.isoformat(),
                 "universe": resolved_universe,
@@ -703,6 +795,7 @@ class PITDatasetBuilder:
                 "dataset_run_id": dataset_run.id,
                 "samples_total": len(samples),
                 "dataset_hash": d_hash,
+                "values_hash": v_hash,
                 "pit_status": "PASS",
                 "duration_sec": round(time.perf_counter() - started, 2),
                 "eligible_1d": dataset_run.eligible_1d,

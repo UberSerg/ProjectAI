@@ -75,11 +75,11 @@ Learning / Evaluation / Retraining
 Decision Memory
 ```
 
-**Current PIT Phase 1 subset (committed backend; not the full diagram above):**
+**Current Dataset/PIT V0 subset (Phase 1–3 accepted; not the full diagram above):**
 
-Analytics + Technical features + Technical signal → forward labels (`1/5/10/20` obs).
-Relations join in dataset is **pending Phase 2**. Fundamentals, regime, Meta Model, Policy,
-Risk, Simulator, and broker are not part of Phase 1.
+Analytics + Technical features + Technical signal + Relations as-of → forward labels
+(`1/5/10/20` obs). Fundamentals, regime, Meta Model, Policy, Risk, Simulator, and broker
+are not part of Dataset/PIT V0.
 
 **Role separation (invariant):**
 
@@ -104,7 +104,7 @@ Relations Engine V1            Implemented  (as_of snapshots)
         ↓
 Technical Agent V1             Implemented  (technical_daily + rules_v1)
         ↓
-Dataset / PIT Join V0          Phase 1 backend committed (not DoD-complete)
+Dataset / PIT Join V0          Phase 1 + 2 implemented; Phase 3 acceptance completed
 ```
 
 | Layer | Role | Status |
@@ -113,7 +113,7 @@ Dataset / PIT Join V0          Phase 1 backend committed (not DoD-complete)
 | Analytics | Versioned derived daily features | Implemented (ADR 0004) |
 | Relations V1 | Statistical relations with `as_of_date` | Implemented |
 | Technical Agent V1 | Technical features + pure `rules_v1` signals | Implemented |
-| Dataset / PIT V0 | Honest `X(t)` + forward labels `Y` | **Phase 1 backend committed** (Relations Phase 2 pending; see below) |
+| Dataset / PIT V0 | Honest `X(t)` + forward labels `Y` | **Phase 1 + 2 implemented; Phase 3 acceptance completed** (UI / Parquet / ML not in V0) |
 
 **Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
 `learning.model_registry` foundation (no training loop yet).
@@ -135,31 +135,36 @@ X(t) = information known <= t
 Y(t, N) = future return after t   (LABEL only)
 ```
 
-### Phase 1 (backend committed — Dataset/PIT Phase 1)
-
-**In scope / present in current codebase:**
+### Phase 1 (implemented)
 
 - `learning.dataset_specs`, `dataset_runs`, `dataset_samples_daily` (migration `20260901_0009`)
 - seed `pit_daily_core` v1 with explicit feature/label/metadata manifest
 - typed contracts; forward labels `1/5/10/20` trading observations
 - PIT validator; Analytics + Technical features + Technical signal join
 - version pins; deterministic sample/dataset hashes
-- no-look-ahead / future-mutation / pin / hash tests
-- API + Celery `dataset_build` scaffold; diagnostics section
+- API + Celery `dataset_build`; diagnostics section
 
-**Phase 1 intentionally deferred / incomplete:**
+### Phase 2 (implemented)
 
-- Relations join **disabled** (`PHASE1_RELATIONS_JOIN_ENABLED = false`; `relations_join.py` kept for Phase 2)
+- Relations as-of join (latest `snapshot.as_of <= t`, max age 8 calendar days)
+- self / missing / stale / invalid → NULL, not 0
+- Relations optional for training eligibility
+- coverage by context (IMOEX, USD_RUB, CNY_RUB, KEY_RATE)
+
+### Phase 3 (acceptance completed)
+
+End-to-end DatasetBuild on current universe (`2024-01-01` → latest candles), smoke +
+repeat-build hashes, SBER/latest/PLZL audits, run summary API, seed freeze after first
+SUCCESS, watchdog `scripts/accept-dataset-pit.ps1`.
+
+**Still out of Dataset/PIT V0 (do not treat as done):**
+
 - UI / Datasets page
-- architecture doc `dataset-pit-v0.md` (when Phase 2/DoD warrants it)
-- full historical acceptance / watchdog DoD
 - Parquet export
-
-Do **not** describe Relations-in-dataset, UI, or full acceptance as DONE until they ship.
-
-### Phase 2 (near term)
-
-Relations as-of join + max age + coverage metrics; UI; hardening; acceptance; docs as needed.
+- Prediction ML / CatBoost / XGBoost
+- Simulator, Trading Policy, Risk, Broker
+- Fundamentals, Market Regime, History Expansion
+- dedicated `dataset-pit-v0.md` (not required for V0 close)
 
 ---
 
@@ -296,8 +301,8 @@ Do not start a stage from documentation alone.
 | # | Stage | Status / intent |
 |---|--------|-----------------|
 | — | Market Data / Analytics / Relations / Technical | **Implemented** |
-| 1 | **Dataset / PIT Join V0** | Phase 1 backend committed; Phase 2 Relations + UI + acceptance |
-| 2 | Dataset hardening / acceptance | Prove repeatable hash, leakage audit, coverage honesty |
+| 1 | **Dataset / PIT Join V0** | Phase 1 + 2 implemented; Phase 3 acceptance completed (no UI / no ML) |
+| 2 | Dataset hardening / later layers | UI, Parquet, History Expansion — not part of V0 close |
 | 3 | **Market History Expansion** (+ DQ / corporate-actions awareness) | Depth for serious training |
 | 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | Order depends on data readiness; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk (stages 5–6) |
 | 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |

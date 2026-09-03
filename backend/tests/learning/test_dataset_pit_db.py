@@ -13,6 +13,7 @@ from app.infrastructure.learning.repository import insert_dataset_samples, sampl
 from app.infrastructure.market.models import Instrument
 from app.modules.analytics.application.resolve import resolve_feature_set
 from app.modules.analytics.application.seed import seed_feature_sets
+from app.modules.learning.application.hash_util import sample_content_hash, sample_values_hash
 from app.modules.learning.application.seed import seed_dataset_specs
 from app.modules.learning.dataset_config import (
     PIT_DAILY_CORE_CODE,
@@ -171,3 +172,56 @@ def test_sample_persist_round_trip(core_db: Session) -> None:
         .where(DatasetSampleDaily.dataset_run_id == run.id)
     )
     assert run_count == 1
+
+
+def test_seed_freezes_after_successful_run(core_db: Session) -> None:
+    seed_dataset_specs(core_db)
+    spec = core_db.scalar(select(DatasetSpec).where(DatasetSpec.is_active.is_(True)))
+    assert spec is not None
+    marker = dict(spec.quality_policy or {})
+    marker["audit_marker"] = "keep"
+    spec.quality_policy = marker
+    core_db.flush()
+
+    run = DatasetRun(
+        dataset_spec_id=spec.id,
+        date_from=date(2024, 1, 1),
+        date_to=date(2024, 1, 2),
+        status="SUCCESS",
+        pit_status="PASS",
+        samples_total=1,
+        dataset_hash="frozen",
+    )
+    core_db.add(run)
+    core_db.flush()
+
+    result = seed_dataset_specs(core_db)
+    assert result.get("frozen") is True
+    core_db.refresh(spec)
+    assert spec.quality_policy.get("audit_marker") == "keep"
+
+
+def test_values_hash_ignores_surrogate_ids() -> None:
+    features = {"return_5d": 0.02, "rel_imoex_w60_pearson": 0.3}
+    labels = {"forward_return_5d": 0.04}
+    a = sample_values_hash(instrument_id=1, as_of_date="2024-06-01", features=features, labels=labels)
+    b = sample_values_hash(instrument_id=1, as_of_date="2024-06-01", features=features, labels=labels)
+    assert a == b
+    h1 = sample_content_hash(
+        instrument_id=1,
+        as_of_date="2024-06-01",
+        features=features,
+        labels=labels,
+        lineage_identity={"basic_feature_id": 1},
+    )
+    h2 = sample_content_hash(
+        instrument_id=1,
+        as_of_date="2024-06-01",
+        features=features,
+        labels=labels,
+        lineage_identity={"basic_feature_id": 99},
+    )
+    assert h1 != h2
+    assert a == sample_values_hash(
+        instrument_id=1, as_of_date="2024-06-01", features=features, labels=labels
+    )

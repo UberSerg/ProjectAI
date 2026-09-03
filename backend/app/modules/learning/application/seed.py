@@ -1,4 +1,8 @@
-"""Idempotent seed for pit_daily_core v1."""
+"""Idempotent seed for pit_daily_core v1.
+
+After a successful DatasetRun exists for this code+version, semantic fields
+are not overwritten — require a new dataset version instead.
+"""
 
 from __future__ import annotations
 
@@ -8,15 +12,40 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.infrastructure.learning.models import DatasetSpec
+from app.infrastructure.learning.models import DatasetRun, DatasetSpec
 from app.modules.learning.dataset_config import PIT_DAILY_CORE_V1
+
+
+def _has_successful_run(session: Session, code: str, version: int) -> bool:
+    return (
+        session.scalar(
+            select(DatasetRun.id)
+            .join(DatasetSpec, DatasetRun.dataset_spec_id == DatasetSpec.id)
+            .where(
+                DatasetSpec.code == code,
+                DatasetSpec.version == version,
+                DatasetRun.status == "SUCCESS",
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 def seed_dataset_specs(session: Session) -> dict[str, int]:
     definition = PIT_DAILY_CORE_V1
+    code = definition["code"]
+    version = definition["version"]
+    existing = session.scalar(select(DatasetSpec).where(DatasetSpec.code == code, DatasetSpec.version == version))
+    if existing is not None and _has_successful_run(session, code, version):
+        session.execute(update(DatasetSpec).where(DatasetSpec.code == code).values(is_active=False))
+        existing.is_active = True
+        session.flush()
+        return {"ensured": 1, "activated": 1, "frozen": True}
+
     stmt = insert(DatasetSpec).values(
-        code=definition["code"],
-        version=definition["version"],
+        code=code,
+        version=version,
         description=definition["description"],
         feature_manifest=definition["feature_manifest"],
         relation_contexts=definition["relation_contexts"],
@@ -59,15 +88,11 @@ def seed_dataset_specs(session: Session) -> dict[str, int]:
         },
     )
     session.execute(stmt)
-    session.execute(update(DatasetSpec).where(DatasetSpec.code == definition["code"]).values(is_active=False))
-    row = session.scalar(
-        select(DatasetSpec).where(
-            DatasetSpec.code == definition["code"], DatasetSpec.version == definition["version"]
-        )
-    )
+    session.execute(update(DatasetSpec).where(DatasetSpec.code == code).values(is_active=False))
+    row = session.scalar(select(DatasetSpec).where(DatasetSpec.code == code, DatasetSpec.version == version))
     activated = 0
     if row is not None:
         row.is_active = True
         activated = 1
     session.flush()
-    return {"ensured": 1, "activated": activated}
+    return {"ensured": 1, "activated": activated, "frozen": False}

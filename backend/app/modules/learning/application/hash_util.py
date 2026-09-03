@@ -34,6 +34,24 @@ def sample_content_hash(
     )
 
 
+def sample_values_hash(
+    *,
+    instrument_id: int,
+    as_of_date: str,
+    features: dict[str, Any],
+    labels: dict[str, Any],
+) -> str:
+    """Hash of X+Y only. Ignores surrogate row IDs (repeat-build identity)."""
+    return sha256_hex(
+        {
+            "instrument_id": instrument_id,
+            "as_of_date": as_of_date,
+            "features": features,
+            "labels": labels,
+        }
+    )
+
+
 def dataset_hash(
     *,
     dataset_spec_code: str,
@@ -50,4 +68,22 @@ def dataset_hash(
             "date_to": date_to,
             "samples": sorted(sample_hashes),
         }
+    )
+
+
+def dataset_values_hash(
+    *,
+    dataset_spec_code: str,
+    dataset_spec_version: int,
+    date_from: str | None,
+    date_to: str | None,
+    sample_hashes: list[str],
+) -> str:
+    """Dataset-level hash of values only (no lineage / artifact IDs)."""
+    return dataset_hash(
+        dataset_spec_code=dataset_spec_code,
+        dataset_spec_version=dataset_spec_version,
+        date_from=date_from,
+        date_to=date_to,
+        sample_hashes=sample_hashes,
     )
