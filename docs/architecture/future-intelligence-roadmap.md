@@ -118,9 +118,9 @@ Dataset / PIT Join V0          Accepted; pit_daily_core v1 frozen
 **Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
 `learning.model_registry` foundation (no training loop yet).
 
-**Explicitly not implemented:** Deep History H4B total return / dividends, H5B Relations
-v2, Dataset v2. **H4A** Analytics v2 and **H5A** Technical v2 are mechanical-adjusted
-(SPLIT/REVERSE_SPLIT only). H3 RAW official history ≠ ML-ready.
+**Explicitly not implemented:** Deep History H4B total return / dividends, Dataset v2.
+**H4A** Analytics v2, **H5A** Technical v2, and **H5B** Relations v2 are
+mechanical-adjusted (SPLIT/REVERSE_SPLIT only). H3 RAW official history ≠ ML-ready.
 Fundamental Intelligence, Market Regime, Prediction ML training, Meta Model, Trading Policy /
 Risk / Order Intent, Simulator, Broker adapter, Recommendations / BUY-SELL, autonomous real trading.
 
@@ -272,7 +272,7 @@ local/free. LLM/Polza is not the numerical market-history engine.
 | **H2** | Source validity windows + **H2.1 current-cohort MOEX windows populated** | Full delist / historical universe |
 | **H3** | **Official RAW MOEX+CBR deep backfill** (proven windows only). Not ML-ready. | Finam as source of truth; adjusted/TR; downstream v2 |
 | **H4** | **H4A mechanical-adjusted Analytics v2 implemented** (SPLIT/REVERSE_SPLIT). Total return / dividends not started | Simulator taxes/costs |
-| **H5** | **H5A Technical v2 implemented** (mechanical-adjusted). H5B Relations v2 not started | Daily all-pairs at huge universe |
+| **H5** | **H5A Technical v2 + H5B Relations v2 implemented** (mechanical-adjusted). Not active | Daily all-pairs at huge universe |
 | **H6** | **New** Dataset/PIT spec + acceptance | Silent mutate of `pit_daily_core` v1 |
 
 **Later (not H1–H6):** PIT universe / delisted; dividend event-study features;
@@ -355,7 +355,7 @@ Do not start a stage from documentation alone.
 |---|--------|-----------------|
 | — | Market Data / Analytics / Relations / Technical / Dataset V0 | **Implemented** (`pit_daily_core` v1 frozen) |
 | 1 | **Dataset / PIT Join V0** | Phase 1–3 accepted (no UI / no ML) |
-| 2 | **Deep History H0–H6** | **H0–H3 RAW + H4A Analytics v2 + H5A Technical v2.** Not ML-ready. H4B TR / H3.1 DIVIDEND / H5B+ not started |
+| 2 | **Deep History H0–H6** | **H0–H3 RAW + H4A Analytics v2 + H5A Technical v2 + H5B Relations v2.** Not ML-ready. H4B TR / H3.1 DIVIDEND / H6 Dataset v2 not started |
 | 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
 | 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | After honest deep-history data as needed; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk |
 | 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |

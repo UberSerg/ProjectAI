@@ -270,29 +270,33 @@ def _load_inputs_map(session) -> dict[UUID, RelationInput]:
 
 
 @router.get("/overview", response_model=RelationsOverview)
-def relations_overview() -> dict[str, Any]:
+def relations_overview(relation_set_version: int | None = None) -> dict[str, Any]:
     with core_session() as session:
         seed_relation_sets(session)
         active = session.scalar(select(RelationSet).where(RelationSet.is_active.is_(True)))
+        chosen = active
+        if relation_set_version is not None:
+            chosen = resolve_relation_set(session, "basic_relations", relation_set_version)
         inputs_active = (
             session.scalar(select(func.count()).select_from(RelationInput).where(RelationInput.is_active.is_(True)))
             or 0
         )
-        snapshots_total = session.scalar(select(func.count()).select_from(RelationSnapshot)) or 0
-        latest_as_of = session.scalar(select(func.max(RelationSnapshot.as_of_date)))
-        last_run = session.scalar(select(RelationRun).order_by(desc(RelationRun.created_at)).limit(1))
-        valid = (
-            session.scalar(
-                select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.is_valid.is_(True))
-            )
-            or 0
-        )
-        invalid = (
-            session.scalar(
-                select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.is_valid.is_(False))
-            )
-            or 0
-        )
+        snap_q = select(func.count()).select_from(RelationSnapshot)
+        as_of_q = select(func.max(RelationSnapshot.as_of_date))
+        valid_q = select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.is_valid.is_(True))
+        invalid_q = select(func.count()).select_from(RelationSnapshot).where(RelationSnapshot.is_valid.is_(False))
+        run_q = select(RelationRun).order_by(desc(RelationRun.created_at)).limit(1)
+        if chosen is not None:
+            snap_q = snap_q.where(RelationSnapshot.relation_set_id == chosen.id)
+            as_of_q = as_of_q.where(RelationSnapshot.relation_set_id == chosen.id)
+            valid_q = valid_q.where(RelationSnapshot.relation_set_id == chosen.id)
+            invalid_q = invalid_q.where(RelationSnapshot.relation_set_id == chosen.id)
+            run_q = run_q.where(RelationRun.relation_set_id == chosen.id)
+        snapshots_total = session.scalar(snap_q) or 0
+        latest_as_of = session.scalar(as_of_q)
+        last_run = session.scalar(run_q)
+        valid = session.scalar(valid_q) or 0
+        invalid = session.scalar(invalid_q) or 0
         rs = None
         if last_run:
             rs = session.get(RelationSet, last_run.relation_set_id)
@@ -361,16 +365,27 @@ def list_snapshots(
     search: str | None = None,
     input_a_id: UUID | None = None,
     input_b_id: UUID | None = None,
+    relation_set_code: str = "basic_relations",
+    relation_set_version: int | None = None,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     with core_session() as session:
         inputs_map = _load_inputs_map(session)
         q = select(RelationSnapshot)
+        try:
+            relation_set = resolve_relation_set(session, relation_set_code, relation_set_version)
+        except RelationSetResolveError as exc:
+            raise HTTPException(exc.status_code, exc.message) from exc
+        q = q.where(RelationSnapshot.relation_set_id == relation_set.id)
         if as_of_date is not None:
             q = q.where(RelationSnapshot.as_of_date == as_of_date)
         else:
-            latest = session.scalar(select(func.max(RelationSnapshot.as_of_date)))
+            latest = session.scalar(
+                select(func.max(RelationSnapshot.as_of_date)).where(
+                    RelationSnapshot.relation_set_id == relation_set.id
+                )
+            )
             if latest is not None:
                 q = q.where(RelationSnapshot.as_of_date == latest)
         if window is not None:
@@ -455,11 +470,18 @@ def get_pair_detail(
     input_b_id: UUID,
     as_of_date: date | None = None,
     window: int = Query(60),
+    relation_set_code: str = "basic_relations",
+    relation_set_version: int | None = None,
 ) -> dict[str, Any]:
     """Single pair detail with lag profile — avoids N+1 client fetches."""
     with core_session() as session:
+        try:
+            relation_set = resolve_relation_set(session, relation_set_code, relation_set_version)
+        except RelationSetResolveError as exc:
+            raise HTTPException(exc.status_code, exc.message) from exc
         a, b = (input_a_id, input_b_id) if input_a_id < input_b_id else (input_b_id, input_a_id)
         q = select(RelationSnapshot).where(
+            RelationSnapshot.relation_set_id == relation_set.id,
             RelationSnapshot.input_a_id == a,
             RelationSnapshot.input_b_id == b,
             RelationSnapshot.window_observations == window,

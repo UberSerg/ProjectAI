@@ -28,7 +28,29 @@ BASIC_RELATIONS_V1: RelationSetDefinition = {
     },
 }
 
-RELATION_SETS: tuple[RelationSetDefinition, ...] = (BASIC_RELATIONS_V1,)
+BASIC_RELATIONS_V2: RelationSetDefinition = {
+    "code": "basic_relations",
+    "version": 2,
+    "description": (
+        "Statistical relations on PIT mechanical-adjusted Analytics basic_daily v2 "
+        "(SPLIT/REVERSE_SPLIT only; not dividend/total-return)"
+    ),
+    "parameters": {
+        "correlation_methods": ["pearson", "spearman"],
+        "windows": [20, 60, 120],
+        "lead_lags": [1, 2, 3, 4, 5],
+        "minimum_coverage_ratio": 0.8,
+        "stability_subwindow": 20,
+        "exclude_invalid_features": True,
+        "exclude_price_discontinuities": True,
+        "max_lookback_buffer": 160,
+        "analytics_feature_set_code": "basic_daily",
+        "analytics_feature_set_version": 2,
+        "price_basis": "mechanical_adjusted",
+    },
+}
+
+RELATION_SETS: tuple[RelationSetDefinition, ...] = (BASIC_RELATIONS_V1, BASIC_RELATIONS_V2)
 
 # Series transform policy for default relation inputs (documented, not silent).
 # FX: pct_change of as-of aligned levels on market calendar.
