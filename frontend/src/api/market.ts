@@ -101,9 +101,26 @@ export function getInstrument(id: string, signal?: AbortSignal): Promise<Instrum
   return apiRequest(`/market/instruments/${encodeURIComponent(id)}`, { signal });
 }
 
-export async function getCandles(id: string, limit = 30, signal?: AbortSignal): Promise<Candle[]> {
+export interface CandleQuery {
+  limit?: number;
+  date_from?: string;
+  date_to?: string;
+}
+
+export async function getCandles(
+  id: string,
+  limitOrQuery: number | CandleQuery = 30,
+  signal?: AbortSignal,
+): Promise<Candle[]> {
+  const query: CandleQuery =
+    typeof limitOrQuery === "number" ? { limit: limitOrQuery } : { limit: 30, ...limitOrQuery };
   const response = await apiRequest<Candle[] | { items: Candle[] }>(
-    `/market/instruments/${encodeURIComponent(id)}/candles${queryString({ timeframe: "1d", limit })}`,
+    `/market/instruments/${encodeURIComponent(id)}/candles${queryString({
+      timeframe: "1d",
+      limit: query.limit,
+      date_from: query.date_from,
+      date_to: query.date_to,
+    })}`,
     { signal },
   );
   return Array.isArray(response) ? response : response.items;

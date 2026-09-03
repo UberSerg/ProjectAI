@@ -64,7 +64,7 @@ export function WorkflowsPage() {
 
   return (
     <section>
-      <PageHeader title={labels.nav.workflows} description="Фоновые задачи загрузки и проверки качества" />
+      <PageHeader title={labels.nav.workflows} description="Фоновые задачи загрузки и проверки качества" helpPageId="workflows" />
 
       {items.length === 0 ? (
         <PageState kind="empty" title="Процессов пока нет" />

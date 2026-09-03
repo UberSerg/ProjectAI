@@ -80,7 +80,7 @@ export function DashboardPage() {
 
   return (
     <section>
-      <PageHeader title={labels.nav.overview} description="Состояние платформы и рыночных данных" />
+      <PageHeader title={labels.nav.overview} description="Состояние платформы и рыночных данных" helpPageId="overview" />
 
       <div className="hero-status">
         <div>

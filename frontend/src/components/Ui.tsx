@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MetricHelp, PageHelp } from "../help";
 import { labels } from "../utils/labels";
 
 export function StatusBadge({ status }: { status?: string | null }) {
@@ -22,10 +23,13 @@ export function PageHeader({
   title,
   description,
   actions,
+  helpPageId,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
+  /** Opens page-level справка from the central help registry. */
+  helpPageId?: string;
 }) {
   return (
     <div className="page-header">
@@ -33,7 +37,10 @@ export function PageHeader({
         <h1>{title}</h1>
         {description ? <p className="subtitle">{description}</p> : null}
       </div>
-      {actions ? <div className="page-actions">{actions}</div> : null}
+      <div className="page-actions">
+        {helpPageId ? <PageHelp pageId={helpPageId} /> : null}
+        {actions}
+      </div>
     </div>
   );
 }
@@ -42,14 +49,19 @@ export function MetricCard({
   label,
   value,
   hint,
+  helpId,
 }: {
   label: string;
   value: ReactNode;
   hint?: ReactNode;
+  helpId?: string;
 }) {
   return (
     <article className="metric-card">
-      <span className="metric-label">{label}</span>
+      <span className="metric-label">
+        {label}
+        {helpId ? <MetricHelp metricId={helpId} /> : null}
+      </span>
       <strong className="metric-value">{value}</strong>
       {hint ? <small className="metric-hint">{hint}</small> : null}
     </article>

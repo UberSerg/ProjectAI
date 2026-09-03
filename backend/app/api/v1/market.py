@@ -178,14 +178,22 @@ def get_instrument(instrument_id: int) -> dict[str, Any]:
 @router.get("/instruments/{instrument_id}/candles")
 def list_candles(
     instrument_id: int,
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=5000),
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> dict[str, Any]:
+    """RAW daily OHLCV for UI quote explorer. Optional date_from/date_to clamp the window."""
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
     with core_session() as session:
+        filters = [Candle.instrument_id == instrument_id, Candle.timeframe == "1d"]
+        if date_from is not None:
+            filters.append(Candle.timestamp >= date_from)
+        if date_to is not None:
+            # Inclusive calendar day: compare against next day midnight via date cast of timestamp.
+            filters.append(func.date(Candle.timestamp) <= date_to)
         rows = session.scalars(
-            select(Candle)
-            .where(Candle.instrument_id == instrument_id, Candle.timeframe == "1d")
-            .order_by(Candle.timestamp.desc())
-            .limit(limit)
+            select(Candle).where(*filters).order_by(Candle.timestamp.desc()).limit(limit)
         ).all()
         items = [
             {
