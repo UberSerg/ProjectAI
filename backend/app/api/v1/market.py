@@ -25,6 +25,7 @@ from app.infrastructure.market.models import (
 )
 from app.modules.market.application.corporate_actions import SPLIT_INGEST_STEPS
 from app.modules.market.application.ingest import BACKFILL_STEPS
+from app.modules.market.application.source_windows import WINDOW_SYNC_STEPS
 from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 from app.modules.market.application.workflows import create_workflow
 from app.worker import tasks as worker_tasks
@@ -406,6 +407,21 @@ class DataQualityRunRequest(BaseModel):
     mode: Literal["historical", "operational"] = "operational"
     date_from: date | None = None
     date_to: date | None = None
+
+
+@router.post("/source-windows/sync", response_model=WorkflowCreated)
+def start_source_windows_sync() -> WorkflowCreated:
+    with core_session() as session:
+        workflow = create_workflow(
+            session,
+            "MarketSourceWindowsSync",
+            "MOEX source validity windows",
+            WINDOW_SYNC_STEPS,
+        )
+        session.commit()
+        workflow_id = workflow.id
+    worker_tasks.market_source_windows_sync.delay(workflow_id)
+    return WorkflowCreated(workflow_id=workflow_id, status="RUNNING")
 
 
 @router.post("/corporate-actions/splits", response_model=WorkflowCreated)

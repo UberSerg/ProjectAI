@@ -100,6 +100,28 @@ def build_diagnostics_text(session: Session) -> str:
         )
         or 0
     )
+    source_proven = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentSource)
+            .where(InstrumentSource.valid_from.is_not(None), InstrumentSource.valid_to.is_(None))
+        )
+        or 0
+    )
+    source_unknown = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentSource)
+            .where(InstrumentSource.valid_from.is_(None), InstrumentSource.valid_to.is_(None))
+        )
+        or 0
+    )
+    source_closed = (
+        session.scalar(
+            select(func.count()).select_from(InstrumentSource).where(InstrumentSource.valid_to.is_not(None))
+        )
+        or 0
+    )
     overlap_errors = _count_mapping_overlaps(session)
     dq_errors = (
         session.scalar(
@@ -172,7 +194,11 @@ def build_diagnostics_text(session: Session) -> str:
         f"Instrument source mappings: {source_total}",
         f"Current mappings: {source_current}",
         f"Historical mappings: {source_historical}",
-        f"Mapping overlap errors: {overlap_errors}",
+        (
+            "MOEX source windows: "
+            f"proven={source_proven} unknown={source_unknown} "
+            f"historical={source_closed} overlaps={overlap_errors}"
+        ),
         "",
     ]
 
