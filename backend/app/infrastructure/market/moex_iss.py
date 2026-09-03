@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -126,6 +127,12 @@ class MoexIssProvider(MarketDataProvider):
             payload = json.loads(payload)
         return parse_moex_history(payload)
 
+    def fetch_security_boards(self, secid: str) -> tuple[list[MoexBoardWindow], bytes]:
+        """Official ISS security boards: history_from/till, listed_from/till, is_primary, is_traded."""
+        url = f"{self.base_url}/iss/securities/{secid}.json"
+        response = self.client.get(url, params={"iss.meta": "off"})
+        return parse_moex_security_boards(response.json()), response.content
+
     def fetch_stock_splits(self) -> tuple[SplitParseResult, tuple[bytes, ...]]:
         """Official ISS stock splits. Fields: tradedate, secid, before, after. No known_at."""
         url = f"{self.base_url}/iss/statistics/engines/stock/splits.json"
@@ -202,3 +209,63 @@ def _split_row_to_draft(row: dict[str, Any]) -> SplitEventDraft | None:
             "after": str(after),
         },
     )
+
+
+@dataclass(frozen=True, slots=True)
+class MoexBoardWindow:
+    secid: str
+    board: str
+    market: str
+    history_from: date | None
+    history_till: date | None
+    listed_from: date | None
+    listed_till: date | None
+    is_primary: bool
+    is_traded: bool
+
+
+def parse_moex_security_boards(payload: dict[str, Any]) -> list[MoexBoardWindow]:
+    """Parse /iss/securities/{SECID}.json boards block. Does not invent dates."""
+    description_secid = _description_secid(payload)
+    block = payload.get("boards") or {}
+    columns = block.get("columns") or []
+    result: list[MoexBoardWindow] = []
+    for values in block.get("data") or []:
+        row = dict(zip(columns, values, strict=False))
+        board = str(row.get("boardid") or "").strip()
+        if not board:
+            continue
+        result.append(
+            MoexBoardWindow(
+                secid=str(row.get("secid") or description_secid or "").strip(),
+                board=board,
+                market=str(row.get("market") or "").strip(),
+                history_from=_as_date(row.get("history_from")),
+                history_till=_as_date(row.get("history_till")),
+                listed_from=_as_date(row.get("listed_from")),
+                listed_till=_as_date(row.get("listed_till")),
+                is_primary=bool(row.get("is_primary")),
+                is_traded=bool(row.get("is_traded")),
+            )
+        )
+    return result
+
+
+def _description_secid(payload: dict[str, Any]) -> str:
+    block = payload.get("description") or {}
+    columns = block.get("columns") or []
+    for values in block.get("data") or []:
+        row = dict(zip(columns, values, strict=False))
+        if str(row.get("name") or "") == "SECID":
+            return str(row.get("value") or "").strip()
+    return ""
+
+
+def _as_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+

@@ -6,6 +6,7 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.infrastructure.market.models import InstrumentSource
 
@@ -119,6 +120,61 @@ def resolve_source_as_of(
         return None
     preferred = next((row for row in covered if (row.board or "").upper() == "TQBR"), None)
     return preferred or covered[0]
+
+
+def find_source_mapping(
+    session: Session, *, source: str, external_id: str, board: str | None
+) -> InstrumentSource | None:
+    return session.scalar(
+        select(InstrumentSource).where(
+            InstrumentSource.source == source,
+            InstrumentSource.external_id == external_id,
+            InstrumentSource.board == (board or ""),
+        )
+    )
+
+
+def apply_source_window(
+    session: Session,
+    *,
+    instrument_id: int,
+    source: str,
+    external_id: str,
+    board: str | None,
+    valid_from: date | None,
+    valid_to: date | None,
+    source_metadata: dict | None = None,
+) -> str:
+    """Insert or update one mapping window. Returns inserted / updated / unchanged / ambiguous."""
+    existing = find_source_mapping(session, source=source, external_id=external_id, board=board)
+    if existing is None:
+        add_source_mapping(
+            session,
+            instrument_id=instrument_id,
+            source=source,
+            external_id=external_id,
+            board=board,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            source_metadata=source_metadata,
+        )
+        return "inserted"
+    if existing.instrument_id != instrument_id:
+        return "ambiguous"
+    same = (
+        existing.valid_from == valid_from
+        and existing.valid_to == valid_to
+    )
+    if same:
+        return "unchanged"
+    existing.valid_from = valid_from
+    existing.valid_to = valid_to
+    if source_metadata:
+        existing.source_metadata = {**(existing.source_metadata or {}), **source_metadata}
+        flag_modified(existing, "source_metadata")
+    assert_no_overlap(session, existing)
+    session.flush()
+    return "updated"
 
 
 def add_source_mapping(

@@ -8,6 +8,9 @@ Schema `market`:
   half-open `valid_from <= t < valid_to`). `valid_to` NULL = current/open-ended.
   `valid_from` NULL = start unknown / current-only — **not** proven valid in 2010.
   Unique remains `(source, external_id, board)`. Column `source_metadata`.
+  **H2.1:** current-cohort MOEX windows populated from ISS `history_from`
+  (TQBR current; EQBR predecessor clipped to TQBR `history_from` when it overlaps).
+  Not a historical universe.
 - `candles` — unique `(instrument_id, timeframe, timestamp, source)`; V1 timeframe `1d`;
   **RAW** exchange OHLCV (ADR 0005). No adjustment columns.
 - `series` / `series_values` — non-OHLC series (KEY_RATE, RUONIA, CBR FX)

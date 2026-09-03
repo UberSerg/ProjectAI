@@ -82,6 +82,16 @@ def market_splits_ingest(workflow_id: int) -> dict:
         return result
 
 
+@celery_app.task(name="projectai.market_source_windows_sync")
+def market_source_windows_sync(workflow_id: int) -> dict:
+    from app.modules.market.application.source_windows import SourceWindowSyncService
+
+    with core_session() as session:
+        result = SourceWindowSyncService(session).run(workflow_id=workflow_id)
+        session.commit()
+        return result
+
+
 @celery_app.task(name="projectai.feature_backfill")
 def feature_backfill(
     workflow_id: int,

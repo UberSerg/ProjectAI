@@ -7,7 +7,9 @@
 Flow: seed universe → download MOEX (current/open-ended source mapping) → download CBR → save RAW → upsert → DQ → finish.
 
 Historical as-of SECID/board resolution is available for future importers
-(`resolve_source_as_of`). Current ingest does not walk historical mappings.
+(`resolve_source_as_of`). Current ingest uses the open-ended mapping.
+`POST /api/v1/market/source-windows/sync` refreshes MOEX windows for the current
+cohort from `/iss/securities/{SECID}.json` (`history_from`). No candle backfill.
 
 ## Incremental update
 
