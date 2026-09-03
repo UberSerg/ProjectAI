@@ -9,13 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.analytics.models import FeatureSet, InstrumentFeatureDaily
-from app.infrastructure.market.models import Candle, Instrument
+from app.infrastructure.market.models import Candle, CorporateAction, Instrument
 from app.modules.analytics.application.calculator import CandleObservation, DailyFeatureCalculator
 from app.modules.analytics.application.compute import FeatureComputeService
 from app.modules.analytics.application.mechanical_features import calculate_mechanical_adjusted_features
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.analytics.feature_config import BASIC_DAILY_V1, BASIC_DAILY_V2
 from app.modules.market.application.mechanical_adjustment import MechanicalAction, load_mechanical_actions
+from app.modules.market.application.seed import seed_market_universe
 from app.modules.market.application.split_events import EVENT_TYPE_REVERSE_SPLIT, EVENT_TYPE_SPLIT
 
 
@@ -23,9 +24,106 @@ def _obs(day: date, close: float, volume: float = 100.0) -> CandleObservation:
     return CandleObservation(date=day, close=close, volume=volume)
 
 
-def test_plzl_real_split_is_not_a_crash(core_db: Session) -> None:
-    inst = core_db.scalar(select(Instrument).where(Instrument.symbol == "PLZL"))
+def _universe_instrument(session: Session, symbol: str) -> Instrument:
+    seed_market_universe(session)
+    inst = session.scalar(select(Instrument).where(Instrument.symbol == symbol))
     assert inst is not None
+    return inst
+
+
+def _ensure_candle(
+    session: Session,
+    instrument_id: int,
+    day: date,
+    close: float,
+    *,
+    volume: float = 1000.0,
+) -> Candle:
+    ts = datetime(day.year, day.month, day.day, tzinfo=UTC)
+    existing = session.scalar(
+        select(Candle).where(Candle.instrument_id == instrument_id, Candle.timestamp == ts)
+    )
+    if existing is not None:
+        return existing
+    row = Candle(
+        instrument_id=instrument_id,
+        timeframe="1d",
+        timestamp=ts,
+        open=Decimal(str(close)),
+        high=Decimal(str(close)),
+        low=Decimal(str(close)),
+        close=Decimal(str(close)),
+        volume=Decimal(str(volume)),
+        source="MOEX",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _ensure_mechanical_action(
+    session: Session,
+    instrument_id: int,
+    day: date,
+    event_type: str,
+    before: str,
+    after: str,
+) -> None:
+    existing = session.scalar(
+        select(CorporateAction).where(
+            CorporateAction.instrument_id == instrument_id,
+            CorporateAction.event_date == day,
+            CorporateAction.event_type == event_type,
+        )
+    )
+    if existing is not None:
+        return
+    factor = Decimal(after) / Decimal(before)
+    session.add(
+        CorporateAction(
+            instrument_id=instrument_id,
+            event_date=day,
+            event_type=event_type,
+            payload={
+                "split_before": before,
+                "split_after": after,
+                "adjustment_factor": str(factor),
+            },
+            source="MOEX",
+            external_id=None,
+            known_at=None,
+        )
+    )
+    session.flush()
+
+
+def _observations(session: Session, instrument_id: int, start: datetime, end: datetime) -> list[CandleObservation]:
+    candles = list(
+        session.scalars(
+            select(Candle)
+            .where(
+                Candle.instrument_id == instrument_id,
+                Candle.timestamp >= start,
+                Candle.timestamp <= end,
+            )
+            .order_by(Candle.timestamp)
+        )
+    )
+    return [
+        CandleObservation(
+            date=row.timestamp.date(),
+            close=float(row.close),
+            volume=float(row.volume) if row.volume is not None else None,
+        )
+        for row in candles
+    ]
+
+
+def test_plzl_real_split_is_not_a_crash(core_db: Session) -> None:
+    inst = _universe_instrument(core_db, "PLZL")
+    _ensure_candle(core_db, inst.id, date(2025, 3, 26), 19011.5)
+    _ensure_candle(core_db, inst.id, date(2025, 3, 27), 1890.0)
+    _ensure_mechanical_action(core_db, inst.id, date(2025, 3, 27), EVENT_TYPE_SPLIT, "1", "10")
     before = datetime(2025, 3, 26, tzinfo=UTC)
     after = datetime(2025, 3, 27, tzinfo=UTC)
     raw_before = core_db.scalar(select(Candle).where(Candle.instrument_id == inst.id, Candle.timestamp == before))
@@ -34,25 +132,9 @@ def test_plzl_real_split_is_not_a_crash(core_db: Session) -> None:
     raw_return = float(raw_after.close / raw_before.close - 1)
     assert raw_return < -0.8
 
-    candles = list(
-        core_db.scalars(
-            select(Candle)
-            .where(
-                Candle.instrument_id == inst.id,
-                Candle.timestamp >= datetime(2025, 3, 1, tzinfo=UTC),
-                Candle.timestamp <= datetime(2025, 3, 31, tzinfo=UTC),
-            )
-            .order_by(Candle.timestamp)
-        )
+    observations = _observations(
+        core_db, inst.id, datetime(2025, 3, 1, tzinfo=UTC), datetime(2025, 3, 31, tzinfo=UTC)
     )
-    observations = [
-        CandleObservation(
-            date=row.timestamp.date(),
-            close=float(row.close),
-            volume=float(row.volume) if row.volume is not None else None,
-        )
-        for row in candles
-    ]
     raw_rows = DailyFeatureCalculator(BASIC_DAILY_V1["parameters"]).calculate(
         observations, date_from=date(2025, 3, 27), date_to=date(2025, 3, 27)
     )
@@ -70,26 +152,21 @@ def test_plzl_real_split_is_not_a_crash(core_db: Session) -> None:
 
 
 def test_vtbr_reverse_split_generic(core_db: Session) -> None:
-    inst = core_db.scalar(select(Instrument).where(Instrument.symbol == "VTBR"))
-    assert inst is not None
+    inst = _universe_instrument(core_db, "VTBR")
+    event_day = date(2024, 7, 15)
+    _ensure_candle(core_db, inst.id, date(2024, 7, 12), 0.0234)
+    _ensure_candle(core_db, inst.id, event_day, 108.8)
+    _ensure_mechanical_action(core_db, inst.id, event_day, EVENT_TYPE_REVERSE_SPLIT, "5000", "1")
     loaded = load_mechanical_actions(core_db, inst.id)
     actions = [item for item in loaded if item.event_type == EVENT_TYPE_REVERSE_SPLIT]
     assert actions
     event_day = actions[0].event_date
-    candles = list(
-        core_db.scalars(
-            select(Candle)
-            .where(
-                Candle.instrument_id == inst.id,
-                Candle.timestamp >= datetime(event_day.year, event_day.month, 1, tzinfo=UTC),
-                Candle.timestamp <= datetime(event_day.year, event_day.month, 28, tzinfo=UTC),
-            )
-            .order_by(Candle.timestamp)
-        )
+    observations = _observations(
+        core_db,
+        inst.id,
+        datetime(event_day.year, event_day.month, 1, tzinfo=UTC),
+        datetime(event_day.year, event_day.month, 28, tzinfo=UTC),
     )
-    observations = [
-        CandleObservation(date=row.timestamp.date(), close=float(row.close), volume=None) for row in candles
-    ]
     raw_rows = DailyFeatureCalculator(BASIC_DAILY_V1["parameters"]).calculate(
         observations, date_from=event_day, date_to=event_day
     )
@@ -106,24 +183,13 @@ def test_vtbr_reverse_split_generic(core_db: Session) -> None:
 
 
 def test_sber_control_matches_raw(core_db: Session) -> None:
-    inst = core_db.scalar(select(Instrument).where(Instrument.symbol == "SBER"))
-    assert inst is not None
+    inst = _universe_instrument(core_db, "SBER")
     day = date(2024, 6, 10)
-    candles = list(
-        core_db.scalars(
-            select(Candle)
-            .where(
-                Candle.instrument_id == inst.id,
-                Candle.timestamp >= datetime(2024, 5, 1, tzinfo=UTC),
-                Candle.timestamp <= datetime(2024, 6, 15, tzinfo=UTC),
-            )
-            .order_by(Candle.timestamp)
-        )
+    _ensure_candle(core_db, inst.id, date(2024, 6, 7), 320.0)
+    _ensure_candle(core_db, inst.id, day, 316.8)
+    observations = _observations(
+        core_db, inst.id, datetime(2024, 5, 1, tzinfo=UTC), datetime(2024, 6, 15, tzinfo=UTC)
     )
-    observations = [
-        CandleObservation(date=row.timestamp.date(), close=float(row.close), volume=float(row.volume or 0))
-        for row in candles
-    ]
     raw_rows = DailyFeatureCalculator(BASIC_DAILY_V1["parameters"]).calculate(
         observations, date_from=day, date_to=day
     )
@@ -187,8 +253,10 @@ def test_v1_unchanged_and_v2_coexists(core_db: Session) -> None:
     assert v1.parameters.get("price_basis") != "mechanical_adjusted"
     assert v2.parameters.get("price_basis") == "mechanical_adjusted"
 
-    inst = core_db.scalar(select(Instrument).where(Instrument.symbol == "PLZL"))
-    assert inst is not None
+    inst = _universe_instrument(core_db, "PLZL")
+    _ensure_candle(core_db, inst.id, date(2025, 3, 26), 19011.5)
+    _ensure_candle(core_db, inst.id, date(2025, 3, 27), 1890.0)
+    _ensure_mechanical_action(core_db, inst.id, date(2025, 3, 27), EVENT_TYPE_SPLIT, "1", "10")
     v1_before = core_db.scalar(
         select(InstrumentFeatureDaily).where(
             InstrumentFeatureDaily.instrument_id == inst.id,
