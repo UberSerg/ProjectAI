@@ -11,8 +11,9 @@ Schema `market`:
 - `candles` — unique `(instrument_id, timeframe, timestamp, source)`; V1 timeframe `1d`;
   **RAW** exchange OHLCV (ADR 0005). No adjustment columns.
 - `series` / `series_values` — non-OHLC series (KEY_RATE, RUONIA, CBR FX)
-- `corporate_actions` — foundation table **without a V1 writer**. Future events
-  (`DIVIDEND`, `SPLIT`, …), not a price-repair table. Exact schema migration is deferred.
+- `corporate_actions` — events, not a price-repair table. **H1:** `SPLIT` writer from
+  official MOEX ISS (`event_date` = effective/`tradedate`; `known_at` NULL — feed has no
+  announcement time; before/after/factor in `payload`). `DIVIDEND` ingest is not implemented.
 - `ingestion_batches` — batch stats + `raw_location`
 - `data_quality_issues` — severity info/warning/error
 

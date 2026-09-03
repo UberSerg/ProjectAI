@@ -5,8 +5,8 @@
 Operational database for:
 
 - `market` — instruments, RAW candles, series, DQ issues, workflows;
-  `corporate_actions` is a foundation table (no V1 writer). Candles stay RAW exchange
-  OHLCV (ADR 0005). Derived adjusted / total-return series do not replace candles.
+  `corporate_actions` stores events (H1: official MOEX `SPLIT` ingest). Candles stay RAW
+  exchange OHLCV (ADR 0005). Derived adjusted / total-return series do not replace candles.
 - `analytics` — feature sets, instrument/series daily features, technical feature rows, relation inputs/snapshots
 - `technical` — technical runs and daily signals
 - `learning` — model registry foundation; Dataset/PIT specs, runs, samples (Dataset V0)

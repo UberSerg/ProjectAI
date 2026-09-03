@@ -14,6 +14,13 @@ from app.domain.ports.market_data import (
     ProviderFetchResult,
 )
 from app.infrastructure.market.http_client import MarketHttpClient
+from app.modules.market.application.split_events import (
+    EVENT_TYPE_SPLIT,
+    SOURCE_MOEX,
+    SplitEventDraft,
+    SplitParseResult,
+    split_adjustment_factor,
+)
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -118,3 +125,77 @@ class MoexIssProvider(MarketDataProvider):
         elif isinstance(payload, str):
             payload = json.loads(payload)
         return parse_moex_history(payload)
+
+    def fetch_stock_splits(self) -> tuple[SplitParseResult, tuple[bytes, ...]]:
+        """Official ISS stock splits. Fields: tradedate, secid, before, after. No known_at."""
+        url = f"{self.base_url}/iss/statistics/engines/stock/splits.json"
+        accepted: list[SplitEventDraft] = []
+        rejected = 0
+        received = 0
+        raw_payloads: list[bytes] = []
+        start = 0
+        while True:
+            response = self.client.get(
+                url,
+                params={"start": start, "iss.meta": "off"},
+            )
+            raw_payloads.append(response.content)
+            payload = response.json()
+            page = parse_moex_splits(payload)
+            accepted.extend(page.accepted)
+            rejected += page.rejected
+            received += page.received
+            row_count = len((payload.get("splits") or {}).get("data") or [])
+            if row_count < 100:
+                break
+            start += 100
+        return SplitParseResult(tuple(accepted), rejected, received), tuple(raw_payloads)
+
+
+def parse_moex_splits(payload: dict[str, Any]) -> SplitParseResult:
+    """Parse ISS /iss/statistics/engines/stock/splits.json. Rejects invalid before/after."""
+    block = payload.get("splits") or {}
+    columns = block.get("columns") or []
+    accepted: list[SplitEventDraft] = []
+    rejected = 0
+    rows = block.get("data") or []
+    for values in rows:
+        row = dict(zip(columns, values, strict=False))
+        parsed = _split_row_to_draft(row)
+        if parsed is None:
+            rejected += 1
+            continue
+        accepted.append(parsed)
+    return SplitParseResult(tuple(accepted), rejected, len(rows))
+
+
+def _split_row_to_draft(row: dict[str, Any]) -> SplitEventDraft | None:
+    secid = str(row.get("secid") or "").strip()
+    trade_date = row.get("tradedate")
+    before = _decimal(row.get("before"))
+    after = _decimal(row.get("after"))
+    if not secid or not trade_date:
+        return None
+    if before is None or after is None or before <= 0 or after <= 0:
+        return None
+    try:
+        effective = date.fromisoformat(str(trade_date)[:10])
+    except ValueError:
+        return None
+    factor = split_adjustment_factor(before, after)
+    return SplitEventDraft(
+        secid=secid,
+        effective_date=effective,
+        split_before=before,
+        split_after=after,
+        adjustment_factor=factor,
+        source=SOURCE_MOEX,
+        event_type=EVENT_TYPE_SPLIT,
+        known_at=None,
+        raw={
+            "tradedate": str(trade_date),
+            "secid": secid,
+            "before": str(before),
+            "after": str(after),
+        },
+    )

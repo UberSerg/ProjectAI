@@ -10,12 +10,15 @@ from typing import Any, Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.infrastructure.market.models import (
     Candle,
+    CorporateAction,
     DataQualityIssue,
     Instrument,
 )
+from app.modules.market.application.split_events import EVENT_TYPE_SPLIT
 
 DQMode = Literal["historical", "operational"]
 
@@ -73,6 +76,7 @@ def _run_historical(session: Session, context: DataQualityContext) -> dict[str, 
             )
         ).all()
     )
+    split_dates = load_split_effective_dates(session)
 
     # Missing instrument mapping
     for instrument in instruments:
@@ -187,7 +191,11 @@ def _run_historical(session: Session, context: DataQualityContext) -> dict[str, 
                     severity="warning",
                     timestamp=newer.timestamp,
                     message=f"Close changed by {float(change):.1%} vs previous bar",
-                    details={"from": str(older.close), "to": str(newer.close)},
+                    details=_jump_details(
+                        older,
+                        newer,
+                        explained_by_split=(instrument_id, newer.timestamp.date()) in split_dates,
+                    ),
                 )
 
     # Gaps vs trading calendar inferred from loaded MOEX dates (not wall-clock today)
@@ -255,6 +263,7 @@ def _run_operational(session: Session, context: DataQualityContext) -> dict[str,
         .unique()
         .all()
     )
+    split_dates = load_split_effective_dates(session)
 
     for instrument in instruments:
         if not instrument.sources:
@@ -346,7 +355,11 @@ def _run_operational(session: Session, context: DataQualityContext) -> dict[str,
                         severity="warning",
                         timestamp=newer.timestamp,
                         message=f"Close changed by {float(change):.1%} vs previous bar",
-                        details={"from": str(older.close), "to": str(newer.close)},
+                        details=_jump_details(
+                            older,
+                            newer,
+                            explained_by_split=(instrument.id, newer.timestamp.date()) in split_dates,
+                        ),
                     )
 
         if last_ts < cutoff:
@@ -390,6 +403,55 @@ def _run_operational(session: Session, context: DataQualityContext) -> dict[str,
         "by_type": counts["by_type"],
         "checked_at": now.isoformat(),
     }
+
+
+def load_split_effective_dates(session: Session) -> set[tuple[int, date]]:
+    rows = session.execute(
+        select(CorporateAction.instrument_id, CorporateAction.event_date).where(
+            CorporateAction.event_type == EVENT_TYPE_SPLIT
+        )
+    ).all()
+    return {(instrument_id, event_date) for instrument_id, event_date in rows}
+
+
+def split_explains_jump(session: Session, instrument_id: int, jump_date: date) -> bool:
+    """True when a persisted SPLIT effective_date matches the jump date for the instrument."""
+    return (instrument_id, jump_date) in load_split_effective_dates(session)
+
+
+def annotate_jumps_explained_by_splits(session: Session) -> int:
+    """Annotate existing abnormal_price_jump rows. Does not delete the jump or rewrite candles."""
+    split_dates = load_split_effective_dates(session)
+    if not split_dates:
+        return 0
+    issues = list(
+        session.scalars(
+            select(DataQualityIssue).where(DataQualityIssue.issue_type == "abnormal_price_jump")
+        )
+    )
+    annotated = 0
+    for issue in issues:
+        if issue.instrument_id is None or issue.timestamp is None:
+            continue
+        if (issue.instrument_id, issue.timestamp.date()) not in split_dates:
+            continue
+        details = dict(issue.details or {})
+        if details.get("explained_by_corporate_action") == EVENT_TYPE_SPLIT:
+            continue
+        details["explained_by_corporate_action"] = EVENT_TYPE_SPLIT
+        issue.details = details
+        flag_modified(issue, "details")
+        annotated += 1
+    if annotated:
+        session.flush()
+    return annotated
+
+
+def _jump_details(older: Candle, newer: Candle, *, explained_by_split: bool) -> dict[str, Any]:
+    details: dict[str, Any] = {"from": str(older.close), "to": str(newer.close)}
+    if explained_by_split:
+        details["explained_by_corporate_action"] = EVENT_TYPE_SPLIT
+    return details
 
 
 def _issue(

@@ -118,7 +118,8 @@ Dataset / PIT Join V0          Accepted; pit_daily_core v1 frozen
 **Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
 `learning.model_registry` foundation (no training loop yet).
 
-**Explicitly not implemented:** Deep History H1+ (CA ingest, deep backfill, adjusted/TR layers),
+**Explicitly not implemented:** Deep History H2+ and remaining H1 dividend inventory
+(deep backfill, adjusted/TR layers),
 Fundamental Intelligence, Market Regime, Prediction ML training, Meta Model, Trading Policy /
 Risk / Order Intent, Simulator, Broker adapter, Recommendations / BUY-SELL, autonomous real trading.
 
@@ -163,7 +164,8 @@ SUCCESS, watchdog `scripts/accept-dataset-pit.ps1`.
 - Parquet export
 - Prediction ML / CatBoost / XGBoost
 - Simulator, Trading Policy, Risk, Broker
-- Fundamentals, Market Regime, Deep History H1+ (H0 contract only — ADR 0005)
+- Fundamentals, Market Regime, Deep History H2+ / dividends / adjusted-TR (H0 contract:
+  ADR 0005; H1 SPLIT ingest implemented)
 - dedicated `dataset-pit-v0.md` (not required for V0 close)
 
 **`pit_daily_core` v1 is frozen.** New return semantics (adjusted / total return) require a
@@ -216,7 +218,7 @@ a crisis” onto days when that could not yet be known.
 
 ---
 
-## Deep History (H0 contract accepted; H1+ not started)
+## Deep History (H0 contract accepted; H1 SPLIT ingest implemented)
 
 Current Dataset/PIT V0 depth (~2024–present) is enough for early validation, **not** enough
 for serious Kraken training. Direction: roughly **2014 → present** (or deeper if source
@@ -265,7 +267,7 @@ local/free. LLM/Polza is not the numerical market-history engine.
 | Phase | Goal | Explicitly excluded |
 |-------|------|---------------------|
 | **H0** | This contract (docs/rules/ADR). **Accepted.** | Runtime, ingest, backfill |
-| **H1** | CA ingest: **SPLIT first**, then DIVIDEND source/contract inventory | Adjusted candles, Dataset v2, ML |
+| **H1** | **SPLIT ingest implemented** (official MOEX ISS). DIVIDEND inventory not started | Adjusted candles, Dataset v2, ML |
 | **H2** | Instrument identity / source validity windows | Full delist universe |
 | **H3** | Official deep MOEX+CBR backfill via existing ingest | Finam as source of truth |
 | **H4** | Versioned Analytics adjusted / total-return layer | Simulator taxes/costs |
@@ -275,7 +277,7 @@ local/free. LLM/Polza is not the numerical market-history engine.
 **Later (not H1–H6):** PIT universe / delisted; dividend event-study features;
 announcement-grade dividends; Prediction ML; Simulator.
 
-Do not start H1 from this document alone.
+Do not start H2 / DIVIDEND ingest from this document alone.
 
 ---
 
@@ -321,7 +323,7 @@ fundamental publish policy, regime model, dataset code/version, label formula, q
 source watermarks.
 
 Known look-ahead holes (still open at runtime): sparse series without true `published_at`;
-unadjusted prices / no CA ingest yet (H1+); Relations `best_lag` as ML feature; mutating
+unadjusted prices / no adjusted-return layer yet; Relations `best_lag` as ML feature; mutating
 semantics without version bump; confusing backward `return_*` with forward labels.
 
 ---
@@ -352,7 +354,7 @@ Do not start a stage from documentation alone.
 |---|--------|-----------------|
 | — | Market Data / Analytics / Relations / Technical / Dataset V0 | **Implemented** (`pit_daily_core` v1 frozen) |
 | 1 | **Dataset / PIT Join V0** | Phase 1–3 accepted (no UI / no ML) |
-| 2 | **Deep History H0–H6** | **H0 contract accepted** (ADR 0005). H1+ not started |
+| 2 | **Deep History H0–H6** | **H0 accepted** (ADR 0005). **H1 SPLIT ingest implemented.** H2+ / dividends not started |
 | 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
 | 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | After honest deep-history data as needed; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk |
 | 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |

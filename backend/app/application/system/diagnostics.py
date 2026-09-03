@@ -14,9 +14,18 @@ from app.application.system.info import get_system_info
 from app.application.system.sanitize import sanitize_text
 from app.infrastructure.analytics.models import FeatureRun, FeatureSet, InstrumentFeatureDaily
 from app.infrastructure.analytics.relation_models import RelationInput, RelationRun, RelationSet, RelationSnapshot
-from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Series, Workflow
+from app.infrastructure.market.models import (
+    Candle,
+    CorporateAction,
+    DataQualityIssue,
+    IngestionBatch,
+    Instrument,
+    Series,
+    Workflow,
+)
 from app.infrastructure.technical.models import TechnicalRun, TechnicalSignalDaily
 from app.modules.analytics.application.seed import seed_feature_sets
+from app.modules.market.application.split_events import EVENT_TYPE_SPLIT
 from app.modules.relations.application.seed import seed_relation_sets
 from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V1_VERSION
 
@@ -37,6 +46,29 @@ def build_diagnostics_text(session: Session) -> str:
     candles = session.scalar(select(func.count()).select_from(Candle)) or 0
     series = session.scalar(select(func.count()).select_from(Series)) or 0
     last_ts = session.scalar(select(func.max(Candle.timestamp)))
+    split_count = (
+        session.scalar(
+            select(func.count())
+            .select_from(CorporateAction)
+            .where(CorporateAction.event_type == EVENT_TYPE_SPLIT)
+        )
+        or 0
+    )
+    last_split_batch = session.scalar(
+        select(IngestionBatch)
+        .where(IngestionBatch.source == "MOEX", IngestionBatch.data_type == "splits")
+        .order_by(desc(IngestionBatch.finished_at), desc(IngestionBatch.id))
+        .limit(1)
+    )
+    last_split_at = "—"
+    last_unresolved = "—"
+    if last_split_batch is not None:
+        last_split_at = (
+            last_split_batch.finished_at.isoformat()
+            if last_split_batch.finished_at
+            else last_split_batch.status
+        )
+        last_unresolved = str((last_split_batch.meta or {}).get("unresolved", 0))
     dq_errors = (
         session.scalar(
             select(func.count())
@@ -100,6 +132,10 @@ def build_diagnostics_text(session: Session) -> str:
         f"Candles: {candles}",
         f"Series: {series}",
         f"Last market data: {last_ts.isoformat() if last_ts else '—'}",
+        "",
+        f"Corporate actions (SPLIT): {split_count}",
+        f"Last SPLIT ingest: {last_split_at}",
+        f"Unresolved last SPLIT run: {last_unresolved}",
         "",
     ]
 

@@ -50,6 +50,7 @@ def test_historical_backfill_does_not_emit_missing_recent_for_past_range() -> No
         return result
 
     session.scalars.side_effect = scalars
+    session.execute.return_value.all.return_value = []
     session.add = MagicMock()
 
     result = run_data_quality_checks(
@@ -90,6 +91,7 @@ def test_operational_emits_missing_recent_when_stale() -> None:
 
     session.scalars.side_effect = scalars
     session.scalar.return_value = stale_ts
+    session.execute.return_value.all.return_value = []
     session.add = MagicMock()
 
     result = run_data_quality_checks(session, DataQualityContext(mode="operational"))

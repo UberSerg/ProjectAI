@@ -11,8 +11,10 @@ Validates quality **inside the requested range** only:
 - negative volume
 - missing instrument mapping
 - empty responses in range
-- abnormal price jumps (heuristic ≥25% close-to-close; does **not** classify split vs
-  crash vs dividend — H1+)
+- abnormal price jumps (heuristic ≥25% close-to-close). If a persisted `SPLIT` has the
+  same `effective_date` as the jump, details may include
+  `explained_by_corporate_action=SPLIT`. The raw jump is kept; it is not turned into a
+  clean return. Dividend classification is not implemented.
 - missing trading days vs calendar inferred from loaded MOEX dates
 
 Does **not** compare last candle to "today". A backfill of `2024-01-01 → 2024-02-15`
