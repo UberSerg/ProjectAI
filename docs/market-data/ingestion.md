@@ -4,7 +4,10 @@
 
 `POST /api/v1/market/backfill` creates a workflow and enqueues Celery task.
 
-Flow: seed universe → download MOEX → download CBR → save RAW → upsert → DQ → finish.
+Flow: seed universe → download MOEX (current/open-ended source mapping) → download CBR → save RAW → upsert → DQ → finish.
+
+Historical as-of SECID/board resolution is available for future importers
+(`resolve_source_as_of`). Current ingest does not walk historical mappings.
 
 ## Incremental update
 

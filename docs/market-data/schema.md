@@ -3,11 +3,11 @@
 Schema `market`:
 
 - `instruments` — ProjectAI internal IDs; ticker is not PK. `instrument_id` is the stable
-  identity. Ticker / SECID / board are **not** eternal identity (future source
-  `valid_from` / `valid_to` — H2, not implemented).
-- `instrument_sources` — unique `(source, external_id, board)` today (current mapping only);
-  column `source_metadata`
-  (named so to avoid SQLAlchemy reserved `Table.metadata` clash; semantically the mapping metadata)
+  identity. `symbol` is the current/display ticker, not a historical SECID.
+- `instrument_sources` — source mapping with validity windows (`valid_from`, `valid_to`,
+  half-open `valid_from <= t < valid_to`). `valid_to` NULL = current/open-ended.
+  `valid_from` NULL = start unknown / current-only — **not** proven valid in 2010.
+  Unique remains `(source, external_id, board)`. Column `source_metadata`.
 - `candles` — unique `(instrument_id, timeframe, timestamp, source)`; V1 timeframe `1d`;
   **RAW** exchange OHLCV (ADR 0005). No adjustment columns.
 - `series` / `series_values` — non-OHLC series (KEY_RATE, RUONIA, CBR FX)

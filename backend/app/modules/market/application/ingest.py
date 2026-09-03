@@ -29,6 +29,7 @@ from app.modules.market.application.data_quality import (
     DataQualityContext,
     run_data_quality_checks,
 )
+from app.modules.market.application.identity import resolve_current_source
 from app.modules.market.application.incremental import compute_incremental_range
 from app.modules.market.application.seed import seed_market_universe
 from app.modules.market.application.workflows import (
@@ -221,7 +222,7 @@ class MarketIngestionService:
             moex_batch = self._new_batch("MOEX", "candles", workflow.id)
             raw_paths: list[str] = []
             for instrument in instruments:
-                source = next((s for s in instrument.sources if s.source == "MOEX"), None)
+                source = resolve_current_source(self.session, instrument.id, "MOEX")
                 if source is None:
                     continue
                 range_ = self._range_for_instrument(mode, instrument.id, date_from, date_to)
