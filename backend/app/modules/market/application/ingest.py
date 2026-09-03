@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -29,7 +30,12 @@ from app.modules.market.application.data_quality import (
     DataQualityContext,
     run_data_quality_checks,
 )
-from app.modules.market.application.identity import resolve_current_source
+from app.modules.market.application.history_ranges import (
+    PlannedSourceRange,
+    missing_coverage_ranges,
+    plan_source_ranges,
+)
+from app.modules.market.application.identity import mappings_for_instrument
 from app.modules.market.application.incremental import compute_incremental_range
 from app.modules.market.application.seed import seed_market_universe
 from app.modules.market.application.workflows import (
@@ -172,12 +178,23 @@ def _series_external_id(code: str) -> str:
 
 
 class MarketIngestionService:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        moex: MoexIssProvider | None = None,
+        cbr: CbrProvider | None = None,
+        raw_store: RawStore | None = None,
+        pause_seconds: float | None = None,
+        commit_progress: bool = True,
+    ) -> None:
         self.session = session
         self.settings = get_settings()
-        self.raw_store = RawStore()
-        self.moex = MoexIssProvider()
-        self.cbr = CbrProvider()
+        self.raw_store = raw_store or RawStore()
+        self.moex = moex or MoexIssProvider()
+        self.cbr = cbr or CbrProvider()
+        self.pause_seconds = 0.15 if pause_seconds is None else pause_seconds
+        self.commit_progress = commit_progress
 
     def run_backfill(
         self,
@@ -203,8 +220,10 @@ class MarketIngestionService:
         date_to: date | None,
         workflow_id: int | None,
     ) -> dict[str, Any]:
+        workflow_pk: int | None = None
         seed_market_universe(self.session)
         workflow = self._resolve_workflow(workflow_id, mode)
+        workflow_pk = workflow.id
         stats = {
             "received": 0,
             "inserted": 0,
@@ -220,37 +239,9 @@ class MarketIngestionService:
 
             update_step(self.session, get_step(workflow, "Download MOEX"), "RUNNING")
             moex_batch = self._new_batch("MOEX", "candles", workflow.id)
-            raw_paths: list[str] = []
-            for instrument in instruments:
-                source = resolve_current_source(self.session, instrument.id, "MOEX")
-                if source is None:
-                    continue
-                range_ = self._range_for_instrument(mode, instrument.id, date_from, date_to)
-                if range_ is None:
-                    continue
-                start, end = range_
-                time.sleep(0.15)
-                result = self.moex.fetch_daily_candles(
-                    source.external_id, start, end, board=source.board or "TQBR"
-                )
-                for idx, payload in enumerate(result.raw_payloads):
-                    path = self.raw_store.save(
-                        source="moex",
-                        data_type="candles",
-                        batch_id=moex_batch.id,
-                        name=f"{source.external_id}_{start}_{end}_{idx}",
-                        payload=payload,
-                        content_type="application/json",
-                    )
-                    raw_paths.append(path)
-                bars = list(result.records)
-                stats["received"] += len(bars)
-                written = upsert_candles(self.session, instrument.id, bars, "MOEX")
-                stats["inserted"] += written["inserted"]
-                stats["updated"] += written["updated"]
-                moex_batch.records_received += written["received"]
-                moex_batch.records_inserted += written["inserted"]
-                moex_batch.records_updated += written["updated"]
+            raw_paths = self._download_moex(
+                workflow, moex_batch, instruments, stats, mode, date_from, date_to
+            )
             moex_batch.raw_location = ";".join(raw_paths[:20])
             moex_batch.status = "success"
             moex_batch.finished_at = datetime.now(UTC)
@@ -259,56 +250,7 @@ class MarketIngestionService:
 
             update_step(self.session, get_step(workflow, "Download CBR"), "RUNNING")
             cbr_batch = self._new_batch("CBR", "series", workflow.id)
-            cbr_paths: list[str] = []
-            today = datetime.now(UTC).date()
-            for series in series_rows:
-                external_id = _series_external_id(series.code)
-                if mode == "update":
-                    last = self.session.scalar(
-                        select(func.max(SeriesValue.timestamp)).where(
-                            SeriesValue.series_id == series.id
-                        )
-                    )
-                    range_ = compute_incremental_range(
-                        last_timestamp_date=last.date() if last else None,
-                        default_from=self.settings.market_default_backfill_from,
-                        today=today,
-                    )
-                else:
-                    assert date_from and date_to
-                    range_ = (date_from, date_to)
-                if range_ is None:
-                    continue
-                start, end = range_
-                time.sleep(0.2)
-                try:
-                    result = self.cbr.fetch_series(external_id, start, end)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "cbr_fetch_failed",
-                        extra={"series": series.code, "error": str(exc)},
-                    )
-                    cbr_batch.records_rejected += 1
-                    stats["rejected"] += 1
-                    continue
-                for idx, payload in enumerate(result.raw_payloads):
-                    path = self.raw_store.save(
-                        source="cbr",
-                        data_type="series",
-                        batch_id=cbr_batch.id,
-                        name=f"{series.code}_{start}_{end}_{idx}",
-                        payload=payload,
-                        content_type="application/xml",
-                    )
-                    cbr_paths.append(path)
-                points = list(result.records)
-                stats["received"] += len(points)
-                written = upsert_series_values(self.session, series.id, points, "CBR")
-                stats["inserted"] += written["inserted"]
-                stats["updated"] += written["updated"]
-                cbr_batch.records_received += written["received"]
-                cbr_batch.records_inserted += written["inserted"]
-                cbr_batch.records_updated += written["updated"]
+            cbr_paths = self._download_cbr(workflow, cbr_batch, series_rows, stats, mode, date_from, date_to)
             cbr_batch.raw_location = ";".join(cbr_paths[:20])
             cbr_batch.status = "success" if cbr_batch.records_rejected == 0 else "warning"
             cbr_batch.finished_at = datetime.now(UTC)
@@ -337,12 +279,20 @@ class MarketIngestionService:
             update_step(self.session, get_step(workflow, "Finish"), "SUCCESS")
             final = "WARNING" if dq_status == "WARNING" else "SUCCESS"
             finish_workflow(self.session, workflow, final)
-            self.session.commit()
+            if self.commit_progress:
+                self.session.commit()
             return {"workflow_id": workflow.id, "status": final, "stats": stats}
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self.session.rollback()
-            # reopen workflow state best-effort
-            self.session.rollback()
+            try:
+                failed = self.session.get(Workflow, workflow_pk) if workflow_pk is not None else None
+                if failed is not None:
+                    finish_workflow(self.session, failed, "ERROR", error=str(exc)[:2000])
+                    if self.commit_progress:
+                        self.session.commit()
+            except Exception:
+                logger.exception("market_ingest_workflow_finish_failed")
+                self.session.rollback()
             raise
 
     def _resolve_workflow(self, workflow_id: int | None, mode: str) -> Workflow:
@@ -364,7 +314,7 @@ class MarketIngestionService:
             stmt = stmt.where(Instrument.symbol.in_(symbols))
         return list(self.session.scalars(stmt).unique().all())
 
-    def _range_for_instrument(
+    def _requested_range(
         self,
         mode: str,
         instrument_id: int,
@@ -385,6 +335,212 @@ class MarketIngestionService:
             default_from=self.settings.market_default_backfill_from,
             today=today,
         )
+
+    def _download_moex(
+        self,
+        workflow: Workflow,
+        moex_batch: IngestionBatch,
+        instruments: list[Instrument],
+        stats: dict[str, Any],
+        mode: str,
+        date_from: date | None,
+        date_to: date | None,
+    ) -> list[str]:
+        raw_paths: list[str] = []
+        fetches: list[dict[str, Any]] = []
+        total = len(instruments)
+        for index, instrument in enumerate(instruments, start=1):
+            requested = self._requested_range(mode, instrument.id, date_from, date_to)
+            if requested is None:
+                self._heartbeat(
+                    workflow,
+                    processed_instruments=index,
+                    total_instruments=total,
+                    current_instrument=instrument.symbol,
+                    current_window="skipped",
+                    received=stats["received"],
+                    inserted=stats["inserted"],
+                )
+                continue
+            plans = plan_source_ranges(
+                mappings_for_instrument(self.session, instrument.id, "MOEX"),
+                requested[0],
+                requested[1],
+                instrument_id=instrument.id,
+            )
+            if not plans:
+                self._heartbeat(
+                    workflow,
+                    processed_instruments=index,
+                    total_instruments=total,
+                    current_instrument=instrument.symbol,
+                    current_window="NO_PROVEN_MAPPING",
+                    received=stats["received"],
+                    inserted=stats["inserted"],
+                )
+                continue
+            for plan in plans:
+                self._heartbeat(
+                    workflow,
+                    processed_instruments=index,
+                    total_instruments=total,
+                    current_instrument=instrument.symbol,
+                    current_window=(
+                        f"{plan.external_id}/{plan.board} "
+                        f"{plan.effective_from.isoformat()}..{plan.effective_to.isoformat()}"
+                    ),
+                    received=stats["received"],
+                    inserted=stats["inserted"],
+                )
+                written, paths = self._fetch_planned_candles(moex_batch, instrument, plan)
+                raw_paths.extend(paths)
+                stats["received"] += written["received"]
+                stats["inserted"] += written["inserted"]
+                stats["updated"] += written["updated"]
+                moex_batch.records_received += written["received"]
+                moex_batch.records_inserted += written["inserted"]
+                moex_batch.records_updated += written["updated"]
+                fetches.append(
+                    {
+                        "symbol": instrument.symbol,
+                        "external_id": plan.external_id,
+                        "board": plan.board,
+                        "from": plan.effective_from.isoformat(),
+                        "to": plan.effective_to.isoformat(),
+                        "received": written["received"],
+                        "inserted": written["inserted"],
+                        "updated": written["updated"],
+                    }
+                )
+            if self.commit_progress:
+                self.session.commit()
+        moex_batch.meta = {
+            "endpoint_template": (
+                "{base}/iss/history/engines/stock/markets/{market}"
+                "/boards/{board}/securities/{secid}.json"
+            ),
+            "fetches": fetches,
+        }
+        flag_modified(moex_batch, "meta")
+        return raw_paths
+
+    def _fetch_planned_candles(
+        self,
+        moex_batch: IngestionBatch,
+        instrument: Instrument,
+        plan: PlannedSourceRange,
+    ) -> tuple[dict[str, int], list[str]]:
+        if self.pause_seconds:
+            time.sleep(self.pause_seconds)
+        result = self.moex.fetch_daily_candles(
+            plan.external_id,
+            plan.effective_from,
+            plan.effective_to,
+            board=plan.board,
+        )
+        paths: list[str] = []
+        for idx, payload in enumerate(result.raw_payloads):
+            paths.append(
+                self.raw_store.save(
+                    source="moex",
+                    data_type="candles",
+                    batch_id=moex_batch.id,
+                    name=(
+                        f"{plan.external_id}_{plan.board}_"
+                        f"{plan.effective_from}_{plan.effective_to}_{idx}"
+                    ),
+                    payload=payload,
+                    content_type="application/json",
+                )
+            )
+        written = upsert_candles(self.session, instrument.id, list(result.records), "MOEX")
+        return written, paths
+
+    def _download_cbr(
+        self,
+        workflow: Workflow,
+        cbr_batch: IngestionBatch,
+        series_rows: list[Series],
+        stats: dict[str, Any],
+        mode: str,
+        date_from: date | None,
+        date_to: date | None,
+    ) -> list[str]:
+        raw_paths: list[str] = []
+        today = datetime.now(UTC).date()
+        for series in series_rows:
+            external_id = _series_external_id(series.code)
+            if mode == "update":
+                last = self.session.scalar(
+                    select(func.max(SeriesValue.timestamp)).where(SeriesValue.series_id == series.id)
+                )
+                ranges = []
+                incremental = compute_incremental_range(
+                    last_timestamp_date=last.date() if last else None,
+                    default_from=self.settings.market_default_backfill_from,
+                    today=today,
+                )
+                if incremental is not None:
+                    ranges.append(incremental)
+            else:
+                assert date_from and date_to
+                have_min = self.session.scalar(
+                    select(func.min(SeriesValue.timestamp)).where(SeriesValue.series_id == series.id)
+                )
+                have_max = self.session.scalar(
+                    select(func.max(SeriesValue.timestamp)).where(SeriesValue.series_id == series.id)
+                )
+                ranges = missing_coverage_ranges(
+                    have_min.date() if have_min else None,
+                    have_max.date() if have_max else None,
+                    date_from,
+                    date_to,
+                )
+            for start, end in ranges:
+                self._heartbeat(
+                    workflow,
+                    current_instrument=series.code,
+                    current_window=f"CBR {start.isoformat()}..{end.isoformat()}",
+                    received=stats["received"],
+                    inserted=stats["inserted"],
+                )
+                if self.pause_seconds:
+                    time.sleep(self.pause_seconds)
+                try:
+                    result = self.cbr.fetch_series(external_id, start, end)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("cbr_fetch_failed", extra={"series": series.code, "error": str(exc)})
+                    cbr_batch.records_rejected += 1
+                    stats["rejected"] += 1
+                    continue
+                for idx, payload in enumerate(result.raw_payloads):
+                    raw_paths.append(
+                        self.raw_store.save(
+                            source="cbr",
+                            data_type="series",
+                            batch_id=cbr_batch.id,
+                            name=f"{series.code}_{start}_{end}_{idx}",
+                            payload=payload,
+                            content_type="application/xml",
+                        )
+                    )
+                written = upsert_series_values(self.session, series.id, list(result.records), "CBR")
+                stats["received"] += written["received"]
+                stats["inserted"] += written["inserted"]
+                stats["updated"] += written["updated"]
+                cbr_batch.records_received += written["received"]
+                cbr_batch.records_inserted += written["inserted"]
+                cbr_batch.records_updated += written["updated"]
+        return raw_paths
+
+    def _heartbeat(self, workflow: Workflow, **fields: Any) -> None:
+        workflow.meta = {
+            **(workflow.meta or {}),
+            "heartbeat_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        flag_modified(workflow, "meta")
+        self.session.flush()
 
     def _new_batch(self, source: str, data_type: str, workflow_id: int) -> IngestionBatch:
         batch = IngestionBatch(

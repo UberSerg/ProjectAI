@@ -6,7 +6,8 @@ Module folders under `backend/app/modules/` are intentional boundaries.
 |--------|-------------------------------------|
 | market | Market data access, ingestion, DQ; RAW candles as source of truth.
   Corporate actions are **events** (H1: MOEX `SPLIT` ingest). H2/H2.1: source
-  validity windows for the current cohort (not a historical universe). |
+  validity windows. H3: official RAW deep history for the current cohort
+  (not ML-ready; not a historical universe). |
 | analytics | Feature sets, calculators, feature runs |
 | relations | Relations Engine V1 (inputs, snapshots, lags) |
 | technical | Technical Agent V1 (`technical_daily`, rules_v1 signals) |
