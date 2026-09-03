@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   getInstrumentFeaturesLatest,
   hasFeatureQualityWarning,
@@ -37,9 +37,12 @@ interface InstrumentData {
 
 export function InstrumentPage() {
   const { instrumentId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<InstrumentData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(() =>
+    searchParams.get("from") && searchParams.get("to") ? "quotes" : "overview",
+  );
 
   useEffect(() => {
     const controller = new AbortController();

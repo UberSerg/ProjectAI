@@ -37,7 +37,7 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     title: "Доходность 20 дней",
     summary: "Изменение close за ~20 торговых дней (~месяц).",
     details:
-      "Используется и в Analytics, и в Technical Agent. Считается на RAW-сериях; V2 mechanical adjustment — отдельный feature set, не этот экран по умолчанию.",
+      "Используется в Analytics и как вход Technical. На экране инструмента показывается значение из активного feature set. Mechanical-adjusted V2 — отдельный расчётный контур, не замена RAW-графика котировок.",
     interpretation: "Среднесрочный импульс. Высокое значение ≠ рекомендация покупать.",
     limitations: [
       "Не вероятность прибыли.",
@@ -99,14 +99,14 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "confidence",
     kind: "metric",
     title: "Confidence",
-    summary: "coverage × agreement × quality — не вероятность прибыли.",
+    summary: "Насколько согласован и полон сигнал (coverage × agreement × quality) — не вероятность прибыли.",
     details:
-      "В Technical Agent V1: confidence = clip(coverage × agreement × quality_factor, 0, 1). Coverage — доля доступных факторов; agreement — согласованность знаков; quality — штраф за качество данных.",
+      "Считается как coverage × agreement × quality (0…1). Coverage — сколько факторов доступно; agreement — совпадают ли их знаки; quality — штраф за проблемы данных.",
     interpretation:
-      "Высокий confidence значит «модель смогла согласованно оценить состояние», а не «сделка с высокой вероятностью успеха».",
+      "Высокий confidence значит «оценка собрана согласованно», а не «сделка с высокой вероятностью прибыли».",
     limitations: [
-      "Не вероятность прибыли и не калиброванная вероятность направления.",
-      "При price_discontinuity / invalid сигнал обнуляется.",
+      "Это не вероятность прибыли и не калиброванная вероятность направления.",
+      "При разрыве цены / невалидных данных сигнал обнуляется.",
     ],
     relatedIds: ["technical_score", "rsi14"],
   },
@@ -114,11 +114,11 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "rsi14",
     kind: "metric",
     title: "RSI14",
-    summary: "Relative Strength Index за 14 торговых дней.",
+    summary: "Индекс относительной силы за 14 торговых дней.",
     details:
-      "Классический осциллятор моментума на дневных close. В rules_v1 участвует как фактор, а не как торговый триггер сам по себе.",
-    interpretation: "Около 30/70 часто читают как зоны перепроданности/перекупленности — в ProjectAI это вход в score, не приказ.",
-    limitations: ["На короткой истории может отсутствовать.", "Считается по RAW close."],
+      "Осциллятор моментума по дневным close. В rules_v1 — один из входов в score, а не самостоятельный торговый сигнал.",
+    interpretation: "Зоны около 30/70 часто читают как перепроданность/перекупленность — в ProjectAI это вклад в оценку, не приказ.",
+    limitations: ["На короткой истории может отсутствовать.", "Не использовать как единственное правило входа."],
     relatedIds: ["return_20d", "confidence"],
   },
   sma20_distance: {
@@ -191,10 +191,13 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "raw_candles",
     kind: "term",
     title: "RAW свечи",
-    summary: "Неизменяемые биржевые OHLCV из market.candles.",
+    summary: "Биржевые дневные OHLCV как пришли с биржи — без «сглаживания» сплитов.",
     details:
-      "ProjectAI хранит RAW exchange OHLCV. Сплиты и дивиденды не переписывают историю свечей в этом UI. Adjusted / total-return ряды — отдельные будущие представления.",
-    limitations: ["Дивидендные гэпы видны как есть.", "Не переключаемся молча на adjusted."],
+      "На графике котировок ProjectAI показывает RAW exchange candles (market.candles). Механические сплиты/деноминации не переписывают эти свечи: разрыв цены после сплита остаётся видимым. Отдельная analytical basis ProjectAI (mechanical-adjusted) используется в Analytics / Technical / Relations и не подменяет этот график.",
+    limitations: [
+      "Дивидендные гэпы тоже остаются как есть.",
+      "Adjusted-график в этом UI не показывается — это сознательное разделение Prediction/Analytics vs сырых котировок.",
+    ],
   },
   feature_coverage: {
     id: "feature_coverage",

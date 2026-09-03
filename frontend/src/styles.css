@@ -647,12 +647,33 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
 }
 .ohlc-tooltip strong { display: block; margin-bottom: 0.25rem; }
 .range-navigator { margin-top: 0.35rem; }
+.range-nav-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  align-items: baseline;
+  margin-bottom: 0.35rem;
+}
+.range-nav-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.range-nav-selected {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 600;
+}
 .range-navigator-svg { width: 100%; height: auto; display: block; }
 .range-nav-bg { fill: #f8fafc; stroke: var(--line); }
-.range-nav-line { stroke: var(--accent); stroke-width: 1.5; opacity: 0.7; }
-.range-nav-window { fill: rgba(37, 99, 168, 0.14); cursor: grab; }
+.range-nav-line { stroke: var(--accent); stroke-width: 1.5; opacity: 0.85; }
+.range-nav-dim { fill: rgba(26, 35, 50, 0.12); pointer-events: none; }
+.range-nav-window { fill: rgba(37, 99, 168, 0.18); stroke: rgba(37, 99, 168, 0.35); stroke-width: 1; cursor: grab; }
+.range-nav-window:active { cursor: grabbing; }
 .range-nav-handle line { stroke: var(--accent); stroke-width: 2; }
-.range-nav-handle rect { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+.range-nav-handle rect { fill: #fff; stroke: var(--accent); stroke-width: 1.75; }
 .range-nav-caption { margin: 0.35rem 0 0; font-size: 0.82rem; }
 
 @media (max-width: 1100px) {

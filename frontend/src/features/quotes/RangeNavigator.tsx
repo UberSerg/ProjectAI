@@ -138,14 +138,36 @@ export function RangeNavigator({ overview, available, range, onChange }: Props) 
   }, [applyClientX]);
 
   if (overview.length < 2) {
-    return <p className="muted">Навигатор периода недоступен — мало точек истории.</p>;
+    return <p className="muted range-nav-caption">Навигатор периода недоступен — мало точек истории.</p>;
   }
+
+  const dimLeftW = Math.max(0, xFrom - padX);
+  const dimRightX = xTo;
+  const dimRightW = Math.max(0, padX + innerW - xTo);
 
   return (
     <div className="range-navigator">
-      <svg ref={ref} className="range-navigator-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Навигатор периода">
+      <div className="range-nav-header">
+        <span className="range-nav-title">Выбор периода на полной истории</span>
+        <span className="range-nav-selected" aria-live="polite">
+          Выбрано: {range.from} → {range.to}
+        </span>
+      </div>
+      <svg
+        ref={ref}
+        className="range-navigator-svg"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Навигатор: перетащите ручки или окно, чтобы выбрать видимый период"
+      >
         <rect x={0} y={0} width={width} height={height} className="range-nav-bg" rx={8} />
         <polyline fill="none" className="range-nav-line" points={points} />
+        {dimLeftW > 0 ? (
+          <rect x={padX} y={padY} width={dimLeftW} height={innerH} className="range-nav-dim" />
+        ) : null}
+        {dimRightW > 0 ? (
+          <rect x={dimRightX} y={padY} width={dimRightW} height={innerH} className="range-nav-dim" />
+        ) : null}
         <rect
           x={xFrom}
           y={padY}
@@ -171,8 +193,9 @@ export function RangeNavigator({ overview, available, range, onChange }: Props) 
         <Handle x={xTo} height={height} onStart={() => { dragging.current = "to"; }} />
       </svg>
       <p className="muted range-nav-caption">
-        Доступная история: {isoFromTimestamp(overview[0]?.timestamp) ?? available.from} →{" "}
-        {isoFromTimestamp(overview[overview.length - 1]?.timestamp) ?? available.to}
+        Полная история: {isoFromTimestamp(overview[0]?.timestamp) ?? available.from} →{" "}
+        {isoFromTimestamp(overview[overview.length - 1]?.timestamp) ?? available.to}. Тяните ручки или синее
+        окно.
       </p>
     </div>
   );
@@ -192,8 +215,8 @@ function Handle({ x, height, onStart }: { x: number; height: number; onStart: ()
       }}
       style={{ cursor: "ew-resize" }}
     >
-      <line x1={x} x2={x} y1={6} y2={height - 6} />
-      <rect x={x - 5} y={height / 2 - 12} width={10} height={24} rx={3} />
+      <line x1={x} x2={x} y1={4} y2={height - 4} />
+      <rect x={x - 6} y={height / 2 - 14} width={12} height={28} rx={4} />
     </g>
   );
 }

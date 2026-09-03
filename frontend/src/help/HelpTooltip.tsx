@@ -14,18 +14,16 @@ export function HelpTooltip({
   const [open, setOpen] = useState(false);
 
   return (
-    <span
-      className={`help-tooltip-wrap${open ? " open" : ""}`}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
-    >
+    <span className={`help-tooltip-wrap${open ? " open" : ""}`}>
       <button
         type="button"
         className="metric-help-btn"
         aria-describedby={open ? tipId : undefined}
         aria-label="Справка по показателю"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();

@@ -52,7 +52,13 @@ export function QuotesExplorer({
   const [range, setRange] = useState<DateBounds | null>(initial);
   const [draftFrom, setDraftFrom] = useState(initial?.from ?? "");
   const [draftTo, setDraftTo] = useState(initial?.to ?? "");
-  const [activePreset, setActivePreset] = useState<RangePreset | "custom" | null>("1Y");
+  const [activePreset, setActivePreset] = useState<RangePreset | "custom" | null>(() => {
+    if (!available || !initial) return "1Y";
+    const qFrom = searchParams.get("from");
+    const qTo = searchParams.get("to");
+    if (qFrom && qTo) return "custom";
+    return "1Y";
+  });
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [overview, setOverview] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +128,8 @@ export function QuotesExplorer({
   const shortHistory = recordsCount > 0 && recordsCount < 80;
   const showCandles = candles ?? [];
   const keepingPrevious = loading && candles != null && candles.length > 0;
+  const navigatorSeries = overview.length >= 2 ? overview : !loading && showCandles.length >= 2 ? showCandles : [];
+  const navigatorLoading = Boolean(range && loading && navigatorSeries.length < 2);
 
   return (
     <div className="quotes-explorer">
@@ -190,13 +198,17 @@ export function QuotesExplorer({
         )}
       </div>
 
-      {range ? (
+      {range && navigatorSeries.length >= 2 ? (
         <RangeNavigator
-          overview={overview.length ? overview : showCandles}
+          overview={navigatorSeries}
           available={available}
           range={range}
           onChange={(next) => applyRange(next, "custom")}
         />
+      ) : navigatorLoading ? (
+        <p className="muted range-nav-caption">Загрузка навигатора периода…</p>
+      ) : range ? (
+        <p className="muted range-nav-caption">Навигатор периода недоступен — мало точек истории.</p>
       ) : null}
 
       {showCandles.length ? (
