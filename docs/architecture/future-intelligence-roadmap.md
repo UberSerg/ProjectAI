@@ -118,8 +118,8 @@ Dataset / PIT Join V0          Accepted; pit_daily_core v1 frozen
 **Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
 `learning.model_registry` foundation (no training loop yet).
 
-**Explicitly not implemented:** Deep History H2+ and remaining H1 dividend inventory
-(deep backfill, adjusted/TR layers),
+**Explicitly not implemented:** Deep History H4+ (adjusted/TR, versioned recompute, Dataset v2)
+and remaining H1 dividend inventory. H3 RAW official history ≠ ML-ready.
 Fundamental Intelligence, Market Regime, Prediction ML training, Meta Model, Trading Policy /
 Risk / Order Intent, Simulator, Broker adapter, Recommendations / BUY-SELL, autonomous real trading.
 
@@ -269,7 +269,7 @@ local/free. LLM/Polza is not the numerical market-history engine.
 | **H0** | This contract (docs/rules/ADR). **Accepted.** | Runtime, ingest, backfill |
 | **H1** | **SPLIT ingest implemented** (official MOEX ISS). DIVIDEND inventory not started | Adjusted candles, Dataset v2, ML |
 | **H2** | Source validity windows + **H2.1 current-cohort MOEX windows populated** | Full delist / historical universe |
-| **H3** | Official deep MOEX+CBR backfill via existing ingest | Finam as source of truth |
+| **H3** | **Official RAW MOEX+CBR deep backfill** (proven windows only). Not ML-ready. | Finam as source of truth; adjusted/TR; downstream v2 |
 | **H4** | Versioned Analytics adjusted / total-return layer | Simulator taxes/costs |
 | **H5** | Technical + Relations historical recompute on **new versions** | Daily all-pairs at huge universe |
 | **H6** | **New** Dataset/PIT spec + acceptance | Silent mutate of `pit_daily_core` v1 |
@@ -354,7 +354,7 @@ Do not start a stage from documentation alone.
 |---|--------|-----------------|
 | — | Market Data / Analytics / Relations / Technical / Dataset V0 | **Implemented** (`pit_daily_core` v1 frozen) |
 | 1 | **Dataset / PIT Join V0** | Phase 1–3 accepted (no UI / no ML) |
-| 2 | **Deep History H0–H6** | **H0 accepted.** **H1 SPLIT implemented.** **H2/H2.1 current-cohort windows populated.** H3+ / dividends not started |
+| 2 | **Deep History H0–H6** | **H0–H3:** RAW official history for current cohort. **Not ML-ready.** H4+ / dividends not started |
 | 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
 | 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | After honest deep-history data as needed; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk |
 | 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |

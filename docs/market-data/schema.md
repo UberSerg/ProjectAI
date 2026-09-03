@@ -12,7 +12,9 @@ Schema `market`:
   (TQBR current; EQBR predecessor clipped to TQBR `history_from` when it overlaps).
   Not a historical universe.
 - `candles` — unique `(instrument_id, timeframe, timestamp, source)`; V1 timeframe `1d`;
-  **RAW** exchange OHLCV (ADR 0005). No adjustment columns.
+  **RAW** exchange OHLCV (ADR 0005). No adjustment columns. **H3** may load deep official
+  ISS history; board is not part of the unique key because proven windows do not overlap.
+  Deep raw history ≠ ML-ready history.
 - `series` / `series_values` — non-OHLC series (KEY_RATE, RUONIA, CBR FX)
 - `corporate_actions` — events, not a price-repair table. **H1:** official MOEX ISS
   splits feed (`event_date` = effective/`tradedate`; `known_at` NULL). Domain type is

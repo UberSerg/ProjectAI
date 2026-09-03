@@ -8,6 +8,8 @@ with adjusted or total-return prices. **H1:** official MOEX ISS splits feed is i
 `DIVIDEND` ingest, adjusted prices, and total return are not implemented. **H2:**
 `instrument_sources` has `valid_from`/`valid_to` so as-of SECID/board can be resolved.
 **H2.1** fills trusted ISS `history_from` windows for the current cohort only.
+**H3** loads official RAW ISS/CBR history for those proven windows.
+Deep raw history is **not** ML-ready (pending H4/H5/H6).
 This is not a historical universe. MOEX ISS + CBR are canonical sources.
 
 ## Sources

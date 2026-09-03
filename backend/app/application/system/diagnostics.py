@@ -199,6 +199,8 @@ def build_diagnostics_text(session: Session) -> str:
             f"proven={source_proven} unknown={source_unknown} "
             f"historical={source_closed} overlaps={overlap_errors}"
         ),
+        "RAW deep history: official ISS/CBR candles available (H3)",
+        "Deep history ML-ready: NO — pending H4 adjusted/TR, H5 versioned recompute, H6 Dataset",
         "",
     ]
 

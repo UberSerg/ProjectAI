@@ -4,12 +4,19 @@
 
 `POST /api/v1/market/backfill` creates a workflow and enqueues Celery task.
 
-Flow: seed universe → download MOEX (current/open-ended source mapping) → download CBR → save RAW → upsert → DQ → finish.
+Flow: seed universe → plan proven source ranges (requested ∩ `valid_from`/`valid_to`)
+→ download MOEX per SECID/board window → download CBR missing prefix/suffix →
+save RAW → upsert → DQ → finish.
 
-Historical as-of SECID/board resolution is available for future importers
-(`resolve_source_as_of`). Current ingest uses the open-ended mapping.
+Backfill never uses a current mapping outside its proven window and does not
+guess successor SECIDs. Incremental update still starts from last stored candle
+and is clipped the same way.
+
 `POST /api/v1/market/source-windows/sync` refreshes MOEX windows for the current
-cohort from `/iss/securities/{SECID}.json` (`history_from`). No candle backfill.
+cohort from `/iss/securities/{SECID}.json` (`history_from`).
+
+**H3:** official RAW deep history may be loaded. This is not ML-ready history
+(H4 adjusted/TR, H5 versioned recompute, H6 Dataset are separate).
 
 ## Incremental update
 
