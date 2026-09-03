@@ -30,7 +30,13 @@ def test_models_endpoint(client: TestClient) -> None:
     data = resp.json()
     assert data[0]["model_code"] == "rules"
     assert data[0]["model_version"] == 1
+    assert data[0]["is_active"] is True
     assert "config_hash" in data[0]
+    versions = {(row["model_code"], row["model_version"]) for row in data}
+    assert ("rules", 1) in versions
+    assert ("rules", 2) in versions
+    v2 = next(row for row in data if row["model_version"] == 2)
+    assert v2["is_active"] is False
 
 
 def test_overview_emptyish(client: TestClient, core_db: Session) -> None:
@@ -70,6 +76,17 @@ def test_backfill_unknown_model(client: TestClient) -> None:
         json={"date_from": "2024-01-01", "model_code": "catboost", "model_version": 1},
     )
     assert resp.status_code == 400
+
+
+@patch("app.worker.tasks.technical_backfill.delay")
+def test_backfill_allows_rules_v2(mock_delay: MagicMock, client: TestClient, core_db: Session) -> None:
+    seed_feature_sets(core_db)
+    resp = client.post(
+        "/api/v1/technical/backfill",
+        json={"date_from": "2014-01-01", "model_code": "rules", "model_version": 2},
+    )
+    assert resp.status_code == 200
+    assert mock_delay.call_args[0][5] == 2
 
 
 @patch("app.worker.tasks.technical_update.delay")

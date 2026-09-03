@@ -67,7 +67,7 @@ class TechnicalFeatureCalculator:
         self.rsi_period = int(params["rsi_period"])
         self.atr_period = int(params["atr_period"])
         if self.ema_adjust:
-            raise ValueError("technical_daily v1 requires ema_adjust=false")
+            raise ValueError("technical_daily requires ema_adjust=false")
 
     def calculate(
         self,

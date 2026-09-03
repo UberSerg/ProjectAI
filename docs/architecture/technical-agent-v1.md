@@ -201,6 +201,12 @@ Each signal stores:
 Replace `RuleBasedTechnicalModel` with `CatBoostTechnicalModel` implementing the same port.  
 `TechnicalSignalService`, workflows, signal schema, and UI contracts stay stable. ML receives frozen input only.
 
+## H5A — technical_daily v2 / rules v2
+
+Same indicator formulas and scoring as V1, on PIT mechanical-adjusted OHLCV
+(`SPLIT` / `REVERSE_SPLIT`, `effective_date <= t`). Pins `basic_daily` v2 for
+`return_*` / `volume_zscore_20d`. Not active. V1 rows stay RAW and reproducible.
+
 ## Limitations
 
 - rules_v1 is a heuristic baseline, not claimed alpha  
@@ -208,7 +214,8 @@ Replace `RuleBasedTechnicalModel` with `CatBoostTechnicalModel` implementing the
 - No ML / backtest / optimization  
 - No Relations inside rules_v1  
 - No regime / fundamentals / news / intraday  
-- No adjusted-price engine (`technical_daily` v1 / `rules_v1` use RAW OHLC). Future
-  mechanical-adjusted indicators need a **new version** so split/denomination artefacts
-  do not look like crashes; dividend gaps must not be auto-erased (ADR 0005).  
-- Not a BUY/SELL recommendation  
+- `technical_daily` v1 / `rules` v1 use RAW OHLC and `basic_daily` v1 (released).
+- **H5A:** `technical_daily` v2 / `rules` v2 use PIT mechanical-adjusted OHLCV and
+  pin `basic_daily` v2. Same scoring formula; not active. Not dividend/total-return.
+- Relations V2 / Dataset v2 / ML are not implemented.
+- Not a BUY/SELL recommendation   
