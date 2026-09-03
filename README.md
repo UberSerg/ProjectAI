@@ -1,6 +1,10 @@
 # ProjectAI
 
-Docker-first modular monolith foundation for local development in Cursor and later cloud/VPS deployment.
+Docker-first modular monolith for local development in Cursor and later cloud/VPS deployment.
+
+Long-term direction: a self-learning investment system that must prove itself on historical
+data and in virtual environments before real execution. The mature conceptual state is called
+**Kraken** (not a code module). See `docs/architecture/future-intelligence-roadmap.md`.
 
 > Historical conceptual documents (`docs/legacy/`, root `*.markdown`, `docs/specs/`) are preserved for project history.
 > They are **not** the current architectural specification. This `README.md` and `docs/architecture/` take priority.
@@ -61,15 +65,25 @@ docker compose up -d --build
 
 ## Architecture (short)
 
+**Implemented foundation:**
+
 ```text
-Market Data -> Analyzers -> Meta Model -> Decision Memory -> Expert LLM
- -> Recommendation -> Portfolio Manager -> Virtual Portfolio -> Outcomes
- -> Training / Retraining
+Market Data V1
+  → Analytics Feature Layer V1
+  → Relations Engine V1
+  → Technical Agent V1
+  → Dataset / PIT Join V0 (Phase 1 backend implemented; Relations join / full Dataset V0 completion pending)
 ```
 
-Business logic above is **not implemented yet**. Only platform boundaries, dual DB, workers, and dashboard health are in place.
+**Target direction (mostly not implemented):**
 
-See `docs/architecture/`.
+```text
+PIT Dataset → Prediction Models → Meta Model → Trading Policy → Risk
+  → Order Intent → Execution Adapter (Simulator | Paper | Broker)
+  → Outcomes → Learning / Retraining → Decision Memory
+```
+
+Do not treat the target diagram as shipped. Details: `docs/architecture/`.
 
 ## Market Data V1
 

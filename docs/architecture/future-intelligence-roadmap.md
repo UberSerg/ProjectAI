@@ -2,265 +2,257 @@
 
 ## Status
 
-**Status: Planned / Research**
+**Status: Living roadmap**
 
-**Not implemented yet.**
+This document describes **direction**, not shipped capability. Sections marked Implemented
+are grounded in code; everything else is planned / research unless an explicit stage begins.
 
-This document consolidates architectural analysis for future intelligence layers. It is **not** a description of shipped production capabilities.
-
-Current production architecture ends at Market → Analytics → Relations V1 → **Technical Agent V1 (implemented on `feature/technical-v1`)**. Dataset/PIT Join and later layers remain design intent until an explicit stage begins.
-
-Related research: [Market Regime / Market State V0 Research](./market-regime-v0-research.md).
+Related research: [Market Regime / Market State V0 Research](./market-regime-v0-research.md).  
+Learning / Decision Memory / Candidate–Champion: [Future Learning Loop](./future-learning.md).
 
 ---
 
-## Current foundation
+## Product direction (Kraken)
+
+ProjectAI is not only a stack of analytical agents. The long-term goal is a
+**self-learning investment system** that must prove itself on historical data and in
+virtual environments **before** it earns access to real execution.
+
+**Kraken** is the internal name for that mature state. It is **not** a module, package,
+namespace, or class — do not invent `modules/kraken` because this document mentions it.
+
+Architectural path to real money (conceptual):
 
 ```text
-Market Data V1
-        ↓
-Analytics Feature Layer V1  (basic_daily, PIT, quality flags)
-        ↓
-Relations Engine V1
-        ↓
-Technical Agent V1          (**Implemented** — see `technical-agent-v1.md`)
+Historical Simulation
+  → Walk-forward validation
+  → Shadow / Paper Portfolio
+  → Signal Mode
+  → Human-confirmed Broker Execution
+  → Small real capital
+  → Limited Autonomous Trading
 ```
 
-**What exists today (grounded):**
+Broker connectivity appears only as an **Execution Adapter**. Prediction / Policy / Risk
+must not be rewritten for each broker.
 
-| Layer | Role | Notes |
+---
+
+## Target pipeline (direction)
+
+Not all of this exists. Do not implement unused stages from this diagram.
+
+```text
+Market Data
+    ↓
+Analytics / Feature Layer
+    ↓
+Relations
+    ↓
+Technical / Fundamental / other intelligence
+    ↓
+Point-In-Time Dataset
+    ↓
+Prediction Models
+    ↓
+Meta Model
+    ↓
+Trading Policy
+    ↓
+Risk Manager
+    ↓
+Order Intent
+    ↓
+Execution Adapter
+        ├ Historical Simulator
+        ├ Paper / Shadow Portfolio
+        └ Real Broker Adapter
+    ↓
+Portfolio / Trades / Outcomes
+    ↓
+Learning / Evaluation / Retraining
+    ↓
+Decision Memory
+```
+
+**Current Dataset/PIT V0 subset (Phase 1–3 accepted; not the full diagram above):**
+
+Analytics + Technical features + Technical signal + Relations as-of → forward labels
+(`1/5/10/20` obs). Fundamentals, regime, Meta Model, Policy, Risk, Simulator, and broker
+are not part of Dataset/PIT V0.
+
+**Role separation (invariant):**
+
+| Layer | Responsibility |
+|-------|----------------|
+| Prediction Models | Forecast market / outcomes |
+| Meta Model | Relative usefulness / trust in agents & models |
+| Trading Policy | Desired action |
+| Risk Manager | Shrink, constrain, or reject |
+| Execution Adapter | Execute Order Intent only |
+
+---
+
+## Current foundation (grounded)
+
+```text
+Market Data V1                 Implemented
+        ↓
+Analytics Feature Layer V1     Implemented  (basic_daily, PIT, quality)
+        ↓
+Relations Engine V1            Implemented  (as_of snapshots)
+        ↓
+Technical Agent V1             Implemented  (technical_daily + rules_v1)
+        ↓
+Dataset / PIT Join V0          Phase 1 + 2 implemented; Phase 3 acceptance completed
+```
+
+| Layer | Role | Status |
 |-------|------|--------|
-| Market Data | Factual candles, series, DQ issues | Observation-date alignment; no true publication timestamps for sparse events; no adjusted prices in V1 |
-| Analytics Feature Layer | Versioned derived daily features (`feature_sets`, wide typed tables) | ADR 0004; no look-ahead in calculators; `log_return_1d`, returns, volatility, drawdown, volume features |
-| Relations Engine V1 | Statistical relations with `as_of_date` snapshots | Shipped; ML-ready; does **not** recommend trades |
-| Technical Agent V1 | Deterministic technical features + rules_v1 signals | Shipped; pure TechnicalModel; PIT frozen input; historical signals |
+| Market Data | Candles, series, DQ issues | Implemented |
+| Analytics | Versioned derived daily features | Implemented (ADR 0004) |
+| Relations V1 | Statistical relations with `as_of_date` | Implemented |
+| Technical Agent V1 | Technical features + pure `rules_v1` signals | Implemented |
+| Dataset / PIT V0 | Honest `X(t)` + forward labels `Y` | **Phase 1 + 2 implemented; Phase 3 acceptance completed** (UI / Parquet / ML not in V0) |
 
-**Domain ports:**
+**Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
+`learning.model_registry` foundation (no training loop yet).
 
-- `TechnicalModel` + typed `TechnicalModelInput` / `TechnicalModelOutput` (`rules_v1` / RuleBasedTechnicalModel)
-- `PortfolioPolicy`, `LLMProvider`
-- `learning.model_registry` foundation (no training loop yet)
-
-**Explicitly not implemented yet:** Fundamental Intelligence, Market Regime, Dataset/PIT Join pipeline, ML Candidate, Meta Model, Recommendations / BUY-SELL.
-
-**Next planned stage:** Dataset / PIT Join V0.
+**Explicitly not implemented:** Fundamental Intelligence, Market Regime, Prediction ML training,
+Meta Model, Trading Policy / Risk / Order Intent, Simulator, Broker adapter, Recommendations / BUY-SELL,
+autonomous real trading.
 
 ---
 
-## Technical Agent V1
+## Dataset / PIT Join V0 — current status
 
-Technical Agent is a **consumer** of Analytics (and optionally Relations later). It must not become a second feature store or a duplicate of Relations.
+### Goal
 
-### Analytics features to use (state @ t)
-
-From `analytics.instrument_features_daily` under active `feature_sets(code=basic_daily, version=1)`:
-
-**Core:**
-
-- `log_return_1d` — same family Relations V1 uses for instruments
-- `return_1d` / `return_5d` / `return_20d` — momentum horizons
-- `volatility_5d`, `volatility_20d`
-- `drawdown_20d`
-- `volume_change_1d`, `volume_zscore_20d`
-- `close`, `volume` — context / normalization only, not “the signal”
-- `is_valid`, `has_sufficient_history`, `quality_flags` (especially `price_discontinuity`)
-
-**Series context (as-of join date ≤ t, already supported by Feature Layer):**
-
-- FX pct_change, KEY_RATE / RUONIA absolute_change — macro context in metadata/factors; not required inside score V1
-
-**Row policy:** prefer `is_valid=true`; discontinuities → exclude or explicit confidence penalty (never silent ignore).
-
-### Classical indicators (deterministic, narrow set)
-
-Do **not** port legacy “RSI/MACD everything” catalogs. Compute backward-looking on trading observations only.
-
-**P1 (V1):**
-
-- SMA/EMA distance: `(close − SMA_20)/SMA_20`, `(close − EMA_20)/EMA_20`
-- RSI_14 (Wilder) — overbought/oversold **factor**, not BUY signal
-- ATR_14 / close — normalized volatility (complements analytics `vol_*`)
-- Volume confirmation: existing `volume_zscore_20d`; optional OBV slope over 10/20 obs
-
-**P2 (later, new `feature_set` version — do not mutate `basic_daily` v1):**
-
-- MACD histogram (12/26/9) only if a crossover factor is needed
-- Bollinger %B / bandwidth — partly overlaps vol + drawdown
-- Stochastic — weak daily edge without volume context
-
-**Out of V1:** Ichimoku, Fibonacci, LLM pattern recognition, intraday indicators (`timeframe=1d` fixed).
-
-**Storage intent:** new feature set, e.g. `technical_daily v1` (ADR 0004 spirit: immutable semantics per `(code, version)`). Never rewrite `basic_daily` v1 formulas in place.
-
-### Deterministic V1 vs later ML
-
-| Phase | What runs | Where |
-|-------|-----------|--------|
-| V1 | Indicator calculator + `RuleBasedTechnicalModel` (explicit weights/thresholds) → `score ∈ [-1,1]`, `confidence` from history coverage + quality | `modules/technical/application`; persistence with `(instrument_id, as_of_date, model_code, model_version)` |
-| Later | Same port `TechnicalModel.predict`; CatBoost/XGBoost adapter | Training in `modules/learning`; artifacts in `learning.model_registry` |
-
-LLM / Polza: **never** compute indicators or scores. Optional later layer: human-readable rationale over already computed numbers (not part of the agent contract).
-
-### CRITICAL: TechnicalModel must stay pure
-
-**Wrong (rejected):**
+Prove that historical layers can be joined into an ML-ready row without look-ahead:
 
 ```text
-TechnicalModel.predict(...)
-        ↓
-loads features from PostgreSQL / Feature Store itself
+X(t) = information known <= t
+Y(t, N) = future return after t   (LABEL only)
 ```
 
-**Correct:**
+### Phase 1 (implemented)
 
-```text
-TechnicalSignalService  (application / orchestration)
-        ↓
-loads point-in-time features (market + analytics [+ optional relations])
-        ↓
-builds frozen TechnicalModelInput
-        ↓
-TechnicalModel.predict(input)   ← pure, no I/O
-```
+- `learning.dataset_specs`, `dataset_runs`, `dataset_samples_daily` (migration `20260901_0009`)
+- seed `pit_daily_core` v1 with explicit feature/label/metadata manifest
+- typed contracts; forward labels `1/5/10/20` trading observations
+- PIT validator; Analytics + Technical features + Technical signal join
+- version pins; deterministic sample/dataset hashes
+- API + Celery `dataset_build`; diagnostics section
 
-Rules:
+### Phase 2 (implemented)
 
-1. `TechnicalModel` does **not** open DB sessions, call repositories, or read Redis.
-2. All I/O and PIT joins live in a service / use-case layer.
-3. `TechnicalModelInput` is a **frozen** feature vector (+ identifiers / as_of).
-4. **Same input + same model version ⇒ same output** — required for unit tests, backtests, reproducibility, future ML adapters, and champion/challenger comparison.
+- Relations as-of join (latest `snapshot.as_of <= t`, max age 8 calendar days)
+- self / missing / stale / invalid → NULL, not 0
+- Relations optional for training eligibility
+- coverage by context (IMOEX, USD_RUB, CNY_RUB, KEY_RATE)
 
-Existing port shape (`ticker`, optional `as_of`, `features` → `score` / `confidence` / `direction` / `metadata`) already supports purity; V1 should harden `as_of` as required at the service boundary and pin `model_code` / `model_version` in output metadata.
+### Phase 3 (acceptance completed)
 
-### Output contract (V1 intent)
+End-to-end DatasetBuild on current universe (`2024-01-01` → latest candles), smoke +
+repeat-build hashes, SBER/latest/PLZL audits, run summary API, seed freeze after first
+SUCCESS, watchdog `scripts/accept-dataset-pit.ps1`.
 
-Keep / refine the domain port:
+**Still out of Dataset/PIT V0 (do not treat as done):**
 
-**Input (assembled by service, not by model):**
-
-- `instrument_id` preferred (ticker for UX)
-- `as_of` — required for PIT at the service boundary
-- `feature_set_ref` — which analytics (and later technical) versions were loaded
-- `features` — **preloaded** frozen vector (never “empty means load from store” inside the model)
-
-**Output:**
-
-- `score` ∈ [-1, 1]
-- `confidence` ∈ [0, 1]
-- `direction`: `neutral` | `bullish` | `bearish`
-- `metadata` scalars: `as_of_date`, feature set refs, `model_code` / `model_version`, short factor contributions, quality summary, `horizon_hint` (`1d`|`5d` — meaning of score, not a return forecast)
-
-**Workflows (future):** `TechnicalSignalBackfill` / `Update` patterned after FeatureBackfill — Celery + workflows. Still **no** BUY/SELL recommendations.
-
-Relations: optional factors from `relation_snapshots @ as_of` later; Technical V1 can start on Analytics alone.
+- UI / Datasets page
+- Parquet export
+- Prediction ML / CatBoost / XGBoost
+- Simulator, Trading Policy, Risk, Broker
+- Fundamentals, Market Regime, History Expansion
+- dedicated `dataset-pit-v0.md` (not required for V0 close)
 
 ---
 
-## Fundamental Intelligence
+## Technical Agent V1 (implemented)
 
-Corporate reports ≠ RSS news sentiment. Planned module boundary today is `news` (“news/fundamental”); reporting should get a dedicated **`fundamentals`** contour in Core DB, not Memory DB and not the analytics feature store.
+See [technical-agent-v1.md](./technical-agent-v1.md).
 
-### Pipeline (design only)
-
-```text
-Corporate Reports
-        ↓
-Raw filing (PDF / XBRL / HTML)     — object store /data/raw/...
-        ↓
-Parser (+ optional LLM assist)
-        ↓
-Structured Financial Facts         — Core schema `fundamentals`
-        ↓
-Derived Fundamental Features       — versioned analytics-like features
-        ↓
-Relations inputs / Event Study / ML / Expert Agent
-```
-
-### Storage principles (conceptual — no tables now)
-
-- **`fundamentals.report_filings`:** instrument, report type, period_end, fiscal period, currency, accounting standard, **`published_at`**, source, raw location, restatement chain, ingested_at
-- **`fundamentals.report_metrics`:** filing-scoped metric codes (revenue, EBITDA, net income, EPS, FCF, …) with value/unit/scale
-- **PIT snapshots / as-of views:** metric visible at calendar date `t` only if `published_at::date ≤ t`; restatements preserve “what was known at t”
-
-Raw filing blobs stay out of `analytics.*`. Analytics (or a fundamentals feature set) holds only derived numbers (growth, surprise, days-since-event), versioned like other feature sets.
-
-### Critical fields
-
-| Concept | Rule |
-|---------|------|
-| `published_at` | When the market could know the fact — **mandatory** from first ingest |
-| `period_end` | End of reporting period — **never** substitute for market-known time |
-| Restatements | Chain filings; PIT uses the filing known at `t`, not the latest rewrite |
-| Actual / previous / consensus / guidance | Separate namespaces or tables — do not mix |
-
-Known foundation gap: Market/Analytics V1 align sparse series by observation date, not true publication time. Fundamentals must not repeat that mistake.
-
-### Actual vs previous / consensus / guidance
-
-- **actual** — from filing after `published_at`
-- **previous / YoY / QoQ** — deterministic diffs only if prior actual was already published by `as_of`
-- **consensus** — external estimate with its own snapshot/publish time; otherwise banned from strict PIT datasets
-- **guidance** — management outlook event with `published_at`; not an “actual”
-
-Surprise features: `(actual − consensus) / |consensus|` only when both are known at `t`.
-
-### How fundamentals become Relation Inputs (later)
-
-Extend Relations **input families** without rewriting the calculator:
-
-- families like `fundamental_event` / `fundamental_series`
-- numeric keys only (e.g. earnings surprise z, revenue YoY, days since earnings)
-- explicit transform / alignment (event as-of ffill until next; impulse decay)
-- visible only when `published_at ≤ t`
-
-Do not dump full XBRL into the correlation matrix.
-
-### Polza / LLM vs deterministic code
-
-| Deterministic | LLM (Polza via `LLMProvider`) |
-|---------------|-------------------------------|
-| XBRL/table parse → numbers | Extract structured JSON from messy PDF with schema validation + DQ path |
-| Ratios, growth, surprise, calendar features | Classify guidance tone / risk themes → enum/score |
-| Quality flags | **Never** invent EPS, dates, or BUY/SELL; **never** be source of truth for `published_at` |
-
-Numeric feature path → Core. Raw LLM prose → Decision Memory only as explanation, if at all.
-
-### CRITICAL ADD: Fundamental Event Study
-
-Corporate reporting is **sparse**. Rolling correlation alone is often the wrong tool around filings.
-
-Future analytics must support **two** complementary modes:
-
-1. **Continuous Relation Inputs** — time series / as-of features in the Relations engine (as above).
-2. **Discrete Event Study** — event-centered outcome windows.
-
-Conceptual studies (design only — **not** implementing now):
-
-```text
-EBITDA surprise at event t
-        ↓
-return t+1, t+3, t+5, t+10, t+20
-
-Revenue surprise at t
-        ↓
-future returns
-
-Guidance change at t
-        ↓
-future returns
-
-Net Debt / EBITDA change at t
-        ↓
-future returns
-```
-
-Event Study needs: event id, `published_at` / event time, instrument universe, PIT-safe pre-event state, post-event return windows on the trading calendar, and explicit version pins for label formula. It is a **separate research / dataset product** from continuous Relations snapshots — not a substitute for them.
+Summary: pure `TechnicalModel`; service loads PIT Analytics + technical features; `rules_v1`
+is a heuristic baseline (not alpha). Relations are **not** inside rules_v1 by design.
 
 ---
 
-## ML-ready architecture
+## Fundamental Intelligence (planned)
 
-### Target row shape
+Corporate reports ≠ RSS news sentiment. Prefer a dedicated **`fundamentals`** contour in
+Core DB (today’s module folder may still say `news` — rename when the stage starts).
+
+```text
+Corporate Reports → Raw filing → Parser (+ optional LLM assist)
+  → Structured Financial Facts → Derived features → Event Study / ML / Expert (optional)
+```
+
+**Expert** (optional): LLM-assisted research, narrative interpretation, or explanation —
+**not** an online decision engine and not a substitute for Trading Policy / Risk / Execution.
+
+**Critical PIT:** `period_end ≠ published_at`. A model may use a report only after actual
+publication. Consensus needs its own historical snapshots / timestamps.
+
+**Event study** (design): event at `t` → returns `t+1` / `t+3` / `t+5` / `t+10` / `t+20`.
+Complementary to continuous Relations — not a substitute.
+
+LLM may help extract/classify text. Numbers, dates, and `published_at` are never truth
+solely because an LLM said so — validated structured facts live in Core.
+
+---
+
+## Market Regime / Market State (research)
+
+See [market-regime-v0-research.md](./market-regime-v0-research.md).
+
+Prefer a rich PIT **state vector** (trend, volatility, breadth, correlation concentration,
+liquidity/FX/rates/commodity pressure, …). Optional coarse regime label is allowed.
+
+**Critical:** `regime_detected_at_t ≠` ex-post regime label. Do not backfill “this was already
+a crisis” onto days when that could not yet be known.
+
+---
+
+## Market History Expansion (planned)
+
+Current depth (~2024–present) is enough for early validation / smoke, **not** enough for
+serious Kraken training.
+
+Plan: expand toward roughly **2014 → present** (or deeper if source quality allows).
+
+Deep history introduces PIT / DQ risks that are **not** solved today:
+
+- splits, denominations, ticker changes, delistings, corporate actions
+- survivorship bias; historical universe composition
+- macro publication timestamps
+
+Current active universe on deep history would still carry survivorship bias until a PIT
+universe history exists.
+
+---
+
+## Prediction ML / Meta / Trading stack (later)
+
+After honest datasets:
+
+1. **Prediction ML Candidate** — CatBoost/LightGBM/XGBoost (or similar) on PIT `X → Y`;
+   walk-forward; versioned artifacts. **Before Historical Simulator exists, this stage is
+   offline prediction evaluation only** (metrics on unseen future label windows). It is **not**
+   trading validation, portfolio PnL, or policy proof.
+2. **Historical Simulator V0** — same decision pipeline; costs, slippage, delay; many
+   experimental lives. **Trading / PnL / policy validation starts here**, once Simulator plus
+   Trading Policy and Risk Manager exist. Warning: 10 000 runs on one known period ≠ 10 000
+   independent markets.
+3. **Trading Policy + Risk Manager + Order Intent** — separate from prediction.
+4. **Learning loop / Candidate–Champion / Meta Model / Market State** — see
+   [future-learning.md](./future-learning.md).
+5. **Shadow / Signal / Broker adapter / limited real trading** — only after earned gates.
+
+Core numerical loop should not require LLM tokens. Polza remains for language layers.
+
+---
+
+## ML-ready architecture (contract)
 
 ```text
 state @ t
@@ -270,76 +262,67 @@ state @ t
 + fundamentals known @ t
 + market regime @ t
         ↓
-target return t+N
+target return t+N   (LABEL)
 ```
 
-**Hard rule:** features `X` use only information available at or before `t`. Labels use the future strictly after `t` and live **outside** the feature row.
+**Hard rule:** `X` uses only information `<= t`. Labels use the future strictly after `t`
+and live **outside** the feature row.
 
-Verdict from prior review: the **scaffold is suitable** (market ≠ analytics; versioned feature sets; Relations `as_of` snapshots by design). A full dataset builder is **not** implemented yet. Honest PIT joins are possible today for market+analytics; relations@t after Relations V1 ships as designed; regime@t after Market State research/implementation.
+Version pins on every dataset / model card: feature sets, relation sets, technical model,
+fundamental publish policy, regime model, dataset code/version, label formula, quality policy,
+source watermarks.
 
-### Version pins (every dataset row / model card)
-
-- `feature_set` code / version (+ preferably `feature_run_id`)
-- `relation_set` code / version (+ preferably `relation_run_id`)
-- technical `model_code` / `model_version`
-- fundamental snapshot policy (+ max `published_at` ≤ t when present)
-- market regime model / version (when present)
-- `dataset_code` / `dataset_version`
-- `label_horizon_N`, label formula, trading calendar semantics
-- quality policy (which flags excluded)
-- source / market watermark (replay)
-
-### Look-ahead holes to keep documented
-
-- Sparse series without true `published_at`
-- Corporate actions / unadjusted prices around splits
-- Relations `best_lag` chosen with future information → leakage if used as ML features
-- Using backward `return_*` columns as if they were forward labels
-- Silently mutating feature/relation semantics without a version bump
-
-See also: [Market Regime V0 Research](./market-regime-v0-research.md) for `regime_detected_at_t` vs ex-post labeling.
+Known look-ahead holes (still open): sparse series without true `published_at`; unadjusted
+prices / corporate actions; Relations `best_lag` as ML feature; mutating semantics without
+version bump; confusing backward `return_*` with forward labels.
 
 ---
 
-## Risks / Architectural Traps
+## Risks / architectural traps
 
-1. **Technical Agent as a second Feature Store** — ad-hoc candle math without versioning → unreproducible ML. Keep derived indicators in versioned feature sets; keep `TechnicalModel` pure.
-2. **Live / “today” Relations recompute treated as historical** — must use stored `as_of` snapshots; recomputing now and pretending it was known at `t` is leakage.
-3. **`best_lag` / exploratory lead-lag as ML features** without PIT constraint — fix lag on past-only windows or use fixed lags.
-4. **Fundamentals keyed by `period_end` instead of `published_at`** — classic earnings look-ahead bias.
-5. **LLM as source of financial numbers or dates** without structured validation — Polza assists parse/classify; Core stores validated facts.
-6. **Mixing adjusted and unadjusted prices silently** — breaks features and labels; needs an explicit later stage decision.
-7. **Mutating feature / relation semantics without version bump** — forbidden; new `(code, version)` for formula changes.
-8. **Premature ML DB / feature bus / microservices** — contradicts modular monolith and ADR 0004; stay in Core analytics/learning until proven otherwise.
-
-Additional traps from prior analysis (still valid): Decision Memory embeddings in shared analytics tables; Recommendations/BUY-SELL before stable PIT datasets; blocking Technical on unfinished Relations (Technical can start on `basic_daily`).
+1. Technical Agent as a second unversioned feature store  
+2. Live Relations recompute treated as historical  
+3. `best_lag` / exploratory lead-lag without PIT constraint  
+4. Fundamentals keyed by `period_end` instead of `published_at`  
+5. LLM as source of financial numbers or dates  
+6. Mixing adjusted and unadjusted prices silently  
+7. Mutating feature / relation / dataset semantics without version bump  
+8. Premature Simulator / broker / RL / microservices / new DBs  
+9. Collapsing Prediction + Policy + Risk + Execution into one “agent”  
+10. Treating repeated in-sample simulations as independent experience  
 
 ---
 
 ## Recommended sequence
 
-This is a **roadmap**, not an immutable plan. It may change after results of earlier stages.
+Roadmap, **not** a rigid implementation order. May change after earlier stage results.
+Do not start a stage from documentation alone.
 
-| # | Stage | Intent |
-|---|--------|--------|
-| 1 | **Relations Engine V1** | **In progress.** Inputs, `as_of` snapshots, versioned sets, quality — foundation for `relations@t`. Do not divert this work into the stages below. |
-| 2 | **Technical Agent V1** | Deterministic technical factors + `rules_v1`; pure `TechnicalModel`; optional Relations factors later |
-| 3 | **Dataset / PIT Join V0** | Honest historical ML dataset export **without** full training — proves the join contract |
-| 4 | **Fundamental Intelligence V1** | Filings + `published_at` + structured metrics; Event Study design; optional relation inputs |
-| 5 | **ML Candidate V0** | CatBoost (or similar) + walk-forward + `model_registry` champion/challenger |
-| 6 | **Meta Model** | Learns agent reliability as a function of market state / asset / horizon / events — **not** fixed hand weights |
+| # | Stage | Status / intent |
+|---|--------|-----------------|
+| — | Market Data / Analytics / Relations / Technical | **Implemented** |
+| 1 | **Dataset / PIT Join V0** | Phase 1 + 2 implemented; Phase 3 acceptance completed (no UI / no ML) |
+| 2 | Dataset hardening / later layers | UI, Parquet, History Expansion — not part of V0 close |
+| 3 | **Market History Expansion** (+ DQ / corporate-actions awareness) | Depth for serious training |
+| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | Order depends on data readiness; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk (stages 5–6) |
+| 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |
+| 6 | Trading Policy + Risk + Portfolio simulation | Decision stack without real broker |
+| 7 | Learning loop / Candidate–Champion / Meta Model / Market State | Durable learning |
+| 8 | Shadow / Signal / Broker Execution Adapter / limited real capital | Earn the right to trade |
 
-**Parallel policy (not a big stage):** document and eventually fix publication-time semantics for sparse macro/series before scaling fundamentals and ML.
-
-**Future research (not implementation):** Market Regime / Market State — see [market-regime-v0-research.md](./market-regime-v0-research.md). Do **not** start Market Regime, Technical, Fundamentals, or ML implementation from this documentation task.
+**Parallel research (not auto-implementation):** Market Regime / Market State; publication-time
+semantics for sparse macro/series; adjusted-price / corporate-actions pipeline.
 
 ---
 
 ## Related docs
 
+- [Architecture Overview](./overview.md)
 - [Analytics Feature Layer V1](./analytics-feature-layer.md)
-- [ADR 0004 — Analytics Feature Store](./decisions/0004-analytics-feature-store-v1.md)
 - [Relations Engine V1](./relations-engine-v1.md)
+- [Technical Agent V1](./technical-agent-v1.md)
 - [Future Learning Loop](./future-learning.md)
-- [Modules](./modules.md)
 - [Market Regime / Market State V0 Research](./market-regime-v0-research.md)
+- [Modules](./modules.md)
+- [Data Storage](./data-storage.md)
+- [ADR 0004 — Analytics Feature Store](./decisions/0004-analytics-feature-store-v1.md)

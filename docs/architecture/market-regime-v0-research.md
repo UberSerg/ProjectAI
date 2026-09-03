@@ -4,7 +4,11 @@
 
 **Research / Not implemented**
 
-This document is architectural research only. It does **not** authorize migrations, tables, APIs, dependencies, or code. Market Regime must not start while Relations Engine V1 is the active implementation stage.
+This document is architectural research only. It does **not** authorize migrations, tables, APIs, dependencies, or code.
+
+Relations Engine V1 and Technical Agent V1 are already implemented. Market Regime / Market State
+still must **not** start automatically — begin only when an explicit stage requests it, preferably
+after Dataset/PIT discipline is solid enough to catch leakage.
 
 Parent roadmap: [Future Intelligence Roadmap](./future-intelligence-roadmap.md).
 
@@ -77,7 +81,7 @@ Index / cross-section (future aggregates over universe, not all implemented):
 - breadth proxies (advance/decline, % above SMA — needs definition stage)
 - dispersion of returns / vols across liquid names
 
-### From Relations (V1 design — in progress)
+### From Relations (V1 — implemented; historical coverage may still be limited)
 
 - Correlation strength at fixed windows (20/60/120) and methods (pearson/spearman)
 - Relation stability (V1 `stability_subwindow` metrics where stored)
@@ -517,16 +521,15 @@ Place Market State **after** Relations V1 is stable enough to supply historical 
 Suggested order (aligned with roadmap):
 
 ```text
-Relations Engine V1 (in progress)
-  → Technical Agent V1
-  → Dataset / PIT Join V0
+Relations / Technical          (implemented)
+  → Dataset / PIT Join V0      (in progress)
+  → Market History Expansion / PIT hardening (likely)
   → Market State / Regime V0   ← continuous vector + snapshot store
-  → Fundamentals V1 (parallel-ish once PIT discipline exists)
-  → ML Candidate V0
+  → Fundamentals V1 and/or ML Candidate / Simulator (order may vary)
   → Meta Model
 ```
 
-Exact placement may move after Technical/Dataset results. **Do not start implementation from this document.**
+Exact placement may move after Dataset/History results. **Do not start implementation from this document.**
 
 ---
 

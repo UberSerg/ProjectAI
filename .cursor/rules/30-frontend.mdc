@@ -6,7 +6,8 @@ alwaysApply: false
 
 # ProjectAI Frontend Rules
 
-ProjectAI frontend is a Control Center, not a developer-only admin table.
+ProjectAI frontend is a light analytical Control Center (desktop-first), not a
+developer-only admin table and not a trading terminal redesign.
 
 User-facing UI language is Russian.
 
@@ -37,16 +38,22 @@ Pages must handle:
 
 Prefer readable information hierarchy over dense technical tables.
 
-Technical implementation details may be available in drill-down views but should not dominate normal user screens.
+Technical implementation details may be available in drill-down views but should not
+dominate normal user screens.
+
+Preserve existing Control Center patterns when adding sections. Do not redesign the app
+unless the task explicitly asks for it.
 
 Avoid:
 - giant components;
 - unnecessary UI frameworks;
 - decorative complexity;
-- fake data on unfinished product pages.
+- fake data on unfinished product pages;
+- ML/trading language on pages that only prepare data (e.g. datasets without models).
 
 Placeholder sections must clearly say they are not implemented.
 
-Use reusable components where they remove real duplication, but do not build a large design system prematurely.
+Use reusable components where they remove real duplication, but do not build a large
+design system prematurely.
 
 Always verify UI changes against real current ProjectAI data, not only mocked tests.

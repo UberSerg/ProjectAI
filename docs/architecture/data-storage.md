@@ -4,11 +4,12 @@
 
 Operational database for:
 
-- `market` — instruments, candles, quotes, macros (future)
-- `analytics` — analyzer outputs, forecasts (future)
-- `portfolio` — virtual accounts/positions/trades (future)
-- `learning` — model registry / retraining metadata
-- `system` — workflows, jobs, settings
+- `market` — instruments, candles, series, DQ issues, workflows
+- `analytics` — feature sets, instrument/series daily features, technical feature rows, relation inputs/snapshots
+- `technical` — technical runs and daily signals
+- `learning` — model registry foundation; Dataset/PIT specs, runs, samples (Dataset V0)
+- `portfolio` — virtual accounts/positions/trades (**future**)
+- `system` — workflows, jobs, settings, event logs
 
 Named Docker volume: `projectai_core_pgdata`.
 
@@ -24,6 +25,10 @@ Separate Decision Memory database with `pgvector`:
 
 Named Docker volume: `projectai_memory_pgdata`.
 
+Decision Memory stores immutable decision snapshots / reviews / embeddings.
+It does **not** replace Core ML datasets or feature stores.
+See [future-learning.md](./future-learning.md) and ADR 0002.
+
 ## Why separate?
 
 Different lifecycle, backups, scaling path, and isolation of embeddings from market OLTP storage.
@@ -32,6 +37,7 @@ Different lifecycle, backups, scaling path, and isolation of embeddings from mar
 
 Broker/result backend for Celery and short-lived cache/locks. Not a system of record.
 
-## Raw data (future)
+## Raw data
 
-Raw market/news snapshots should be retained for replay. A dedicated object store (e.g. MinIO/S3) can be added later without changing domain ports.
+Raw market (and later news/filing) snapshots should be retained for replay.
+Object storage (e.g. MinIO/S3) can be added later without changing domain ports.

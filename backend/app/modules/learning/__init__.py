@@ -1,1 +1,1 @@
-"""Learning module boundary — business logic intentionally empty for now."""
+"""Learning module — Dataset / PIT Join V0."""
