@@ -111,6 +111,7 @@ export function SystemPage() {
       <PageHeader
         title={labels.nav.system}
         description="Диагностика окружения, сервисов и технологический журнал"
+        helpPageId="system"
         actions={
           <button type="button" className="secondary" disabled={reportBusy} onClick={() => void openReport()}>
             Скопировать диагностический отчёт

@@ -13,6 +13,7 @@ import { getWorkflows, type Workflow } from "../api/workflows";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { TechnicalBackfillModal } from "../features/technical/TechnicalBackfillModal";
 import { useTechnicalActions } from "../features/technical/useTechnicalActions";
+import { MetricHelp } from "../help";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDate, formatDateTime, formatNumber, formatPercent, formatZScore } from "../utils/format";
 import { labels } from "../utils/labels";
@@ -115,6 +116,7 @@ export function TechnicalPage() {
       <PageHeader
         title={labels.nav.technical}
         description="Правила rules_v1: score и confidence по тренду, моментуму, RSI и объёму. Не рекомендация BUY/SELL."
+        helpPageId="technical"
         actions={
           <>
             <button type="button" className="secondary" disabled={busy} onClick={() => void runUpdate()}>
@@ -127,10 +129,10 @@ export function TechnicalPage() {
         }
       />
 
-      <div className="dashboard-grid">
+      <div className="card-grid">
         <MetricCard label="Активная модель" value={overview.active_model} />
         <MetricCard label="Feature set" value={overview.technical_feature_set} />
-        <MetricCard label="As of" value={formatDate(overview.as_of)} />
+        <MetricCard label="На дату" value={formatDate(overview.as_of)} />
         <MetricCard label="Бычье" value={formatNumber(overview.bullish)} />
         <MetricCard label="Нейтральное" value={formatNumber(overview.neutral)} />
         <MetricCard label="Медвежье" value={formatNumber(overview.bearish)} />
@@ -169,7 +171,9 @@ export function TechnicalPage() {
             </select>
           </label>
           <label>
-            Min confidence
+            <span>
+              Мин. confidence <MetricHelp metricId="confidence" />
+            </span>
             <input
               type="number"
               min={0}
@@ -180,7 +184,7 @@ export function TechnicalPage() {
             />
           </label>
           <label>
-            <span>Только valid</span>
+            <span>Только валидные</span>
             <input type="checkbox" checked={validOnly} onChange={(e) => setValidOnly(e.target.checked)} />
           </label>
         </div>
@@ -192,16 +196,30 @@ export function TechnicalPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Instrument</th>
-                  <th>State</th>
-                  <th>Score</th>
-                  <th title={labels.tooltips.confidence}>Confidence</th>
-                  <th>RSI14</th>
-                  <th>SMA20 dist</th>
-                  <th>EMA20 dist</th>
-                  <th>ATR14%</th>
-                  <th>Volume Z</th>
-                  <th>Quality</th>
+                  <th>Инструмент</th>
+                  <th>Состояние</th>
+                  <th>
+                    Score <MetricHelp metricId="technical_score" />
+                  </th>
+                  <th>
+                    Confidence <MetricHelp metricId="confidence" />
+                  </th>
+                  <th>
+                    RSI14 <MetricHelp metricId="rsi14" />
+                  </th>
+                  <th>
+                    SMA20 dist <MetricHelp metricId="sma20_distance" />
+                  </th>
+                  <th>
+                    EMA20 dist <MetricHelp metricId="ema20_distance" />
+                  </th>
+                  <th>
+                    ATR14% <MetricHelp metricId="atr14_pct" />
+                  </th>
+                  <th>
+                    Volume Z <MetricHelp metricId="volume_zscore_20d" />
+                  </th>
+                  <th>Качество</th>
                 </tr>
               </thead>
               <tbody>
@@ -214,9 +232,7 @@ export function TechnicalPage() {
                     </td>
                     <td>{labels.direction(row.direction)}</td>
                     <td className="numeric">{fmtScore(row.score)}</td>
-                    <td className="numeric" title={labels.tooltips.confidence}>
-                      {formatPercent(row.confidence)}
-                    </td>
+                    <td className="numeric">{formatPercent(row.confidence)}</td>
                     <td className="numeric">{fmtRsi(row.rsi14)}</td>
                     <td className="numeric">{formatPercent(row.sma20_distance)}</td>
                     <td className="numeric">{formatPercent(row.ema20_distance)}</td>

@@ -14,6 +14,7 @@ import { getWorkflows, type Workflow } from "../api/workflows";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { RelationsBackfillModal } from "../features/relations/RelationsBackfillModal";
 import { useRelationsActions } from "../features/relations/useRelationsActions";
+import { MetricHelp } from "../help";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDate, formatDateTime, formatNumber } from "../utils/format";
 import { labels } from "../utils/labels";
@@ -127,6 +128,7 @@ export function RelationsPage() {
       <PageHeader
         title={labels.nav.relations}
         description="Статистическая структура рынка: корреляции и lead-lag. Не выдача BUY/SELL."
+        helpPageId="relations"
         actions={
           <>
             <button type="button" className="secondary" disabled={busy} onClick={() => void runLatest()}>
@@ -139,11 +141,12 @@ export function RelationsPage() {
         }
       />
 
-      <div className="dashboard-grid">
+      <div className="card-grid">
         <MetricCard
           label="Активный набор"
           value={rs ? `${rs.code} v${rs.version}` : "—"}
           hint={rs?.description ?? undefined}
+          helpId="relations_term"
         />
         <MetricCard label="Активные inputs" value={formatNumber(overview.inputs_active)} />
         <MetricCard label="Snapshots" value={formatNumber(overview.snapshots_total)} />
@@ -201,7 +204,7 @@ export function RelationsPage() {
             />
           </label>
           <label>
-            <span>Только valid</span>
+            <span>Только валидные</span>
             <input type="checkbox" checked={validOnly} onChange={(e) => setValidOnly(e.target.checked)} />
           </label>
         </div>
@@ -215,10 +218,16 @@ export function RelationsPage() {
                 <tr>
                   <th>Пара</th>
                   <th>Окно</th>
-                  <th>Pearson</th>
-                  <th>Spearman</th>
+                  <th>
+                    Pearson <MetricHelp metricId="pearson" />
+                  </th>
+                  <th>
+                    Spearman <MetricHelp metricId="spearman" />
+                  </th>
                   <th>n</th>
-                  <th>Best lag</th>
+                  <th>
+                    Best lag <MetricHelp metricId="best_lag" />
+                  </th>
                   <th>as_of</th>
                   <th>Valid</th>
                 </tr>
@@ -256,7 +265,9 @@ export function RelationsPage() {
 
       <div className="panel" style={{ marginTop: "1.25rem" }}>
         <div className="panel-header">
-          <h2>Pair explorer</h2>
+          <h2>
+            Обзор пары <MetricHelp metricId="relations_term" />
+          </h2>
         </div>
         {!selected ? (
           <p className="muted">Выберите пару в таблице выше.</p>

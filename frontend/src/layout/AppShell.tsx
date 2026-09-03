@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { labels } from "../utils/labels";
 import { ToastProvider } from "../components/Toast";
+import { HelpProvider } from "../help";
+import { labels } from "../utils/labels";
 
 interface NavItem {
   to: string;
@@ -52,23 +53,25 @@ function NavGroup({ title, items }: { title?: string; items: NavItem[] }) {
 export function AppShell() {
   return (
     <ToastProvider>
-      <div className="layout">
-        <aside className="sidebar">
-          <div className="brand">
-            <span className="brand-mark">PA</span>
-            <span className="brand-name">ProjectAI</span>
-          </div>
-          <nav className="sidebar-nav">
-            <NavGroup items={primary} />
-            <NavGroup title={labels.nav.analytics} items={analytics} />
-            <NavGroup title={labels.nav.trading} items={trading} />
-            <NavGroup title={labels.nav.systemGroup} items={system} />
-          </nav>
-        </aside>
-        <main className="content">
-          <Outlet />
-        </main>
-      </div>
+      <HelpProvider>
+        <div className="layout">
+          <aside className="sidebar">
+            <div className="brand">
+              <span className="brand-mark">PA</span>
+              <span className="brand-name">ProjectAI</span>
+            </div>
+            <nav className="sidebar-nav">
+              <NavGroup items={primary} />
+              <NavGroup title={labels.nav.analytics} items={analytics} />
+              <NavGroup title={labels.nav.trading} items={trading} />
+              <NavGroup title={labels.nav.systemGroup} items={system} />
+            </nav>
+          </aside>
+          <main className="content">
+            <Outlet />
+          </main>
+        </div>
+      </HelpProvider>
     </ToastProvider>
   );
 }

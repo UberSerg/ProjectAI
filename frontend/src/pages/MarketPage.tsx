@@ -84,6 +84,7 @@ export function MarketPage() {
       <PageHeader
         title={labels.nav.market}
         description="Инструменты, котировки и состояние загрузки"
+        helpPageId="market"
         actions={
           <>
             <button type="button" className="secondary" disabled={busy} onClick={() => void startDq(setBusy)}>

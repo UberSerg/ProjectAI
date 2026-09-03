@@ -78,6 +78,7 @@ export function AnalyticsPage() {
       <PageHeader
         title={labels.nav.analytics}
         description="Версионируемые производные признаки из рыночных данных"
+        helpPageId="analytics"
         actions={
           <>
             <button type="button" className="secondary" disabled={busy} onClick={() => void runUpdate()}>
@@ -90,7 +91,7 @@ export function AnalyticsPage() {
         }
       />
 
-      <div className="dashboard-grid">
+      <div className="card-grid">
         <MetricCard
           label="Активный набор"
           value={fs ? `${fs.code} v${fs.version}` : "—"}
@@ -99,6 +100,7 @@ export function AnalyticsPage() {
         <MetricCard
           label="Покрытие инструментов"
           value={`${overview.instruments_with_features} / ${overview.instruments_active}`}
+          helpId="feature_coverage"
         />
         <MetricCard
           label="Последняя дата данных"

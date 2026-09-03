@@ -57,3 +57,12 @@ Use reusable components where they remove real duplication, but do not build a l
 design system prematurely.
 
 Always verify UI changes against real current ProjectAI data, not only mocked tests.
+
+## Help / glossary
+
+Non-obvious metrics and ProjectAI-specific terms shown in the UI must have entries
+in the central help registry (`frontend/src/help/registry.ts`).
+
+Use `MetricHelp` / `PageHelp` so essential explanations are available beyond hover
+(tooltip summary + click-to-expand drawer). Do not leave raw technical labels without
+help when their meaning is not self-evident (e.g. Confidence, RSI14, Relations).

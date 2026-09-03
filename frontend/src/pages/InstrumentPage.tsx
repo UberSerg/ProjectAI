@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   getInstrumentFeaturesLatest,
@@ -18,8 +18,9 @@ import {
   type Instrument,
 } from "../api/market";
 import { getInstrumentTechnicalLatest, type TechnicalSignal } from "../api/technical";
-import { Sparkline } from "../components/Sparkline";
-import { MetricCard, PageState, StatusBadge } from "../components/Ui";
+import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
+import { QuotesExplorer } from "../features/quotes/QuotesExplorer";
+import { MetricHelp } from "../help";
 import { formatDate, formatDateTime, formatNumber, formatPercent, formatPrice, formatZScore } from "../utils/format";
 import { labels } from "../utils/labels";
 
@@ -27,7 +28,7 @@ type Tab = "overview" | "quotes" | "batches" | "quality" | "analytics" | "techni
 
 interface InstrumentData {
   instrument: Instrument & { last_close?: number | null; isin?: string | null };
-  candles: Candle[];
+  sparkCandles: Candle[];
   batches: Batch[];
   issues: DataQualityIssue[];
   features: InstrumentFeatures | null;
@@ -52,8 +53,8 @@ export function InstrumentPage() {
       getInstrumentFeaturesLatest(instrumentId, controller.signal).catch(() => null),
       getInstrumentTechnicalLatest(instrumentId, controller.signal).catch(() => null),
     ])
-      .then(([instrument, candles, batches, issues, features, technical]) =>
-        setData({ instrument, candles, batches, issues, features, technical }),
+      .then(([instrument, sparkCandles, batches, issues, features, technical]) =>
+        setData({ instrument, sparkCandles, batches, issues, features, technical }),
       )
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
@@ -61,15 +62,13 @@ export function InstrumentPage() {
     return () => controller.abort();
   }, [instrumentId]);
 
-  const closes = useMemo(() => data?.candles.map((c) => c.close) ?? [], [data]);
-  const lastClose = data?.instrument.last_close ?? data?.candles.at(-1)?.close ?? null;
-
   if (error) {
     return <PageState kind="error">{error}</PageState>;
   }
   if (!data) return <PageState kind="loading" title="Загрузка инструмента…" />;
 
-  const { instrument, candles, batches, issues, features, technical } = data;
+  const { instrument, batches, issues, features, technical } = data;
+  const lastClose = instrument.last_close ?? data.sparkCandles.at(-1)?.close ?? null;
   const sources =
     instrument.sources?.length
       ? instrument.sources
@@ -83,23 +82,15 @@ export function InstrumentPage() {
         <span aria-hidden>/</span>
         <span>{instrument.symbol}</span>
       </nav>
-      <Link className="back-link" to="/market">
-        ← {labels.nav.market}
-      </Link>
 
-      <div className="instrument-hero">
-        <h1>
-          {instrument.name}
-          <span className="symbol">{instrument.symbol}</span>
-        </h1>
-        <p className="meta">
-          {labels.assetClass(instrument.asset_class)} · {instrument.exchange ?? "—"} · {instrument.currency}
-          {instrument.isin ? ` · ${instrument.isin}` : ""}
-        </p>
-      </div>
+      <PageHeader
+        title={`${instrument.name}`}
+        description={`${instrument.symbol} · ${labels.assetClass(instrument.asset_class)} · ${instrument.exchange ?? "—"} · ${instrument.currency}${instrument.isin ? ` · ${instrument.isin}` : ""} · RAW котировки и производные признаки`}
+        helpPageId="instrument"
+      />
 
       <div className="card-grid">
-        <MetricCard label="Последняя цена" value={formatPrice(lastClose)} />
+        <MetricCard label="Последняя цена" value={formatPrice(lastClose)} helpId="last_price" />
         <MetricCard label="Последняя дата" value={formatDate(instrument.last_timestamp)} />
         <MetricCard label="Начало истории" value={formatDate(instrument.first_timestamp)} />
         <MetricCard label="Количество свечей" value={formatNumber(instrument.records_count)} />
@@ -107,6 +98,7 @@ export function InstrumentPage() {
           label="Качество данных"
           value={issues.some((i) => i.severity === "error") ? "Ошибки" : issues.length ? "Есть предупреждения" : "Без замечаний"}
           hint={`${issues.length} записей DQ`}
+          helpId="data_quality"
         />
       </div>
 
@@ -157,40 +149,17 @@ export function InstrumentPage() {
       ) : null}
 
       {tab === "quotes" ? (
-        <article className="panel">
-          <h2>Цена закрытия</h2>
-          <Sparkline values={closes} />
-          <h2 style={{ marginTop: "1rem" }}>Последние свечи</h2>
-          {candles.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Дата</th>
-                    <th>Open</th>
-                    <th>High</th>
-                    <th>Low</th>
-                    <th>Close</th>
-                    <th>Volume</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...candles].reverse().map((candle) => (
-                    <tr key={`${candle.timestamp}-${candle.source ?? ""}`}>
-                      <td>{formatDate(candle.timestamp)}</td>
-                      <td className="numeric">{formatPrice(candle.open)}</td>
-                      <td className="numeric">{formatPrice(candle.high)}</td>
-                      <td className="numeric">{formatPrice(candle.low)}</td>
-                      <td className="numeric">{formatPrice(candle.close)}</td>
-                      <td className="numeric">{formatNumber(candle.volume)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <PageState kind="empty" title="Нет дневных свечей" />
-          )}
+        <article className="panel quotes-panel">
+          <h2>
+            Котировки <MetricHelp metricId="raw_candles" />
+          </h2>
+          <QuotesExplorer
+            instrumentId={instrumentId}
+            symbol={instrument.symbol}
+            firstTimestamp={instrument.first_timestamp}
+            lastTimestamp={instrument.last_timestamp}
+            recordsCount={instrument.records_count}
+          />
         </article>
       ) : null}
 
@@ -234,7 +203,9 @@ export function InstrumentPage() {
 
       {tab === "quality" ? (
         <article className="panel">
-          <h2>Проблемы качества</h2>
+          <h2>
+            Проблемы качества <MetricHelp metricId="data_quality" />
+          </h2>
           <p className="muted">Показаны доступные записи DQ. Модель append-only — исторические записи могут накапливаться.</p>
           {issues.length ? (
             issues.map((issue) => (
@@ -275,15 +246,13 @@ export function InstrumentPage() {
               {hasFeatureQualityWarning(features.quality_flags) ? (
                 <p>
                   <StatusBadge status="warning" /> Данные требуют проверки
-                  <span className="muted" title="Подозрительный ценовой разрыв">
-                    {" "}
-                    · Подозрительный ценовой разрыв
-                  </span>
+                  <span className="muted"> · Подозрительный ценовой разрыв</span>
                 </p>
               ) : null}
               <div className="card-grid" style={{ marginTop: "1rem" }}>
                 <MetricCard
                   label="Доходность 1 день"
+                  helpId="return_1d"
                   value={
                     hasInsufficientHistory(features.quality_flags, "return_1d")
                       ? "Недостаточно истории"
@@ -292,6 +261,7 @@ export function InstrumentPage() {
                 />
                 <MetricCard
                   label="Доходность 5 дней"
+                  helpId="return_5d"
                   value={
                     hasInsufficientHistory(features.quality_flags, "return_5d")
                       ? "Недостаточно истории"
@@ -300,24 +270,19 @@ export function InstrumentPage() {
                 />
                 <MetricCard
                   label="Доходность 20 дней"
+                  helpId="return_20d"
                   value={
                     hasInsufficientHistory(features.quality_flags, "return_20d")
                       ? "Недостаточно истории"
                       : formatPercent(features.return_20d)
                   }
                 />
-                <MetricCard label="Волатильность 5 дней" value={formatPercent(features.volatility_5d)} />
-                <MetricCard label="Волатильность 20 дней" value={formatPercent(features.volatility_20d)} />
-                <MetricCard label="Просадка 20 дней" value={formatPercent(features.drawdown_20d)} />
-                <MetricCard label="Изменение объёма" value={formatPercent(features.volume_change_1d)} />
-                <MetricCard label="Z-score объёма 20д" value={formatZScore(features.volume_zscore_20d)} />
+                <MetricCard label="Волатильность 5 дней" value={formatPercent(features.volatility_5d)} helpId="volatility_5d" />
+                <MetricCard label="Волатильность 20 дней" value={formatPercent(features.volatility_20d)} helpId="volatility_20d" />
+                <MetricCard label="Просадка 20 дней" value={formatPercent(features.drawdown_20d)} helpId="drawdown_20d" />
+                <MetricCard label="Изменение объёма" value={formatPercent(features.volume_change_1d)} helpId="volume_change_1d" />
+                <MetricCard label="Z-score объёма 20д" value={formatZScore(features.volume_zscore_20d)} helpId="volume_zscore_20d" />
               </div>
-              {features.return_5d != null ? (
-                <>
-                  <h2 style={{ marginTop: "1rem" }}>Return 5d (история)</h2>
-                  <Sparkline values={closes.slice(-30)} />
-                </>
-              ) : null}
             </>
           )}
         </article>
@@ -337,7 +302,7 @@ export function InstrumentPage() {
                 </strong>
               </div>
               <div className="key-value">
-                <span>As of</span>
+                <span>На дату</span>
                 <strong>{formatDate(technical.as_of_date)}</strong>
               </div>
               <div className="key-value">
@@ -349,41 +314,26 @@ export function InstrumentPage() {
                 <strong>{technical.is_valid ? "валид" : "невалид"}</strong>
               </div>
               <div className="card-grid" style={{ marginTop: "1rem" }}>
-                <MetricCard label="Score" value={technical.score.toFixed(2)} />
-                <MetricCard
-                  label="Confidence"
-                  value={formatPercent(technical.confidence)}
-                  hint={labels.tooltips.confidence}
-                />
+                <MetricCard label="Score" value={technical.score.toFixed(2)} helpId="technical_score" />
+                <MetricCard label="Confidence" value={formatPercent(technical.confidence)} helpId="confidence" />
                 <MetricCard
                   label="RSI14"
                   value={technical.rsi14 != null ? technical.rsi14.toFixed(1) : "—"}
+                  helpId="rsi14"
                 />
-                <MetricCard label="SMA20 dist" value={formatPercent(technical.sma20_distance)} />
-                <MetricCard label="EMA20 dist" value={formatPercent(technical.ema20_distance)} />
-                <MetricCard label="ATR14%" value={formatPercent(technical.atr14_pct)} />
-                <MetricCard label="Return 5d" value={formatPercent(technical.return_5d)} />
-                <MetricCard label="Return 20d" value={formatPercent(technical.return_20d)} />
-                <MetricCard label="Volume Z 20d" value={formatZScore(technical.volume_zscore_20d)} />
+                <MetricCard label="SMA20 dist" value={formatPercent(technical.sma20_distance)} helpId="sma20_distance" />
+                <MetricCard label="EMA20 dist" value={formatPercent(technical.ema20_distance)} helpId="ema20_distance" />
+                <MetricCard label="ATR14%" value={formatPercent(technical.atr14_pct)} helpId="atr14_pct" />
+                <MetricCard label="Return 5d" value={formatPercent(technical.return_5d)} helpId="return_5d" />
+                <MetricCard label="Return 20d" value={formatPercent(technical.return_20d)} helpId="return_20d" />
+                <MetricCard label="Volume Z 20d" value={formatZScore(technical.volume_zscore_20d)} helpId="volume_zscore_20d" />
               </div>
               <h2 style={{ marginTop: "1rem" }}>Вклад факторов</h2>
               <div className="card-grid">
-                <MetricCard
-                  label="Trend"
-                  value={factors?.trend != null ? factors.trend.toFixed(3) : "—"}
-                />
-                <MetricCard
-                  label="Momentum"
-                  value={factors?.momentum != null ? factors.momentum.toFixed(3) : "—"}
-                />
-                <MetricCard
-                  label="RSI"
-                  value={factors?.rsi != null ? factors.rsi.toFixed(3) : "—"}
-                />
-                <MetricCard
-                  label="Volume"
-                  value={factors?.volume != null ? factors.volume.toFixed(3) : "—"}
-                />
+                <MetricCard label="Trend" value={factors?.trend != null ? factors.trend.toFixed(3) : "—"} />
+                <MetricCard label="Momentum" value={factors?.momentum != null ? factors.momentum.toFixed(3) : "—"} />
+                <MetricCard label="RSI" value={factors?.rsi != null ? factors.rsi.toFixed(3) : "—"} />
+                <MetricCard label="Volume" value={factors?.volume != null ? factors.volume.toFixed(3) : "—"} />
               </div>
             </>
           )}
