@@ -40,7 +40,7 @@ Market Data V1
   → Analytics Feature Layer V1
   → Relations Engine V1
   → Technical Agent V1
-  → Dataset / PIT Join V0 (Phase 1 backend path)
+  → Dataset / PIT Join V0 (accepted; `pit_daily_core` v1 frozen)
 ```
 
 Later direction (not implemented): Prediction models → Meta Model → Trading Policy →
@@ -69,6 +69,8 @@ Replaceable adapters behind typed contracts in `app/domain/ports`:
 
 - Real broker trading / autonomous live execution
 - Collapsing prediction + policy + risk + execution into one agent
-- Premature Meta Model / Simulator / RL / Fundamentals / Market Regime implementation
+- Premature Meta Model / Simulator / RL / Fundamentals / Market Regime / Deep History H1+
+  implementation
+- Overwriting RAW `market.candles` with adjusted or total-return prices (ADR 0005)
 - Microservices, new databases, or generic ML platforms “just in case”
 - Using LLM as calculator or source of truth for numbers / dates

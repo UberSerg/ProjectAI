@@ -104,12 +104,12 @@ Relations Engine V1            Implemented  (as_of snapshots)
         ↓
 Technical Agent V1             Implemented  (technical_daily + rules_v1)
         ↓
-Dataset / PIT Join V0          Phase 1 + 2 implemented; Phase 3 acceptance completed
+Dataset / PIT Join V0          Accepted; pit_daily_core v1 frozen
 ```
 
 | Layer | Role | Status |
 |-------|------|--------|
-| Market Data | Candles, series, DQ issues | Implemented |
+| Market Data | RAW candles, series, DQ; CA table empty | Implemented (H0 contract: ADR 0005) |
 | Analytics | Versioned derived daily features | Implemented (ADR 0004) |
 | Relations V1 | Statistical relations with `as_of_date` | Implemented |
 | Technical Agent V1 | Technical features + pure `rules_v1` signals | Implemented |
@@ -118,9 +118,9 @@ Dataset / PIT Join V0          Phase 1 + 2 implemented; Phase 3 acceptance compl
 **Domain ports today:** `TechnicalModel`, `PortfolioPolicy`, `LLMProvider`;
 `learning.model_registry` foundation (no training loop yet).
 
-**Explicitly not implemented:** Fundamental Intelligence, Market Regime, Prediction ML training,
-Meta Model, Trading Policy / Risk / Order Intent, Simulator, Broker adapter, Recommendations / BUY-SELL,
-autonomous real trading.
+**Explicitly not implemented:** Deep History H1+ (CA ingest, deep backfill, adjusted/TR layers),
+Fundamental Intelligence, Market Regime, Prediction ML training, Meta Model, Trading Policy /
+Risk / Order Intent, Simulator, Broker adapter, Recommendations / BUY-SELL, autonomous real trading.
 
 ---
 
@@ -163,8 +163,11 @@ SUCCESS, watchdog `scripts/accept-dataset-pit.ps1`.
 - Parquet export
 - Prediction ML / CatBoost / XGBoost
 - Simulator, Trading Policy, Risk, Broker
-- Fundamentals, Market Regime, History Expansion
+- Fundamentals, Market Regime, Deep History H1+ (H0 contract only — ADR 0005)
 - dedicated `dataset-pit-v0.md` (not required for V0 close)
+
+**`pit_daily_core` v1 is frozen.** New return semantics (adjusted / total return) require a
+new dataset spec version. Do not silently change `forward_return_Nd`.
 
 ---
 
@@ -213,21 +216,66 @@ a crisis” onto days when that could not yet be known.
 
 ---
 
-## Market History Expansion (planned)
+## Deep History (H0 contract accepted; H1+ not started)
 
-Current depth (~2024–present) is enough for early validation / smoke, **not** enough for
-serious Kraken training.
+Current Dataset/PIT V0 depth (~2024–present) is enough for early validation, **not** enough
+for serious Kraken training. Direction: roughly **2014 → present** (or deeper if source
+quality allows). Exact start year is **OPEN**.
 
-Plan: expand toward roughly **2014 → present** (or deeper if source quality allows).
+Deep history exists so Kraken can learn across **different market regimes** (2014 FX/oil,
+2020, 2022, rate cycles, …). More rows ≠ more independent experience. Walk-forward stays
+mandatory.
 
-Deep history introduces PIT / DQ risks that are **not** solved today:
+Durable contract: [ADR 0005](./decisions/0005-raw-market-corporate-actions-returns.md).
 
-- splits, denominations, ticker changes, delistings, corporate actions
-- survivorship bias; historical universe composition
-- macro publication timestamps
+**Price / return (not implemented as layers yet):**
 
-Current active universe on deep history would still carry survivorship bias until a PIT
-universe history exists.
+| Notion | Role |
+|--------|------|
+| RAW | `market.candles` — what traded. Never overwritten. |
+| Mechanical-adjusted | split / reverse split / denomination only. Derived, PIT as-of `t`. |
+| Total return | economic holder return + cash dividends. Direction: pre-tax, pre-commission, cash attributed at ex/effective event. Taxes/costs → future Simulator. **Not assumed to be the first ML Y.** |
+
+**Corporate actions** are events, not candle repairs. Future types at least:
+`DIVIDEND`, `SPLIT`, `REVERSE_SPLIT`, `DENOMINATION_CHANGE`.
+`known_at` ≠ `effective_date`. Record/payment dates are not automatic knowledge at `t`.
+
+**Dividends** are a future Kraken edge (announcement → run-up → ex-gap → recovery → TR).
+The raw dividend gap is preserved. Do not erase it. Event-study features are later.
+
+**Splits / denominations** (example: PLZL 2025-03-27, ~1→10) must not be learned as a crash.
+Future Technical / Relations versions use explicit factors; dividend gaps stay.
+
+**Identity:** `instrument_id` is stable. Ticker/SECID/board are not eternal identity
+(future source `valid_from`/`valid_to` — H2).
+
+**Universe:** `current_active_instruments` is a **fixed/current cohort** with survivorship
+bias. It is **not** a PIT historical universe. Until a PIT universe exists, say so
+explicitly — do not pretend the bias is absent.
+
+**Sources:** MOEX ISS + CBR are canonical. Official API backfill is an allowed bootstrap.
+CSV/Parquet/Finam/20–30y dumps may later gap-fill or cross-check with provenance; no
+silent overwrite of canonical rows; no file → INSERT `market.candles`.
+
+**Cost:** OHLCV, returns, CA normalization, Technical, Relations, ML, simulation stay
+local/free. LLM/Polza is not the numerical market-history engine.
+
+### Bounded phases (dependency direction, not a calendar)
+
+| Phase | Goal | Explicitly excluded |
+|-------|------|---------------------|
+| **H0** | This contract (docs/rules/ADR). **Accepted.** | Runtime, ingest, backfill |
+| **H1** | CA ingest: **SPLIT first**, then DIVIDEND source/contract inventory | Adjusted candles, Dataset v2, ML |
+| **H2** | Instrument identity / source validity windows | Full delist universe |
+| **H3** | Official deep MOEX+CBR backfill via existing ingest | Finam as source of truth |
+| **H4** | Versioned Analytics adjusted / total-return layer | Simulator taxes/costs |
+| **H5** | Technical + Relations historical recompute on **new versions** | Daily all-pairs at huge universe |
+| **H6** | **New** Dataset/PIT spec + acceptance | Silent mutate of `pit_daily_core` v1 |
+
+**Later (not H1–H6):** PIT universe / delisted; dividend event-study features;
+announcement-grade dividends; Prediction ML; Simulator.
+
+Do not start H1 from this document alone.
 
 ---
 
@@ -272,9 +320,9 @@ Version pins on every dataset / model card: feature sets, relation sets, technic
 fundamental publish policy, regime model, dataset code/version, label formula, quality policy,
 source watermarks.
 
-Known look-ahead holes (still open): sparse series without true `published_at`; unadjusted
-prices / corporate actions; Relations `best_lag` as ML feature; mutating semantics without
-version bump; confusing backward `return_*` with forward labels.
+Known look-ahead holes (still open at runtime): sparse series without true `published_at`;
+unadjusted prices / no CA ingest yet (H1+); Relations `best_lag` as ML feature; mutating
+semantics without version bump; confusing backward `return_*` with forward labels.
 
 ---
 
@@ -285,11 +333,13 @@ version bump; confusing backward `return_*` with forward labels.
 3. `best_lag` / exploratory lead-lag without PIT constraint  
 4. Fundamentals keyed by `period_end` instead of `published_at`  
 5. LLM as source of financial numbers or dates  
-6. Mixing adjusted and unadjusted prices silently  
+6. Mixing adjusted and unadjusted prices silently; overwriting RAW candles  
 7. Mutating feature / relation / dataset semantics without version bump  
-8. Premature Simulator / broker / RL / microservices / new DBs  
+8. Premature Simulator / broker / RL / microservices / new DBs / Deep History H1+  
 9. Collapsing Prediction + Policy + Risk + Execution into one “agent”  
-10. Treating repeated in-sample simulations as independent experience  
+10. Treating repeated in-sample simulations or extra history rows as independent experience  
+11. Erasing raw dividend gaps; treating splits as ordinary crashes  
+12. Using `effective_date` / record / payment as if the event was known at `t`  
 
 ---
 
@@ -300,18 +350,19 @@ Do not start a stage from documentation alone.
 
 | # | Stage | Status / intent |
 |---|--------|-----------------|
-| — | Market Data / Analytics / Relations / Technical | **Implemented** |
-| 1 | **Dataset / PIT Join V0** | Phase 1 + 2 implemented; Phase 3 acceptance completed (no UI / no ML) |
-| 2 | Dataset hardening / later layers | UI, Parquet, History Expansion — not part of V0 close |
-| 3 | **Market History Expansion** (+ DQ / corporate-actions awareness) | Depth for serious training |
-| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | Order depends on data readiness; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk (stages 5–6) |
+| — | Market Data / Analytics / Relations / Technical / Dataset V0 | **Implemented** (`pit_daily_core` v1 frozen) |
+| 1 | **Dataset / PIT Join V0** | Phase 1–3 accepted (no UI / no ML) |
+| 2 | **Deep History H0–H6** | **H0 contract accepted** (ADR 0005). H1+ not started |
+| 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
+| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | After honest deep-history data as needed; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk |
 | 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |
 | 6 | Trading Policy + Risk + Portfolio simulation | Decision stack without real broker |
 | 7 | Learning loop / Candidate–Champion / Meta Model / Market State | Durable learning |
 | 8 | Shadow / Signal / Broker Execution Adapter / limited real capital | Earn the right to trade |
 
 **Parallel research (not auto-implementation):** Market Regime / Market State; publication-time
-semantics for sparse macro/series; adjusted-price / corporate-actions pipeline.
+semantics for sparse macro/series. Adjusted-price / CA work follows H1–H4, not a side rewrite
+of candles.
 
 ---
 
@@ -326,3 +377,4 @@ semantics for sparse macro/series; adjusted-price / corporate-actions pipeline.
 - [Modules](./modules.md)
 - [Data Storage](./data-storage.md)
 - [ADR 0004 — Analytics Feature Store](./decisions/0004-analytics-feature-store-v1.md)
+- [ADR 0005 — Raw market, corporate actions, returns](./decisions/0005-raw-market-corporate-actions-returns.md)

@@ -64,6 +64,10 @@ untouched until a deliberate final evaluation.
 **Warning:** thousands of simulator runs on the **same known period** do not create thousands
 of independent market experiences. They are useful stress/ablation experiments, not new history.
 
+The same applies to Deep History: more daily rows are not more independent experience.
+Adjacent samples are strongly dependent. History is loaded so Kraken can see **different
+market regimes**, not to maximize row count. Walk-forward remains mandatory.
+
 ---
 
 ## Candidate → Champion

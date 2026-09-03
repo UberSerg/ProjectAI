@@ -522,8 +522,8 @@ Suggested order (aligned with roadmap):
 
 ```text
 Relations / Technical          (implemented)
-  → Dataset / PIT Join V0      (in progress)
-  → Market History Expansion / PIT hardening (likely)
+  → Dataset / PIT Join V0      (accepted; v1 frozen)
+  → Deep History H0–H6         (H0 contract only; H1+ not started)
   → Market State / Regime V0   ← continuous vector + snapshot store
   → Fundamentals V1 and/or ML Candidate / Simulator (order may vary)
   → Meta Model

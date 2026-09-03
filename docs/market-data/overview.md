@@ -2,6 +2,10 @@
 
 ProjectAI Market Data V1 loads and stores factual market history for later analytics.
 
+**H0 contract (ADR 0005):** `market.candles` stores **RAW** exchange OHLCV. Do not overwrite
+with adjusted or total-return prices. Corporate actions (when ingested later) are separate
+events. MOEX ISS + CBR are canonical sources.
+
 ## Sources
 
 - **MOEX ISS** — equities (TQBR) and indexes (SNDX) daily history

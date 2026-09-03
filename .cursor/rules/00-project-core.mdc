@@ -67,8 +67,24 @@ Prefer simple replaceable implementations behind stable contracts.
    limited autonomy. Broker appears only as an Execution Adapter.
 
 10. **Do not prematurely implement future stages.** Seeing Simulator / Meta Model / RL / broker /
-    Fundamentals / Market Regime / new DBs in docs does **not** authorize building them.
-    Implement only the current explicit task scope.
+    Fundamentals / Market Regime / Deep History H1+ / new DBs in docs does **not** authorize
+    building them. Implement only the current explicit task scope.
+
+11. **Raw market observations are immutable source facts.** `market.candles` stores RAW
+    exchange OHLCV. Do not overwrite them with adjusted or total-return prices.
+
+12. **Corporate actions are explicit events**, not candle repairs. Information availability
+    (`known_at`) is not the economic `effective_date`. A future database row is not knowledge
+    at decision time `t`.
+
+13. **Preserve raw dividend behaviour** for future research. Do not erase dividend gaps from
+    raw history. Mechanical splits / denominations are a different class of event.
+
+14. **Changing feature / label / dataset semantics requires a version bump.** Do not silently
+    replace `pit_daily_core` v1 (or any pinned spec) with a different X/Y meaning.
+
+15. **Deep history is for different market regimes, not row count.** More rows ≠ independent
+    experience. Walk-forward remains mandatory.
 
 Decision Memory remains a separate domain and separate PostgreSQL + pgvector database.
 It stores immutable decision snapshots; it does not replace ML datasets.

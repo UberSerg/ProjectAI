@@ -72,7 +72,7 @@ Market Data V1
   → Analytics Feature Layer V1
   → Relations Engine V1
   → Technical Agent V1
-  → Dataset / PIT Join V0 (Phase 1 backend implemented; Relations join / full Dataset V0 completion pending)
+  → Dataset / PIT Join V0 (accepted; `pit_daily_core` v1 frozen)
 ```
 
 **Target direction (mostly not implemented):**
