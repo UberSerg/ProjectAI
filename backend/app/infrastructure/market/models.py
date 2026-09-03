@@ -64,6 +64,8 @@ class InstrumentSource(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     external_id: Mapped[str] = mapped_column(Text, nullable=False)
     board: Mapped[str | None] = mapped_column(Text)
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_to: Mapped[date | None] = mapped_column(Date)
     source_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -20,14 +20,30 @@ from app.infrastructure.market.models import (
     DataQualityIssue,
     IngestionBatch,
     Instrument,
+    InstrumentSource,
     Series,
     Workflow,
 )
 from app.infrastructure.technical.models import TechnicalRun, TechnicalSignalDaily
 from app.modules.analytics.application.seed import seed_feature_sets
+from app.modules.market.application.identity import windows_overlap
 from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 from app.modules.relations.application.seed import seed_relation_sets
 from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V1_VERSION
+
+
+def _count_mapping_overlaps(session: Session) -> int:
+    rows = list(session.scalars(select(InstrumentSource)))
+    by_key: dict[tuple[int, str], list[InstrumentSource]] = {}
+    for row in rows:
+        by_key.setdefault((row.instrument_id, row.source), []).append(row)
+    errors = 0
+    for group in by_key.values():
+        for index, left in enumerate(group):
+            for right in group[index + 1 :]:
+                if windows_overlap(left, right):
+                    errors += 1
+    return errors
 
 
 def _svc(services: dict[str, str], key: str, label: str) -> str:
@@ -69,6 +85,22 @@ def build_diagnostics_text(session: Session) -> str:
             else last_split_batch.status
         )
         last_unresolved = str((last_split_batch.meta or {}).get("unresolved", 0))
+    source_total = session.scalar(select(func.count()).select_from(InstrumentSource)) or 0
+    source_current = (
+        session.scalar(
+            select(func.count()).select_from(InstrumentSource).where(InstrumentSource.valid_to.is_(None))
+        )
+        or 0
+    )
+    source_historical = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentSource)
+            .where(InstrumentSource.valid_from.is_not(None))
+        )
+        or 0
+    )
+    overlap_errors = _count_mapping_overlaps(session)
     dq_errors = (
         session.scalar(
             select(func.count())
@@ -136,6 +168,11 @@ def build_diagnostics_text(session: Session) -> str:
         f"Corporate actions (SPLIT/REVERSE_SPLIT): {split_count}",
         f"Last SPLIT ingest: {last_split_at}",
         f"Unresolved last SPLIT run: {last_unresolved}",
+        "",
+        f"Instrument source mappings: {source_total}",
+        f"Current mappings: {source_current}",
+        f"Historical mappings: {source_historical}",
+        f"Mapping overlap errors: {overlap_errors}",
         "",
     ]
 

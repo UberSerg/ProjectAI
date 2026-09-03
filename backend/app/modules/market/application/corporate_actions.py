@@ -14,6 +14,7 @@ from app.infrastructure.market.models import CorporateAction, IngestionBatch, In
 from app.infrastructure.market.moex_iss import MoexIssProvider
 from app.infrastructure.market.raw_store import RawStore
 from app.modules.market.application.data_quality import annotate_jumps_explained_by_splits
+from app.modules.market.application.identity import is_current_mapping
 from app.modules.market.application.split_events import (
     SOURCE_MOEX,
     SPLIT_FEED_EVENT_TYPES,
@@ -57,8 +58,10 @@ def resolve_moex_secid(session: Session, secid: str) -> int | None:
     )
     if not rows:
         return None
-    preferred = next((row for row in rows if (row.board or "").upper() == "TQBR"), None)
-    return (preferred or rows[0]).instrument_id
+    current = [row for row in rows if is_current_mapping(row)]
+    pool = current or rows
+    preferred = next((row for row in pool if (row.board or "").upper() == "TQBR"), None)
+    return (preferred or pool[0]).instrument_id
 
 
 def upsert_split_event(session: Session, instrument_id: int, draft: SplitEventDraft) -> str:

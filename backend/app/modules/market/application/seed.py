@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -40,13 +40,7 @@ def seed_market_universe(session: Session) -> dict[str, int]:
     }
     for item in INSTRUMENTS:
         instrument_id = ids[item.symbol]
-        # Keep a single MOEX mapping per instrument (board may change, e.g. RTSI).
-        session.execute(
-            delete(InstrumentSource).where(
-                InstrumentSource.instrument_id == instrument_id,
-                InstrumentSource.source == item.source,
-            )
-        )
+        # Ensure current open-ended mapping. Do not delete historical validity windows.
         statement = insert(InstrumentSource).values(
             instrument_id=instrument_id,
             source=item.source,

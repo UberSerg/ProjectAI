@@ -249,7 +249,7 @@ The raw dividend gap is preserved. Do not erase it. Event-study features are lat
 Future Technical / Relations versions use explicit factors; dividend gaps stay.
 
 **Identity:** `instrument_id` is stable. Ticker/SECID/board are not eternal identity
-(future source `valid_from`/`valid_to` — H2).
+(H2: `instrument_sources.valid_from`/`valid_to`; not a PIT universe).
 
 **Universe:** `current_active_instruments` is a **fixed/current cohort** with survivorship
 bias. It is **not** a PIT historical universe. Until a PIT universe exists, say so
@@ -268,7 +268,7 @@ local/free. LLM/Polza is not the numerical market-history engine.
 |-------|------|---------------------|
 | **H0** | This contract (docs/rules/ADR). **Accepted.** | Runtime, ingest, backfill |
 | **H1** | **SPLIT ingest implemented** (official MOEX ISS). DIVIDEND inventory not started | Adjusted candles, Dataset v2, ML |
-| **H2** | Instrument identity / source validity windows | Full delist universe |
+| **H2** | **Source validity windows implemented** (`valid_from`/`valid_to`, as-of resolver) | Full delist / historical universe |
 | **H3** | Official deep MOEX+CBR backfill via existing ingest | Finam as source of truth |
 | **H4** | Versioned Analytics adjusted / total-return layer | Simulator taxes/costs |
 | **H5** | Technical + Relations historical recompute on **new versions** | Daily all-pairs at huge universe |
@@ -277,7 +277,7 @@ local/free. LLM/Polza is not the numerical market-history engine.
 **Later (not H1–H6):** PIT universe / delisted; dividend event-study features;
 announcement-grade dividends; Prediction ML; Simulator.
 
-Do not start H2 / DIVIDEND ingest from this document alone.
+Do not start H3 / DIVIDEND ingest from this document alone.
 
 ---
 
@@ -354,7 +354,7 @@ Do not start a stage from documentation alone.
 |---|--------|-----------------|
 | — | Market Data / Analytics / Relations / Technical / Dataset V0 | **Implemented** (`pit_daily_core` v1 frozen) |
 | 1 | **Dataset / PIT Join V0** | Phase 1–3 accepted (no UI / no ML) |
-| 2 | **Deep History H0–H6** | **H0 accepted** (ADR 0005). **H1 SPLIT ingest implemented.** H2+ / dividends not started |
+| 2 | **Deep History H0–H6** | **H0 accepted.** **H1 SPLIT implemented.** **H2 source windows implemented.** H3+ / dividends not started |
 | 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
 | 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | After honest deep-history data as needed; ML Candidate = **offline prediction metrics only** until Simulator + Policy/Risk |
 | 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |
