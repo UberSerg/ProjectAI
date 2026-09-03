@@ -24,12 +24,16 @@ from app.infrastructure.market.models import (
     Series,
     Workflow,
 )
-from app.infrastructure.technical.models import TechnicalRun, TechnicalSignalDaily
+from app.infrastructure.technical.models import (
+    InstrumentTechnicalFeatureDaily,
+    TechnicalRun,
+    TechnicalSignalDaily,
+)
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.market.application.identity import windows_overlap
 from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 from app.modules.relations.application.seed import seed_relation_sets
-from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V1_VERSION
+from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V1_VERSION, RULES_V2_VERSION
 
 
 def _count_mapping_overlaps(session: Session) -> int:
@@ -91,6 +95,67 @@ def _mechanical_analytics_lines(session: Session) -> list[str]:
         f"Mechanical CA count: {ca_count}",
         f"Latest V2 run: {last_ts}",
         f"Latest V2 error: {last_err.error_message if last_err else '—'}",
+    ]
+
+
+def _technical_v2_lines(session: Session) -> list[str]:
+    v2 = session.scalar(select(FeatureSet).where(FeatureSet.code == "technical_daily", FeatureSet.version == 2))
+    if v2 is None:
+        return [
+            "Technical V2 (H5A): technical_daily v2 not seeded",
+            f"Signal model: {RULES_V1_CODE} v{RULES_V2_VERSION} (not active)",
+        ]
+    rows = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentTechnicalFeatureDaily)
+            .where(InstrumentTechnicalFeatureDaily.feature_set_id == v2.id)
+        )
+        or 0
+    )
+    valid = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentTechnicalFeatureDaily)
+            .where(
+                InstrumentTechnicalFeatureDaily.feature_set_id == v2.id,
+                InstrumentTechnicalFeatureDaily.is_valid.is_(True),
+            )
+        )
+        or 0
+    )
+    invalid = (
+        session.scalar(
+            select(func.count())
+            .select_from(InstrumentTechnicalFeatureDaily)
+            .where(
+                InstrumentTechnicalFeatureDaily.feature_set_id == v2.id,
+                InstrumentTechnicalFeatureDaily.is_valid.is_(False),
+            )
+        )
+        or 0
+    )
+    latest = session.scalar(
+        select(func.max(InstrumentTechnicalFeatureDaily.date)).where(
+            InstrumentTechnicalFeatureDaily.feature_set_id == v2.id
+        )
+    )
+    last_v2 = session.scalar(
+        select(TechnicalRun)
+        .where(
+            TechnicalRun.model_code == RULES_V1_CODE,
+            TechnicalRun.model_version == RULES_V2_VERSION,
+            TechnicalRun.status.in_(["SUCCESS", "WARNING"]),
+        )
+        .order_by(desc(TechnicalRun.finished_at))
+        .limit(1)
+    )
+    last_ts = last_v2.finished_at.isoformat() if last_v2 and last_v2.finished_at else "—"
+    return [
+        "Technical V2 (H5A): technical_daily v2 (mechanical-adjusted; not active)",
+        f"V2 rows: {rows} valid={valid} invalid={invalid} latest={latest.isoformat() if latest else '—'}",
+        f"Signal model: {RULES_V1_CODE} v{RULES_V2_VERSION} (same scoring, pinned to Analytics v2)",
+        f"Latest V2 run: {last_ts}",
     ]
 
 
@@ -248,7 +313,7 @@ def build_diagnostics_text(session: Session) -> str:
             f"historical={source_closed} overlaps={overlap_errors}"
         ),
         "RAW deep history: official ISS/CBR candles available (H3)",
-        "Deep history ML-ready: NO — H4A mechanical only; pending H4B TR, H5, H6",
+        "Deep history ML-ready: NO — H4A/H5A mechanical only; pending H4B TR, H5B, H6",
         "",
     ]
 
@@ -441,6 +506,8 @@ def build_diagnostics_text(session: Session) -> str:
             f"Bearish: {tech_bearish}",
             f"Invalid: {tech_invalid}",
             f"Latest technical error: {last_tech_error.error_message if last_tech_error else '—'}",
+            "",
+            *_technical_v2_lines(session),
             "",
         ]
     )

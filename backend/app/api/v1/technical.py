@@ -18,10 +18,10 @@ from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.market.application.workflows import create_workflow
 from app.modules.technical.technical_config import (
     RULES_V1_CODE,
-    RULES_V1_CONFIG,
-    RULES_V1_CONFIG_HASH,
     RULES_V1_VERSION,
     TECHNICAL_BACKFILL_STEPS,
+    list_technical_contracts,
+    resolve_technical_contract,
 )
 from app.worker import tasks as worker_tasks
 
@@ -250,12 +250,13 @@ def technical_overview() -> TechnicalOverviewResponse:
 def list_models() -> list[TechnicalModelInfo]:
     return [
         TechnicalModelInfo(
-            model_code=RULES_V1_CODE,
-            model_version=RULES_V1_VERSION,
-            config=RULES_V1_CONFIG,
-            config_hash=RULES_V1_CONFIG_HASH,
-            is_active=True,
+            model_code=item["model_code"],
+            model_version=item["model_version"],
+            config=item["config"],
+            config_hash=item["config_hash"],
+            is_active=item["model_version"] == RULES_V1_VERSION,
         )
+        for item in list_technical_contracts()
     ]
 
 
@@ -284,12 +285,18 @@ def list_signals(
     min_confidence: float | None = Query(default=None, ge=0.0, le=1.0),
     valid_only: bool = False,
     instrument: str | None = None,
+    model_code: str = RULES_V1_CODE,
+    model_version: int = RULES_V1_VERSION,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[TechnicalSignalResponse]:
     with core_session() as session:
         q = select(TechnicalSignalDaily, Instrument.symbol).join(
             Instrument, Instrument.id == TechnicalSignalDaily.instrument_id
+        )
+        q = q.where(
+            TechnicalSignalDaily.model_code == model_code,
+            TechnicalSignalDaily.model_version == model_version,
         )
         if as_of is not None:
             q = q.where(TechnicalSignalDaily.as_of_date == as_of)
@@ -320,14 +327,22 @@ def list_signals(
 
 
 @router.get("/instruments/{instrument_id}/latest", response_model=TechnicalSignalResponse)
-def instrument_latest(instrument_id: int) -> TechnicalSignalResponse:
+def instrument_latest(
+    instrument_id: int,
+    model_code: str = RULES_V1_CODE,
+    model_version: int = RULES_V1_VERSION,
+) -> TechnicalSignalResponse:
     with core_session() as session:
         instrument = session.get(Instrument, instrument_id)
         if instrument is None:
             raise HTTPException(status_code=404, detail="Instrument not found")
         signal = session.scalar(
             select(TechnicalSignalDaily)
-            .where(TechnicalSignalDaily.instrument_id == instrument_id)
+            .where(
+                TechnicalSignalDaily.instrument_id == instrument_id,
+                TechnicalSignalDaily.model_code == model_code,
+                TechnicalSignalDaily.model_version == model_version,
+            )
             .order_by(desc(TechnicalSignalDaily.as_of_date))
             .limit(1)
         )
@@ -351,6 +366,8 @@ def instrument_history(
     instrument_id: int,
     date_from: date | None = None,
     date_to: date | None = None,
+    model_code: str = RULES_V1_CODE,
+    model_version: int = RULES_V1_VERSION,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> list[TechnicalSignalResponse]:
@@ -358,7 +375,11 @@ def instrument_history(
         instrument = session.get(Instrument, instrument_id)
         if instrument is None:
             raise HTTPException(status_code=404, detail="Instrument not found")
-        q = select(TechnicalSignalDaily).where(TechnicalSignalDaily.instrument_id == instrument_id)
+        q = select(TechnicalSignalDaily).where(
+            TechnicalSignalDaily.instrument_id == instrument_id,
+            TechnicalSignalDaily.model_code == model_code,
+            TechnicalSignalDaily.model_version == model_version,
+        )
         if date_from is not None:
             q = q.where(TechnicalSignalDaily.as_of_date >= date_from)
         if date_to is not None:
@@ -385,8 +406,10 @@ def instrument_history(
 def start_backfill(body: BackfillRequest) -> WorkflowStartResponse:
     if body.date_to is not None and body.date_to < body.date_from:
         raise HTTPException(status_code=400, detail="date_to must be >= date_from")
-    if body.model_code != RULES_V1_CODE or body.model_version != RULES_V1_VERSION:
-        raise HTTPException(status_code=400, detail="Unknown model version")
+    try:
+        resolve_technical_contract(body.model_code, body.model_version)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     with core_session() as session:
         seed_feature_sets(session)
         workflow = create_workflow(
@@ -410,8 +433,10 @@ def start_backfill(body: BackfillRequest) -> WorkflowStartResponse:
 @router.post("/update", response_model=WorkflowStartResponse)
 def start_update(body: UpdateRequest | None = None) -> WorkflowStartResponse:
     body = body or UpdateRequest()
-    if body.model_code != RULES_V1_CODE or body.model_version != RULES_V1_VERSION:
-        raise HTTPException(status_code=400, detail="Unknown model version")
+    try:
+        resolve_technical_contract(body.model_code, body.model_version)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     with core_session() as session:
         seed_feature_sets(session)
         workflow = create_workflow(

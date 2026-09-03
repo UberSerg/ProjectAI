@@ -28,10 +28,15 @@ def _clip(value: float, lo: float, hi: float) -> float:
 class RuleBasedTechnicalModel(TechnicalModel):
     """Heuristic baseline technical state model. Not ML. Not a trade recommendation."""
 
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        model_version: int = RULES_V1_VERSION,
+    ) -> None:
         self.config = dict(config or RULES_V1_CONFIG)
         self.model_code = RULES_V1_CODE
-        self.model_version = RULES_V1_VERSION
+        self.model_version = model_version
         self.config_hash = config_hash(self.config)
 
     def predict(self, model_input: TechnicalModelInput) -> TechnicalModelOutput:

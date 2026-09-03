@@ -19,15 +19,19 @@ from app.infrastructure.technical.models import InstrumentTechnicalFeatureDaily,
 from app.infrastructure.technical.repository import upsert_technical_features, upsert_technical_signals
 from app.modules.analytics.application.resolve import resolve_feature_set
 from app.modules.analytics.application.seed import seed_feature_sets
+from app.modules.market.application.mechanical_adjustment import load_mechanical_actions
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 from app.modules.technical.application.calculator import OhlcObservation, TechnicalFeatureCalculator
+from app.modules.technical.application.mechanical_technical import (
+    calculate_mechanical_adjusted_technical,
+    uses_mechanical_price_basis,
+)
 from app.modules.technical.application.signal_service import TechnicalSignalService, feature_set_ref
 from app.modules.technical.technical_config import (
     RULES_V1_CODE,
-    RULES_V1_CONFIG,
-    RULES_V1_CONFIG_HASH,
     RULES_V1_VERSION,
     TECHNICAL_BACKFILL_STEPS,
+    resolve_technical_contract,
 )
 
 logger = get_logger(__name__, component="technical-compute")
@@ -119,17 +123,17 @@ class TechnicalComputeService:
 
         try:
             self._mark(workflow, "Resolve model", "RUNNING")
-            if model_code != RULES_V1_CODE or model_version != RULES_V1_VERSION:
-                raise ValueError(f"Unknown model {model_code} v{model_version}")
-            model = RuleBasedTechnicalModel(RULES_V1_CONFIG)
+            contract = resolve_technical_contract(model_code, model_version)
+            model = RuleBasedTechnicalModel(contract["config"], model_version=contract["model_version"])
             signal_service = TechnicalSignalService(model)
             self._mark(workflow, "Resolve model", "SUCCESS")
 
             self._mark(workflow, "Resolve feature sets", "RUNNING")
             seed_feature_sets(self.session)
-            basic_fs = resolve_feature_set(self.session, "basic_daily", 1)
-            tech_fs = resolve_feature_set(self.session, "technical_daily", 1)
+            basic_fs = resolve_feature_set(self.session, contract["basic_code"], contract["basic_version"])
+            tech_fs = resolve_feature_set(self.session, contract["technical_code"], contract["technical_version"])
             calculator = TechnicalFeatureCalculator(tech_fs.parameters)
+            mechanical = uses_mechanical_price_basis(tech_fs.parameters)
             basic_ref = feature_set_ref(basic_fs.id, basic_fs.code, basic_fs.version)
             tech_ref = feature_set_ref(tech_fs.id, tech_fs.code, tech_fs.version)
             self._mark(workflow, "Resolve feature sets", "SUCCESS")
@@ -138,7 +142,7 @@ class TechnicalComputeService:
                 run_type=run_type,
                 model_code=model_code,
                 model_version=model_version,
-                model_config_hash=RULES_V1_CONFIG_HASH,
+                model_config_hash=contract["config_hash"],
                 basic_feature_set_id=basic_fs.id,
                 technical_feature_set_id=tech_fs.id,
                 date_from=date_from,
@@ -288,12 +292,25 @@ class TechnicalComputeService:
                     else:
                         calc_from = observations[0].date
 
-                tech_records = calculator.calculate(
-                    observations,
-                    discontinuity_dates=discontinuity_by_instrument.get(instrument.id, set()),
-                    date_from=calc_from,
-                    date_to=calc_to,
-                )
+                raw_disc = discontinuity_by_instrument.get(instrument.id, set())
+                if mechanical:
+                    actions = load_mechanical_actions(self.session, instrument.id)
+                    ca_dates = {item.event_date for item in actions}
+                    tech_records = calculate_mechanical_adjusted_technical(
+                        calculator,
+                        observations,
+                        actions,
+                        discontinuity_dates=raw_disc - ca_dates,
+                        date_from=calc_from,
+                        date_to=calc_to,
+                    )
+                else:
+                    tech_records = calculator.calculate(
+                        observations,
+                        discontinuity_dates=raw_disc,
+                        date_from=calc_from,
+                        date_to=calc_to,
+                    )
 
                 # Map basic feature ids for lineage.
                 basic_rows = list(
@@ -354,7 +371,7 @@ class TechnicalComputeService:
                             "run_id": tech_run.id,
                             "model_code": output.model_code,
                             "model_version": output.model_version,
-                            "model_config_hash": RULES_V1_CONFIG_HASH,
+                            "model_config_hash": contract["config_hash"],
                             "basic_feature_set_id": basic_fs.id,
                             "technical_feature_set_id": tech_fs.id,
                             "source_basic_feature_id": basic.id if basic else None,

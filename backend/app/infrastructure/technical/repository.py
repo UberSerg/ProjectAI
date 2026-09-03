@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session
 from app.infrastructure.technical.models import InstrumentTechnicalFeatureDaily, TechnicalSignalDaily
 from app.modules.technical.application.calculator import TechnicalFeatureRecord
 
+# psycopg bind limit is 65535; keep deep-history upserts in chunks.
+_UPSERT_CHUNK = 1000
+
 
 def _dec(value: float | None) -> Decimal | None:
     if value is None:
@@ -55,26 +58,28 @@ def upsert_technical_features(
                 "calculated_at": now,
             }
         )
-    stmt = insert(InstrumentTechnicalFeatureDaily).values(rows)
-    session.execute(
-        stmt.on_conflict_do_update(
-            constraint="uq_analytics_instrument_technical_features_daily",
-            set_={
-                "sma20": stmt.excluded.sma20,
-                "sma20_distance": stmt.excluded.sma20_distance,
-                "ema20": stmt.excluded.ema20,
-                "ema20_distance": stmt.excluded.ema20_distance,
-                "rsi14": stmt.excluded.rsi14,
-                "atr14": stmt.excluded.atr14,
-                "atr14_pct": stmt.excluded.atr14_pct,
-                "has_sufficient_history": stmt.excluded.has_sufficient_history,
-                "is_valid": stmt.excluded.is_valid,
-                "quality_flags": stmt.excluded.quality_flags,
-                "source_basic_feature_id": stmt.excluded.source_basic_feature_id,
-                "calculated_at": stmt.excluded.calculated_at,
-            },
+    for offset in range(0, len(rows), _UPSERT_CHUNK):
+        chunk = rows[offset : offset + _UPSERT_CHUNK]
+        stmt = insert(InstrumentTechnicalFeatureDaily).values(chunk)
+        session.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_analytics_instrument_technical_features_daily",
+                set_={
+                    "sma20": stmt.excluded.sma20,
+                    "sma20_distance": stmt.excluded.sma20_distance,
+                    "ema20": stmt.excluded.ema20,
+                    "ema20_distance": stmt.excluded.ema20_distance,
+                    "rsi14": stmt.excluded.rsi14,
+                    "atr14": stmt.excluded.atr14,
+                    "atr14_pct": stmt.excluded.atr14_pct,
+                    "has_sufficient_history": stmt.excluded.has_sufficient_history,
+                    "is_valid": stmt.excluded.is_valid,
+                    "quality_flags": stmt.excluded.quality_flags,
+                    "source_basic_feature_id": stmt.excluded.source_basic_feature_id,
+                    "calculated_at": stmt.excluded.calculated_at,
+                },
+            )
         )
-    )
     return len(rows)
 
 
@@ -85,26 +90,28 @@ def upsert_technical_signals(
 ) -> int:
     if not rows:
         return 0
-    stmt = insert(TechnicalSignalDaily).values(rows)
-    session.execute(
-        stmt.on_conflict_do_update(
-            constraint="uq_technical_signals_daily",
-            set_={
-                "run_id": stmt.excluded.run_id,
-                "model_config_hash": stmt.excluded.model_config_hash,
-                "source_basic_feature_id": stmt.excluded.source_basic_feature_id,
-                "source_technical_feature_id": stmt.excluded.source_technical_feature_id,
-                "score": stmt.excluded.score,
-                "confidence": stmt.excluded.confidence,
-                "direction": stmt.excluded.direction,
-                "trend_contribution": stmt.excluded.trend_contribution,
-                "momentum_contribution": stmt.excluded.momentum_contribution,
-                "rsi_contribution": stmt.excluded.rsi_contribution,
-                "volume_contribution": stmt.excluded.volume_contribution,
-                "is_valid": stmt.excluded.is_valid,
-                "quality_flags": stmt.excluded.quality_flags,
-                "calculated_at": stmt.excluded.calculated_at,
-            },
+    for offset in range(0, len(rows), _UPSERT_CHUNK):
+        chunk = rows[offset : offset + _UPSERT_CHUNK]
+        stmt = insert(TechnicalSignalDaily).values(chunk)
+        session.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_technical_signals_daily",
+                set_={
+                    "run_id": stmt.excluded.run_id,
+                    "model_config_hash": stmt.excluded.model_config_hash,
+                    "source_basic_feature_id": stmt.excluded.source_basic_feature_id,
+                    "source_technical_feature_id": stmt.excluded.source_technical_feature_id,
+                    "score": stmt.excluded.score,
+                    "confidence": stmt.excluded.confidence,
+                    "direction": stmt.excluded.direction,
+                    "trend_contribution": stmt.excluded.trend_contribution,
+                    "momentum_contribution": stmt.excluded.momentum_contribution,
+                    "rsi_contribution": stmt.excluded.rsi_contribution,
+                    "volume_contribution": stmt.excluded.volume_contribution,
+                    "is_valid": stmt.excluded.is_valid,
+                    "quality_flags": stmt.excluded.quality_flags,
+                    "calculated_at": stmt.excluded.calculated_at,
+                },
+            )
         )
-    )
     return len(rows)
