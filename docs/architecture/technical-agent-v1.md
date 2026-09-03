@@ -208,5 +208,7 @@ Replace `RuleBasedTechnicalModel` with `CatBoostTechnicalModel` implementing the
 - No ML / backtest / optimization  
 - No Relations inside rules_v1  
 - No regime / fundamentals / news / intraday  
-- No adjusted-price engine  
+- No adjusted-price engine (`technical_daily` v1 / `rules_v1` use RAW OHLC). Future
+  mechanical-adjusted indicators need a **new version** so split/denomination artefacts
+  do not look like crashes; dividend gaps must not be auto-erased (ADR 0005).  
 - Not a BUY/SELL recommendation  

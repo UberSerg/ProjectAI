@@ -30,6 +30,16 @@ Redis is not persistent business storage.
 
 Market facts and derived analytics remain separate concepts.
 
+- `market.candles` = RAW exchange OHLCV (source of truth). Mechanical-adjusted returns and
+  total return are **derived** (future versioned layers), never a silent rewrite of candles.
+- Corporate-action rows (when ingested) must preserve provenance and distinguish `known_at`
+  from `effective_date`. Extra dates (record / payment) are not automatic knowledge at `t`.
+- Canonical ingest sources are MOEX ISS + CBR. Other files/APIs need explicit `source`
+  provenance and must not silently overwrite canonical rows. Bulk files go through the
+  same normalizer / DQ path — no direct INSERT into `market.candles`.
+- New return / indicator / relation / dataset semantics ⇒ new version. `pit_daily_core` v1
+  is frozen.
+
 For historical decisions and ML datasets:
 - use only information known at `as_of` / `t` (point-in-time);
 - keep feature vectors `X` separate from labels `Y` (forward returns / outcomes);

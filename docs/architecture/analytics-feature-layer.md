@@ -54,6 +54,9 @@ Business history: `analytics.feature_runs`. Technical events: `system.event_logs
 
 ## V1 limitations
 
-- No adjusted prices / corporate action correction
+- `basic_daily` v1 uses **RAW** close. No mechanical-adjusted or total-return columns.
+- Unresolved `abnormal_price_jump` flags discontinuities; it does **not** classify split vs
+  crash vs dividend (H1+). Raw candles are never modified.
+- Future adjusted / total-return features require a **new feature-set version** (ADR 0005).
 - Row-level quality flags when feature-level would be heavier
 - No long-term audit log for analytics events

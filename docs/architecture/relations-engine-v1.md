@@ -114,6 +114,9 @@ V1 does **not** include:
 - fundamental intelligence
 - Technical Agent / Recommendations
 - automated trading signals
+- mechanical-adjusted inputs (`basic_relations` v1 uses Analytics `log_return_1d` on RAW
+  close). Future versions should stop treating split/denomination jumps as correlation
+  shocks, without auto-erasing dividend gaps (ADR 0005).
 
 **Performance (current universe ~48 inputs):** RelationsComputeLatest ≈ **45 s**; historical WEEKLY backfill (~90–120 days, ~18 as-of) ≈ **10 min**. Acceptable for asynchronous V1. Further profiling only if the universe grows materially.
 

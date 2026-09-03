@@ -4,7 +4,9 @@
 
 Operational database for:
 
-- `market` — instruments, candles, series, DQ issues, workflows
+- `market` — instruments, RAW candles, series, DQ issues, workflows;
+  `corporate_actions` is a foundation table (no V1 writer). Candles stay RAW exchange
+  OHLCV (ADR 0005). Derived adjusted / total-return series do not replace candles.
 - `analytics` — feature sets, instrument/series daily features, technical feature rows, relation inputs/snapshots
 - `technical` — technical runs and daily signals
 - `learning` — model registry foundation; Dataset/PIT specs, runs, samples (Dataset V0)
@@ -41,3 +43,7 @@ Broker/result backend for Celery and short-lived cache/locks. Not a system of re
 
 Raw market (and later news/filing) snapshots should be retained for replay.
 Object storage (e.g. MinIO/S3) can be added later without changing domain ports.
+
+Canonical market sources: **MOEX ISS + CBR**. External CSV/Parquet/Finam/bulk dumps may
+later gap-fill or cross-check with explicit provenance; they must not silently overwrite
+canonical rows and must pass the same normalizer / DQ path (ADR 0005).
