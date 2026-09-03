@@ -5,7 +5,7 @@ Module folders under `backend/app/modules/` are intentional boundaries.
 | Module | Responsibility (current / planned) |
 |--------|-------------------------------------|
 | market | Market data access, ingestion, DQ; RAW candles as source of truth.
-  Corporate actions are planned as **events** (H1+), not candle rewrites |
+  Corporate actions are **events** (H1: MOEX `SPLIT` ingest). Not candle rewrites. |
 | analytics | Feature sets, calculators, feature runs |
 | relations | Relations Engine V1 (inputs, snapshots, lags) |
 | technical | Technical Agent V1 (`technical_daily`, rules_v1 signals) |

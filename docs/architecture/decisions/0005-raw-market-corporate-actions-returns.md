@@ -3,7 +3,8 @@
 ## Status
 
 Accepted (2026-09-03) — Deep History **H0** architecture contract.  
-No runtime change. H1+ (ingest, backfill, derived layers) are not authorized by this ADR.
+This ADR does not authorize later phases. **H1** later implemented official MOEX `SPLIT`
+ingest only; it does not change these decisions (RAW candles remain immutable).
 
 ## Context
 
@@ -62,7 +63,8 @@ not market facts vs return kinds vs corporate-action PIT.
 - History depth: 2014 / 2015 / deeper
 - Full PIT universe / delisted reconstruction
 - Finam / unofficial bulk dumps as operational sources
-- Exact `corporate_actions` migration and adjustment-factor storage schema
+- Exact `corporate_actions` migration for types beyond H1 `SPLIT`
+  (H1 added `known_at`, `external_id`, identity unique; split ratio lives in `payload`)
 
 ## Consequences
 

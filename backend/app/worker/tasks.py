@@ -71,6 +71,17 @@ def market_data_quality_run(
         return {"workflow_id": workflow_id, "result": result}
 
 
+@celery_app.task(name="projectai.market_splits_ingest")
+def market_splits_ingest(workflow_id: int) -> dict:
+    from app.modules.market.application.corporate_actions import SplitIngestionService
+
+    with core_session() as session:
+        service = SplitIngestionService(session)
+        result = service.run(workflow_id=workflow_id)
+        session.commit()
+        return result
+
+
 @celery_app.task(name="projectai.feature_backfill")
 def feature_backfill(
     workflow_id: int,

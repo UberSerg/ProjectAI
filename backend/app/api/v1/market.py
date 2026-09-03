@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.infrastructure.db.session import core_session
 from app.infrastructure.market.models import (
     Candle,
+    CorporateAction,
     DataQualityIssue,
     IngestionBatch,
     Instrument,
@@ -22,7 +23,9 @@ from app.infrastructure.market.models import (
     SeriesValue,
     Workflow,
 )
+from app.modules.market.application.corporate_actions import SPLIT_INGEST_STEPS
 from app.modules.market.application.ingest import BACKFILL_STEPS
+from app.modules.market.application.split_events import SPLIT_FEED_EVENT_TYPES
 from app.modules.market.application.workflows import create_workflow
 from app.worker import tasks as worker_tasks
 
@@ -346,6 +349,11 @@ def market_summary() -> dict[str, Any]:
         last_success = session.scalar(
             select(func.max(IngestionBatch.finished_at)).where(IngestionBatch.status.in_(["success", "warning"]))
         )
+        split_events = session.scalar(
+            select(func.count())
+            .select_from(CorporateAction)
+            .where(CorporateAction.event_type.in_(SPLIT_FEED_EVENT_TYPES))
+        ) or 0
         return {
             "instruments_count": instruments,
             "active_instruments_count": active,
@@ -355,6 +363,7 @@ def market_summary() -> dict[str, Any]:
             "dq_warnings": dq_warnings,
             "dq_errors": dq_errors,
             "last_successful_update": last_success.isoformat() if last_success else None,
+            "split_corporate_actions": split_events,
         }
 
 
@@ -397,6 +406,21 @@ class DataQualityRunRequest(BaseModel):
     mode: Literal["historical", "operational"] = "operational"
     date_from: date | None = None
     date_to: date | None = None
+
+
+@router.post("/corporate-actions/splits", response_model=WorkflowCreated)
+def start_splits_ingest() -> WorkflowCreated:
+    with core_session() as session:
+        workflow = create_workflow(
+            session,
+            "MarketSplitsIngest",
+            "MOEX SPLIT corporate actions",
+            SPLIT_INGEST_STEPS,
+        )
+        session.commit()
+        workflow_id = workflow.id
+    worker_tasks.market_splits_ingest.delay(workflow_id)
+    return WorkflowCreated(workflow_id=workflow_id, status="RUNNING")
 
 
 @router.post("/data-quality/run", response_model=WorkflowCreated)

@@ -19,6 +19,18 @@ Canonical rows are MOEX ISS + CBR. Future file/Finam imports must keep `source` 
 and must not silently overwrite those canonical series (ADR 0005). Bulk files use the same
 normalizer / DQ path — not a direct INSERT into `market.candles`.
 
+## SPLIT corporate actions (H1)
+
+`POST /api/v1/market/corporate-actions/splits` fetches
+`/iss/statistics/engines/stock/splits.json` (`tradedate`, `secid`, `before`, `after`).
+
+Flow: MOEX provider → draft (source = ISS splits feed) → domain type from factor
+(`after/before`: `>1` SPLIT, `<1` REVERSE_SPLIT, `=1` rejected) → resolve via
+`instrument_sources` → idempotent upsert → annotate matching `abnormal_price_jump`
+with the normalized type. Unknown SECIDs are counted, not auto-created.
+`known_at` stays NULL. RAW candles are not rewritten. Dividends / adjusted prices /
+total return / `DENOMINATION_CHANGE` are not ingested here.
+
 ## RAW
 
 Files under `RAW_DATA_PATH` (volume `projectai_raw_data`):
