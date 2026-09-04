@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     polza_default_model: str = Field(default="", alias="POLZA_DEFAULT_MODEL")
 
     raw_data_path: str = Field(default="/data/raw", alias="RAW_DATA_PATH")
+    models_data_path: str = Field(default="/data/models", alias="MODELS_DATA_PATH")
     market_update_enabled: bool = Field(default=False, alias="MARKET_UPDATE_ENABLED")
     market_update_cron: str = Field(default="0 18 * * 1-5", alias="MARKET_UPDATE_CRON")
     moex_base_url: str = Field(default="https://iss.moex.com", alias="MOEX_BASE_URL")
