@@ -54,5 +54,16 @@ export function queryString(values: Record<string, string | number | boolean | u
 }
 
 export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (typeof details === "object" && details !== null && "detail" in details) {
+      const detail = (details as { detail: unknown }).detail;
+      if (typeof detail === "object" && detail !== null && "message" in detail) {
+        return String((detail as { message: unknown }).message);
+      }
+      if (typeof detail === "string") return detail;
+    }
+    return error.message;
+  }
   return error instanceof Error ? error.message : "Unexpected error";
 }

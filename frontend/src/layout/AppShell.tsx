@@ -25,8 +25,9 @@ const analytics: NavItem[] = [
 ];
 
 const trading: NavItem[] = [
-  { to: "/shadow", label: labels.nav.liveExperiment },
+  { to: "/research", label: labels.nav.lab },
   { to: "/simulator", label: labels.nav.simulations },
+  { to: "/shadow", label: labels.nav.liveExperiment },
   { to: "/portfolio", label: labels.nav.portfolio, soon: true },
 ];
 
