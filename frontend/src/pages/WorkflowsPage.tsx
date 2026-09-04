@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import { PageHeader, PageState, StatusBadge } from "../components/Ui";
+import { ResearchCycleCard } from "../features/researchCycle/ResearchCycleCard";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDateTime, formatDuration } from "../utils/format";
 import { labels } from "../utils/labels";
@@ -59,16 +60,20 @@ export function WorkflowsPage() {
     setParams({ focus: id }, { replace: true });
   }
 
-  if (loading) return <PageState kind="loading" title="Загрузка процессов…" />;
-  if (error) return <PageState kind="error">{error}</PageState>;
-
   return (
     <section>
       <PageHeader title={labels.nav.workflows} description="Фоновые задачи загрузки и проверки качества" helpPageId="workflows" />
 
-      {items.length === 0 ? (
+      <ResearchCycleCard />
+
+      {loading ? <PageState kind="loading" title="Загрузка процессов…" /> : null}
+      {!loading && error ? <PageState kind="error">{error}</PageState> : null}
+
+      {!loading && !error && items.length === 0 ? (
         <PageState kind="empty" title="Процессов пока нет" />
-      ) : (
+      ) : null}
+
+      {!loading && !error && items.length > 0 ? (
         <div className="dashboard-grid">
           <div className="table-wrap">
             <table>
@@ -168,7 +173,7 @@ export function WorkflowsPage() {
             )}
           </article>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

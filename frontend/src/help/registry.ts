@@ -550,7 +550,26 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     title: "Ожидание 20d outcome",
     summary: "Реализованный 20-дневный исход модели ещё не наблюдается.",
     details: "Нужны будущие торговые наблюдения после as_of. Календарный countdown не используется.",
-    relatedIds: ["decision_pred_20d", "experiment_age"],
+    relatedIds: ["decision_pred_20d", "experiment_age", "research_cycle"],
+  },
+  research_cycle: {
+    id: "research_cycle",
+    kind: "term",
+    title: "Ежедневный исследовательский цикл",
+    summary:
+      "Оркестрация V0: рынок → Analytics/Technical/Relations V2 → Forward Signal → Shadow → outcome evaluation.",
+    details:
+      "Один прогон на актуальный watermark без historical backfill Forward. Статусы шагов вроде NO_CHANGES / SKIPPED_NOT_DUE — нормальные исходы, не ошибки.",
+    relatedIds: ["daily_cycle_health", "forward_signal", "shadow_portfolio", "forward_outcome_pending"],
+  },
+  daily_cycle_health: {
+    id: "daily_cycle_health",
+    kind: "term",
+    title: "Состояние контура",
+    summary: "Сводка синхронизации рынка и downstream (Analytics / Technical / Forward / Shadow).",
+    details:
+      "IN_SYNC — контур догнал рынок; WAITING_FOR_MARKET — ждём новые данные; LAGGING — отставание; RUNNING — цикл идёт; BLOCKED — остановка.",
+    relatedIds: ["research_cycle", "market_watermark", "forward_signal"],
   },
   sim_survivorship: {
     id: "sim_survivorship",
@@ -681,10 +700,19 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
   workflows: {
     id: "workflows",
     title: "Процессы",
-    about: "Фоновые задачи загрузки, DQ, analytics, relations и technical.",
-    understand: ["Какие задачи бегут сейчас", "Где упал шаг", "Длительность и статус"],
-    metrics: [],
-    interpret: ["Открывайте процесс, чтобы увидеть timeline шагов."],
+    about:
+      "Фоновые задачи загрузки, DQ, analytics, relations, technical и ежедневный исследовательский цикл.",
+    understand: [
+      "Состояние ежедневного исследовательского цикла",
+      "Какие задачи бегут сейчас",
+      "Где упал шаг",
+      "Длительность и статус",
+    ],
+    metrics: ["research_cycle", "daily_cycle_health", "forward_outcome_pending"],
+    interpret: [
+      "Карточка цикла сверху — операционный контур Forward/Shadow.",
+      "Открывайте процесс, чтобы увидеть timeline шагов.",
+    ],
     limitations: ["Это журнал оркестрации, не бизнес-отчёт."],
   },
   system: {
@@ -782,14 +810,18 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "risk_state",
       "experiment_age",
       "decision_why",
+      "research_cycle",
+      "daily_cycle_health",
+      "forward_outcome_pending",
     ],
     interpret: [
       "0 fills при PENDING — корректный старт.",
       "A и B стартуют одинаково; DD Guard на B проявится только после реальной просадки.",
       "Решения объясняются Decision Explanation UX без LLM.",
+      "Операционная полоса сверху отражает ежедневный цикл и зрелость 20d outcomes.",
     ],
     limitations: [
-      "Автоматическое ежедневное обновление не настроено.",
+      "Автоматическое расписание зависит от DAILY_RESEARCH_CYCLE_ENABLED.",
       "Нет дивидендов / total return.",
       "Короткий горизонт ≠ proof of edge.",
       "Не брокер и не рекомендации.",

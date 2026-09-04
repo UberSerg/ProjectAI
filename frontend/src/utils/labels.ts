@@ -42,6 +42,7 @@ const WORKFLOW_TYPE: Record<string, string> = {
   RelationsBackfill: "Пересчёт связей (история)",
   TechnicalBackfill: "Пересчёт технического анализа (история)",
   TechnicalUpdate: "Обновление технического анализа",
+  DAILY_RESEARCH_CYCLE_V0: "Ежедневный исследовательский цикл",
 };
 
 const WORKFLOW_STEP: Record<string, string> = {

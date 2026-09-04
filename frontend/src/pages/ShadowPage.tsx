@@ -9,6 +9,10 @@ import {
   type ForwardPredictionItem,
 } from "../api/forward";
 import {
+  getResearchCycleStatus,
+  type ResearchCycleOperationalStatus,
+} from "../api/researchCycle";
+import {
   getShadowDecisions,
   getShadowFills,
   getShadowNav,
@@ -26,6 +30,8 @@ import {
   contextFromShadowOrder,
   DecisionExplanationPanel,
 } from "../features/decisionExplanation";
+import { ResearchCycleOpsStrip } from "../features/researchCycle/ResearchCycleOpsStrip";
+import { formatAutomaticSchedule } from "../features/researchCycle/helpers";
 import {
   EmptyNavHistory,
   OperationalStage,
@@ -173,6 +179,8 @@ export function ShadowPage() {
   const [bundles, setBundles] = useState<PortfolioBundle[] | null>(null);
   const [forward, setForward] = useState<ForwardBatchDetail | null>(null);
   const [forwardList, setForwardList] = useState<ForwardBatchSummary[]>([]);
+  const [cycleStatus, setCycleStatus] = useState<ResearchCycleOperationalStatus | null>(null);
+  const [cycleError, setCycleError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAllPreds, setShowAllPreds] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<{
@@ -203,6 +211,15 @@ export function ShadowPage() {
           setForwardList(await listForwardBatches(20, controller.signal));
         } catch {
           setForwardList([]);
+        }
+        try {
+          setCycleStatus(await getResearchCycleStatus(controller.signal));
+          setCycleError(null);
+        } catch (reason: unknown) {
+          setCycleStatus(null);
+          if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+            setCycleError(errorMessage(reason));
+          }
         }
       } catch (reason: unknown) {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -312,6 +329,8 @@ export function ShadowPage() {
           Рыночные данные: {formatDate(latestMarket)} <MetricHelp metricId="market_watermark" />
         </span>
       </div>
+
+      <ResearchCycleOpsStrip status={cycleStatus} error={cycleError} />
 
       <div className="shadow-note panel">
         <p>
@@ -670,7 +689,13 @@ export function ShadowPage() {
           </div>
           <div>
             <dt>Автоматическое ежедневное обновление</dt>
-            <dd>не настроено</dd>
+            <dd>
+              {cycleStatus
+                ? formatAutomaticSchedule(cycleStatus.automatic_schedule, cycleStatus.schedule)
+                : overview.automatic_schedule === "not_configured"
+                  ? "не настроено"
+                  : (overview.automatic_schedule ?? "не настроено")}
+            </dd>
           </div>
           <div>
             <dt>Зрелость эксперимента</dt>

@@ -3,12 +3,14 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as forwardApi from "../api/forward";
+import * as researchCycleApi from "../api/researchCycle";
 import * as shadowApi from "../api/shadow";
 import { HelpProvider } from "../help";
 import { ShadowPage } from "./ShadowPage";
 
 vi.mock("../api/shadow");
 vi.mock("../api/forward");
+vi.mock("../api/researchCycle");
 
 const portfolioA = {
   id: "1",
@@ -175,6 +177,42 @@ function mockHappyPath() {
       generated_at: "2026-09-04T13:40:38.343892+00:00",
     },
   ]);
+  vi.mocked(researchCycleApi.getResearchCycleStatus).mockResolvedValue({
+    health: "WAITING_FOR_MARKET",
+    health_human: "Ожидаем новые рыночные данные",
+    watermarks: {
+      raw_market_latest_date: "2026-09-02",
+      forward_latest_as_of: "2026-09-02",
+      forward_latest_batch_id: 1,
+      shadow_portfolios: [
+        {
+          id: 1,
+          status: "WAITING_FOR_FUTURE_MARKET_OPEN",
+          last_processed_market_date: "2026-09-02",
+        },
+      ],
+      forward_outcome_latest_status: "PENDING",
+    },
+    latest_cycle: {
+      id: 9,
+      name: "DAILY_RESEARCH_CYCLE_V0",
+      status: "SUCCESS",
+      started_at: "2026-09-04T18:30:00Z",
+      finished_at: "2026-09-04T18:30:20Z",
+      error: null,
+      latest_forward_batch_id: 1,
+    },
+    schedule: { enabled: false, hour: 18, minute: 30, timezone: "UTC" },
+    outcome_maturity: {
+      batch_id: 1,
+      as_of: "2026-09-02",
+      future_trading_observations: 4,
+      required: 20,
+      status: "Ожидаем",
+      matured: false,
+    },
+    automatic_schedule: "disabled",
+  });
 }
 
 function renderPage() {
@@ -206,7 +244,9 @@ describe("ShadowPage", () => {
     expect(screen.getAllByText("MGNT").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("2026-W36").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/История NAV начнёт строиться/i)).toBeInTheDocument();
-    expect(screen.getByText(/не настроено/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/выключено/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Ожидаем 4\/20/)).toBeInTheDocument();
+    expect(screen.getByText(/Состояние контура/i)).toBeInTheDocument();
     expect(screen.getAllByText("SHADOW_HYSTERESIS_V1").length).toBeGreaterThanOrEqual(1);
   });
 
