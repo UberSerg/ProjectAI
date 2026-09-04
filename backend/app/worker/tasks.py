@@ -301,6 +301,40 @@ def build_forward_signal_latest(workflow_id: int, as_of: str | None = None) -> d
             raise
 
 
+@celery_app.task(name="projectai.advance_shadow_portfolios")
+def advance_shadow_portfolios(workflow_id: int) -> dict:
+    """Manual Shadow Portfolio advance — not auto-scheduled."""
+    from app.modules.market.application.workflows import finish_workflow, get_step, update_step
+    from app.modules.shadow.application.service import advance_all_shadow_portfolios
+
+    with core_session() as session:
+        workflow = session.get(Workflow, workflow_id)
+        if workflow is None:
+            raise ValueError(f"workflow not found: {workflow_id}")
+        try:
+            update_step(session, get_step(workflow, "Advance portfolios"), "RUNNING")
+            results = advance_all_shadow_portfolios(session)
+            update_step(session, get_step(workflow, "Advance portfolios"), "SUCCESS")
+            update_step(session, get_step(workflow, "Finish"), "SUCCESS")
+            finish_workflow(session, workflow, "SUCCESS")
+            session.commit()
+            return {
+                "workflow_id": workflow_id,
+                "results": [
+                    {"portfolio_id": r.portfolio_id, "name": r.name, "status": r.status, **r.summary}
+                    for r in results
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            with core_session() as session2:
+                wf = session2.get(Workflow, workflow_id)
+                if wf is not None:
+                    finish_workflow(session2, wf, "ERROR", error=str(exc))
+                    session2.commit()
+            raise
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""
