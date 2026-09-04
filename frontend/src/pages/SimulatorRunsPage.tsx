@@ -49,6 +49,11 @@ export function SimulatorRunsPage() {
         title={labels.nav.simulations}
         description="Исторические прогоны Historical Simulator V0 (research, не брокерский P&L)"
         helpPageId="simulator"
+        actions={
+          <Link to="/shadow" className="secondary button-link">
+            {labels.nav.liveExperiment}
+          </Link>
+        }
       />
 
       <div className="table-wrap">

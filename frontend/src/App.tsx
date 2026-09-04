@@ -6,6 +6,7 @@ import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { RelationsPage } from "./pages/RelationsPage";
+import { ShadowPage } from "./pages/ShadowPage";
 import { SimulatorRunPage } from "./pages/SimulatorRunPage";
 import { SimulatorRunsPage } from "./pages/SimulatorRunsPage";
 import { SystemPage } from "./pages/SystemPage";
@@ -34,6 +35,7 @@ export function App() {
             />
           }
         />
+        <Route path="/shadow" element={<ShadowPage />} />
         <Route path="/simulator" element={<SimulatorRunsPage />} />
         <Route path="/simulator/:runId" element={<SimulatorRunPage />} />
         <Route
