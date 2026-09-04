@@ -243,10 +243,31 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
         # --- TECHNICAL V2 ---
         _mark(session, workflow, "TECHNICAL_V2", "RUNNING")
         t0 = time.perf_counter()
-        technical = TechnicalComputeService(session).run_update(
-            model_code=TECHNICAL_MODEL_CODE,
-            model_version=TECHNICAL_MODEL_VERSION,
-        )
+        try:
+            technical = TechnicalComputeService(session).run_update(
+                model_code=TECHNICAL_MODEL_CODE,
+                model_version=TECHNICAL_MODEL_VERSION,
+            )
+        except Exception as tech_exc:  # noqa: BLE001
+            # Persist FAILED checkpoint without undoing already-committed upstream steps.
+            technical_payload = {
+                "status": "ERROR",
+                "error": str(tech_exc)[:2000],
+                "duration_seconds": round(time.perf_counter() - t0, 3),
+                "pin": {"code": TECHNICAL_MODEL_CODE, "version": TECHNICAL_MODEL_VERSION},
+            }
+            _store_step(workflow, "TECHNICAL_V2", technical_payload)
+            _mark(session, workflow, "TECHNICAL_V2", "ERROR", error=str(tech_exc)[:2000])
+            session.commit()
+            finish_workflow(session, workflow, "FAILED", error=f"TECHNICAL_V2: {tech_exc}"[:2000])
+            session.commit()
+            return {
+                "status": "FAILED",
+                "workflow_id": workflow.id,
+                "step": "TECHNICAL_V2",
+                "error": str(tech_exc),
+                "step_results": (workflow.meta or {}).get("step_results"),
+            }
         rows_t = int(technical.get("technical_feature_rows") or technical.get("signal_rows") or 0)
         technical_payload = {
             "status": "NO_CHANGES" if rows_t == 0 else technical.get("status", "SUCCESS"),
@@ -321,7 +342,29 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
         _mark(session, workflow, "SHADOW_ADVANCE", "RUNNING")
         fills_before = int(session.scalar(select(func.count()).select_from(ShadowFill)) or 0)
         orders_before = int(session.scalar(select(func.count()).select_from(ShadowOrder)) or 0)
-        shadow_results = advance_all_shadow_portfolios(session)
+        try:
+            shadow_results = advance_all_shadow_portfolios(session)
+        except Exception as shadow_exc:  # noqa: BLE001
+            shadow_payload = {
+                "status": "ERROR",
+                "error": str(shadow_exc)[:2000],
+                "fills_new": 0,
+                "orders_new": 0,
+                "forward_batch_id": fwd.batch_id,
+            }
+            _store_step(workflow, "SHADOW_ADVANCE", shadow_payload)
+            _mark(session, workflow, "SHADOW_ADVANCE", "ERROR", error=str(shadow_exc)[:2000])
+            session.commit()
+            finish_workflow(session, workflow, "FAILED", error=f"SHADOW_ADVANCE: {shadow_exc}"[:2000])
+            session.commit()
+            return {
+                "status": "FAILED",
+                "workflow_id": workflow.id,
+                "step": "SHADOW_ADVANCE",
+                "error": str(shadow_exc),
+                "latest_forward_batch_id": fwd.batch_id,
+                "step_results": (workflow.meta or {}).get("step_results"),
+            }
         fills_after = int(session.scalar(select(func.count()).select_from(ShadowFill)) or 0)
         orders_after = int(session.scalar(select(func.count()).select_from(ShadowOrder)) or 0)
         portfolios = list(session.scalars(select(ShadowPortfolio).order_by(ShadowPortfolio.id)).all())
