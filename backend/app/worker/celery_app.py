@@ -36,6 +36,14 @@ def create_celery_app() -> Celery:
             "task": "projectai.market_data_update_scheduled",
             "schedule": crontab(**_parse_cron(settings.market_update_cron)),
         }
+    if settings.daily_research_cycle_enabled:
+        beat_schedule["daily-research-cycle"] = {
+            "task": "projectai.daily_research_cycle_scheduled",
+            "schedule": crontab(
+                minute=settings.daily_research_cycle_minute,
+                hour=settings.daily_research_cycle_hour,
+            ),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],

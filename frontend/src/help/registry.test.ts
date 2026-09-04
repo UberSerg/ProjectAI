@@ -44,6 +44,9 @@ describe("help registry", () => {
     expect(getMetricHelp("decision_rank")?.details.toLowerCase()).toMatch(/лучшая компания/);
     expect(getMetricHelp("shadow_portfolio")?.summary.toLowerCase()).toMatch(/проспектив/);
     expect(getMetricHelp("prospective_experiment")?.details.toLowerCase()).toMatch(/симулятор|open/);
+    expect(getMetricHelp("research_cycle")?.title).toMatch(/исследовательский цикл/i);
+    expect(getMetricHelp("daily_cycle_health")?.summary.toLowerCase()).toMatch(/синхрон/);
+    expect(getMetricHelp("forward_outcome_pending")?.title).toMatch(/20d|outcome/i);
   });
 });
 

@@ -362,3 +362,18 @@ def market_data_update_scheduled() -> dict:
         session.commit()
         workflow_id = workflow.id
     return market_data_update(workflow_id)
+
+
+@celery_app.task(name="projectai.daily_research_cycle")
+def daily_research_cycle(workflow_id: int | None = None) -> dict:
+    """Thin wrapper over Daily Research Cycle V0 application service."""
+    from app.modules.research_cycle.cycle import run_daily_research_cycle
+
+    with core_session() as session:
+        return run_daily_research_cycle(session, workflow_id=workflow_id)
+
+
+@celery_app.task(name="projectai.daily_research_cycle_scheduled")
+def daily_research_cycle_scheduled() -> dict:
+    """Beat entrypoint — only registered when DAILY_RESEARCH_CYCLE_ENABLED=true."""
+    return daily_research_cycle(None)
