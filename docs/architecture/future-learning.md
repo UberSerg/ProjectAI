@@ -71,6 +71,13 @@ Forward batches only. No backdated fills.
 **Shadow / Live Research Dashboard V0** is **IMPLEMENTED**: UI route `/shadow` («Живой эксперимент»)
 for prospective monitoring — pending-only start state is expected and correct.
 
+**Daily Research Cycle V0** is **IMPLEMENTED** (schedule **DISABLED** by default): one operator/
+Celery workflow advances Market→Analytics V2→Technical V2→Relations V2→Forward→Shadow→
+Forward Outcome Evaluator without historical Forward/Shadow backfill.
+
+**Forward Outcome Evaluator V0** is **IMPLEMENTED**: mature predictions after 20 future trading
+observations using Dataset PIT V2 mechanical return semantics (no dividends).
+
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 
 ---

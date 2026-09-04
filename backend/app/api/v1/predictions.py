@@ -142,6 +142,17 @@ def get_forward_batch(batch_id: int) -> ForwardBatchDetail:
         )
 
 
+@router.get("/forward/{batch_id}/evaluation")
+def get_forward_batch_evaluation(batch_id: int) -> dict[str, Any]:
+    from app.modules.prediction.application.forward_outcome import get_batch_evaluation_payload
+
+    with core_session() as session:
+        batch = repo.get_batch(session, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Forward batch not found")
+        return get_batch_evaluation_payload(session, batch_id)
+
+
 @router.post("/forward/run")
 def enqueue_forward_signal(as_of: date | None = None) -> dict[str, Any]:
     """Manual operator trigger — creates workflow + Celery task (not auto-scheduled)."""
