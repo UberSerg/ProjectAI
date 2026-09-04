@@ -7,13 +7,19 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 
 from app.infrastructure.db.session import core_session
+from app.modules.simulator.application.dashboard_read import (
+    day_inspector_payload,
+    imoex_benchmark_series,
+)
 from app.modules.simulator.infrastructure.repository import (
     get_fills,
     get_nav_series,
     get_orders,
     get_positions_for_date,
     get_run,
+    list_cost_sensitivity_siblings,
     list_runs,
+    rebalance_dates,
     run_to_summary,
 )
 
@@ -24,7 +30,7 @@ router = APIRouter()
 def api_list_runs(limit: int = Query(50, ge=1, le=200)) -> dict:
     with core_session() as session:
         rows = list_runs(session, limit=limit)
-        return {"items": [run_to_summary(r) for r in rows]}
+        return {"items": [run_to_summary(session, r) for r in rows]}
 
 
 @router.get("/runs/{run_id}")
@@ -33,7 +39,7 @@ def api_get_run(run_id: int) -> dict:
         run = get_run(session, run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="simulation run not found")
-        return run_to_summary(run)
+        return run_to_summary(session, run)
 
 
 @router.get("/runs/{run_id}/nav")
@@ -43,9 +49,26 @@ def api_get_nav(run_id: int) -> dict:
         if run is None:
             raise HTTPException(status_code=404, detail="simulation run not found")
         series = get_nav_series(session, run_id)
+        if not series:
+            return {
+                "run_id": run_id,
+                "benchmark": run.benchmark,
+                "benchmark_series": [],
+                "rebalance_dates": [],
+                "date_from": None,
+                "date_to": None,
+                "items": [],
+            }
+        d0 = series[0].as_of_date
+        d1 = series[-1].as_of_date
+        bench_series = imoex_benchmark_series(session, date_from=d0, date_to=d1)
         return {
             "run_id": run_id,
             "benchmark": run.benchmark,
+            "benchmark_series": bench_series,
+            "rebalance_dates": rebalance_dates(session, run_id),
+            "date_from": d0.isoformat(),
+            "date_to": d1.isoformat(),
             "items": [
                 {
                     "date": r.as_of_date.isoformat(),
@@ -61,15 +84,57 @@ def api_get_nav(run_id: int) -> dict:
         }
 
 
+@router.get("/runs/{run_id}/day")
+def api_get_day(run_id: int, as_of: date) -> dict:
+    with core_session() as session:
+        if get_run(session, run_id) is None:
+            raise HTTPException(status_code=404, detail="simulation run not found")
+        return day_inspector_payload(session, run_id, as_of)
+
+
+@router.get("/runs/{run_id}/cost-sensitivity")
+def api_cost_sensitivity(run_id: int) -> dict:
+    """Sibling SUCCESS runs (same segment + candidate) with different friction assumptions."""
+    with core_session() as session:
+        run = get_run(session, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="simulation run not found")
+        siblings = list_cost_sensitivity_siblings(session, run)
+        items = []
+        for sib in siblings:
+            summary = run_to_summary(session, sib)
+            spec = summary.get("spec") or {}
+            metrics = summary.get("metrics") or {}
+            items.append(
+                {
+                    "run_id": sib.id,
+                    "commission_bps": spec.get("commission_bps"),
+                    "slippage_bps": spec.get("slippage_bps"),
+                    "cost_sensitivity_label": spec.get("cost_sensitivity_label"),
+                    "total_price_return": metrics.get("total_price_return"),
+                    "final_nav": metrics.get("final_nav"),
+                    "max_drawdown": metrics.get("max_drawdown"),
+                    "is_current": sib.id == run_id,
+                }
+            )
+        items.sort(key=lambda x: (float(x.get("commission_bps") or 0.0), float(x.get("slippage_bps") or 0.0)))
+        return {"run_id": run_id, "segment": run.segment, "items": items}
+
+
 @router.get("/runs/{run_id}/fills")
 def api_get_fills(run_id: int) -> dict:
     with core_session() as session:
         if get_run(session, run_id) is None:
             raise HTTPException(status_code=404, detail="simulation run not found")
         fills = get_fills(session, run_id)
-        return {
-            "run_id": run_id,
-            "items": [
+        orders = get_orders(session, run_id)
+        order_by_key = {
+            (o.execution_date, o.instrument_id, o.side): o for o in orders
+        }
+        items = []
+        for f in fills:
+            linked = order_by_key.get((f.execution_date, f.instrument_id, f.side))
+            items.append(
                 {
                     "execution_date": f.execution_date.isoformat(),
                     "decision_date": f.decision_date.isoformat() if f.decision_date else None,
@@ -82,10 +147,18 @@ def api_get_fills(run_id: int) -> dict:
                     "notional": f.notional,
                     "commission": f.commission,
                     "slippage_cost": f.slippage_cost,
+                    "prediction_date": linked.prediction_date.isoformat()
+                    if linked and linked.prediction_date
+                    else None,
+                    "predicted_return_20d": linked.predicted_return_20d if linked else None,
+                    "rank": linked.rank if linked else None,
+                    "policy_name": linked.policy_name if linked else None,
+                    "target_weight": linked.target_weight if linked else None,
+                    "fold_id": linked.fold_id if linked else None,
+                    "reason": linked.reason if linked else None,
                 }
-                for f in fills
-            ],
-        }
+            )
+        return {"run_id": run_id, "items": items}
 
 
 @router.get("/runs/{run_id}/orders")

@@ -100,6 +100,7 @@ describe("Navigation", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Рыночные данные")).toBeInTheDocument();
+    expect(screen.getByText("Симуляции")).toBeInTheDocument();
     expect(screen.getByText("Процессы")).toBeInTheDocument();
     expect(screen.getAllByText("Скоро").length).toBeGreaterThan(0);
   });
