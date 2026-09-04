@@ -35,11 +35,16 @@ Foundation already includes:
 - Celery worker/scheduler for future jobs
 - Separate Memory DB for Decision Memory (ADR 0002)
 
-**Next learning step:** Historical Simulator V0 (walk-forward trading/policy evaluation).
-Prediction ML Candidate V0 is **EVALUATED** offline on `pit_daily_core` v2
-(`forward_return_20d`, CatBoost, expanding walk-forward, 2026 holdout).
-Research verdict: **MIXED** (unstable ranking signal; not champion).
-Still deferred: dividends / total return, historical universe, Simulator, Champion.
+**Next learning step:** Trading Policy research on development OOS only (new holdout later);
+Champion / dividends / historical universe still deferred.
+
+Prediction ML Candidate V0 is **DONE** with research verdict **MIXED**
+(`pit_daily_core` v2, `forward_return_20d`, CatBoost, expanding walk-forward, 2026 holdout).
+
+Historical Simulator V0 is **IMPLEMENTED**: OOS-only predictions → RANK_LONG_ONLY_V0
+(top 20% equal weight, weekly) → Risk guardrails → next-open historical fills → portfolio
+ledger / metrics / IMOEX price-index benchmark. Explicitly **not** real execution; dividends
+excluded; Trading Policy V0 is a simple diagnostic policy; Risk V0 is guardrails only.
 
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 

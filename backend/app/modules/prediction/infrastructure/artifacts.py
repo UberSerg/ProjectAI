@@ -45,7 +45,9 @@ def write_json(path: Path, payload: dict[str, Any] | list[Any]) -> None:
 def prediction_hash(frame: pd.DataFrame, *, pred_col: str = "y_pred") -> str:
     cols = ["sample_id", "instrument_id", "as_of_date", pred_col]
     subset = frame.loc[:, [c for c in cols if c in frame.columns]].copy()
-    subset["as_of_date"] = subset["as_of_date"].astype(str)
+    subset["sample_id"] = subset["sample_id"].astype(int)
+    subset["instrument_id"] = subset["instrument_id"].astype(int)
+    subset["as_of_date"] = pd.to_datetime(subset["as_of_date"]).dt.strftime("%Y-%m-%d")
     subset[pred_col] = subset[pred_col].map(lambda x: f"{float(x):.12g}")
     canonical = subset.sort_values(["as_of_date", "instrument_id", "sample_id"]).to_csv(
         index=False
