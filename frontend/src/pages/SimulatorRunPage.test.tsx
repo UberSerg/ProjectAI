@@ -107,9 +107,10 @@ function mockHappyPath() {
       prediction_date: "2026-01-12",
       predicted_return_20d: 0.04,
       rank: 1,
-      policy_name: "RANK_LONG_ONLY_V0",
       target_weight: 0.05,
-      reason: "top_quantile_entry",
+      reason: "ENTER_TOP20",
+      policy_name: "RANK_HYSTERESIS_LONG_ONLY_V1",
+      display_name: "Sberbank",
     },
   ]);
   vi.mocked(simulatorApi.getSimulatorCostSensitivity).mockResolvedValue({
@@ -212,12 +213,14 @@ describe("SimulatorRunPage", () => {
     expect(screen.getByText("Candidate V0")).toBeInTheDocument();
   });
 
-  it("opens fill provenance panel without inventing fields", async () => {
+  it("opens fill explanation with human summary and technical provenance", async () => {
     renderRun();
     expect(await screen.findByText("SBER")).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("SBER")[0]);
     expect(await screen.findByText("Почему была сделка?")).toBeInTheDocument();
-    expect(screen.getByText("top_quantile_entry")).toBeInTheDocument();
+    expect(screen.getByText(/верхние 20%|выбран для покупки|вошёл/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Технические детали/i }));
+    expect(screen.getByText("ENTER_TOP20")).toBeInTheDocument();
   });
 
   it("loads day inspector when date query is set", async () => {

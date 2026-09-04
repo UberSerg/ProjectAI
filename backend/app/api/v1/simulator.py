@@ -123,6 +123,10 @@ def api_cost_sensitivity(run_id: int) -> dict:
 
 @router.get("/runs/{run_id}/fills")
 def api_get_fills(run_id: int) -> dict:
+    from sqlalchemy import select
+
+    from app.infrastructure.market.models import Instrument
+
     with core_session() as session:
         if get_run(session, run_id) is None:
             raise HTTPException(status_code=404, detail="simulation run not found")
@@ -131,9 +135,19 @@ def api_get_fills(run_id: int) -> dict:
         order_by_key = {
             (o.execution_date, o.instrument_id, o.side): o for o in orders
         }
+        instrument_ids = {f.instrument_id for f in fills}
+        name_by_id: dict[int, str] = {}
+        if instrument_ids:
+            name_by_id = {
+                int(iid): str(name)
+                for iid, name in session.execute(
+                    select(Instrument.id, Instrument.name).where(Instrument.id.in_(instrument_ids))
+                )
+            }
         items = []
         for f in fills:
             linked = order_by_key.get((f.execution_date, f.instrument_id, f.side))
+            meta = linked.metadata_json if linked and isinstance(linked.metadata_json, dict) else None
             items.append(
                 {
                     "execution_date": f.execution_date.isoformat(),
@@ -156,6 +170,9 @@ def api_get_fills(run_id: int) -> dict:
                     "target_weight": linked.target_weight if linked else None,
                     "fold_id": linked.fold_id if linked else None,
                     "reason": linked.reason if linked else None,
+                    "metadata": meta,
+                    "eligible_count": (meta or {}).get("eligible_n"),
+                    "display_name": name_by_id.get(f.instrument_id),
                 }
             )
         return {"run_id": run_id, "items": items}

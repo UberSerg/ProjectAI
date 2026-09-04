@@ -177,6 +177,9 @@ export interface SimulationFill extends DayFill {
   target_weight?: number | null;
   fold_id?: string | null;
   reason?: string | null;
+  eligible_count?: number | null;
+  display_name?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface SimulationOrder {

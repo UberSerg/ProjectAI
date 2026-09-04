@@ -17,6 +17,10 @@ import {
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { DrawdownChart } from "../features/simulator/DrawdownChart";
 import {
+  contextFromSimulatorFill,
+  DecisionExplanationPanel,
+} from "../features/decisionExplanation";
+import {
   costLabel,
   isResearchContextSegment,
   pickCanonicalPair,
@@ -469,51 +473,12 @@ export function SimulatorRunPage() {
           </table>
         </div>
         {selectedFill ? (
-          <div className="sim-fill-reason panel">
-            <div className="sim-fill-reason-head">
-              <h3>Почему была сделка?</h3>
-              <button type="button" className="secondary" onClick={() => setSelectedFill(null)}>
-                Закрыть
-              </button>
-            </div>
-            <p className="muted">Фактическая provenance из ордера/fill — без LLM.</p>
-            <dl className="sim-dl">
-              <div>
-                <dt>Тикер</dt>
-                <dd>{selectedFill.ticker}</dd>
-              </div>
-              <div>
-                <dt>Сторона / дата исполнения</dt>
-                <dd>
-                  {selectedFill.side} · {formatDate(selectedFill.execution_date)}
-                </dd>
-              </div>
-              <div>
-                <dt>Дата прогноза</dt>
-                <dd>{formatDate(selectedFill.prediction_date)}</dd>
-              </div>
-              <div>
-                <dt>Predicted return 20d</dt>
-                <dd>{formatPercent(selectedFill.predicted_return_20d)}</dd>
-              </div>
-              <div>
-                <dt>Rank</dt>
-                <dd>{selectedFill.rank ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Target weight</dt>
-                <dd>{formatPercent(selectedFill.target_weight)}</dd>
-              </div>
-              <div>
-                <dt>Policy</dt>
-                <dd>{selectedFill.policy_name ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Reason</dt>
-                <dd>{selectedFill.reason ?? "—"}</dd>
-              </div>
-            </dl>
-          </div>
+          <DecisionExplanationPanel
+            context={contextFromSimulatorFill(selectedFill, {
+              candidateConfigHash: run.candidate_config_hash,
+            })}
+            onClose={() => setSelectedFill(null)}
+          />
         ) : null}
       </div>
 
