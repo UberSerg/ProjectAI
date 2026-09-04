@@ -64,10 +64,12 @@ proof; not Champion; not real trading.
 market date using frozen Candidate V0, exact 90-feature V2 pins, immutable `FORWARD_LIVE`
 predictions from activation date forward.
 
-**Shadow Portfolio V0** is **STARTED**: two prospective forward experiments
-(`SHADOW_HYSTERESIS_V1`, `SHADOW_HYSTERESIS_DD_V1`) consume immutable Forward batches only.
-No backdated fills; pending orders wait for genuinely future market opens. Not a backtest.
-Not Historical Simulator. No profitability claim.
+**Shadow Portfolio V0** is **ACTIVE** (waiting for genuine future execution): two prospective
+forward experiments (`SHADOW_HYSTERESIS_V1`, `SHADOW_HYSTERESIS_DD_V1`) consume immutable
+Forward batches only. No backdated fills.
+
+**Shadow / Live Research Dashboard V0** is **IMPLEMENTED**: UI route `/shadow` («Живой эксперимент»)
+for prospective monitoring — pending-only start state is expected and correct.
 
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 

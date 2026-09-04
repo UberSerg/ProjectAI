@@ -123,6 +123,7 @@ export const labels = {
     decisionMemory: "Память решений",
     trading: "Торговля",
     simulations: "Симуляции",
+    liveExperiment: "Живой эксперимент",
     portfolio: "Портфель",
     systemGroup: "Система",
     workflows: "Процессы",

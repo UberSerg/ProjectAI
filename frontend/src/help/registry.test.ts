@@ -29,6 +29,7 @@ describe("help registry", () => {
       "system",
       "simulator",
       "simulator_run",
+      "shadow",
     ]) {
       expect(getPageHelp(id)?.title).toBeTruthy();
     }
@@ -41,6 +42,8 @@ describe("help registry", () => {
     expect(getMetricHelp("decision_why")?.summary.toLowerCase()).toMatch(/llm|фактов/);
     expect(getMetricHelp("decision_pred_20d")?.title).toMatch(/20d|Predicted/i);
     expect(getMetricHelp("decision_rank")?.details.toLowerCase()).toMatch(/лучшая компания/);
+    expect(getMetricHelp("shadow_portfolio")?.summary.toLowerCase()).toMatch(/проспектив/);
+    expect(getMetricHelp("prospective_experiment")?.details.toLowerCase()).toMatch(/симулятор|open/);
   });
 });
 
