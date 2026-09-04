@@ -363,7 +363,7 @@ Do not start a stage from documentation alone.
 | 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
 | 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | **Candidate V0 DONE / MIXED** research (offline CatBoost walk-forward on `pit_daily_core` v2). Not champion |
 | 5 | **Historical Simulator V0** | **IMPLEMENTED** — OOS predictions → RANK_LONG_ONLY_V0 → Risk guardrails → next-open execution → ledger. **Dashboard V0** visualizes persisted runs. Trading Policy V0 = diagnostic only; Risk V0 = guardrails; real execution / dividends / historical universe **NOT** solved |
-| 6 | Trading Policy + Risk + Portfolio simulation | Decision stack without real broker (beyond Simulator V0 diagnostic policy) |
+| 6 | Trading Policy + Risk + Portfolio simulation | **Policy/Risk Research V1** on DEVELOPMENT_OOS: hysteresis long-only + optional drawdown guard (candidates, not Champion). 2026 holdout not used for policy selection. Decision stack still without real broker |
 | 7 | Learning loop / Candidate–Champion / Meta Model / Market State | Durable learning |
 | 8 | Shadow / Signal / Broker Execution Adapter / limited real capital | Earn the right to trade |
 

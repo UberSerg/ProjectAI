@@ -1,4 +1,4 @@
-"""Orchestrate Historical Simulator V0 runs."""
+"""Orchestrate Historical Simulator V0 / Policy-Risk V1 research runs."""
 
 from __future__ import annotations
 
@@ -29,18 +29,27 @@ def build_spec(
     prediction_hash: str,
     candidate_config_hash: str,
     dataset_values_hash: str,
+    policy_name: str | None = None,
+    risk_name: str | None = None,
+    **policy_risk_kwargs: Any,
 ) -> SimulationSpecV0:
-    return SimulationSpecV0(
-        segment=segment,
-        candidate_name=CANDIDATE_V0_CONFIG.candidate_name,
-        candidate_version=CANDIDATE_V0_CONFIG.candidate_version,
-        candidate_config_hash=candidate_config_hash,
-        dataset_values_hash=dataset_values_hash,
-        prediction_hash=prediction_hash,
-        commission_bps=commission_bps,
-        slippage_bps=slippage_bps,
-        cost_sensitivity_label=cost_sensitivity_label,
-    )
+    kwargs: dict[str, Any] = {
+        "segment": segment,
+        "candidate_name": CANDIDATE_V0_CONFIG.candidate_name,
+        "candidate_version": CANDIDATE_V0_CONFIG.candidate_version,
+        "candidate_config_hash": candidate_config_hash,
+        "dataset_values_hash": dataset_values_hash,
+        "prediction_hash": prediction_hash,
+        "commission_bps": commission_bps,
+        "slippage_bps": slippage_bps,
+        "cost_sensitivity_label": cost_sensitivity_label,
+    }
+    if policy_name is not None:
+        kwargs["policy_name"] = policy_name
+    if risk_name is not None:
+        kwargs["risk_name"] = risk_name
+    kwargs.update(policy_risk_kwargs)
+    return SimulationSpecV0(**kwargs)
 
 
 def run_segment(
@@ -54,6 +63,9 @@ def run_segment(
     slippage_bps: float = 0.0,
     cost_sensitivity_label: str | None = None,
     persist: bool = True,
+    policy_name: str | None = None,
+    risk_name: str | None = None,
+    **policy_risk_kwargs: Any,
 ) -> tuple[SimulationResult, int | None]:
     bundle = load_oos_predictions(segment, artifact_dir=artifact_dir)
     d0, d1 = prediction_date_bounds(bundle)
@@ -75,6 +87,9 @@ def run_segment(
         prediction_hash=bundle.prediction_hash,
         candidate_config_hash=bundle.candidate_config_hash,
         dataset_values_hash=bundle.dataset_values_hash,
+        policy_name=policy_name,
+        risk_name=risk_name,
+        **policy_risk_kwargs,
     )
     result = run_simulation(
         spec=spec,
