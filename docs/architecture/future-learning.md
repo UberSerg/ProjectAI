@@ -60,10 +60,14 @@ proof; not Champion; not real trading.
   2026 FINAL_HOLDOUT was previously observed for V0 and is **not** pristine for Policy V1.
 - No profitability claim; no promotion.
 
-**Forward Signal V0** is **IMPLEMENTED**: live PIT inference for latest completed market date
-using frozen Candidate V0 (CatBoost `.cbm`), exact 90-feature V2 pins, immutable
-`FORWARD_LIVE` predictions. Starts accumulating genuinely unseen observations from activation
-date forward. No portfolio / Shadow / broker yet. Not investment advice.
+**Forward Signal V0** is **IMPLEMENTED / ACTIVE**: live PIT inference for latest completed
+market date using frozen Candidate V0, exact 90-feature V2 pins, immutable `FORWARD_LIVE`
+predictions from activation date forward.
+
+**Shadow Portfolio V0** is **STARTED**: two prospective forward experiments
+(`SHADOW_HYSTERESIS_V1`, `SHADOW_HYSTERESIS_DD_V1`) consume immutable Forward batches only.
+No backdated fills; pending orders wait for genuinely future market opens. Not a backtest.
+Not Historical Simulator. No profitability claim.
 
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 

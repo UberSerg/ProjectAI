@@ -368,6 +368,69 @@ def _forward_signal_lines(session: Session) -> list[str]:
     return lines
 
 
+def _shadow_portfolio_lines(session: Session) -> list[str]:
+    from sqlalchemy import func, select
+
+    from app.modules.shadow.infrastructure.models import (
+        ShadowFill,
+        ShadowOrder,
+        ShadowPortfolio,
+        ShadowPortfolioSpec,
+    )
+
+    lines = [
+        "=== SHADOW PORTFOLIO ===",
+        "",
+        "Shadow Portfolio V0 (FORWARD_SHADOW — not Historical Simulator)",
+    ]
+    try:
+        rows = session.execute(
+            select(ShadowPortfolio, ShadowPortfolioSpec)
+            .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
+            .order_by(ShadowPortfolio.id)
+        ).all()
+    except Exception:  # noqa: BLE001
+        lines.append("Status: migration pending / unavailable")
+        return lines
+    if not rows:
+        lines.append("Status: not initialized")
+        return lines
+    for portfolio, spec in rows:
+        pending = int(
+            session.scalar(
+                select(func.count()).select_from(ShadowOrder).where(
+                    ShadowOrder.portfolio_id == portfolio.id, ShadowOrder.status == "PENDING"
+                )
+            )
+            or 0
+        )
+        fills = int(
+            session.scalar(
+                select(func.count()).select_from(ShadowFill).where(
+                    ShadowFill.portfolio_id == portfolio.id
+                )
+            )
+            or 0
+        )
+        lines.extend(
+            [
+                f"— {spec.name}",
+                f"  status: {portfolio.status}",
+                f"  activated_at: {portfolio.activated_at.isoformat() if portfolio.activated_at else '—'}",
+                "  latest forward batch: "
+                f"{portfolio.last_processed_prediction_batch_id or portfolio.first_forward_batch_id}",
+                f"  last market date: {portfolio.last_processed_market_date or '—'}",
+                f"  last decision week: {portfolio.last_decision_iso_week or '—'}",
+                f"  cash: {portfolio.cash:.2f}",
+                f"  positions: {len(portfolio.positions or {})}",
+                f"  pending orders: {pending}",
+                f"  fills: {fills}",
+                f"  risk state: {portfolio.risk_mode} (cap={portfolio.exposure_cap})",
+            ]
+        )
+    return lines
+
+
 def _simulator_lines(session: Session) -> list[str]:
     from sqlalchemy import text
 
@@ -819,6 +882,8 @@ def build_diagnostics_text(session: Session) -> str:
             *_prediction_ml_lines(session),
             "",
             *_forward_signal_lines(session),
+            "",
+            *_shadow_portfolio_lines(session),
             "",
             *_simulator_lines(session),
             "",

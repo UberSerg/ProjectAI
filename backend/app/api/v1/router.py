@@ -8,6 +8,7 @@ from app.api.v1.market import router as market_router
 from app.api.v1.market import workflows_router
 from app.api.v1.predictions import router as predictions_router
 from app.api.v1.relations import router as relations_router
+from app.api.v1.shadow import router as shadow_router
 from app.api.v1.simulator import router as simulator_router
 from app.api.v1.system import router as system_router
 from app.api.v1.technical import router as technical_router
@@ -20,5 +21,6 @@ api_router.include_router(relations_router, prefix="/relations", tags=["relation
 api_router.include_router(technical_router, prefix="/technical", tags=["technical"])
 api_router.include_router(learning_router, prefix="/learning", tags=["learning"])
 api_router.include_router(predictions_router, prefix="/predictions", tags=["predictions"])
+api_router.include_router(shadow_router, prefix="/shadow", tags=["shadow"])
 api_router.include_router(simulator_router, prefix="/simulator", tags=["simulator"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
