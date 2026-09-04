@@ -361,9 +361,9 @@ Do not start a stage from documentation alone.
 | 1 | **Dataset / PIT Join V0** | Phase 1–3 accepted (no UI / no ML) |
 | 2 | **Deep History H0–H6** | **H0–H6 DONE** for mechanical stack: RAW + Analytics/Technical/Relations v2 + `pit_daily_core` v2. H4B TR / H3.1 DIVIDEND deferred. Survivorship remains (current cohort). |
 | 3 | Dataset UI / Parquet / later hardening | Not part of V0 or H0 |
-| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | **Candidate V0 EVALUATED** (offline CatBoost walk-forward on `pit_daily_core` v2 / 20d mechanical return). Simulator / Policy not started |
-| 5 | **Historical Simulator V0** | Walk-forward **trading / policy / PnL** evaluation of candidates |
-| 6 | Trading Policy + Risk + Portfolio simulation | Decision stack without real broker |
+| 4 | **Fundamental Intelligence V1** and/or **Prediction ML Candidate V0** | **Candidate V0 DONE / MIXED** research (offline CatBoost walk-forward on `pit_daily_core` v2). Not champion |
+| 5 | **Historical Simulator V0** | **IMPLEMENTED** — OOS predictions → RANK_LONG_ONLY_V0 → Risk guardrails → next-open execution → ledger. Trading Policy V0 = diagnostic only; Risk V0 = guardrails; real execution / dividends / historical universe **NOT** solved |
+| 6 | Trading Policy + Risk + Portfolio simulation | Decision stack without real broker (beyond Simulator V0 diagnostic policy) |
 | 7 | Learning loop / Candidate–Champion / Meta Model / Market State | Durable learning |
 | 8 | Shadow / Signal / Broker Execution Adapter / limited real capital | Earn the right to trade |
 

@@ -74,7 +74,8 @@ Market Data V1
   → Technical Agent V1
   → Dataset / PIT Join V0 (`pit_daily_core` v1 frozen)
   → Dataset / PIT V2 deep history (`pit_daily_core` v2; mechanical Y; not active)
-  → Prediction ML Candidate V0 (offline CatBoost walk-forward; evaluated; not champion)
+  → Prediction ML Candidate V0 (offline CatBoost walk-forward; MIXED; not champion)
+  → Historical Simulator V0 (OOS predictions → RANK_LONG_ONLY_V0 → next-open ledger; no real execution)
 ```
 
 **Target direction (mostly not implemented):**
@@ -85,8 +86,9 @@ PIT Dataset → Prediction Models → Meta Model → Trading Policy → Risk
   → Outcomes → Learning / Retraining → Decision Memory
 ```
 
-Do not treat the target diagram as shipped. Details: `docs/architecture/`.
-
+Historical Simulator V0 implements the research path from OOS predictions through a
+diagnostic Trading Policy / Risk guardrails / Historical Execution Adapter. Dividends,
+historical universe, broker execution, and champion promotion are still deferred.
 ## Market Data V1
 
 MOEX ISS + Bank of Russia ingestion, raw volume storage, workflows and admin UI.

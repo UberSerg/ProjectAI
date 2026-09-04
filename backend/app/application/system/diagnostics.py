@@ -308,6 +308,51 @@ WHERE model_name = :name AND model_version = :version
     return lines
 
 
+def _simulator_lines(session: Session) -> list[str]:
+    from sqlalchemy import text
+
+    lines = [
+        "=== SIMULATOR ===",
+        "",
+        "Historical Simulator V0: price-return portfolio life (dividends excluded)",
+        "Policy: RANK_LONG_ONLY_V0 | Risk: guardrails only | Execution: next_open",
+    ]
+    try:
+        row = session.execute(
+            text(
+                """
+SELECT id, segment, status, date_from, date_to, values_hash, metrics, candidate_config_hash
+FROM portfolio.simulation_runs
+ORDER BY id DESC
+LIMIT 1
+"""
+            )
+        ).mappings().first()
+    except Exception:  # noqa: BLE001 — table may not exist before migration
+        lines.append("Status: schema not migrated")
+        return lines
+    if row is None:
+        lines.extend(["Status: no runs", "Final NAV: —", "Max DD: —"])
+        return lines
+    metrics = row["metrics"] or {}
+    lines.extend(
+        [
+            f"Last run: id={row['id']} status={row['status']} segment={row['segment']}",
+            (
+                f"Dates: {row['date_from'].isoformat() if row['date_from'] else '—'} → "
+                f"{row['date_to'].isoformat() if row['date_to'] else '—'}"
+            ),
+            f"Candidate config hash: {row['candidate_config_hash'] or '—'}",
+            f"Final NAV: {metrics.get('final_nav', '—')}",
+            f"Total price return: {metrics.get('total_price_return', '—')}",
+            f"Max DD: {metrics.get('max_drawdown', '—')}",
+            f"values_hash: {row['values_hash'] or '—'}",
+            "Note: survivorship bias; not production profitability",
+        ]
+    )
+    return lines
+
+
 def _svc(services: dict[str, str], key: str, label: str) -> str:
     value = services.get(key)
     if value is None:
@@ -712,6 +757,8 @@ def build_diagnostics_text(session: Session) -> str:
             *_dataset_v2_lines(session),
             "",
             *_prediction_ml_lines(session),
+            "",
+            *_simulator_lines(session),
             "",
             "=== WORKFLOWS ===",
             "",
