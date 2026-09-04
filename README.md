@@ -74,6 +74,7 @@ Market Data V1
   → Technical Agent V1
   → Dataset / PIT Join V0 (`pit_daily_core` v1 frozen)
   → Dataset / PIT V2 deep history (`pit_daily_core` v2; mechanical Y; not active)
+  → Prediction ML Candidate V0 (offline CatBoost walk-forward; evaluated; not champion)
 ```
 
 **Target direction (mostly not implemented):**

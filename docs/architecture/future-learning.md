@@ -35,9 +35,11 @@ Foundation already includes:
 - Celery worker/scheduler for future jobs
 - Separate Memory DB for Decision Memory (ADR 0002)
 
-**Next learning step:** Prediction ML Candidate V0 against `pit_daily_core` v2
-(offline metrics only). Still deferred: dividends / total return, historical universe,
-Simulator, training registry productization.
+**Next learning step:** Historical Simulator V0 (walk-forward trading/policy evaluation).
+Prediction ML Candidate V0 is **EVALUATED** offline on `pit_daily_core` v2
+(`forward_return_20d`, CatBoost, expanding walk-forward, 2026 holdout).
+Research verdict: **MIXED** (unstable ranking signal; not champion).
+Still deferred: dividends / total return, historical universe, Simulator, Champion.
 
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 

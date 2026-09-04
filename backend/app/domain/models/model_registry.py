@@ -10,6 +10,7 @@ from typing import Any
 
 class ModelStatus(StrEnum):
     CANDIDATE = "candidate"
+    EVALUATED = "evaluated"
     ACTIVE = "active"
     REJECTED = "rejected"
     ARCHIVED = "archived"

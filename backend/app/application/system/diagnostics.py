@@ -263,6 +263,51 @@ def _dataset_v2_lines(session: Session) -> list[str]:
     ]
 
 
+def _prediction_ml_lines(session: Session) -> list[str]:
+    from sqlalchemy import text
+
+    from app.modules.prediction.candidate_config import CANDIDATE_V0_CONFIG
+
+    row = session.execute(
+        text(
+            """
+SELECT model_name, model_version, status, metrics, parameters, training_dataset
+FROM learning.model_registry
+WHERE model_name = :name AND model_version = :version
+"""
+        ),
+        {
+            "name": CANDIDATE_V0_CONFIG.candidate_name,
+            "version": CANDIDATE_V0_CONFIG.candidate_version,
+        },
+    ).mappings().first()
+    lines = [
+        "=== PREDICTION ML ===",
+        "",
+        "Prediction ML: Candidate V0",
+        "Dataset: pit_daily_core v2",
+        "Target: 20d mechanical return",
+        "Model: CatBoostRegressor",
+    ]
+    if row is None:
+        lines.extend(["Status: not trained", "Research verdict: —"])
+        return lines
+    params = row["parameters"] or {}
+    metrics = row["metrics"] or {}
+    lines.extend(
+        [
+            f"Status: {row['status']}",
+            f"Research verdict: {params.get('research_verdict', '—')}",
+            f"Config hash: {params.get('config_hash', '—')}",
+            f"Training dataset: {row['training_dataset'] or '—'}",
+            f"Dev mean IC: {metrics.get('dev_mean_ic', '—')}",
+            f"Holdout mean IC: {metrics.get('holdout_mean_ic', '—')}",
+            "Note: research metrics on current cohort (survivorship); not Simulator PnL",
+        ]
+    )
+    return lines
+
+
 def _svc(services: dict[str, str], key: str, label: str) -> str:
     value = services.get(key)
     if value is None:
@@ -665,6 +710,8 @@ def build_diagnostics_text(session: Session) -> str:
             f"Latest dataset error: {last_ds_error.error_message if last_ds_error else '—'}",
             "",
             *_dataset_v2_lines(session),
+            "",
+            *_prediction_ml_lines(session),
             "",
             "=== WORKFLOWS ===",
             "",

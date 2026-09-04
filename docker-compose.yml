@@ -78,6 +78,7 @@ services:
       - ./backend/alembic_core.ini:/app/alembic_core.ini:ro
       - ./backend/alembic_memory.ini:/app/alembic_memory.ini:ro
       - projectai_raw_data:/data/raw
+      - projectai_models_data:/data/models
     depends_on:
       postgres-core:
         condition: service_healthy
@@ -111,6 +112,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - projectai_raw_data:/data/raw
+      - projectai_models_data:/data/models
     depends_on:
       postgres-core:
         condition: service_healthy
@@ -145,6 +147,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - projectai_raw_data:/data/raw
+      - projectai_models_data:/data/models
     depends_on:
       redis:
         condition: service_healthy
@@ -185,3 +188,4 @@ volumes:
   projectai_memory_pgdata:
   projectai_redis_data:
   projectai_raw_data:
+  projectai_models_data:
