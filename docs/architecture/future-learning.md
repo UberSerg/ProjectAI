@@ -68,6 +68,11 @@ predictions from activation date forward.
 forward experiments (`SHADOW_HYSTERESIS_V1`, `SHADOW_HYSTERESIS_DD_V1`) consume immutable
 Forward batches only. No backdated fills.
 
+**Simulator Research Lab V0** is **IMPLEMENTED**: UI `/research` for manual DEV OOS
+historical experiments (registered Candidate/Policy/Risk, costs, period), experiment
+registry, comparison, cost-sensitivity family, FINAL_HOLDOUT launch protection.
+Reuses Historical Simulator engine; no Candidate training; no Shadow/Forward mutation.
+
 **Shadow / Live Research Dashboard V0** is **IMPLEMENTED**: UI route `/shadow` («Живой эксперимент»)
 for prospective monitoring — pending-only start state is expected and correct.
 

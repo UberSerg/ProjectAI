@@ -125,6 +125,7 @@ export const labels = {
     trading: "Торговля",
     simulations: "Симуляции",
     liveExperiment: "Живой эксперимент",
+    lab: "Лаборатория",
     portfolio: "Портфель",
     systemGroup: "Система",
     workflows: "Процессы",

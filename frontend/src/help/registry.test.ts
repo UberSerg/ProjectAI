@@ -30,9 +30,14 @@ describe("help registry", () => {
       "simulator",
       "simulator_run",
       "shadow",
+      "research_lab",
+      "research_compare",
     ]) {
       expect(getPageHelp(id)?.title).toBeTruthy();
     }
+    expect(getMetricHelp("research_lab")?.title).toMatch(/Лаборатория/);
+    expect(getMetricHelp("observed_holdout")?.title).toMatch(/holdout/i);
+    expect(getMetricHelp("development_oos")?.title).toMatch(/OOS|Development/i);
   });
 
   it("defines simulator help metrics", () => {

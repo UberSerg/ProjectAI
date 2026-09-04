@@ -6,6 +6,9 @@ import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { RelationsPage } from "./pages/RelationsPage";
+import { ResearchComparePage } from "./pages/ResearchComparePage";
+import { ResearchExperimentPage } from "./pages/ResearchExperimentPage";
+import { ResearchLabPage } from "./pages/ResearchLabPage";
 import { ShadowPage } from "./pages/ShadowPage";
 import { SimulatorRunPage } from "./pages/SimulatorRunPage";
 import { SimulatorRunsPage } from "./pages/SimulatorRunsPage";
@@ -36,6 +39,9 @@ export function App() {
           }
         />
         <Route path="/shadow" element={<ShadowPage />} />
+        <Route path="/research" element={<ResearchLabPage />} />
+        <Route path="/research/compare" element={<ResearchComparePage />} />
+        <Route path="/research/:runId" element={<ResearchExperimentPage />} />
         <Route path="/simulator" element={<SimulatorRunsPage />} />
         <Route path="/simulator/:runId" element={<SimulatorRunPage />} />
         <Route

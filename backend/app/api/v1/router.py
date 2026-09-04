@@ -9,6 +9,7 @@ from app.api.v1.market import workflows_router
 from app.api.v1.predictions import router as predictions_router
 from app.api.v1.relations import router as relations_router
 from app.api.v1.research_cycle import router as research_cycle_router
+from app.api.v1.research_lab import router as research_lab_router
 from app.api.v1.shadow import router as shadow_router
 from app.api.v1.simulator import router as simulator_router
 from app.api.v1.system import router as system_router
@@ -24,5 +25,6 @@ api_router.include_router(learning_router, prefix="/learning", tags=["learning"]
 api_router.include_router(predictions_router, prefix="/predictions", tags=["predictions"])
 api_router.include_router(shadow_router, prefix="/shadow", tags=["shadow"])
 api_router.include_router(simulator_router, prefix="/simulator", tags=["simulator"])
+api_router.include_router(research_lab_router, prefix="/research-lab", tags=["research-lab"])
 api_router.include_router(research_cycle_router, prefix="/research-cycle", tags=["research-cycle"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
