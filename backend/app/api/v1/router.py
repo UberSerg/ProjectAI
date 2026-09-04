@@ -9,8 +9,8 @@ from app.api.v1.market import workflows_router
 from app.api.v1.predictions import router as predictions_router
 from app.api.v1.relations import router as relations_router
 from app.api.v1.research_cycle import router as research_cycle_router
-from app.api.v1.shadow import router as shadow_router
 from app.api.v1.research_lab import router as research_lab_router
+from app.api.v1.shadow import router as shadow_router
 from app.api.v1.simulator import router as simulator_router
 from app.api.v1.system import router as system_router
 from app.api.v1.technical import router as technical_router
