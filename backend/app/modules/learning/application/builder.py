@@ -54,7 +54,9 @@ from app.modules.learning.dataset_config import (
     is_horizon_training_eligible,
     is_sample_relation_missing,
     relation_feature_names,
+    uses_mechanical_label_basis,
 )
+from app.modules.market.application.mechanical_adjustment import MechanicalAction, load_mechanical_actions
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 
 logger = get_logger(__name__, component="dataset-pit")
@@ -220,10 +222,16 @@ class PITDatasetBuilder:
 
             self._mark(workflow, "Load Relations", "RUNNING")
             t_load_r = time.perf_counter()
+            # Deep-history Relations V2: do not preload all instruments' snapshots/lags at once
+            # (hundreds of thousands of rows → Docker OOM). Resolve inputs here; load per batch below.
             relation_index = RelationIndex.build([], {})
             subject_input_by_instrument: dict[int, UUID] = {}
             context_input_ids: dict[str, UUID] = {}
             relation_set_row = None
+            relation_windows: list[int] = []
+            relation_lag_windows: set[int] = set()
+            relation_lags: list[int] = []
+            relation_instrument_batch = 5
             if relations_enabled:
                 relation_set_row = load_pinned_relation_set(
                     self.session, spec.relation_set_code, spec.relation_set_version
@@ -241,39 +249,23 @@ class PITDatasetBuilder:
                     row = inputs_by_code.get(str(ctx["input_code"]))
                     if row is not None:
                         context_input_ids[str(ctx["key"])] = row.id
-                pair_ids = [
-                    (subj_id, ctx_id)
-                    for subj_id in subject_input_by_instrument.values()
-                    for ctx_id in context_input_ids.values()
-                    if subj_id != ctx_id
-                ]
-                windows = sorted(
+                    relation_lag_windows.add(int(ctx.get("lag_window", 60)))
+                    for lag in ctx.get("lags", [1, 2, 3, 4, 5]):
+                        if int(lag) not in relation_lags:
+                            relation_lags.append(int(lag))
+                relation_windows = sorted(
                     {
                         int(w)
                         for ctx in relation_contexts
                         for w in ctx.get("windows", [20, 60, 120])
                     }
                 )
-                if relation_set_row is not None and pair_ids and windows:
-                    snapshots = load_relation_snapshots_for_join(
-                        self.session,
-                        relation_set_id=relation_set_row.id,
-                        relation_set_version=spec.relation_set_version,
-                        pair_ids=pair_ids,
-                        windows=windows,
-                        date_from=date_from,
-                        date_to=effective_to,
-                        lookback_days=max_relation_age_days + 1,
-                    )
-                    lags_by_snapshot = load_lag_metrics_for_snapshots(
-                        self.session, [snap.id for snap in snapshots]
-                    )
-                    relation_index = RelationIndex.build(snapshots, lags_by_snapshot)
                 self._heartbeat(
                     workflow,
                     relations_join="enabled",
                     relation_set=f"{spec.relation_set_code} v{spec.relation_set_version}",
-                    relation_snapshots=len(relation_index.by_pair_window),
+                    relation_load="batched",
+                    relation_batch_size=relation_instrument_batch,
                 )
             else:
                 self._heartbeat(workflow, relations_join="disabled")
@@ -294,6 +286,13 @@ class PITDatasetBuilder:
                 if issue.instrument_id is None or issue.timestamp is None:
                     continue
                 disc_by_inst.setdefault(issue.instrument_id, set()).add(issue.timestamp.date())
+
+            mechanical_label = uses_mechanical_label_basis(spec.label_spec)
+            label_price_basis = "mechanical_adjusted" if mechanical_label else "raw"
+            actions_by_inst: dict[int, list[MechanicalAction]] = {}
+            if mechanical_label and inst_ids:
+                for instrument_id in inst_ids:
+                    actions_by_inst[instrument_id] = load_mechanical_actions(self.session, instrument_id)
 
             candles_by_inst: dict[int, list[PriceObservation]] = {}
             if inst_ids:
@@ -340,6 +339,7 @@ class PITDatasetBuilder:
                 "feature_missing": {},
                 "label_valid": {"1d": 0, "5d": 0, "10d": 0, "20d": 0},
                 "discontinuity_labels": 0,
+                "mechanical_ca_normalized_labels": 0,
                 "feature_valid_samples": 0,
             }
             for ctx in relation_contexts:
@@ -355,6 +355,65 @@ class PITDatasetBuilder:
 
             total = len(instruments)
             for idx, inst in enumerate(instruments):
+                if (
+                    relations_enabled
+                    and relation_set_row is not None
+                    and relation_windows
+                    and idx % relation_instrument_batch == 0
+                ):
+                    t_batch_r = time.perf_counter()
+                    batch = instruments[idx : idx + relation_instrument_batch]
+                    batch_subject_ids = [
+                        subject_input_by_instrument[i.id]
+                        for i in batch
+                        if i.id in subject_input_by_instrument
+                    ]
+                    pair_ids = [
+                        (subj_id, ctx_id)
+                        for subj_id in batch_subject_ids
+                        for ctx_id in context_input_ids.values()
+                        if subj_id != ctx_id
+                    ]
+                    lag_snap_count = 0
+                    if pair_ids:
+                        snapshots = load_relation_snapshots_for_join(
+                            self.session,
+                            relation_set_id=relation_set_row.id,
+                            relation_set_version=spec.relation_set_version,
+                            pair_ids=pair_ids,
+                            windows=relation_windows,
+                            date_from=date_from,
+                            date_to=effective_to,
+                            lookback_days=max_relation_age_days + 1,
+                        )
+                        # Lag features only attach to lag_window snapshots (typically 60).
+                        lag_snap_ids = [
+                            snap.id
+                            for snap in snapshots
+                            if int(snap.window_observations) in relation_lag_windows
+                        ]
+                        lag_snap_count = len(lag_snap_ids)
+                        lags_by_snapshot = load_lag_metrics_for_snapshots(
+                            self.session,
+                            lag_snap_ids,
+                            lags=relation_lags or None,
+                        )
+                        relation_index = RelationIndex.build(snapshots, lags_by_snapshot)
+                    else:
+                        relation_index = RelationIndex.build([], {})
+                    load_relations_sec = round(
+                        load_relations_sec + (time.perf_counter() - t_batch_r), 3
+                    )
+                    timings["load_relations_sec"] = load_relations_sec
+                    self._heartbeat(
+                        workflow,
+                        relation_batch_offset=idx,
+                        relation_batch_instruments=[i.symbol for i in batch],
+                        relation_snapshots=len(relation_index.by_pair_window),
+                        relation_lag_snapshots=lag_snap_count,
+                        samples_assembled=len(samples),
+                    )
+
                 basic_map = basic_by_inst.get(inst.id, {})
                 tech_map = tech_by_inst.get(inst.id, {})
                 sig_map = signal_by_inst.get(inst.id, {})
@@ -406,7 +465,13 @@ class PITDatasetBuilder:
                     if rel_join.age_days is not None:
                         meta["relation_age_days"] = rel_join.age_days
 
-                    label_result = label_calc.calculate(prices, as_of=as_of, discontinuity_dates=disc)
+                    label_result = label_calc.calculate(
+                        prices,
+                        as_of=as_of,
+                        discontinuity_dates=disc,
+                        mechanical_actions=actions_by_inst.get(inst.id, []),
+                        price_basis=label_price_basis,
+                    )
 
                     core_valid = bool(basic and basic.is_valid)
                     tech_available = bool(
@@ -471,6 +536,13 @@ class PITDatasetBuilder:
                         for flag in (label_result.label_flags or {})
                     ):
                         counters["discontinuity_labels"] += 1
+                    if any(
+                        str(flag).startswith("mechanical_ca_normalized_")
+                        for flag in (label_result.label_flags or {})
+                    ):
+                        counters["mechanical_ca_normalized_labels"] = (
+                            counters.get("mechanical_ca_normalized_labels", 0) + 1
+                        )
 
                     quality = DatasetQualityV1(
                         feature_state_valid=core_valid,
@@ -691,6 +763,9 @@ class PITDatasetBuilder:
                     "valid": counters["label_valid"],
                     "invalid": counters["invalid_labels"],
                     "discontinuity_exclusions": counters["discontinuity_labels"],
+                    "mechanical_ca_normalized_labels": counters.get(
+                        "mechanical_ca_normalized_labels", 0
+                    ),
                     "eligible": {
                         "1d": counters.get("eligible_1d", 0),
                         "5d": counters.get("eligible_5d", 0),

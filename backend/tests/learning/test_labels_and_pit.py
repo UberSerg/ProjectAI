@@ -106,6 +106,95 @@ def test_discontinuity_invalidates_label() -> None:
     assert result.label_flags.get("price_discontinuity_in_target_window_5d")
 
 
+def test_mechanical_split_normalizes_not_invalidates() -> None:
+    from decimal import Decimal
+
+    from app.modules.market.application.mechanical_adjustment import MechanicalAction
+
+    # Pre-split 1000, post-split 105 with 10:1 → mechanical ~+5% not -89.5%
+    obs = [
+        PriceObservation(date(2025, 3, 26), 1000.0, 1),
+        PriceObservation(date(2025, 3, 27), 105.0, 2),
+    ]
+    actions = [
+        MechanicalAction(
+            instrument_id=1,
+            event_date=date(2025, 3, 27),
+            event_type="SPLIT",
+            factor=Decimal("10"),
+        )
+    ]
+    raw = ForwardReturnLabelCalculator([1]).calculate(
+        obs, as_of=date(2025, 3, 26), discontinuity_dates={date(2025, 3, 27)}
+    )
+    assert raw.label_valid["1d"] is False
+
+    mech = ForwardReturnLabelCalculator([1]).calculate(
+        obs,
+        as_of=date(2025, 3, 26),
+        discontinuity_dates={date(2025, 3, 27)},
+        mechanical_actions=actions,
+        price_basis="mechanical_adjusted",
+    )
+    assert mech.label_valid["1d"] is True
+    assert abs(mech.labels.forward_return_1d - (105.0 / 100.0 - 1.0)) < 1e-12
+    assert mech.label_flags.get("mechanical_ca_normalized_1d") is True
+
+
+def test_mechanical_unexplained_discontinuity_still_invalid() -> None:
+    from decimal import Decimal
+
+    from app.modules.market.application.mechanical_adjustment import MechanicalAction
+
+    obs = [
+        PriceObservation(date(2024, 1, 2), 100.0, 1),
+        PriceObservation(date(2024, 1, 3), 50.0, 2),
+    ]
+    actions = [
+        MechanicalAction(
+            instrument_id=1,
+            event_date=date(2030, 1, 1),
+            event_type="SPLIT",
+            factor=Decimal("2"),
+        )
+    ]
+    result = ForwardReturnLabelCalculator([1]).calculate(
+        obs,
+        as_of=date(2024, 1, 2),
+        discontinuity_dates={date(2024, 1, 3)},
+        mechanical_actions=actions,
+        price_basis="mechanical_adjusted",
+    )
+    assert result.label_valid["1d"] is False
+    assert result.label_flags.get("price_discontinuity_in_target_window_1d")
+
+
+def test_future_ca_after_target_does_not_change_y() -> None:
+    from decimal import Decimal
+
+    from app.modules.market.application.mechanical_adjustment import MechanicalAction
+
+    obs = [
+        PriceObservation(date(2024, 1, 2), 100.0, 1),
+        PriceObservation(date(2024, 1, 3), 110.0, 2),
+    ]
+    future = [
+        MechanicalAction(
+            instrument_id=1,
+            event_date=date(2024, 1, 10),
+            event_type="SPLIT",
+            factor=Decimal("10"),
+        )
+    ]
+    result = ForwardReturnLabelCalculator([1]).calculate(
+        obs,
+        as_of=date(2024, 1, 2),
+        mechanical_actions=future,
+        price_basis="mechanical_adjusted",
+    )
+    assert abs(result.labels.forward_return_1d - 0.10) < 1e-12
+
+
 def test_manifest_feature_label_separation() -> None:
     assert_manifest_separation(FEATURE_MANIFEST_V1)
     features = set(feature_names_from_manifest(FEATURE_MANIFEST_V1))

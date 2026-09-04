@@ -236,7 +236,11 @@ def get_manifest(run_id: int) -> dict[str, Any]:
         row = session.get(DatasetRun, run_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Dataset run not found")
-        return row.manifest or {}
+        payload = dict(row.manifest or {})
+        # Acceptance / diagnostics: expose coverage beside frozen semantic contract fields.
+        if row.coverage_summary is not None:
+            payload.setdefault("coverage_summary", row.coverage_summary)
+        return payload
 
 
 @router.get("/datasets/runs/{run_id}/summary")

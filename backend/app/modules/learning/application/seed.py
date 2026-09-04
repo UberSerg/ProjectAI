@@ -1,19 +1,26 @@
-"""Idempotent seed for pit_daily_core v1.
+"""Idempotent seed for pit_daily_core versions.
 
-After a successful DatasetRun exists for this code+version, semantic fields
-are not overwritten — require a new dataset version instead.
+After a successful DatasetRun exists for a code+version, semantic fields
+for that version are not overwritten — require a new dataset version instead.
+
+Active released contract remains pit_daily_core v1; V2 is seeded but not activated.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.infrastructure.learning.models import DatasetRun, DatasetSpec
-from app.modules.learning.dataset_config import PIT_DAILY_CORE_V1
+from app.modules.learning.dataset_config import (
+    DATASET_SPEC_DEFINITIONS,
+    PIT_DAILY_CORE_ACTIVE_VERSION,
+    PIT_DAILY_CORE_CODE,
+)
 
 
 def _has_successful_run(session: Session, code: str, version: int) -> bool:
@@ -32,16 +39,12 @@ def _has_successful_run(session: Session, code: str, version: int) -> bool:
     )
 
 
-def seed_dataset_specs(session: Session) -> dict[str, int]:
-    definition = PIT_DAILY_CORE_V1
+def _upsert_definition(session: Session, definition: dict[str, Any]) -> dict[str, Any]:
     code = definition["code"]
     version = definition["version"]
     existing = session.scalar(select(DatasetSpec).where(DatasetSpec.code == code, DatasetSpec.version == version))
     if existing is not None and _has_successful_run(session, code, version):
-        session.execute(update(DatasetSpec).where(DatasetSpec.code == code).values(is_active=False))
-        existing.is_active = True
-        session.flush()
-        return {"ensured": 1, "activated": 1, "frozen": True}
+        return {"ensured": 1, "frozen": True, "version": version}
 
     stmt = insert(DatasetSpec).values(
         code=code,
@@ -88,11 +91,27 @@ def seed_dataset_specs(session: Session) -> dict[str, int]:
         },
     )
     session.execute(stmt)
-    session.execute(update(DatasetSpec).where(DatasetSpec.code == code).values(is_active=False))
-    row = session.scalar(select(DatasetSpec).where(DatasetSpec.code == code, DatasetSpec.version == version))
+    return {"ensured": 1, "frozen": False, "version": version}
+
+
+def seed_dataset_specs(session: Session) -> dict[str, Any]:
+    results = [_upsert_definition(session, definition) for definition in DATASET_SPEC_DEFINITIONS]
+    session.execute(update(DatasetSpec).where(DatasetSpec.code == PIT_DAILY_CORE_CODE).values(is_active=False))
+    active = session.scalar(
+        select(DatasetSpec).where(
+            DatasetSpec.code == PIT_DAILY_CORE_CODE,
+            DatasetSpec.version == PIT_DAILY_CORE_ACTIVE_VERSION,
+        )
+    )
     activated = 0
-    if row is not None:
-        row.is_active = True
+    if active is not None:
+        active.is_active = True
         activated = 1
     session.flush()
-    return {"ensured": 1, "activated": activated, "frozen": False}
+    return {
+        "ensured": sum(item["ensured"] for item in results),
+        "activated": activated,
+        "active_version": PIT_DAILY_CORE_ACTIVE_VERSION,
+        "versions": results,
+        "frozen": any(item["frozen"] for item in results),
+    }

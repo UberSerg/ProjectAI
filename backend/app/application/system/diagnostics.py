@@ -229,6 +229,40 @@ def _technical_v2_lines(session: Session) -> list[str]:
     ]
 
 
+def _dataset_v2_lines(session: Session) -> list[str]:
+    from app.infrastructure.learning.models import DatasetRun, DatasetSpec
+
+    v2 = session.scalar(select(DatasetSpec).where(DatasetSpec.code == "pit_daily_core", DatasetSpec.version == 2))
+    if v2 is None:
+        return [
+            "Dataset V2 (H6): pit_daily_core v2 not seeded",
+            "Deep History ML-ready: NO",
+        ]
+    last = session.scalar(
+        select(DatasetRun)
+        .where(DatasetRun.dataset_spec_id == v2.id, DatasetRun.status.in_(["SUCCESS", "WARNING"]))
+        .order_by(desc(DatasetRun.finished_at))
+        .limit(1)
+    )
+    values_hash = ((last.manifest or {}) if last else {}).get("values_hash", "—") if last else "—"
+    ready = "YES" if last is not None else "NO"
+    return [
+        "Dataset V2 (H6): pit_daily_core v2 (mechanical price-return labels; not active)",
+        (
+            "Pins: Analytics basic_daily v2 | Technical technical_daily v2 | "
+            "rules v2 | Relations basic_relations v2"
+        ),
+        f"Samples (last V2 run): {last.samples_total if last else 0}",
+        (
+            f"Coverage: {last.date_from.isoformat() if last and last.date_from else '—'} → "
+            f"{last.date_to.isoformat() if last and last.date_to else '—'}"
+        ),
+        f"PIT: {last.pit_status if last else '—'}",
+        f"values_hash: {values_hash}",
+        f"Deep History ML-ready: {ready} (mechanical price returns only; dividends deferred)",
+    ]
+
+
 def _svc(services: dict[str, str], key: str, label: str) -> str:
     value = services.get(key)
     if value is None:
@@ -629,6 +663,8 @@ def build_diagnostics_text(session: Session) -> str:
             ),
             f"PIT violations: {last_ds.pit_violations if last_ds else 0}",
             f"Latest dataset error: {last_ds_error.error_message if last_ds_error else '—'}",
+            "",
+            *_dataset_v2_lines(session),
             "",
             "=== WORKFLOWS ===",
             "",

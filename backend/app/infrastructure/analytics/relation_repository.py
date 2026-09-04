@@ -197,27 +197,52 @@ def load_relation_snapshots_for_join(
     ordered = [(a, b) if a < b else (b, a) for a, b in pair_ids]
     unique_pairs = list({(a, b) for a, b in ordered})
     lower = date_from - timedelta(days=lookback_days)
-    stmt = select(RelationSnapshot).where(
-        RelationSnapshot.relation_set_id == relation_set_id,
-        RelationSnapshot.relation_set_version == relation_set_version,
-        RelationSnapshot.window_observations.in_(windows),
-        RelationSnapshot.as_of_date <= date_to,
-        RelationSnapshot.as_of_date >= lower,
-        tuple_(RelationSnapshot.input_a_id, RelationSnapshot.input_b_id).in_(unique_pairs),
-    )
-    return list(session.scalars(stmt))
+    # Chunk pair IN lists — deep-history Dataset can request ~40+ instruments × 4 contexts.
+    pair_chunk = 80
+    out: list[RelationSnapshot] = []
+    for offset in range(0, len(unique_pairs), pair_chunk):
+        chunk = unique_pairs[offset : offset + pair_chunk]
+        stmt = select(RelationSnapshot).where(
+            RelationSnapshot.relation_set_id == relation_set_id,
+            RelationSnapshot.relation_set_version == relation_set_version,
+            RelationSnapshot.window_observations.in_(windows),
+            RelationSnapshot.as_of_date <= date_to,
+            RelationSnapshot.as_of_date >= lower,
+            tuple_(RelationSnapshot.input_a_id, RelationSnapshot.input_b_id).in_(chunk),
+        )
+        rows = list(session.scalars(stmt))
+        for row in rows:
+            session.expunge(row)
+        out.extend(rows)
+    return out
 
 
 def load_lag_metrics_for_snapshots(
     session: Session,
     snapshot_ids: list[int],
+    *,
+    lags: list[int] | None = None,
 ) -> dict[int, list[RelationLagMetric]]:
+    """Batch-load lag metrics. Optional ``lags`` filters to Dataset-needed offsets only.
+
+    Chunks IN lists to stay under Postgres bind-parameter limits (~65535).
+    """
     if not snapshot_ids:
         return {}
-    rows = list(
-        session.scalars(select(RelationLagMetric).where(RelationLagMetric.snapshot_id.in_(snapshot_ids)))
-    )
+    # Postgres bind limit ~65535; chunk IN lists for deep-history Dataset builds.
+    chunk_size = 5_000
     by_snap: dict[int, list[RelationLagMetric]] = {}
-    for row in rows:
-        by_snap.setdefault(row.snapshot_id, []).append(row)
+    unique_ids = list(dict.fromkeys(snapshot_ids))
+    lag_filter = sorted({int(x) for x in lags}) if lags else None
+    for offset in range(0, len(unique_ids), chunk_size):
+        chunk = unique_ids[offset : offset + chunk_size]
+        stmt = select(RelationLagMetric).where(RelationLagMetric.snapshot_id.in_(chunk))
+        if lag_filter is not None:
+            stmt = stmt.where(RelationLagMetric.lag.in_(lag_filter))
+        rows = list(session.scalars(stmt))
+        for row in rows:
+            by_snap.setdefault(row.snapshot_id, []).append(row)
+        # Detach chunk rows so the Session identity map does not retain millions of ORM objects.
+        for row in rows:
+            session.expunge(row)
     return by_snap
