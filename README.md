@@ -72,7 +72,8 @@ Market Data V1
   → Analytics Feature Layer V1
   → Relations Engine V1
   → Technical Agent V1
-  → Dataset / PIT Join V0 (accepted; `pit_daily_core` v1 frozen)
+  → Dataset / PIT Join V0 (`pit_daily_core` v1 frozen)
+  → Dataset / PIT V2 deep history (`pit_daily_core` v2; mechanical Y; not active)
 ```
 
 **Target direction (mostly not implemented):**

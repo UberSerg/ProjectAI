@@ -1,4 +1,4 @@
-"""Dataset / PIT Join V0 — versioned dataset specification."""
+"""Dataset / PIT Join — versioned dataset specifications (v1 frozen, v2 mechanical)."""
 
 from __future__ import annotations
 
@@ -8,10 +8,15 @@ from app.modules.technical.technical_config import (
     RULES_V1_CODE,
     RULES_V1_CONFIG_HASH,
     RULES_V1_VERSION,
+    RULES_V2_CONFIG_HASH,
+    RULES_V2_VERSION,
 )
 
 PIT_DAILY_CORE_CODE = "pit_daily_core"
 PIT_DAILY_CORE_VERSION = 1
+PIT_DAILY_CORE_V2_VERSION = 2
+# Released contract stays active; V2 is buildable but not auto-activated.
+PIT_DAILY_CORE_ACTIVE_VERSION = 1
 
 # Dataset V0: Relations PIT join is part of X(t). Pin is basic_relations v1 only.
 RELATIONS_JOIN_ENABLED = True
@@ -155,6 +160,59 @@ PIT_DAILY_CORE_V1: dict[str, Any] = {
     },
 }
 
+# Same X schema as V1; pins + label price_basis differ. Do not mutate V1.
+LABEL_SPEC_V2: dict[str, Any] = {
+    "horizons": [1, 5, 10, 20],
+    "formula": (
+        "mechanical_comparable_close(t+N_observations) / mechanical_comparable_close(t) - 1 "
+        "(SPLIT/REVERSE_SPLIT only; not dividend/total-return)"
+    ),
+    "observation_basis": "trading_observations",
+    "price_basis": "mechanical_adjusted",
+    "exclude_unexplained_discontinuity_in_target_window": True,
+    "mechanical_ca_in_window": "normalize_not_invalidate",
+    "dividend_adjusted": False,
+    "total_return": False,
+}
+
+QUALITY_POLICY_V2: dict[str, Any] = {
+    **QUALITY_POLICY_V1,
+    "label_price_basis": "mechanical_adjusted",
+    "mechanical_action_types": ["SPLIT", "REVERSE_SPLIT"],
+}
+
+PIT_DAILY_CORE_V2: dict[str, Any] = {
+    "code": PIT_DAILY_CORE_CODE,
+    "version": PIT_DAILY_CORE_V2_VERSION,
+    "description": (
+        "Point-in-time daily ML dataset V2: Analytics/Technical/Relations mechanical V2 pins; "
+        "forward mechanical price-return labels (not dividend/total-return)"
+    ),
+    "feature_manifest": FEATURE_MANIFEST_V1,
+    "relation_contexts": RELATION_CONTEXTS_V1,
+    "label_spec": LABEL_SPEC_V2,
+    "quality_policy": QUALITY_POLICY_V2,
+    "basic_feature_set_code": "basic_daily",
+    "basic_feature_set_version": 2,
+    "technical_feature_set_code": "technical_daily",
+    "technical_feature_set_version": 2,
+    "technical_model_code": RULES_V1_CODE,
+    "technical_model_version": RULES_V2_VERSION,
+    "technical_model_config_hash": RULES_V2_CONFIG_HASH,
+    "relation_set_code": "basic_relations",
+    "relation_set_version": 2,
+    "universe_policy": "current_active_instruments",
+    "parameters": {
+        "relation_windows": [20, 60, 120],
+        "lag_window": 60,
+        "lags": [1, 2, 3, 4, 5],
+        "price_basis": "mechanical_adjusted",
+        "label_price_basis": "mechanical_adjusted",
+    },
+}
+
+DATASET_SPEC_DEFINITIONS: tuple[dict[str, Any], ...] = (PIT_DAILY_CORE_V1, PIT_DAILY_CORE_V2)
+
 DATASET_BUILD_STEPS = [
     "Resolve dataset spec",
     "Resolve pinned source versions",
@@ -203,3 +261,7 @@ def is_horizon_training_eligible(
     if relations_optional:
         return True
     return relations_available
+
+
+def uses_mechanical_label_basis(label_spec: dict[str, Any] | None) -> bool:
+    return (label_spec or {}).get("price_basis") == "mechanical_adjusted"

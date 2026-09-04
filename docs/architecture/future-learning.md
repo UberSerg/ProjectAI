@@ -26,11 +26,18 @@ New observations / outcomes
 
 Foundation already includes:
 
-- Core schema `learning` (model registry foundation; Dataset/PIT tables from Phase 1:
+- Core schema `learning` (model registry foundation; Dataset/PIT tables:
   `dataset_specs`, `dataset_runs`, `dataset_samples_daily`)
+- `pit_daily_core` v1 (raw labels, frozen) and v2 (mechanical-price-return labels,
+  deep history 2014→present on current cohort; frozen after first successful build;
+  not auto-activated)
 - `ModelRecord` / `ModelStatus` domain types (where present)
 - Celery worker/scheduler for future jobs
 - Separate Memory DB for Decision Memory (ADR 0002)
+
+**Next learning step:** Prediction ML Candidate V0 against `pit_daily_core` v2
+(offline metrics only). Still deferred: dividends / total return, historical universe,
+Simulator, training registry productization.
 
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 
