@@ -680,3 +680,186 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
   .quotes-toolbar { flex-direction: column; align-items: stretch; }
 }
 
+/* Simulator dashboard */
+.value-negative { color: var(--error); }
+.value-positive { color: var(--success); }
+.value-excess {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.sim-segment-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.sim-segment-holdout {
+  color: #1e3a5f;
+  background: #e8eef5;
+  border: 1px solid #c5d4e8;
+}
+.sim-segment-dev {
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #d7dee8;
+}
+.sim-segment-neutral {
+  color: var(--muted);
+  background: var(--neutral-bg);
+  border: 1px solid var(--line);
+}
+
+.sim-run-link { text-decoration: none; }
+.sim-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.sim-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: default;
+}
+.sim-status-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.sim-status-block h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+}
+.sim-research-badge {
+  display: inline-flex;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: #5b4a1e;
+  background: #f5f0e0;
+  border: 1px solid #e2d6b3;
+}
+.sim-metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.sim-section-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+.sim-chart { position: relative; width: 100%; }
+.sim-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.sim-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.sim-legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+.sim-legend-nav::before { background: var(--accent); }
+.sim-legend-bench::before { background: #94a3b8; }
+.chart-line-nav { stroke: var(--accent); stroke-width: 2; }
+.chart-line-bench { stroke: #94a3b8; stroke-width: 1.75; stroke-dasharray: 5 4; }
+.chart-line-dd { stroke: #b45309; stroke-width: 1.5; }
+.sim-rebalance-dot { fill: rgba(37, 99, 168, 0.55); }
+.sim-dd-area { fill: rgba(180, 83, 9, 0.12); }
+.sim-dd-mark { stroke-width: 1; stroke-dasharray: 3 3; }
+.sim-dd-mark.peak { stroke: rgba(37, 99, 168, 0.45); }
+.sim-dd-mark.trough { stroke: rgba(180, 35, 24, 0.45); }
+.sim-dd-mark.recovery { stroke: rgba(22, 122, 74, 0.45); }
+
+.sim-inspector-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+.sim-fill-reason { margin-top: 0.85rem; background: #f8fafc; }
+.sim-fill-reason-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+.sim-dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+  margin: 0.75rem 0 0;
+}
+.sim-dl dt { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.sim-dl dd { margin: 0.15rem 0 0; }
+
+.sim-cost-bars { display: flex; flex-direction: column; gap: 0.45rem; }
+.sim-cost-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr 5.5rem;
+  gap: 0.65rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+}
+.sim-cost-row.current {
+  border-color: rgba(37, 99, 168, 0.35);
+  background: var(--accent-soft);
+}
+.sim-cost-label { font-size: 0.82rem; font-weight: 600; color: var(--muted); }
+.sim-cost-bar-track {
+  height: 8px;
+  background: #eef2f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.sim-cost-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+.sim-cost-bar-fill.pos { background: rgba(22, 122, 74, 0.55); }
+.sim-cost-bar-fill.neg { background: rgba(180, 35, 24, 0.55); }
+.sim-cost-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-align: right;
+}
+.sim-row-current { background: #f0f6fc; }
+.sim-limitations ul { margin: 0.35rem 0 0; padding-left: 1.15rem; }
+.sim-limitations li { margin: 0.25rem 0; color: var(--ink); font-size: 0.92rem; }
+
+@media (max-width: 1100px) {
+  .sim-metrics-grid,
+  .sim-inspector-metrics,
+  .sim-status-row,
+  .sim-dl { grid-template-columns: 1fr 1fr; }
+  .sim-cost-row { grid-template-columns: 1fr; }
+}
+

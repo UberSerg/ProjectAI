@@ -46,6 +46,10 @@ Historical Simulator V0 is **IMPLEMENTED**: OOS-only predictions → RANK_LONG_O
 ledger / metrics / IMOEX price-index benchmark. Explicitly **not** real execution; dividends
 excluded; Trading Policy V0 is a simple diagnostic policy; Risk V0 is guardrails only.
 
+**Simulator Dashboard V0** is **IMPLEMENTED** (research UI): runs list + run detail with NAV vs
+IMOEX, drawdown, date inspector, fills/orders provenance, cost sensitivity. Not profitability
+proof; not Champion; not real trading.
+
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 
 ---

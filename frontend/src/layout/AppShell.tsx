@@ -24,7 +24,10 @@ const analytics: NavItem[] = [
   { to: "/decision-memory", label: labels.nav.decisionMemory, soon: true },
 ];
 
-const trading: NavItem[] = [{ to: "/portfolio", label: labels.nav.portfolio, soon: true }];
+const trading: NavItem[] = [
+  { to: "/simulator", label: labels.nav.simulations },
+  { to: "/portfolio", label: labels.nav.portfolio, soon: true },
+];
 
 const system: NavItem[] = [
   { to: "/workflows", label: labels.nav.workflows },

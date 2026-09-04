@@ -18,9 +18,26 @@ describe("help registry", () => {
 
   it("defines relations term and page help for existing pages", () => {
     expect(getMetricHelp("relations_term")?.title).toMatch(/Связи/);
-    for (const id of ["overview", "market", "instrument", "analytics", "relations", "technical", "workflows", "system"]) {
+    for (const id of [
+      "overview",
+      "market",
+      "instrument",
+      "analytics",
+      "relations",
+      "technical",
+      "workflows",
+      "system",
+      "simulator",
+      "simulator_run",
+    ]) {
       expect(getPageHelp(id)?.title).toBeTruthy();
     }
+  });
+
+  it("defines simulator help metrics", () => {
+    expect(getMetricHelp("sim_excess")?.summary.toLowerCase()).toContain("процентн");
+    expect(getMetricHelp("sim_oos")?.summary.toLowerCase()).toMatch(/mixed|oos|research/);
+    expect(getMetricHelp("sim_survivorship")?.title).toMatch(/Survivorship/);
   });
 });
 

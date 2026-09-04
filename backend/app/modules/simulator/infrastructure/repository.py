@@ -206,10 +206,48 @@ def get_positions_for_date(
     )
 
 
-def run_to_summary(run: SimulationRun) -> dict[str, Any]:
+def get_spec(session: Session, spec_id: int) -> SimulationSpec | None:
+    return session.get(SimulationSpec, spec_id)
+
+
+def rebalance_dates(session: Session, run_id: int) -> list[str]:
+    rows = session.scalars(
+        select(SimulationOrder.decision_date)
+        .where(SimulationOrder.simulation_run_id == run_id)
+        .distinct()
+        .order_by(SimulationOrder.decision_date)
+    )
+    return [d.isoformat() for d in rows if d is not None]
+
+
+def list_cost_sensitivity_siblings(session: Session, run: SimulationRun) -> list[SimulationRun]:
+    """Same segment + candidate_config_hash; vary commission via linked specs."""
+    q = (
+        select(SimulationRun)
+        .where(
+            SimulationRun.segment == run.segment,
+            SimulationRun.candidate_config_hash == run.candidate_config_hash,
+            SimulationRun.status == "SUCCESS",
+        )
+        .order_by(SimulationRun.id.asc())
+    )
+    return list(session.scalars(q))
+
+
+def run_to_summary(session: Session, run: SimulationRun) -> dict[str, Any]:
+    spec = session.get(SimulationSpec, run.simulation_spec_id)
+    payload = dict(spec.payload or {}) if spec is not None else {}
+    commission_bps = float(payload.get("commission_bps") or 0.0)
+    slippage_bps = float(payload.get("slippage_bps") or 0.0)
+    metrics = run.metrics or {}
+    engineering = "PASS" if run.status == "SUCCESS" else run.status
+    # Qualitative research label is not a profitability gate; expose Candidate V0 context.
+    research_result = payload.get("research_result") or metrics.get("research_result")
     return {
         "id": run.id,
         "status": run.status,
+        "engineering_status": engineering,
+        "research_result": research_result,
         "segment": run.segment,
         "date_from": run.date_from.isoformat() if run.date_from else None,
         "date_to": run.date_to.isoformat() if run.date_to else None,
@@ -221,4 +259,19 @@ def run_to_summary(run: SimulationRun) -> dict[str, Any]:
         "benchmark": run.benchmark,
         "provenance": run.provenance,
         "created_at": run.created_at.isoformat() if run.created_at else None,
+        "spec": {
+            "config_hash": spec.config_hash if spec else None,
+            "policy_name": (spec.policy_name if spec else None) or payload.get("policy_name"),
+            "commission_bps": commission_bps,
+            "slippage_bps": slippage_bps,
+            "cost_sensitivity_label": payload.get("cost_sensitivity_label"),
+            "top_quantile": payload.get("top_quantile"),
+            "rebalance": payload.get("rebalance"),
+            "execution_timing": payload.get("execution_timing"),
+            "initial_capital": payload.get("initial_capital"),
+            "fractional_shares": payload.get("fractional_shares"),
+            "dividend_cash": payload.get("dividend_cash"),
+            "candidate_name": payload.get("candidate_name"),
+            "candidate_version": payload.get("candidate_version"),
+        },
     }
