@@ -38,6 +38,9 @@ describe("help registry", () => {
     expect(getMetricHelp("sim_excess")?.summary.toLowerCase()).toContain("процентн");
     expect(getMetricHelp("sim_oos")?.summary.toLowerCase()).toMatch(/mixed|oos|research/);
     expect(getMetricHelp("sim_survivorship")?.title).toMatch(/Survivorship/);
+    expect(getMetricHelp("decision_why")?.summary.toLowerCase()).toMatch(/llm|фактов/);
+    expect(getMetricHelp("decision_pred_20d")?.title).toMatch(/20d|Predicted/i);
+    expect(getMetricHelp("decision_rank")?.details.toLowerCase()).toMatch(/лучшая компания/);
   });
 });
 

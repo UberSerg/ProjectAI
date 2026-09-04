@@ -167,6 +167,7 @@ def get_shadow_orders(portfolio_id: int) -> list[dict]:
                 "status": r.status,
                 "rank": r.rank,
                 "predicted_return_20d": r.predicted_return_20d,
+                "eligible_count": r.eligible_count,
                 "decision_at": _dt(r.decision_at),
                 "min_execution_date": r.min_execution_date.isoformat(),
                 "execution_date": _dt(r.execution_date),

@@ -357,7 +357,107 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     title: "Next open исполнение",
     summary: "Исполнение на следующем торговом open после decision date.",
     details: "HistoricalNextOpenAdapter: нет look-ahead на close дня решения. Fill price = raw open ± friction.",
-    relatedIds: ["sim_rebalance", "sim_slippage"],
+    relatedIds: ["sim_rebalance", "sim_slippage", "decision_pending"],
+  },
+  decision_why: {
+    id: "decision_why",
+    kind: "term",
+    title: "Почему была сделка?",
+    summary:
+      "Человекочитаемое объяснение из сохранённых фактов решения: прогноз, ранг, политика, риск, исполнение.",
+    details:
+      "Три уровня: краткое резюме, подробности правила политики, технические детали provenance. Текст строится детерминированно в UI из API-фактов. LLM не используется.",
+    interpretation:
+      "Модель даёт прогноз/ранг; политика задаёт целевую позицию; риск может ограничить экспозицию; исполнение — отдельный этап.",
+    limitations: [
+      "Не инвестиционная рекомендация.",
+      "Не объясняет «почему цена потом выросла/упала».",
+      "Неполная provenance → более короткое объяснение без выдуманных полей.",
+    ],
+    relatedIds: [
+      "decision_pred_20d",
+      "decision_rank",
+      "decision_target_weight",
+      "decision_policy",
+      "decision_reason_code",
+      "sim_next_open",
+      "decision_pending",
+      "decision_risk_guard",
+      "decision_tech_provenance",
+    ],
+  },
+  decision_pred_20d: {
+    id: "decision_pred_20d",
+    kind: "metric",
+    title: "Predicted Return 20d",
+    summary: "Прогноз модели механического изменения цены на 20 торговых дней (~месяц).",
+    details:
+      "Это forecast Candidate V0 по PIT-признакам, а не гарантированная доходность и не total return с дивидендами. Не рекомендация к покупке.",
+    limitations: ["Не probability of profit.", "Не дивидендный total return."],
+    relatedIds: ["decision_rank", "decision_why"],
+  },
+  decision_rank: {
+    id: "decision_rank",
+    kind: "metric",
+    title: "Rank",
+    summary: "Относительное место инструмента среди eligible прогнозов на дату.",
+    details:
+      "Rank 1 — наибольший predicted return 20d среди доступных на эту дату инструментов. Это не «лучшая компания».",
+    relatedIds: ["decision_pred_20d", "decision_why"],
+  },
+  decision_target_weight: {
+    id: "decision_target_weight",
+    kind: "metric",
+    title: "Target Weight",
+    summary: "Целевая доля позиции, назначенная политикой на дату решения.",
+    details:
+      "Вес после policy (+ risk clamp, если применялся). Фактический fill может отличаться из‑за цен/кэша/округления.",
+    relatedIds: ["decision_policy", "decision_why"],
+  },
+  decision_policy: {
+    id: "decision_policy",
+    kind: "term",
+    title: "Policy",
+    summary: "Правило, которое превращает прогнозы/ранги в целевые позиции.",
+    details:
+      "Например, рейтинговая стратегия с удержанием (Hysteresis V1): вход Top 20%, удержание до Top 35%, порог сделки 2 п.п. Модель сама не «покупает».",
+    relatedIds: ["decision_reason_code", "decision_why"],
+  },
+  decision_reason_code: {
+    id: "decision_reason_code",
+    kind: "term",
+    title: "Reason Code",
+    summary: "Технический код причины ордера/решения (ENTER_TOP20, EXIT_BELOW_TOP35, …).",
+    details:
+      "В UI сначала показывается человеческое объяснение; код остаётся в технических деталях для аудита.",
+    relatedIds: ["decision_why", "decision_tech_provenance"],
+  },
+  decision_pending: {
+    id: "decision_pending",
+    kind: "term",
+    title: "Pending Order",
+    summary: "Ордер создан, но ещё не исполнен — ждёт допустимое будущее открытие рынка.",
+    details:
+      "Для Shadow Portfolio fill запрещён на уже известных прошлых OPEN. Пока нет qualifying future open, корректный статус — PENDING.",
+    relatedIds: ["sim_next_open", "decision_why"],
+  },
+  decision_risk_guard: {
+    id: "decision_risk_guard",
+    kind: "term",
+    title: "Risk Guard",
+    summary: "Ограничение экспозиции по собственной просадке портфеля (DRAWDOWN_GUARD_V1).",
+    details:
+      "При просадке ≤ −20% gross → 50%; при восстановлении ≥ −10% → 100%. Работает по Shadow/Simulator NAV этого портфеля, не по прогнозу модели.",
+    relatedIds: ["decision_why", "sim_max_drawdown"],
+  },
+  decision_tech_provenance: {
+    id: "decision_tech_provenance",
+    kind: "term",
+    title: "Technical provenance",
+    summary: "Сырые поля решения/ордера/fill для аудита.",
+    details:
+      "Хеши, batch id, ranks, raw open, timestamps. Источник истины — persisted facts, не сгенерированный текст.",
+    relatedIds: ["decision_why", "decision_reason_code"],
   },
   sim_survivorship: {
     id: "sim_survivorship",
@@ -531,6 +631,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Абсолютная доходность vs относительный результат в п.п.",
       "Поведение капитала на выбранном окне",
       "Фактические причины сделок без LLM",
+      "Краткое объяснение → Подробнее → Технические детали",
     ],
     metrics: [
       "sim_nav",
@@ -545,6 +646,9 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "sim_holdout",
       "sim_rebalance",
       "sim_next_open",
+      "decision_why",
+      "decision_pred_20d",
+      "decision_rank",
     ],
     interpret: [
       "Отрицательная «Доходность портфеля» — убыток; положительный excess может быть при общем падении рынка.",
