@@ -308,6 +308,66 @@ WHERE model_name = :name AND model_version = :version
     return lines
 
 
+def _forward_signal_lines(session: Session) -> list[str]:
+    from sqlalchemy import func, select
+
+    from app.infrastructure.market.models import Candle
+    from app.modules.prediction.infrastructure.forward_models import ForwardPredictionBatch
+
+    lines = [
+        "=== FORWARD SIGNAL ===",
+        "",
+        "Forward Signal V0",
+        "Segment: FORWARD_LIVE",
+        "Candidate: prediction_ml_candidate / v0 (frozen)",
+    ]
+    try:
+        latest_batch = session.scalar(
+            select(ForwardPredictionBatch)
+            .where(ForwardPredictionBatch.status == "SUCCESS")
+            .order_by(ForwardPredictionBatch.as_of_date.desc(), ForwardPredictionBatch.id.desc())
+            .limit(1)
+        )
+    except Exception:  # noqa: BLE001 — table may not exist before migration
+        lines.append("Status: migration pending / unavailable")
+        return lines
+
+    latest_mkt = session.scalar(select(func.max(Candle.timestamp)).where(Candle.timeframe == "1d"))
+    latest_mkt_date = latest_mkt.date() if latest_mkt is not None and hasattr(latest_mkt, "date") else None
+
+    if latest_batch is None:
+        lines.extend(
+            [
+                "Latest batch: —",
+                "Status: no forward predictions yet",
+                f"Latest market date: {latest_mkt_date or '—'}",
+            ]
+        )
+        return lines
+
+    stale = (
+        latest_mkt_date is not None
+        and latest_batch.as_of_date is not None
+        and latest_mkt_date > latest_batch.as_of_date
+    )
+    lines.extend(
+        [
+            f"Latest as_of: {latest_batch.as_of_date.isoformat()}",
+            f"Latest batch id: {latest_batch.id}",
+            f"Status: {latest_batch.status}" + (" / SIGNAL_STALE" if stale else ""),
+            f"Candidate hash: {latest_batch.candidate_config_hash[:16]}…",
+            f"Eligible: {latest_batch.eligible_count}",
+            f"Predictions: {latest_batch.prediction_count}",
+            f"Prediction hash: {latest_batch.prediction_hash or '—'}",
+            f"PIT: {latest_batch.pit_status}",
+            f"Generated_at: {latest_batch.generated_at.isoformat() if latest_batch.generated_at else '—'}",
+            f"Latest market date: {latest_mkt_date or '—'}",
+            "Note: not investment advice; outcomes PENDING_OUTCOME until +20 trading days",
+        ]
+    )
+    return lines
+
+
 def _simulator_lines(session: Session) -> list[str]:
     from sqlalchemy import text
 
@@ -757,6 +817,8 @@ def build_diagnostics_text(session: Session) -> str:
             *_dataset_v2_lines(session),
             "",
             *_prediction_ml_lines(session),
+            "",
+            *_forward_signal_lines(session),
             "",
             *_simulator_lines(session),
             "",

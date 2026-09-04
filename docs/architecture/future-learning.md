@@ -56,9 +56,14 @@ proof; not Champion; not real trading.
 - Policy candidate `RANK_HYSTERESIS_LONG_ONLY_V1` (entry top 20% / exit top 35%, equal weight,
   weekly, min trade weight delta 2pp) to reduce churn.
 - Risk candidate `DRAWDOWN_GUARD_V1` (−20% → 50% gross; recover −10% → 100%).
-- Compared on **DEVELOPMENT_OOS only**. 2026 FINAL_HOLDOUT was previously observed for V0 and
-  is **not** pristine for Policy V1 selection / parameter choice.
+- Compared on **DEVELOPMENT_OOS only**. Verdict: **POLICY_V1_PROMISING** (hysteresis).
+  2026 FINAL_HOLDOUT was previously observed for V0 and is **not** pristine for Policy V1.
 - No profitability claim; no promotion.
+
+**Forward Signal V0** is **IMPLEMENTED**: live PIT inference for latest completed market date
+using frozen Candidate V0 (CatBoost `.cbm`), exact 90-feature V2 pins, immutable
+`FORWARD_LIVE` predictions. Starts accumulating genuinely unseen observations from activation
+date forward. No portfolio / Shadow / broker yet. Not investment advice.
 
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 

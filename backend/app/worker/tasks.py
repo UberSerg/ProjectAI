@@ -233,6 +233,74 @@ def dataset_build(
         )
 
 
+@celery_app.task(name="projectai.build_forward_signal_latest")
+def build_forward_signal_latest(workflow_id: int, as_of: str | None = None) -> dict:
+    """Manual Forward Signal V0 — not auto-scheduled (MOEX close timing unclear)."""
+    from app.modules.market.application.workflows import finish_workflow, get_step, update_step
+    from app.modules.prediction.application.forward_runner import run_forward_signal_v0
+
+    with core_session() as session:
+        workflow = session.get(Workflow, workflow_id)
+        if workflow is None:
+            raise ValueError(f"workflow not found: {workflow_id}")
+        try:
+            update_step(session, get_step(workflow, "Load frozen Candidate V0"), "RUNNING")
+            result = run_forward_signal_v0(
+                session,
+                as_of=date.fromisoformat(as_of) if as_of else None,
+                persist=True,
+            )
+            # Mark remaining steps based on outcome
+            for step_name in (
+                "Select complete as_of",
+                "Check upstream readiness",
+                "Assemble PIT features",
+                "Infer predictions",
+                "Persist immutable batch",
+            ):
+                step_status = "SUCCESS" if result.status in {"SUCCESS", "NO_CHANGES"} else "ERROR"
+                if result.status == "WARNING":
+                    step_status = "WARNING"
+                update_step(session, get_step(workflow, step_name), step_status)
+            update_step(session, get_step(workflow, "Finish"), "SUCCESS")
+            session.commit()
+            status = result.status
+            if status == "SUCCESS":
+                finish_workflow(session, workflow, "SUCCESS")
+            elif status == "NO_CHANGES":
+                finish_workflow(session, workflow, "WARNING")
+            elif status == "WARNING":
+                finish_workflow(
+                    session,
+                    workflow,
+                    "WARNING",
+                    error=str((result.summary or {}).get("error") or "blocked"),
+                )
+            else:
+                finish_workflow(
+                    session,
+                    workflow,
+                    "ERROR",
+                    error=str((result.summary or {}).get("error") or "failed"),
+                )
+            session.commit()
+            return {
+                "status": result.status,
+                "batch_id": result.batch_id,
+                "as_of": result.as_of.isoformat() if result.as_of else None,
+                "summary": result.summary,
+                "workflow_id": workflow_id,
+            }
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            with core_session() as session2:
+                wf = session2.get(Workflow, workflow_id)
+                if wf is not None:
+                    finish_workflow(session2, wf, "ERROR", error=str(exc))
+                    session2.commit()
+            raise
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""
