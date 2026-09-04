@@ -56,6 +56,64 @@ def compute_drawdown(snapshots: list[DailySnapshot]) -> DrawdownInfo:
     return DrawdownInfo(max_dd, max_peak_date, trough_date, recovery)
 
 
+def _holding_presence_spells(snapshots: list[DailySnapshot]) -> list[int]:
+    """Contiguous trading-day presence spells per instrument (not tax-lot duration)."""
+    if not snapshots:
+        return []
+    # instrument -> list of as_of where held
+    by_id: dict[int, list[date]] = {}
+    for snap in snapshots:
+        for iid, pos in snap.positions.items():
+            if abs(float(pos.get("quantity") or 0.0)) > 1e-12:
+                by_id.setdefault(int(iid), []).append(snap.as_of)
+    spells: list[int] = []
+    for dates in by_id.values():
+        ordered = sorted(dates)
+        if not ordered:
+            continue
+        run = 1
+        for i in range(1, len(ordered)):
+            # Contiguous in snapshot sequence ≈ consecutive trading days in this ledger
+            gap = (ordered[i] - ordered[i - 1]).days
+            if gap <= 5:  # allow weekend/holiday gaps without splitting spell
+                run += 1
+            else:
+                spells.append(run)
+                run = 1
+        spells.append(run)
+    return spells
+
+
+def compute_holding_duration_metrics(snapshots: list[DailySnapshot]) -> dict[str, Any]:
+    spells = _holding_presence_spells(snapshots)
+    if not spells:
+        return {
+            "average_holding_days": None,
+            "median_holding_days": None,
+            "holding_spell_count": 0,
+            "holding_duration_note": (
+                "Position-presence duration in trading-day snapshots; "
+                "not tax-lot / FIFO realized holding period."
+            ),
+        }
+    ordered = sorted(spells)
+    mid = len(ordered) // 2
+    median = (
+        ordered[mid]
+        if len(ordered) % 2 == 1
+        else 0.5 * (ordered[mid - 1] + ordered[mid])
+    )
+    return {
+        "average_holding_days": sum(spells) / len(spells),
+        "median_holding_days": float(median),
+        "holding_spell_count": len(spells),
+        "holding_duration_note": (
+            "Position-presence duration in trading-day snapshots; "
+            "not tax-lot / FIFO realized holding period."
+        ),
+    }
+
+
 def compute_metrics(ledger: PortfolioLedger, *, initial_capital: float) -> dict[str, Any]:
     snaps = ledger.snapshots
     if not snaps:
@@ -92,15 +150,15 @@ def compute_metrics(ledger: PortfolioLedger, *, initial_capital: float) -> dict[
     dd = compute_drawdown(snaps)
     turnover = 0.0
     for fill in ledger.fills:
-        # turnover ≈ sum(|notional|) / (2 * average NAV) optional; report gross traded / avg NAV
         turnover += fill.notional
     avg_nav = sum(navs) / len(navs)
     turnover_ratio = (turnover / avg_nav) if avg_nav else 0.0
 
     avg_gross = sum(s.gross_exposure for s in snaps) / len(snaps)
     avg_cash = sum(s.cash_weight for s in snaps) / len(snaps)
+    hold = compute_holding_duration_metrics(snaps)
 
-    return {
+    out: dict[str, Any] = {
         "initial_nav": initial,
         "final_nav": final,
         "total_price_return": total_return,
@@ -126,3 +184,38 @@ def compute_metrics(ledger: PortfolioLedger, *, initial_capital: float) -> dict[
             "closed-lot win rate ambiguous; prefer portfolio/rebalance metrics."
         ),
     }
+    out.update(hold)
+    if ledger.risk_events:
+        out["risk_events"] = list(ledger.risk_events)
+        out["risk_event_count"] = len(ledger.risk_events)
+    return out
+
+
+def annual_nav_slices(ledger: PortfolioLedger) -> dict[str, dict[str, Any]]:
+    """Calendar-year slices of DEVELOPMENT_OOS NAV for stability reporting."""
+    snaps = ledger.snapshots
+    if not snaps:
+        return {}
+    by_year: dict[int, list[DailySnapshot]] = {}
+    for snap in snaps:
+        by_year.setdefault(snap.as_of.year, []).append(snap)
+    out: dict[str, dict[str, Any]] = {}
+    for year, rows in sorted(by_year.items()):
+        if len(rows) < 2:
+            continue
+        start = rows[0].nav
+        end = rows[-1].nav
+        peak = rows[0].nav
+        max_dd = 0.0
+        for r in rows:
+            peak = max(peak, r.nav)
+            dd = (r.nav / peak) - 1.0 if peak else 0.0
+            max_dd = min(max_dd, dd)
+        out[str(year)] = {
+            "date_from": rows[0].as_of.isoformat(),
+            "date_to": rows[-1].as_of.isoformat(),
+            "total_price_return": (end / start) - 1.0 if start else None,
+            "max_drawdown": max_dd,
+            "trading_days": len(rows),
+        }
+    return out

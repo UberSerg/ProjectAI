@@ -50,6 +50,16 @@ excluded; Trading Policy V0 is a simple diagnostic policy; Risk V0 is guardrails
 IMOEX, drawdown, date inspector, fills/orders provenance, cost sensitivity. Not profitability
 proof; not Champion; not real trading.
 
+**Policy / Risk Research V1** (candidate research, not Champion):
+- Prediction Candidate V0 / Dataset V2 unchanged (no retrain).
+- Baseline `RANK_LONG_ONLY_V0` immutable.
+- Policy candidate `RANK_HYSTERESIS_LONG_ONLY_V1` (entry top 20% / exit top 35%, equal weight,
+  weekly, min trade weight delta 2pp) to reduce churn.
+- Risk candidate `DRAWDOWN_GUARD_V1` (−20% → 50% gross; recover −10% → 100%).
+- Compared on **DEVELOPMENT_OOS only**. 2026 FINAL_HOLDOUT was previously observed for V0 and
+  is **not** pristine for Policy V1 selection / parameter choice.
+- No profitability claim; no promotion.
+
 Virtual / simulated portfolio first — no real broker trading in the MVP path.
 
 ---

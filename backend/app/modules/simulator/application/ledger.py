@@ -36,9 +36,12 @@ class PortfolioLedger:
     fills: list[HistoricalFill] = field(default_factory=list)
     orders: list[OrderIntent] = field(default_factory=list)
     ca_events: list[dict[str, Any]] = field(default_factory=list)
+    risk_events: list[dict[str, Any]] = field(default_factory=list)
     snapshots: list[DailySnapshot] = field(default_factory=list)
     peak_nav: float = 0.0
     rebalance_count: int = 0
+    risk_mode: str = "normal"
+    exposure_cap: float = 1.0
 
     def position_qty(self, instrument_id: int) -> float:
         pos = self.positions.get(instrument_id)

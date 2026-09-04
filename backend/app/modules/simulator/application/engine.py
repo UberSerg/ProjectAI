@@ -9,20 +9,45 @@ from datetime import date, datetime
 from typing import Any
 
 from app.domain.ports.execution import OrderIntent
-from app.domain.ports.portfolio import PortfolioPolicyInput
+from app.domain.ports.portfolio import PortfolioPolicy, PortfolioPolicyInput
+from app.domain.ports.risk import RiskManager
 from app.modules.simulator.application.benchmark import imoex_price_return, imoex_price_series
 from app.modules.simulator.application.calendar import next_trading_day, weekly_rebalance_dates
+from app.modules.simulator.application.drawdown_guard import (
+    DrawdownGuardState,
+    apply_exposure_cap,
+    update_drawdown_guard,
+)
 from app.modules.simulator.application.execution import HistoricalNextOpenAdapter
 from app.modules.simulator.application.ledger import PortfolioLedger
 from app.modules.simulator.application.market_view import MarketView, quantity_after_ca
-from app.modules.simulator.application.metrics import compute_metrics
+from app.modules.simulator.application.metrics import annual_nav_slices, compute_metrics
 from app.modules.simulator.application.policy import RankLongOnlyV0Policy
+from app.modules.simulator.application.policy_hysteresis import RankHysteresisLongOnlyV1Policy
 from app.modules.simulator.application.predictions import (
     PredictionBundle,
     signals_for_date,
 )
 from app.modules.simulator.application.risk import RiskGuardrailsV0
-from app.modules.simulator.config import SimulationSpecV0
+from app.modules.simulator.config import (
+    POLICY_HYSTERESIS_V1,
+    POLICY_NAME,
+    RISK_DD_GUARD_V1,
+    SimulationSpecV0,
+)
+
+
+def resolve_portfolio_policy(spec: SimulationSpecV0) -> PortfolioPolicy:
+    if spec.policy_name == POLICY_NAME:
+        return RankLongOnlyV0Policy()
+    if spec.policy_name == POLICY_HYSTERESIS_V1:
+        return RankHysteresisLongOnlyV1Policy()
+    raise ValueError(f"unsupported policy_name: {spec.policy_name}")
+
+
+def resolve_risk_manager(spec: SimulationSpecV0) -> RiskManager:
+    # Structural guardrails always apply; DD overlay is applied after in the engine.
+    return RiskGuardrailsV0()
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +175,30 @@ def _execute_pending(
         raise RuntimeError(f"negative cash after execution on {day}: {ledger.cash}")
 
 
+def _order_reason(
+    *,
+    spec: SimulationSpecV0,
+    target_w: float,
+    current_w: float,
+    meta: dict[str, Any],
+) -> str:
+    """V0 keeps legacy policy-name reason; V1 uses explicit action labels."""
+    if spec.policy_name == POLICY_NAME:
+        return str(meta.get("policy") or spec.policy_name)
+    if target_w <= 0:
+        return "EXIT_BELOW_TOP35"
+    action = str(meta.get("action") or "")
+    if current_w <= 1e-12:
+        return action or "ENTER_TOP20"
+    if abs(target_w - current_w) >= float(spec.min_trade_weight_delta) - 1e-15:
+        # Material weight change while staying selected
+        if action == "HOLD_WITHIN_EXIT_BAND":
+            return "REBALANCE_WEIGHT_DELTA"
+        if action == "ENTER_TOP20":
+            return "ENTER_TOP20"
+    return action or "REBALANCE_WEIGHT_DELTA"
+
+
 def _build_rebalance_intents(
     *,
     ledger: PortfolioLedger,
@@ -158,19 +207,26 @@ def _build_rebalance_intents(
     execution_date: date,
     bundle: PredictionBundle,
     spec: SimulationSpecV0,
-    policy: RankLongOnlyV0Policy,
-    risk: RiskGuardrailsV0,
+    policy: PortfolioPolicy,
+    risk: RiskManager,
+    exposure_cap: float = 1.0,
 ) -> list[OrderIntent]:
     signals = signals_for_date(bundle, decision_date, ticker_by_id=market.tickers)
     if not signals:
         return []
 
+    constraints: dict[str, Any] = {
+        "top_quantile": spec.top_quantile,
+        "entry_quantile": spec.entry_quantile,
+        "exit_quantile": spec.exit_quantile,
+        "held_instrument_ids": tuple(sorted(ledger.positions.keys())),
+    }
     policy_out = policy.decide(
         PortfolioPolicyInput(
             as_of=datetime.combine(decision_date, datetime.min.time()),
             account_id="simulator-v0",
             prediction_signals=tuple(signals),
-            constraints={"top_quantile": spec.top_quantile},
+            constraints=constraints,
         )
     )
     risk_out = risk.apply(
@@ -181,6 +237,12 @@ def _build_rebalance_intents(
             "long_only": spec.long_only,
         },
     )
+    if spec.risk_name == RISK_DD_GUARD_V1 and exposure_cap < 1.0 - 1e-12:
+        risk_out = apply_exposure_cap(
+            risk_out.decisions,
+            exposure_cap=exposure_cap,
+            max_single_weight=spec.max_single_weight,
+        )
 
     closes = {
         iid: market.close_price(iid, decision_date)
@@ -206,6 +268,7 @@ def _build_rebalance_intents(
     # Flat all non-target holdings to zero
     current_ids = set(ledger.positions.keys()) | set(targets.keys())
     intents: list[OrderIntent] = []
+    min_w_delta = float(spec.min_trade_weight_delta or 0.0)
     for iid in sorted(current_ids):
         ticker = market.tickers.get(iid) or (
             ledger.positions[iid].ticker if iid in ledger.positions else str(iid)
@@ -238,9 +301,13 @@ def _build_rebalance_intents(
         target_value = nav * target_w
         current_qty = ledger.position_qty(iid)
         current_value = current_qty * px_close
+        current_w = (current_value / nav) if nav > 0 else 0.0
         delta_value = target_value - current_value
         # Skip economically tiny deltas (< 1 RUB)
         if abs(delta_value) < 1.0:
+            continue
+        # V1 anti-churn: skip tiny target-weight rebalances (2pp default)
+        if min_w_delta > 0 and abs(target_w - current_w) < min_w_delta - 1e-15:
             continue
         exec_open = market.open_price(iid, execution_date)
         if exec_open is None or exec_open <= 0:
@@ -256,6 +323,11 @@ def _build_rebalance_intents(
             qty = min(qty, current_qty)
             if qty <= 0:
                 continue
+        reason = _order_reason(
+            spec=spec, target_w=target_w, current_w=current_w, meta=meta
+        )
+        if spec.risk_name == RISK_DD_GUARD_V1 and meta.get("dd_guard_scaled"):
+            meta = {**meta, "risk_reason": "DD_GUARD_REDUCE"}
         intents.append(
             OrderIntent(
                 decision_date=decision_date,
@@ -266,7 +338,7 @@ def _build_rebalance_intents(
                 target_weight=target_w,
                 target_notional=abs(delta_value),
                 quantity=qty,
-                reason=str(meta.get("policy") or spec.policy_name),
+                reason=reason,
                 prediction_date=date.fromisoformat(meta["prediction_date"])
                 if meta.get("prediction_date")
                 else decision_date,
@@ -333,10 +405,14 @@ def run_simulation(
     # Only rebalance when we have predictions for that exact day
     pred_set = set(pred_dates)
 
-    policy = RankLongOnlyV0Policy()
-    risk = RiskGuardrailsV0()
+    policy = resolve_portfolio_policy(spec)
+    risk = resolve_risk_manager(spec)
     adapter = HistoricalNextOpenAdapter()
     ledger = PortfolioLedger(cash=float(spec.initial_capital), peak_nav=float(spec.initial_capital))
+    dd_guard = DrawdownGuardState(
+        mode="normal",
+        exposure_cap=float(spec.dd_normal_gross if spec.risk_name == RISK_DD_GUARD_V1 else 1.0),
+    )
 
     for day in trading_days:
         _apply_corporate_actions(ledger, market, day)
@@ -351,7 +427,25 @@ def run_simulation(
         held_ids = set(ledger.positions.keys())
         # Also mark instruments we may trade later — closes for held only
         closes = _closes_for_day(market, day, held_ids)
-        ledger.record_snapshot(day, closes)
+        snap = ledger.record_snapshot(day, closes)
+
+        if spec.risk_name == RISK_DD_GUARD_V1:
+            prev_events = len(dd_guard.events or [])
+            dd_guard = update_drawdown_guard(
+                dd_guard,
+                as_of=day,
+                nav=snap.nav,
+                peak_nav=snap.peak_nav,
+                drawdown=snap.drawdown,
+                trigger=spec.dd_trigger,
+                recovery=spec.dd_recovery,
+                risk_off_gross=spec.dd_risk_off_gross,
+                normal_gross=spec.dd_normal_gross,
+            )
+            ledger.risk_mode = dd_guard.mode
+            ledger.exposure_cap = dd_guard.exposure_cap
+            if dd_guard.events and len(dd_guard.events) > prev_events:
+                ledger.risk_events.extend(dd_guard.events[prev_events:])
 
         if day in rebalance_set and day in pred_set and day <= last_pred:
             exec_day = next_trading_day(trading_days, day)
@@ -366,6 +460,9 @@ def run_simulation(
                 spec=spec,
                 policy=policy,
                 risk=risk,
+                exposure_cap=ledger.exposure_cap
+                if spec.risk_name == RISK_DD_GUARD_V1
+                else 1.0,
             )
             if intents:
                 ledger.rebalance_count += 1
@@ -373,6 +470,7 @@ def run_simulation(
                 ledger.pending_intents.extend(intents)
 
     metrics = compute_metrics(ledger, initial_capital=spec.initial_capital)
+    metrics["annual_slices"] = annual_nav_slices(ledger)
     start_snap = ledger.snapshots[0].as_of if ledger.snapshots else first_pred
     end_snap = ledger.snapshots[-1].as_of if ledger.snapshots else end
     bench_series = imoex_price_series(market, start=start_snap, end=end_snap)
@@ -396,6 +494,8 @@ def run_simulation(
         "survivorship_disclaimer": spec.survivorship_disclaimer,
         "dividends": "excluded_unavailable",
         "execution_timing": spec.execution_timing,
+        "policy_name": spec.policy_name,
+        "risk_name": spec.risk_name,
         "rebalance_rule": (
             "first available trading observation of each ISO calendar week; "
             "decision after information at date t; fill at next trading day OPEN"
@@ -403,6 +503,20 @@ def run_simulation(
         "oos_only": True,
         "fold_aware": bundle.fold_aware,
     }
+    if spec.policy_name == POLICY_HYSTERESIS_V1:
+        provenance["policy_v1"] = {
+            "entry_quantile": spec.entry_quantile,
+            "exit_quantile": spec.exit_quantile,
+            "min_trade_weight_delta": spec.min_trade_weight_delta,
+            "weighting": "equal",
+        }
+    if spec.risk_name == RISK_DD_GUARD_V1:
+        provenance["risk_v1"] = {
+            "trigger": spec.dd_trigger,
+            "recovery": spec.dd_recovery,
+            "risk_off_gross": spec.dd_risk_off_gross,
+            "normal_gross": spec.dd_normal_gross,
+        }
     return SimulationResult(
         spec=spec,
         config_hash=spec.config_hash(),
