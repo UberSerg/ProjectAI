@@ -1,4 +1,5 @@
 """Application services for Investment Foundation + Fixed Income Cashflow V1."""
+
 from __future__ import annotations
 
 import json
@@ -39,8 +40,10 @@ from app.modules.investment.infrastructure.models import (
 
 class CbrHurdleProvider:
     """PIT reader for existing market.KEY_RATE; CBR values are percentages."""
+
     def __init__(self, session: Session) -> None:
         self.session = session
+
     def quote(self, as_of: date) -> HurdleQuote | None:
         row = self.session.execute(
             select(SeriesValue, Series)
@@ -63,6 +66,7 @@ class CbrHurdleProvider:
             known_at_quality=KnownAtQuality.DATE_ONLY,
             source=series.source,
         )
+
 
 def key_rate_audit(
     rows: Iterable[dict[str, Any]],
@@ -99,6 +103,7 @@ def key_rate_audit(
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
+
 def resolve_bond_face_currency(
     *,
     face_unit: str | None = None,
@@ -109,6 +114,7 @@ def resolve_bond_face_currency(
     if resolved.canonical == CanonicalCurrency.UNKNOWN.value:
         return None
     return resolved.canonical
+
 
 def classify_vanilla_rub_fixed_rate(
     *,
@@ -146,54 +152,34 @@ def classify_vanilla_rub_fixed_rate(
         reasons,
     )
 
+
 def fixed_income_readiness(session: Session) -> dict[str, Any]:
     if not _schema_ready(session):
         return _not_ready("investment schema missing; apply alembic 20260905_0019")
     terms = int(session.scalar(select(func.count()).select_from(BondTerm)) or 0)
     cashflows = int(session.scalar(select(func.count()).select_from(BondCashflow)) or 0)
     coupons = int(
-        session.scalar(
-            select(func.count())
-            .select_from(BondCashflow)
-            .where(BondCashflow.cashflow_type == "COUPON")
-        )
+        session.scalar(select(func.count()).select_from(BondCashflow).where(BondCashflow.cashflow_type == "COUPON"))
         or 0
     )
     redemptions = int(
-        session.scalar(
-            select(func.count())
-            .select_from(BondCashflow)
-            .where(BondCashflow.cashflow_type == "REDEMPTION")
-        )
+        session.scalar(select(func.count()).select_from(BondCashflow).where(BondCashflow.cashflow_type == "REDEMPTION"))
         or 0
     )
     amorts = int(
         session.scalar(
-            select(func.count())
-            .select_from(BondCashflow)
-            .where(BondCashflow.cashflow_type == "AMORTIZATION")
+            select(func.count()).select_from(BondCashflow).where(BondCashflow.cashflow_type == "AMORTIZATION")
         )
         or 0
     )
     offers = int(
-        session.scalar(
-            select(func.count())
-            .select_from(BondCashflow)
-            .where(BondCashflow.cashflow_type == "OFFER")
-        )
-        or 0
+        session.scalar(select(func.count()).select_from(BondCashflow).where(BondCashflow.cashflow_type == "OFFER")) or 0
     )
     supported = int(
-        session.scalar(
-            select(func.count()).select_from(BondTerm).where(BondTerm.support_status == "SUPPORTED")
-        )
-        or 0
+        session.scalar(select(func.count()).select_from(BondTerm).where(BondTerm.support_status == "SUPPORTED")) or 0
     )
     missing_nominal = int(
-        session.scalar(
-            select(func.count()).select_from(BondTerm).where(BondTerm.nominal.is_(None))
-        )
-        or 0
+        session.scalar(select(func.count()).select_from(BondTerm).where(BondTerm.nominal.is_(None))) or 0
     )
     issues = []
     if not terms:
@@ -201,9 +187,7 @@ def fixed_income_readiness(session: Session) -> dict[str, Any]:
     if not cashflows:
         issues.append({"code": "no_observed_cashflows", "severity": "WARNING"})
     if missing_nominal:
-        issues.append(
-            {"code": "missing_nominal", "severity": "BLOCKER", "count": missing_nominal}
-        )
+        issues.append({"code": "missing_nominal", "severity": "BLOCKER", "count": missing_nominal})
     return {
         "status": "READY" if not any(i["severity"] == "BLOCKER" for i in issues) else "NOT_READY",
         "bond_terms": terms,
@@ -227,6 +211,7 @@ def fixed_income_readiness(session: Session) -> dict[str, Any]:
             "known_at_quality": "CURRENT_STATE_ONLY",
         },
     }
+
 
 def investment_readiness(session: Session) -> dict[str, Any]:
     hurdle_ready = CbrHurdleProvider(session).quote(date.today()) is not None
@@ -255,6 +240,7 @@ def investment_readiness(session: Session) -> dict[str, Any]:
         {"code": "REAL_MONEY_NOT_READY", "status": "NOT_READY"},
     ]
     return {"status": "PARTIAL", "checks": checks, "fixed_income": fixed_income}
+
 
 def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
     if not _schema_ready(session):
@@ -294,9 +280,7 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
                 "symbol": instrument.symbol,
                 "name": instrument.name,
                 "currency": term.currency or instrument.currency,
-                "currency_display": display_currency_ru(
-                    term.currency or instrument.currency or "UNKNOWN"
-                ),
+                "currency_display": display_currency_ru(term.currency or instrument.currency or "UNKNOWN"),
                 "currency_raw": (term.raw_fields or {}).get("FACEUNIT"),
                 "bond_type": bond_type.value,
                 "nominal": float(term.nominal) if term.nominal is not None else None,
@@ -310,21 +294,16 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
                 "why_not_supported": (
                     None
                     if term.support_status == "SUPPORTED"
-                    else "; ".join(reason_code_ru(code) for code in reasons)
-                    or "Недостаточно надёжных данных"
+                    else "; ".join(reason_code_ru(code) for code in reasons) or "Недостаточно надёжных данных"
                 ),
                 "credit_safety_note": (
                     "Kraken умеет корректно посчитать денежные потоки бумаги — "
                     "это не означает, что облигация безопасна."
                 ),
                 "clean_price_percent": (
-                    float(snap.clean_price_percent)
-                    if snap and snap.clean_price_percent is not None
-                    else None
+                    float(snap.clean_price_percent) if snap and snap.clean_price_percent is not None else None
                 ),
-                "nkd": float(snap.accrued_interest)
-                if snap and snap.accrued_interest is not None
-                else None,
+                "nkd": float(snap.accrued_interest) if snap and snap.accrued_interest is not None else None,
                 "dirty_estimate": _dirty_estimate(term, snap),
                 "ytm": float(snap.yield_value) if snap and snap.yield_value is not None else None,
                 "ytm_note": (
@@ -346,6 +325,7 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
             }
         )
     return result
+
 
 def bond_accounting_preview(
     session: Session,
@@ -438,6 +418,7 @@ def bond_accounting_preview(
         has_future_offer=bool(has_future_offer),
     )
     from dataclasses import asdict
+
     payload = asdict(preview)
     payload["status"] = "READY"
     payload["support_status"] = term.support_status
@@ -452,6 +433,7 @@ def bond_accounting_preview(
     )
     return payload
 
+
 def _dirty_estimate(term: BondTerm, snap: BondMarketSnapshot | None) -> float | None:
     if (
         term is None
@@ -464,10 +446,10 @@ def _dirty_estimate(term: BondTerm, snap: BondMarketSnapshot | None) -> float | 
     clean = float(term.nominal) * float(snap.clean_price_percent) / 100.0
     return clean + float(snap.accrued_interest)
 
+
 def _schema_ready(session: Session) -> bool:
-    return bool(
-        session.execute(text("SELECT to_regclass('investment.bond_terms') IS NOT NULL")).scalar_one()
-    )
+    return bool(session.execute(text("SELECT to_regclass('investment.bond_terms') IS NOT NULL")).scalar_one())
+
 
 def _not_ready(reason: str) -> dict[str, Any]:
     return {

@@ -141,9 +141,7 @@ def parse_bondization_schedule(
     )
 
 
-def coupon_structure_fixed(
-    schedule: ScheduleEvidence, *, as_of: date | None = None
-) -> bool:
+def coupon_structure_fixed(schedule: ScheduleEvidence, *, as_of: date | None = None) -> bool:
     """True when remaining (or all) observed coupon rates/amounts are constant."""
     coupons = list(schedule.coupons)
     if as_of is not None:
@@ -159,11 +157,7 @@ def coupon_structure_fixed(
 
 def has_complex_amortization(schedule: ScheduleEvidence) -> bool:
     """Intermediate principal reductions (not a single maturity redemption)."""
-    non_maturity = [
-        a
-        for a in schedule.amortizations
-        if (a.data_source or "").lower() != "maturity"
-    ]
+    non_maturity = [a for a in schedule.amortizations if (a.data_source or "").lower() != "maturity"]
     if len(non_maturity) >= 1:
         return True
     # Multiple rows even if unlabeled — treat as complex.

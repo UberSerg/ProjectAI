@@ -47,9 +47,7 @@ def horizon_return(annual_rate: float, horizon: str) -> float:
     return (1 + annual_rate) ** (TRADING_DAYS[horizon] / 252) - 1
 
 
-def piecewise_calendar_accrual(
-    start: date, end: date, quotes: Sequence[HurdleQuote]
-) -> float:
+def piecewise_calendar_accrual(start: date, end: date, quotes: Sequence[HurdleQuote]) -> float:
     """Accrue a historical rate curve by calendar days, respecting known_at."""
     if end < start:
         raise ValueError("end must not precede start")
@@ -96,19 +94,13 @@ def benchmark_metrics(
     excess = strategy_return - hurdle_return
     annual_factor = 252 / periods if periods > 0 else None
     annual_strategy = (
-        (1 + strategy_return) ** annual_factor - 1
-        if annual_factor is not None and strategy_return > -1
-        else None
+        (1 + strategy_return) ** annual_factor - 1 if annual_factor is not None and strategy_return > -1 else None
     )
     annual_hurdle = (
-        (1 + hurdle_return) ** annual_factor - 1
-        if annual_factor is not None and hurdle_return > -1
-        else None
+        (1 + hurdle_return) ** annual_factor - 1 if annual_factor is not None and hurdle_return > -1 else None
     )
     annual_excess = (
-        annual_strategy - annual_hurdle
-        if annual_strategy is not None and annual_hurdle is not None
-        else None
+        annual_strategy - annual_hurdle if annual_strategy is not None and annual_hurdle is not None else None
     )
     after_costs = excess - costs
     verdict = (
@@ -126,10 +118,6 @@ def benchmark_metrics(
         annualized_hurdle_return=annual_hurdle,
         annualized_excess_return=annual_excess,
         excess_after_costs=after_costs,
-        hurdle_win_rate=(
-            sum(value > 0 for value in period_excess) / len(period_excess)
-            if period_excess
-            else None
-        ),
+        hurdle_win_rate=(sum(value > 0 for value in period_excess) / len(period_excess) if period_excess else None),
         verdict=verdict,
     )

@@ -74,9 +74,7 @@ def preview_hold_to_maturity(
     scaled: list[BondCashflowLeg] = []
     for leg in future_legs:
         total = leg.amount_per_bond * qty
-        scaled.append(
-            BondCashflowLeg(leg.cashflow_date, leg.cashflow_type, total)
-        )
+        scaled.append(BondCashflowLeg(leg.cashflow_date, leg.cashflow_type, total))
         if leg.cashflow_type == "COUPON":
             coupon += total
         elif leg.cashflow_type == "AMORTIZATION":

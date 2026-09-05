@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pytest
-
 from app.modules.investment.domain.accounting import BondCashflowLeg, preview_hold_to_maturity
 from app.modules.investment.domain.cashflows import (
     CashflowKnownAtQuality,
@@ -37,9 +35,7 @@ def _coupon(d: str, value: float | None, prc: float | None = 7.1, face: float = 
     )
 
 
-def _amort(
-    d: str, value: float, *, source: str = "maturity", face: float = 1000
-) -> ScheduleAmortization:
+def _amort(d: str, value: float, *, source: str = "maturity", face: float = 1000) -> ScheduleAmortization:
     return ScheduleAmortization(
         amort_date=date.fromisoformat(d),
         amount=Decimal(str(value)),

@@ -2,6 +2,7 @@
 Only fields actually returned by ISS are preserved.
 Uses ``trust_env=False`` by default so a broken local SOCKS proxy cannot block audits.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -13,6 +14,7 @@ from app.infrastructure.market.http_client import MarketHttpClient
 BOARDS = ("TQOB", "TQCB")
 SOURCE_BOARD = "MOEX_ISS"
 SOURCE_BONDIZATION = "MOEX_ISS_BONDIZATION"
+
 
 class MoexBondClient:
     def __init__(
@@ -38,13 +40,17 @@ class MoexBondClient:
                 headers={"User-Agent": "ProjectAI-FixedIncomeCashflowV1/1.0"},
             )
             self._owns = True
+
     def close(self) -> None:
         if self._owns and isinstance(self._http, httpx.Client):
             self._http.close()
+
     def __enter__(self) -> MoexBondClient:
         return self
+
     def __exit__(self, *args: object) -> None:
         self.close()
+
     def audit(self, *, limit: int = 20) -> dict[str, Any]:
         bounded_limit = max(1, min(limit, 100))
         try:
@@ -62,8 +68,10 @@ class MoexBondClient:
         finally:
             if self._auto_close:
                 self.close()
+
     def fetch_board_rows(self, board: str, *, limit: int = 50) -> list[dict[str, Any]]:
         return self._fetch_board(board, max(1, min(limit, 100)))
+
     def fetch_bondization(self, secid: str) -> dict[str, list[dict[str, Any]]]:
         """Current-state coupon / amortization / offer schedule for one security.
         Endpoint: ``/iss/securities/{secid}/bondization.json``
@@ -77,6 +85,7 @@ class MoexBondClient:
             "amortizations": amortizations,
             "offers": offers,
         }
+
     def _paginate_block(self, secid: str, block: str) -> list[dict[str, Any]]:
         collected: list[dict[str, Any]] = []
         start = 0
@@ -101,6 +110,7 @@ class MoexBondClient:
             if start > 2000:
                 break
         return collected
+
     def _fetch_board(self, board: str, limit: int) -> list[dict[str, Any]]:
         url = f"{self.base_url}/engines/stock/markets/bonds/boards/{board}/securities.json"
         params = {
@@ -111,8 +121,10 @@ class MoexBondClient:
         }
         payload = self._get_json_url(url, params)
         return _observed_rows(payload, "securities")[:limit]
+
     def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         return self._get_json_url(f"{self.base_url}{path}", params)
+
     def _get_json_url(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
         if isinstance(self._http, MarketHttpClient):
             response = self._http.get(url, params=params)
@@ -121,11 +133,9 @@ class MoexBondClient:
             response.raise_for_status()
         return response.json()
 
+
 def _observed_rows(payload: dict[str, Any], block: str) -> list[dict[str, Any]]:
     table = payload.get(block) or {}
     columns = table.get("columns") or []
     data = table.get("data") or []
-    return [
-        {str(column): value for column, value in zip(columns, row, strict=False)}
-        for row in data
-    ]
+    return [{str(column): value for column, value in zip(columns, row, strict=False)} for row in data]

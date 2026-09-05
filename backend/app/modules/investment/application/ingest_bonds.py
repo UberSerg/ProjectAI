@@ -76,9 +76,7 @@ def ingest_bounded_rub_bonds(
     known_at = as_of
 
     try:
-        selected = _select_rub_candidates(
-            client, per_board=per_board, board_scan_limit=board_scan_limit
-        )
+        selected = _select_rub_candidates(client, per_board=per_board, board_scan_limit=board_scan_limit)
         inserted_instruments = 0
         inserted_terms = 0
         updated_terms = 0
@@ -182,9 +180,7 @@ def ingest_bounded_rub_bonds(
                 "future_offer_count": len(future_offers(schedule, as_of)),
                 "complex_amortization": has_complex_amortization(schedule),
                 "next_coupon_date": next_c.coupon_date.isoformat() if next_c else None,
-                "next_coupon_amount": float(next_c.amount)
-                if next_c and next_c.amount is not None
-                else None,
+                "next_coupon_amount": float(next_c.amount) if next_c and next_c.amount is not None else None,
                 "duration": float(duration) if duration is not None else None,
                 "moex_yield": float(ytm) if ytm is not None else None,
                 "accounting_support": support.value == "SUPPORTED",
@@ -202,8 +198,7 @@ def ingest_bounded_rub_bonds(
                     nominal=nominal,
                     currency=face.canonical,
                     coupon_type=coupon_type,
-                    coupon_rate=_decimal(row.get("COUPONPERCENT"))
-                    or (next_c.rate_percent if next_c else None),
+                    coupon_rate=_decimal(row.get("COUPONPERCENT")) or (next_c.rate_percent if next_c else None),
                     maturity_date=maturity,
                     lot_size=lot_size,
                     support_status=support.value,
@@ -219,9 +214,7 @@ def ingest_bounded_rub_bonds(
                 term.nominal = nominal
                 term.currency = face.canonical
                 term.coupon_type = coupon_type
-                term.coupon_rate = _decimal(row.get("COUPONPERCENT")) or (
-                    next_c.rate_percent if next_c else None
-                )
+                term.coupon_rate = _decimal(row.get("COUPONPERCENT")) or (next_c.rate_percent if next_c else None)
                 term.maturity_date = maturity
                 term.lot_size = lot_size
                 term.support_status = support.value
@@ -338,9 +331,7 @@ def _select_rub_candidates(
         rows = client.fetch_board_rows(board, limit=board_scan_limit)
         rub_rows: list[dict[str, Any]] = []
         for row in rows:
-            face = resolve_nominal_currency(
-                face_unit=row.get("FACEUNIT"), currency_id=row.get("CURRENCYID")
-            )
+            face = resolve_nominal_currency(face_unit=row.get("FACEUNIT"), currency_id=row.get("CURRENCYID"))
             if face.canonical != "RUB":
                 continue
             if _date(row.get("MATDATE")) is None:
@@ -385,9 +376,7 @@ def _persist_schedule_cashflows(
             raw_fields={
                 **coupon.raw,
                 "known_at_quality": MOEX_BONDIZATION_KNOWN_AT_QUALITY.value,
-                "coupon_rate_percent": float(coupon.rate_percent)
-                if coupon.rate_percent is not None
-                else None,
+                "coupon_rate_percent": float(coupon.rate_percent) if coupon.rate_percent is not None else None,
                 "nominal_base": float(coupon.face_value) if coupon.face_value is not None else None,
                 "source_endpoint": "/iss/securities/{secid}/bondization.json#coupons",
             },
@@ -401,11 +390,7 @@ def _persist_schedule_cashflows(
         is_maturity = (amort.data_source or "").lower() == "maturity" or (
             maturity is not None and amort.amort_date == maturity
         )
-        cf_type = (
-            BondCashflowType.REDEMPTION.value
-            if is_maturity
-            else BondCashflowType.AMORTIZATION.value
-        )
+        cf_type = BondCashflowType.REDEMPTION.value if is_maturity else BondCashflowType.AMORTIZATION.value
         if _upsert_cashflow(
             session,
             instrument_id=instrument_id,

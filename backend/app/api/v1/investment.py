@@ -106,9 +106,7 @@ def fixed_income_accounting_preview(
     cost_bps: Annotated[Decimal, Query(ge=0)] = Decimal("5"),
 ) -> dict[str, Any]:
     with core_session() as session:
-        return bond_accounting_preview(
-            session, symbol=symbol.upper(), lots=lots, cost_bps=cost_bps
-        )
+        return bond_accounting_preview(session, symbol=symbol.upper(), lots=lots, cost_bps=cost_bps)
 
 
 @router.post("/portfolio/allocation/preview")

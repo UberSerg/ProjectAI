@@ -37,9 +37,7 @@ def test_hurdle_formula_and_metrics() -> None:
     annual = 0.21
     assert horizon_return(annual, "1y") == pytest.approx(annual)
     assert horizon_return(annual, "20d") == pytest.approx((1 + annual) ** (20 / 252) - 1)
-    metrics = benchmark_metrics(
-        strategy_return=0.12, hurdle_return=0.08, costs=0.01, periods=252
-    )
+    metrics = benchmark_metrics(strategy_return=0.12, hurdle_return=0.08, costs=0.01, periods=252)
     assert metrics.excess_return == pytest.approx(0.04)
     assert metrics.excess_after_costs == pytest.approx(0.03)
     assert metrics.verdict is BenchmarkVerdict.BEATS_HURDLE
@@ -63,9 +61,7 @@ def test_piecewise_historical_calendar_accrual() -> None:
         ),
     ]
     expected = (1.10 ** (10 / 365)) * (1.20 ** (10 / 365)) - 1
-    assert piecewise_calendar_accrual(date(2026, 1, 1), date(2026, 1, 21), quotes) == pytest.approx(
-        expected
-    )
+    assert piecewise_calendar_accrual(date(2026, 1, 1), date(2026, 1, 21), quotes) == pytest.approx(expected)
 
 
 def test_clean_dirty_nkd_and_fees() -> None:
@@ -193,12 +189,8 @@ def test_slippage_only_worsens_trades() -> None:
 def test_100k_integer_lots_fees_and_non_negative_cash() -> None:
     result = allocate_integer_lots(
         [
-            AllocationCandidate(
-                "AAA", AssetSleeve.EQUITY_ALPHA, Decimal("123.45"), 10, Decimal("0.6")
-            ),
-            AllocationCandidate(
-                "BOND", AssetSleeve.FIXED_INCOME, Decimal("980"), 1, Decimal("0.4")
-            ),
+            AllocationCandidate("AAA", AssetSleeve.EQUITY_ALPHA, Decimal("123.45"), 10, Decimal("0.6")),
+            AllocationCandidate("BOND", AssetSleeve.FIXED_INCOME, Decimal("980"), 1, Decimal("0.4")),
         ],
         capital=Decimal("100000"),
         costs=TransactionCostProfile(Decimal("10")),
@@ -206,9 +198,7 @@ def test_100k_integer_lots_fees_and_non_negative_cash() -> None:
     assert all(position.units % (10 if position.symbol == "AAA" else 1) == 0 for position in result.positions)
     assert result.fees > 0
     assert result.cash_remainder >= 0
-    assert sum((p.cash_used for p in result.positions), Decimal()) + result.cash_remainder == Decimal(
-        "100000"
-    )
+    assert sum((p.cash_used for p in result.positions), Decimal()) + result.cash_remainder == Decimal("100000")
 
 
 def test_key_rate_audit_without_database(tmp_path) -> None:
