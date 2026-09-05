@@ -1498,6 +1498,61 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     summary: "Насколько капитал сосредоточен в малом числе позиций.",
     details: "Ограничения max_single_position задаются research configuration, не оптимизацией.",
   },
+  calibration: {
+    id: "calibration",
+    kind: "metric",
+    title: "Calibration",
+    summary:
+      "Насколько исторические прогнозы совпадали с реализованной доходностью по корзинам.",
+    details:
+      "Сравнивает predicted vs realized только по зрелым EVALUATED исходам. Смотрят bias, MAE, hit rate и размер выборки вместе — один metric ничего не доказывает.",
+    interpretation:
+      "Малая выборка → confidence UNKNOWN. Это не вердикт «модель плохая».",
+    limitations: [
+      "Не переобучает модели.",
+      "RANKING_SCORE нельзя трактовать как процентную доходность.",
+    ],
+  },
+  opportunity_confidence: {
+    id: "opportunity_confidence",
+    kind: "metric",
+    title: "Confidence (opportunity)",
+    summary: "Насколько можно доверять оценке возможности — не вероятность прибыли.",
+    details:
+      "Если калибровка слабая или выборка мала, confidence = UNKNOWN. Fake confidence запрещён.",
+    relatedIds: ["calibration", "opportunity"],
+  },
+  risk_budget: {
+    id: "risk_budget",
+    kind: "metric",
+    title: "Risk budget",
+    summary: "Детерминированные лимиты риска профиля (max equity, min cash, credit).",
+    details:
+      "Conservative / Balanced / Growth — research constraints, не результат оптимизации по истории.",
+  },
+  opportunity: {
+    id: "opportunity",
+    kind: "metric",
+    title: "Opportunity",
+    summary: "Оценка ожидаемой возможности по sleeve (equity / FI / cash).",
+    details:
+      "Opportunity отвечает «что можно ожидать», risk budget — «сколько боли допустимо».",
+  },
+  investment_decision: {
+    id: "investment_decision",
+    kind: "metric",
+    title: "Investment decision",
+    summary: "Исследовательское решение по весам капитала с человекочитаемыми причинами.",
+    details: "Прогноз модели — вход, не приказ. Нет broker и real money.",
+  },
+  allocation_reason: {
+    id: "allocation_reason",
+    kind: "metric",
+    title: "Allocation reason",
+    summary: "Почему выбраны доли Equity / Fixed Income / Cash.",
+    details:
+      "Тексты объясняют премию над hurdle, ограничения risk budget и недостаток подтверждённых возможностей — без magic score.",
+  },
 };
 
 export const HELP_PAGES: Record<string, PageHelpContent> = {
@@ -1969,6 +2024,44 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Нет ML/оптимизации весов по истории.",
       "Нет реального исполнения и брокера.",
       "Калибровка equity-моделей пока UNKNOWN.",
+    ],
+  },
+  investment_decision: {
+    id: "investment_decision",
+    title: "Инвестиционное решение Kraken",
+    about:
+      "Risk & Opportunity Engine: почему Kraken выбрал бы структуру капитала между акциями, облигациями и cash.",
+    understand: [
+      "Чем opportunity отличается от risk budget",
+      "Почему confidence может быть UNKNOWN",
+      "Как calibration buckets показывают качество прогноза без fake trust",
+      "Почему cash иногда правильный выбор",
+      "Как сравнивать Equity only / FI only / Allocation / CBR без автопобедителя",
+    ],
+    metrics: [
+      "investment_decision",
+      "opportunity",
+      "calibration",
+      "opportunity_confidence",
+      "risk_budget",
+      "expected_excess_return",
+      "allocation_reason",
+      "equity_sleeve",
+      "fixed_income_sleeve",
+      "cash_sleeve",
+      "cbr_hurdle",
+      "credit_quality",
+    ],
+    interpret: [
+      "Сначала смотрите калибровку и sample size, потом веса.",
+      "Высокая доходность облигации может означать высокий риск.",
+      "Главный вопрос: оправдал ли результат риск?",
+    ],
+    limitations: [
+      "Нет ML training и policy optimization.",
+      "Нет брокера и real money.",
+      "Credit quality часто UNKNOWN.",
+      "Налоги не моделируются.",
     ],
   },
   fundamentals: {

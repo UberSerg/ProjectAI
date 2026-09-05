@@ -147,3 +147,137 @@ export const compareAllocations = (
     note: string;
   }>(`/allocation/compare${suffix}`, { signal });
 };
+
+export interface CalibrationBucketView {
+  name: string;
+  n: number;
+  mean_predicted: number | null;
+  mean_realized: number | null;
+  hit_rate: number | null;
+  mean_error: number | null;
+}
+
+export interface InvestmentDecisionView {
+  profile_id: string;
+  equity_weight: number;
+  fixed_income_weight: number;
+  cash_weight: number;
+  weights_pct: { equity: number; fixed_income: number; cash: number };
+  reason_codes: string[];
+  explanations: string[];
+  warnings: string[];
+  status: string;
+  why_equity_ru: string;
+  why_fixed_income_ru: string;
+  why_cash_ru: string;
+  limitations: string[];
+}
+
+export interface InvestmentDecisionResponse {
+  as_of: string;
+  capital: string;
+  cbr_hurdle_annual: number | null;
+  hurdle_20d?: number | null;
+  hurdle_1y?: number | null;
+  profile_id: string;
+  equity_opportunity: {
+    expected_return: number | null;
+    expected_excess_return: number | null;
+    confidence: number | null;
+    model_source: string | null;
+    calibration_status?: string;
+    prediction_quality?: string;
+    limitations?: string[];
+  } | null;
+  fixed_income_opportunity: {
+    expected_yield: number | null;
+    duration: number | null;
+    credit_quality: string;
+    liquidity: string;
+    data_quality: string;
+    yield_source?: string | null;
+    liquidity_status?: string | null;
+    support_status?: string | null;
+    supported_ratio?: number | null;
+  } | null;
+  cash_opportunity: {
+    annual_rate: number | null;
+    horizon_return: number | null;
+    source: string;
+    quality: string;
+  } | null;
+  calibration: {
+    sample_size: number;
+    bias: number | null;
+    mae: number | null;
+    hit_rate: number | null;
+    calibration_status: string;
+    uncertainty_note: string;
+    buckets: CalibrationBucketView[];
+    limitations: string[];
+  };
+  risk_budget: Record<string, unknown>;
+  decision: InvestmentDecisionView;
+  lots: AllocationDecideResponse["lots"];
+  economic_metrics: {
+    return: number | null;
+    excess_vs_cbr: number | null;
+    max_drawdown: number | null;
+    volatility: number | null;
+    turnover: number | null;
+    question_ru: string;
+    answer_ru: string;
+  };
+  bond_safety_reminder: string;
+  mode: string;
+}
+
+export const decideInvestment = (
+  body: {
+    profile_id: string;
+    capital: number;
+    equity_expected_excess_return?: number | null;
+    equity_expected_return?: number | null;
+    volatility?: number | null;
+    drawdown?: number | null;
+  },
+  signal?: AbortSignal,
+) =>
+  apiRequest<InvestmentDecisionResponse>("/investment-decision/decide", {
+    method: "POST",
+    body,
+    signal,
+  });
+
+export const compareInvestmentDecisions = (
+  params?: { capital?: number; equity_expected_excess_return?: number | null },
+  signal?: AbortSignal,
+) => {
+  const q = new URLSearchParams();
+  if (params?.capital != null) q.set("capital", String(params.capital));
+  if (params?.equity_expected_excess_return != null) {
+    q.set("equity_expected_excess_return", String(params.equity_expected_excess_return));
+  }
+  const suffix = q.toString() ? `?${q}` : "";
+  return apiRequest<{
+    profiles: Array<{ profile_id: string; decision: InvestmentDecisionView }>;
+    static_benchmarks: Array<{
+      policy: { id: string; title: string };
+      decision: AllocationDecisionView;
+    }>;
+    cbr_benchmark: { annual_rate: number | null; note: string };
+    note: string;
+  }>(`/investment-decision/compare${suffix}`, { signal });
+};
+
+export const getEquityCalibration = (signal?: AbortSignal) =>
+  apiRequest<{
+    sample_size: number;
+    bias: number | null;
+    mae: number | null;
+    hit_rate: number | null;
+    calibration_status: string;
+    uncertainty_note: string;
+    buckets: CalibrationBucketView[];
+    limitations: string[];
+  }>("/investment-decision/calibration", { signal });

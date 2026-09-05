@@ -43,6 +43,7 @@ class EquityOpportunity:
     timestamp: datetime | date | None
     limitations: tuple[str, ...] = ()
     prediction_quality: PredictionQuality = PredictionQuality.UNKNOWN
+    calibration_status: str = "UNKNOWN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,9 @@ class FixedIncomeOpportunity:
     data_quality: str  # READY | PARTIAL | NOT_READY
     supported_ratio: float | None  # share of FI universe with SUPPORTED cashflows
     limitations: tuple[str, ...] = ()
+    yield_source: str | None = None
+    liquidity_status: str | None = None
+    support_status: str | None = None
 
     @property
     def yield_is_guaranteed(self) -> bool:

@@ -3,6 +3,7 @@ import { AppShell } from "./layout/AppShell";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { BondsPage } from "./pages/BondsPage";
 import { AllocationPage } from "./pages/AllocationPage";
+import { InvestmentDecisionPage } from "./pages/InvestmentDecisionPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FundamentalIssuerPage } from "./pages/FundamentalIssuerPage";
 import { FundamentalsPage } from "./pages/FundamentalsPage";
@@ -37,6 +38,7 @@ export function App() {
         <Route path="/fundamentals" element={<FundamentalsPage />} />
         <Route path="/bonds" element={<BondsPage />} />
         <Route path="/allocation" element={<AllocationPage />} />
+        <Route path="/investment-decision" element={<InvestmentDecisionPage />} />
         <Route path="/fundamentals/:issuerId" element={<FundamentalIssuerPage />} />
         <Route
           path="/recommendations"
