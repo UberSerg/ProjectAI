@@ -37,6 +37,10 @@ export function CbrHurdleBlock() {
         Качество моделей (calibration / bias / ranking):{" "}
         <Link to="/calibration">Качество прогнозов Kraken</Link>
       </p>
+      <p>
+        Portfolio Risk Gate перед 100k candidate:{" "}
+        <Link to="/portfolio-risk">Проверка риска портфеля</Link>
+      </p>
       <p className="muted">
         Сравнение Equity only / Fixed Income only / Allocation Policy / CBR без автовыбора
         победителя. Главный вопрос: оправдал ли результат риск?

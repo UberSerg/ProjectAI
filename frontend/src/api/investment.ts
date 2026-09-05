@@ -403,3 +403,65 @@ export interface CalibrationReport {
 
 export const getCalibrationReport = (signal?: AbortSignal) =>
   apiRequest<CalibrationReport>("/calibration", { signal });
+
+export interface PortfolioRiskPosition {
+  symbol: string;
+  sleeve: string;
+  status: string;
+  reason_codes: string[];
+  explanations_ru: string[];
+  warnings_ru: string[];
+  allowed_in_portfolio: boolean;
+  target_weight: number;
+}
+
+export interface PortfolioRiskResponse {
+  capital: string;
+  policy_id: string;
+  profile_id: string;
+  pipeline: string;
+  allocation: {
+    equity_weight: number;
+    fixed_income_weight: number;
+    cash_weight: number;
+    status: string;
+    explanation_ru: string;
+  };
+  risk_assessment: {
+    status: string;
+    capital: string;
+    positions: PortfolioRiskPosition[];
+    approved: string[];
+    approved_with_warnings: string[];
+    research_only: string[];
+    blocked: string[];
+    insufficient_data: string[];
+    reason_codes: string[];
+    explanations_ru: string[];
+    warnings_ru: string[];
+    limitations: string[];
+    summary_ru: string;
+  };
+  note: string;
+  mode: string;
+}
+
+export const assessPortfolioRisk = (
+  body?: {
+    capital?: number;
+    equity_expected_excess_return?: number | null;
+    profile_id?: string;
+    policy_id?: string;
+  },
+  signal?: AbortSignal,
+) =>
+  apiRequest<PortfolioRiskResponse>("/portfolio-risk/assess", {
+    method: "POST",
+    body: {
+      capital: body?.capital ?? 100000,
+      equity_expected_excess_return: body?.equity_expected_excess_return ?? 0,
+      profile_id: body?.profile_id ?? "BALANCED_ALLOCATION_V0",
+      policy_id: body?.policy_id ?? "CBR_HURDLE_GATE_V0",
+    },
+    signal,
+  });
