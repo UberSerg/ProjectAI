@@ -104,6 +104,6 @@ describe("InvestmentDecisionPage", () => {
     );
     expect(await screen.findByText("Инвестиционное решение Kraken")).toBeInTheDocument();
     expect(await screen.findByText(/исследовательское распределение/i)).toBeInTheDocument();
-    expect(screen.getByText("Оправдал ли результат риск?")).toBeInTheDocument();
+    expect(await screen.findByText("Оправдал ли результат риск?")).toBeInTheDocument();
   });
 });
