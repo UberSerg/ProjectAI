@@ -183,6 +183,48 @@ export function InvestmentDecisionPage() {
       </div>
 
       <div className="card">
+        <h3>Fixed Income Risk Summary</h3>
+        <p>
+          {result?.fixed_income_risk_summary?.summary_ru ??
+            "Облигационная часть доступна, но часть инструментов может иметь неизвестное кредитное качество."}
+        </p>
+        <div className="card-grid">
+          <MetricCard
+            label="Credit"
+            value={result?.fixed_income_risk_summary?.credit_status ?? fi?.credit_status ?? "UNKNOWN"}
+            helpId="credit_quality"
+          />
+          <MetricCard
+            label="Liquidity"
+            value={
+              result?.fixed_income_risk_summary?.liquidity_status ??
+              fi?.liquidity_status ??
+              "UNKNOWN"
+            }
+            helpId="liquidity_risk"
+          />
+          <MetricCard
+            label="Eligibility"
+            value={
+              result?.fixed_income_risk_summary?.investment_eligibility ??
+              fi?.investment_eligibility ??
+              "RESEARCH_ONLY"
+            }
+            helpId="investment_eligibility"
+          />
+        </div>
+        <ul className="plain-list">
+          {(result?.fixed_income_risk_summary?.warnings ?? []).map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+        <p className="muted">
+          yield + credit + liquidity + data quality = opportunity quality. Без авто-promotion в real
+          portfolio.
+        </p>
+      </div>
+
+      <div className="card">
         <h3>Качество сигнала акций</h3>
         <div className="card-grid">
           <MetricCard

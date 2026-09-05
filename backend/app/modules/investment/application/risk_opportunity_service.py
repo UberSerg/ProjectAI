@@ -148,8 +148,11 @@ def build_enriched_opportunities(
             limitations=tuple(ctx.fixed_income.limitations)
             + ("Высокая доходность может отражать высокий риск.",),
             yield_source="OBSERVED_COUPON_RATE_OR_NONE",
-            liquidity_status=ctx.fixed_income.liquidity,
+            liquidity_status=ctx.fixed_income.liquidity_status or ctx.fixed_income.liquidity,
             support_status=support,
+            credit_status=ctx.fixed_income.credit_status,
+            investment_eligibility=ctx.fixed_income.investment_eligibility,
+            risk_flags=tuple(ctx.fixed_income.risk_flags),
         )
 
     return {
@@ -188,13 +191,16 @@ def run_investment_decision(
     )
     budget = get_risk_budget(profile_id)
     hurdle = packed["context"].cbr_hurdle_annual
+    fi_opp = packed["fixed_income"]
+    # LOW liquidity → risk stress. UNKNOWN credit/liquidity → WARNING (visible), not hard error.
+    liquidity_ok = fi_opp is None or (fi_opp.liquidity_status or "UNKNOWN") != "LOW"
     market = MarketContext(
         as_of_date=packed["context"].as_of_date,
         available_capital=capital,
         cbr_hurdle_annual=hurdle,
         volatility=volatility,
         drawdown=drawdown,
-        liquidity_ok=True,
+        liquidity_ok=liquidity_ok,
         data_quality_ok=True,
     )
     decision = InvestmentDecisionEngine().decide(
@@ -280,6 +286,7 @@ def run_investment_decision(
         "bond_safety_reminder": BOND_SAFETY_REMINDER_RU,
         "mode": "RISK_OPPORTUNITY_ENGINE_V0",
         "pipeline": "Prediction → Calibration → Confidence → Allocation",
+        "fixed_income_risk_summary": _fixed_income_risk_summary(session, packed),
     }
 
 
@@ -357,4 +364,27 @@ def _decision_payload(decision: InvestmentDecision) -> dict[str, Any]:
         "why_fixed_income_ru": decision.why_fixed_income_ru,
         "why_cash_ru": decision.why_cash_ru,
         "limitations": list(decision.limitations),
+    }
+
+
+def _fixed_income_risk_summary(session: Session, packed: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from app.modules.investment.application.credit_liquidity_service import (
+            aggregate_fixed_income_risk,
+        )
+
+        report = aggregate_fixed_income_risk(session)
+    except Exception:  # noqa: BLE001
+        report = {"allocation_warnings": [], "summary_ru": "Оценка кредита/ликвидности недоступна."}
+    fi = packed.get("fixed_income")
+    return {
+        "summary_ru": report.get("summary_ru"),
+        "warnings": list(report.get("allocation_warnings") or []),
+        "credit_status": getattr(fi, "credit_status", None) if fi else None,
+        "liquidity_status": getattr(fi, "liquidity_status", None) if fi else None,
+        "investment_eligibility": getattr(fi, "investment_eligibility", None) if fi else None,
+        "risk_flags": list(getattr(fi, "risk_flags", ()) or ()) if fi else [],
+        "credit_coverage": report.get("credit_coverage"),
+        "liquidity_coverage": report.get("liquidity_coverage"),
+        "eligibility_coverage": report.get("eligibility_coverage"),
     }

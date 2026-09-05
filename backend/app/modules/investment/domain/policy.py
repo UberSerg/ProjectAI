@@ -54,13 +54,16 @@ class FixedIncomeOpportunity:
     expected_yield: float | None
     duration: float | None
     credit_quality: str  # UNKNOWN | OBSERVED | …
-    liquidity: str  # UNKNOWN | OK | LIMITED
+    liquidity: str  # UNKNOWN | OK | LIMITED | GOOD | MEDIUM | LOW
     data_quality: str  # READY | PARTIAL | NOT_READY
     supported_ratio: float | None  # share of FI universe with SUPPORTED cashflows
     limitations: tuple[str, ...] = ()
     yield_source: str | None = None
     liquidity_status: str | None = None
     support_status: str | None = None
+    credit_status: str | None = None
+    investment_eligibility: str | None = None
+    risk_flags: tuple[str, ...] = ()
 
     @property
     def yield_is_guaranteed(self) -> bool:
