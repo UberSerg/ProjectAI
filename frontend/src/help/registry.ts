@@ -1489,6 +1489,77 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     details:
       "Accounting support отвечает на «какие деньги придут по графику». Credit quality отвечает на «доживёт ли эмитент до выплат».",
   },
+  asset_allocation: {
+    id: "asset_allocation",
+    kind: "metric",
+    title: "Asset allocation",
+    summary: "Решение, какую долю капитала держать в акциях, облигациях и деньгах.",
+    details: "Не заменяет модели: использует их результат и сравнивает с hurdle без magic score.",
+  },
+  equity_sleeve: {
+    id: "equity_sleeve",
+    kind: "metric",
+    title: "Equity sleeve",
+    summary: "Доля капитала, выделенная под Equity Alpha.",
+    details: "Может быть снижена, если ожидаемая премия над ключевой ставкой недостаточна.",
+  },
+  fixed_income_sleeve: {
+    id: "fixed_income_sleeve",
+    kind: "metric",
+    title: "Fixed Income sleeve",
+    summary: "Доля капитала в облигациях.",
+    details:
+      "Облигация не всегда безопасна. Корпоративные бумаги без credit quality не годятся для реального портфеля.",
+  },
+  cash_sleeve: {
+    id: "cash_sleeve",
+    kind: "metric",
+    title: "Cash sleeve",
+    summary: "Денежная альтернатива относительно порога ЦБ.",
+    details: "Иногда рационально не покупать риск, если премия не окупает его.",
+  },
+  allocation_weight: {
+    id: "allocation_weight",
+    kind: "metric",
+    title: "Allocation weight",
+    summary: "Целевой вес sleeve до учёта целых лотов.",
+    details: "После лотов фактические суммы могут отличаться; остаток остаётся cash.",
+  },
+  expected_excess_return: {
+    id: "expected_excess_return",
+    kind: "metric",
+    title: "Expected excess return",
+    summary: "Ожидаемая доходность минус релевантный hurdle за тот же горизонт.",
+    details: "Без калибровки модели качество прогноза = UNKNOWN.",
+  },
+  hurdle: {
+    id: "hurdle",
+    kind: "metric",
+    title: "Hurdle",
+    summary: "Экономический порог сравнения — в V0 прежде всего ключевая ставка ЦБ РФ.",
+    details: "Не депозитная гарантия и не обещание доступной доходности инвестору.",
+  },
+  risk_premium: {
+    id: "risk_premium",
+    kind: "metric",
+    title: "Risk premium",
+    summary: "Надбавка за риск относительно более консервативной альтернативы.",
+    details: "Если премия недостаточна, Kraken может уменьшить долю акций.",
+  },
+  liquidity: {
+    id: "liquidity",
+    kind: "metric",
+    title: "Liquidity",
+    summary: "Способность перестроить портфель без чрезмерных издержек.",
+    details: "V0 учитывает флаг stale prices / liquidity state без отдельного Risk Engine.",
+  },
+  concentration: {
+    id: "concentration",
+    kind: "metric",
+    title: "Concentration",
+    summary: "Насколько капитал сосредоточен в малом числе позиций.",
+    details: "Ограничения max_single_position задаются research configuration, не оптимизацией.",
+  },
 };
 
 export const HELP_PAGES: Record<string, PageHelpContent> = {
@@ -1932,6 +2003,43 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Исторический total return облигаций NOT_READY: нет архива ревизий графика.",
       "Налоги и settlement не моделируются.",
       "Нет брокерского API и исполнения.",
+    ],
+  },
+  allocation: {
+    id: "allocation",
+    title: "Распределение капитала",
+    about:
+      "Research foundation: куда Kraken направил бы капитал между Equity Alpha, Fixed Income и Cash.",
+    understand: [
+      "Почему Kraken не обязан всегда покупать акции",
+      "Чем equity / fixed income / cash sleeves отличаются",
+      "Как hurdle и expected excess return влияют на веса",
+      "Почему нет magic investment_score",
+      "Как целевые веса превращаются в целые лоты на 100 000 ₽",
+    ],
+    metrics: [
+      "asset_allocation",
+      "equity_sleeve",
+      "fixed_income_sleeve",
+      "cash_sleeve",
+      "allocation_weight",
+      "expected_excess_return",
+      "hurdle",
+      "cbr_hurdle",
+      "risk_premium",
+      "liquidity",
+      "concentration",
+      "credit_quality",
+      "integer_lots",
+    ],
+    interpret: [
+      "Сравнение политик — исследовательское, без автовыбора победителя.",
+      "INSUFFICIENT_DATA лучше, чем угаданные веса.",
+    ],
+    limitations: [
+      "Нет ML/оптимизации весов по истории.",
+      "Нет реального исполнения и брокера.",
+      "Калибровка equity-моделей пока UNKNOWN.",
     ],
   },
   fundamentals: {

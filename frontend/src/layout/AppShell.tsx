@@ -21,6 +21,7 @@ const analytics: NavItem[] = [
   { to: "/technical", label: labels.nav.technical },
   { to: "/fundamentals", label: labels.nav.fundamentals },
   { to: "/bonds", label: labels.nav.bonds },
+  { to: "/allocation", label: labels.nav.allocation },
   { to: "/recommendations", label: labels.nav.recommendations, soon: true },
   { to: "/models", label: labels.nav.models, soon: true },
   { to: "/decision-memory", label: labels.nav.decisionMemory, soon: true },
