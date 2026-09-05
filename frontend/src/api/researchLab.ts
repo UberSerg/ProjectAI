@@ -12,6 +12,10 @@ export interface CandidateOption {
   research_verdict: string;
   model_type: string;
   target_label: string;
+  /** EXPECTED_RETURN | RANKING_SCORE */
+  prediction_semantic?: string;
+  /** Human output label, e.g. «Рейтинговый балл». */
+  output_label?: string;
   eligible: boolean;
   help_id?: string;
 }
@@ -195,6 +199,8 @@ export interface CompareResponse {
   runs: ResearchRunSummary[];
   fair_comparison: boolean;
   fair_badge: string;
+  /** true when fair and candidate hashes differ (model A/B). */
+  model_comparison?: boolean;
   differences: CompareDifference[];
   metrics_table: CompareMetricRow[];
   interpretation: string[];

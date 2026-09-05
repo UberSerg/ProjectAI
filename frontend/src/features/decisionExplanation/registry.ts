@@ -32,6 +32,25 @@ function joinSentences(parts: Array<string | null | undefined>): string {
 }
 
 function predictionClause(ctx: DecisionExplanationContext): string | null {
+  const semantic = (ctx.predictionSemantic ?? "").toUpperCase();
+  if (semantic === "RANKING_SCORE") {
+    const when = formatRuDate(ctx.predictionDate);
+    const score =
+      ctx.predictionScore != null && Number.isFinite(ctx.predictionScore)
+        ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(ctx.predictionScore)
+        : null;
+    const rankPart = rankClause(ctx, instrumentShort(ctx.ticker, ctx.displayName));
+    if (rankPart && when) {
+      return `На ${when} ${rankPart.toLowerCase()} по рейтинговому баллу модели`;
+    }
+    if (rankPart) return rankPart;
+    if (score) {
+      return when
+        ? `На ${when} рейтинговый балл модели: ${score}`
+        : `Рейтинговый балл модели: ${score}`;
+    }
+    return null;
+  }
   const pred = formatSignedPercent(ctx.predictedReturn20d);
   const when = formatRuDate(ctx.predictionDate);
   if (!pred) return null;
@@ -142,7 +161,9 @@ const ENTER_TOP20: ReasonDefinition = {
         ? `Граница входа: примерно ${entryCut}-е место и выше.`
         : null,
       `${label} находился внутри зоны входа, поэтому для него была сформирована позиция${formatWeightPercent(ctx.targetWeight) ? ` с целевым весом ${formatWeightPercent(ctx.targetWeight)}` : ""}.`,
-      "Прогноз модели — оценка ожидаемого изменения цены, а не гарантия результата. Решение о позиции принимает политика, а не модель.",
+      (ctx.predictionSemantic ?? "").toUpperCase() === "RANKING_SCORE"
+        ? "Рейтинговый балл используется для порядка, а не как процент доходности. Решение о позиции принимает политика, а не модель."
+        : "Прогноз модели — оценка ожидаемого изменения цены, а не гарантия результата. Решение о позиции принимает политика, а не модель.",
       executionDetailed(ctx),
     ]);
   },

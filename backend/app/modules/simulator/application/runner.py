@@ -31,12 +31,14 @@ def build_spec(
     dataset_values_hash: str,
     policy_name: str | None = None,
     risk_name: str | None = None,
+    candidate_name: str | None = None,
+    candidate_version: str | None = None,
     **policy_risk_kwargs: Any,
 ) -> SimulationSpecV0:
     kwargs: dict[str, Any] = {
         "segment": segment,
-        "candidate_name": CANDIDATE_V0_CONFIG.candidate_name,
-        "candidate_version": CANDIDATE_V0_CONFIG.candidate_version,
+        "candidate_name": candidate_name or CANDIDATE_V0_CONFIG.candidate_name,
+        "candidate_version": candidate_version or CANDIDATE_V0_CONFIG.candidate_version,
         "candidate_config_hash": candidate_config_hash,
         "dataset_values_hash": dataset_values_hash,
         "prediction_hash": prediction_hash,
@@ -65,9 +67,18 @@ def run_segment(
     persist: bool = True,
     policy_name: str | None = None,
     risk_name: str | None = None,
+    candidate_name: str | None = None,
+    candidate_version: str | None = None,
+    config_hash: str | None = None,
     **policy_risk_kwargs: Any,
 ) -> tuple[SimulationResult, int | None]:
-    bundle = load_oos_predictions(segment, artifact_dir=artifact_dir)
+    bundle = load_oos_predictions(
+        segment,
+        artifact_dir=artifact_dir,
+        candidate_name=candidate_name,
+        candidate_version=candidate_version,
+        config_hash=config_hash,
+    )
     d0, d1 = prediction_date_bounds(bundle)
     # Market window: pad for next-open after last prediction
     market_from = date_from or (d0 - timedelta(days=5))
@@ -89,6 +100,8 @@ def run_segment(
         dataset_values_hash=bundle.dataset_values_hash,
         policy_name=policy_name,
         risk_name=risk_name,
+        candidate_name=bundle.candidate_name,
+        candidate_version=bundle.candidate_version,
         **policy_risk_kwargs,
     )
     result = run_simulation(

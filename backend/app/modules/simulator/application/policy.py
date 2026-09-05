@@ -24,7 +24,7 @@ def select_top_k(n: int, top_quantile: float = CANONICAL_TOP_QUANTILE) -> int:
 class RankLongOnlyV0Policy(PortfolioPolicy):
     """Long-only equal-weight top quantile; remaining capital stays cash.
 
-    Tie-break: predicted_return_20d descending, then instrument_id ascending.
+    Tie-break: score descending, then instrument_id ascending.
     """
 
     def decide(self, policy_input: PortfolioPolicyInput) -> PortfolioPolicyOutput:
@@ -44,30 +44,35 @@ class RankLongOnlyV0Policy(PortfolioPolicy):
 
         ranked = sorted(
             signals,
-            key=lambda s: (-float(s.predicted_return_20d), int(s.instrument_id)),
+            key=lambda s: (-float(s.score), int(s.instrument_id)),
         )
         k = select_top_k(len(ranked), top_quantile)
         selected = ranked[:k]
         weight = 1.0 / k
         decisions: list[PortfolioDecision] = []
         for rank_idx, signal in enumerate(selected, start=1):
+            meta: dict[str, Any] = {
+                "instrument_id": signal.instrument_id,
+                "prediction_date": signal.as_of_date.isoformat(),
+                "rank": rank_idx,
+                "eligible_count": len(ranked),
+                "fold_id": signal.fold_id,
+                "sample_id": signal.sample_id,
+                "policy": POLICY_NAME,
+                "prediction_semantic": signal.prediction_semantic,
+                "prediction_score": signal.score,
+            }
+            if signal.prediction_semantic == "EXPECTED_RETURN":
+                meta["predicted_return_20d"] = signal.predicted_return_20d
             decisions.append(
                 PortfolioDecision(
                     ticker=signal.ticker,
                     target_weight=weight,
                     rationale=(
                         f"{POLICY_NAME}: rank {rank_idx}/{k} of {len(ranked)} "
-                        f"by predicted_return_20d on {signal.as_of_date.isoformat()}"
+                        f"by score on {signal.as_of_date.isoformat()}"
                     ),
-                    metadata={
-                        "instrument_id": signal.instrument_id,
-                        "predicted_return_20d": signal.predicted_return_20d,
-                        "prediction_date": signal.as_of_date.isoformat(),
-                        "rank": rank_idx,
-                        "fold_id": signal.fold_id,
-                        "sample_id": signal.sample_id,
-                        "policy": POLICY_NAME,
-                    },
+                    metadata=meta,
                 )
             )
         return PortfolioPolicyOutput(

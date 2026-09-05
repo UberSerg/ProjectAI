@@ -41,6 +41,13 @@ Champion / dividends / historical universe still deferred.
 Prediction ML Candidate V0 is **DONE** with research verdict **MIXED**
 (`pit_daily_core` v2, `forward_return_20d`, CatBoost, expanding walk-forward, 2026 holdout).
 
+**Prediction Candidate V1 Ranker** (research-only, in progress on
+`feature/prediction-candidate-v1-ranker`): CatBoostRanker / YetiRank on the same Dataset V2
+90-feature contract; output semantic `RANKING_SCORE` (relative attractiveness within a date,
+not calibrated return %). Evaluated on **DEVELOPMENT_OOS only**. **No Forward activation.**
+**No 2026 FINAL_HOLDOUT for model selection** (holdout already observed for V0). Does not
+replace Candidate V0; live Forward/Shadow stay on V0 until a separate promotion decision.
+
 Historical Simulator V0 is **IMPLEMENTED**: OOS-only predictions → RANK_LONG_ONLY_V0
 (top 20% equal weight, weekly) → Risk guardrails → next-open historical fills → portfolio
 ledger / metrics / IMOEX price-index benchmark. Explicitly **not** real execution; dividends

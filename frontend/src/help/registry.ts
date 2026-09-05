@@ -638,12 +638,97 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "candidate_model",
     kind: "term",
     title: "Модель-кандидат",
-    summary: "Зафиксированная версия прогнозной модели; в Лаборатории она не обучается.",
+    summary:
+      "Зафиксированная версия прогнозной модели; в Лаборатории она не обучается. V0 — прогноз изменения цены, V1 — рейтинговый балл.",
     details:
-      "Candidate — это модель вместе с её конфигурацией и уже посчитанными прогнозами. Лаборатория берёт готовый артефакт прогнозов, поэтому результат воспроизводим. Список кандидатов приходит из API и расширяется при появлении новых версий.",
-    interpretation: "Research verdict (например MIXED) — контекст исследования, а не оценка прибыльности.",
-    limitations: ["Обучение и переобучение моделей из UI недоступно."],
-    relatedIds: ["sim_oos", "config_hash"],
+      "Candidate — это модель вместе с её конфигурацией и уже посчитанными прогнозами. Лаборатория берёт готовый артефакт прогнозов, поэтому результат воспроизводим. V0 (CatBoostRegressor) оценивает ожидаемое изменение цены за 20 торговых дней. V1 Ranker (CatBoostRanker) оценивает относительную привлекательность инструментов на дату — выход это рейтинговый балл для порядка, а не процент доходности. Список кандидатов приходит из API.",
+    interpretation:
+      "Research verdict (например MIXED) — контекст исследования, а не оценка прибыльности. Баллы разных моделей напрямую между собой не сравниваются.",
+    limitations: [
+      "Обучение и переобучение моделей из UI недоступно.",
+      "V1 — только historical research; без Forward и без выбора по уже наблюдавшемуся 2026 HOLDOUT.",
+    ],
+    relatedIds: ["sim_oos", "config_hash", "ranking_model", "ranking_score"],
+  },
+  ranking_model: {
+    id: "ranking_model",
+    kind: "term",
+    title: "Модель ранжирования",
+    summary: "Модель, которая упорядочивает инструменты по относительной привлекательности на одну дату.",
+    details:
+      "В отличие от регрессии доходности, ranking-модель оптимизирует качество порядка внутри дня (cross-sectional). Candidate V1 Ranker обучается на YetiRank и выдаёт рейтинговый балл; портфельная политика использует этот порядок (Top 20% / Top 35%).",
+    interpretation: "Выше балл → выше место в рейтинге на эту дату, не «выше % доходности».",
+    limitations: [
+      "Баллы разных моделей несопоставимы по величине.",
+      "Не активируется в Forward/Shadow без отдельного решения.",
+    ],
+    relatedIds: ["ranking_score", "cross_sectional_rank", "rank_ic", "candidate_model"],
+  },
+  ranking_score: {
+    id: "ranking_score",
+    kind: "metric",
+    title: "Рейтинговый балл",
+    summary: "Выход модели ранжирования: число для упорядочивания инструментов, не процент доходности.",
+    details:
+      "Рейтинговый балл используется для порядка, а не как процент доходности. Шкала произвольна и зависит от конкретной версии модели; сравнивать абсолютные значения между V0 и V1 или разными прогонами нельзя.",
+    interpretation: "Смотрите место в рейтинге и относительный порядок, а не «+1.37%».",
+    limitations: ["Не калиброванный ожидаемый return.", "Не сравнивайте величину балла между моделями."],
+    relatedIds: ["ranking_model", "cross_sectional_rank", "ranking_relevance"],
+  },
+  cross_sectional_rank: {
+    id: "cross_sectional_rank",
+    kind: "term",
+    title: "Cross-sectional ранг",
+    summary: "Место инструмента среди всех доступных на ту же дату по баллу модели.",
+    details:
+      "На каждую дату строится рейтинг по prediction score / ranking score. Политика берёт верхний квантиль этого рейтинга. Это относительное сравнение «кто привлекательнее сегодня», а не абсолютный прогноз цены.",
+    interpretation: "Ранг 1 из 40 сильнее говорит о выборе, чем величина сырого балла.",
+    relatedIds: ["ranking_score", "rank_ic", "portfolio_policy"],
+  },
+  rank_ic: {
+    id: "rank_ic",
+    kind: "metric",
+    title: "Rank IC",
+    summary:
+      "Насколько порядок инструментов от модели совпал с фактическим порядком доходностей через 20 торговых дней.",
+    details:
+      "Обычно Spearman-корреляция рангов прогноза и realized return внутри даты, усреднённая по дням. Положительный Rank IC: выше в рейтинге модели чаще оказывались инструменты с лучшей фактической доходностью. Около нуля — слабая связь. Отрицательный — порядок чаще был обратным.",
+    interpretation: "Это качество ранжирования, не доказательство прибыльности портфеля и не статистическая значимость «из коробки».",
+    limitations: ["Не portfolio Sharpe.", "Не гарантия edge на будущем периоде."],
+    relatedIds: ["icir", "top_bottom_spread", "ranking_model"],
+  },
+  icir: {
+    id: "icir",
+    kind: "metric",
+    title: "ICIR",
+    summary: "Отношение среднего Rank IC к изменчивости Rank IC во времени.",
+    details:
+      "IC Information Ratio ≈ mean(Rank IC) / std(Rank IC) по датам. Показывает, насколько стабилен сигнал ранжирования день ото дня.",
+    interpretation: "Это не Sharpe портфеля и не метрика доходности стратегии.",
+    limitations: ["Не portfolio Sharpe.", "Чувствителен к числу дат и выбросам IC."],
+    relatedIds: ["rank_ic", "sim_sharpe"],
+  },
+  top_bottom_spread: {
+    id: "top_bottom_spread",
+    kind: "metric",
+    title: "Top−Bottom spread",
+    summary: "Разница средней фактической доходности верхнего и нижнего квантиля рейтинга модели.",
+    details:
+      "Диагностика: если модель хорошо ранжирует, верхняя корзина (например Top 20%) в среднем опережает нижнюю на горизонте 20 торговых дней. Считается по realized returns, не по баллу модели.",
+    interpretation: "Положительный spread поддерживает ranking-качество; отрицательный — сигнал слабый или обратный.",
+    limitations: ["Не учитывает издержки и оборот портфеля.", "Зависит от выбранного квантиля."],
+    relatedIds: ["rank_ic", "ranking_score", "sim_turnover"],
+  },
+  ranking_relevance: {
+    id: "ranking_relevance",
+    kind: "term",
+    title: "Ranking relevance",
+    summary: "Целевая метка для обучения ranker: относительная привлекательность внутри даты, не сырой % return.",
+    details:
+      "Для Candidate V1 forward return преобразуется в cross-sectional percentile relevance на дату (лучший день получает 1, худший — 0). Модель учится воспроизводить этот порядок; выход — рейтинговый балл, а не калиброванный процент.",
+    interpretation: "Relevance — учебная цель; в UI симуляции показывается ranking score / ранг.",
+    limitations: ["Использует будущую доходность только как Y для обучения/оценки, не как feature X(t)."],
+    relatedIds: ["ranking_score", "ranking_model", "cross_sectional_rank"],
   },
   portfolio_policy: {
     id: "portfolio_policy",
@@ -693,12 +778,14 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "fair_comparison",
     kind: "term",
     title: "Сопоставимые условия",
-    summary: "Эксперименты сравнимы, если совпадают модель, сегмент, период, капитал и правила исполнения.",
+    summary:
+      "Эксперименты сравнимы, если совпадают период, политика, риск, издержки, капитал и исполнение; модель может отличаться (A/B моделей).",
     details:
-      "Если хотя бы одно из этих условий различается, разницу метрик нельзя приписать стратегии. UI показывает бейдж «Условия различаются» и перечисляет конкретные отличия.",
-    interpretation: "Полезнее всего сравнение, где отличается ровно один параметр.",
+      "Fair badge «Сопоставимые условия» ставится, когда совпадают сегмент, даты, policy, risk, commission, капитал и правила исполнения. Различие candidate_config_hash / модели допускается — это как раз честное сравнение V0 vs V1. Если различаются политика, риск, период или издержки, UI показывает «Условия различаются» и перечисляет отличия.",
+    interpretation:
+      "Самое полезное сравнение моделей — когда отличается только Candidate при фиксированной политике и риске.",
     limitations: ["Совпадение условий не делает результат статистически значимым."],
-    relatedIds: ["research_period", "comparison_family", "config_hash"],
+    relatedIds: ["research_period", "comparison_family", "config_hash", "candidate_model"],
   },
   config_hash: {
     id: "config_hash",
@@ -1016,6 +1103,9 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "development_oos",
       "observed_holdout",
       "candidate_model",
+      "ranking_model",
+      "ranking_score",
+      "rank_ic",
       "portfolio_policy",
       "risk_policy",
       "simulation_cost",
@@ -1041,8 +1131,8 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     title: "Сравнение экспериментов",
     about: "Сопоставление 2–5 исторических прогонов по метрикам и кривым NAV/просадки.",
     understand: [
-      "Fair comparison: одинаковые модель, сегмент, период, капитал, исполнение",
-      "Почему важны одинаковый период и модель",
+      "Fair comparison: одинаковые период, политика, риск, издержки, капитал, исполнение; модель может отличаться",
+      "Почему V0 vs V1 при фиксированной политике — честное сравнение моделей",
       "Семейство издержек 0/5/10/20 bps",
       "Почему ниже Max DD может сопровождаться ниже Return",
       "Почему ниже Turnover важен при ненулевых издержках",
@@ -1052,6 +1142,8 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "fair_comparison",
       "comparison_family",
       "observed_holdout",
+      "candidate_model",
+      "ranking_model",
       "sim_excess",
       "sim_max_drawdown",
       "sim_turnover",

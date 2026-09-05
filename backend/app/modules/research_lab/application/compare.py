@@ -16,11 +16,15 @@ from app.modules.simulator.infrastructure.repository import get_nav_series, get_
 MIN_COMPARE_RUNS = 2
 MAX_COMPARE_RUNS = 5
 
+# Model hash is intentionally excluded: V0 vs V1 A/B is a fair model comparison
+# when period / policy / risk / cost / capital / execution match.
 _FAIR_FIELDS: tuple[tuple[str, str], ...] = (
-    ("candidate_config_hash", "Модель (candidate config hash)"),
     ("segment", "Сегмент прогнозов"),
     ("date_from", "Дата начала"),
     ("date_to", "Дата окончания"),
+    ("policy_name", "Портфельная стратегия"),
+    ("risk_name", "Риск-политика"),
+    ("commission_bps", "Комиссия (bps)"),
     ("initial_capital", "Стартовый капитал"),
     ("execution_timing", "Исполнение"),
     ("fractional_shares", "Дробные лоты"),
@@ -96,6 +100,8 @@ def compare_runs(session: Session, run_ids: list[int]) -> dict[str, Any]:
 
     differences = _build_differences(contexts)
     fair_comparison = len(differences) == 0
+    candidate_hashes = {ctx.run.candidate_config_hash for ctx in contexts}
+    model_comparison = fair_comparison and len(candidate_hashes) > 1
     period_aligned = _period_aligned(contexts)
     cost_family = _build_cost_family(contexts)
 
@@ -103,9 +109,12 @@ def compare_runs(session: Session, run_ids: list[int]) -> dict[str, Any]:
         "runs": [ctx.summary for ctx in contexts],
         "fair_comparison": fair_comparison,
         "fair_badge": "Сопоставимые условия" if fair_comparison else "Условия различаются",
+        "model_comparison": model_comparison,
         "differences": differences,
         "metrics_table": _build_metrics_table(contexts),
-        "interpretation": _build_interpretation(contexts, cost_family, fair_comparison),
+        "interpretation": _build_interpretation(
+            contexts, cost_family, fair_comparison, model_comparison=model_comparison
+        ),
         "observed_holdout_warning": _holdout_warning(contexts),
         "cost_family": cost_family,
         "nav_series": _build_nav_series(session, contexts),
@@ -122,6 +131,15 @@ def _field_value(ctx: _RunContext, field: str) -> Any:
     if field in {"date_from", "date_to"}:
         value = getattr(ctx.run, field)
         return value.isoformat() if value is not None else None
+    if field == "policy_name":
+        return ctx.payload.get("policy_name") or (
+            ctx.spec_row.policy_name if ctx.spec_row is not None else None
+        )
+    if field == "risk_name":
+        return ctx.payload.get("risk_name") or (ctx.run.provenance or {}).get("risk_name")
+    if field == "commission_bps":
+        raw = ctx.payload.get("commission_bps")
+        return float(raw) if raw is not None else None
     return ctx.payload.get(field)
 
 
@@ -295,12 +313,20 @@ def _build_interpretation(
     contexts: list[_RunContext],
     cost_family: dict[str, Any],
     fair_comparison: bool,
+    *,
+    model_comparison: bool = False,
 ) -> list[str]:
     if len(contexts) < 2:
         return []
 
     labels = {ctx.run.id: _run_label(ctx.summary, ctx.run.id) for ctx in contexts}
     observations: list[str] = []
+
+    if model_comparison:
+        observations.append(
+            "Сравниваются разные модели при одинаковых периоде, политике, риске, "
+            "издержках, капитале и исполнении — это сопоставимое сравнение моделей."
+        )
 
     turnovers = [
         (ctx.run.id, (ctx.run.metrics or {}).get("turnover_ratio"))

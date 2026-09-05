@@ -51,6 +51,8 @@ class CandidateOption:
     research_verdict: str
     model_type: str
     target_label: str
+    prediction_semantic: str
+    output_label: str
     eligible: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +65,8 @@ class CandidateOption:
             "research_verdict": self.research_verdict,
             "model_type": self.model_type,
             "target_label": self.target_label,
+            "prediction_semantic": self.prediction_semantic,
+            "output_label": self.output_label,
             "eligible": self.eligible,
             "help_id": "candidate_model",
         }
@@ -107,8 +111,13 @@ class RiskOption:
 
 
 def list_candidates() -> list[CandidateOption]:
-    """Future Candidate V1+ append here / via registry — Lab does not hardcode forever."""
-    return [
+    """Eligible Prediction Candidates for Research Lab (V0 + V1 when artifacts exist)."""
+    from pathlib import Path
+
+    from app.modules.prediction.candidate_v1_config import CANDIDATE_V1_RANKER_CONFIG
+    from app.modules.prediction.infrastructure.artifacts import candidate_artifact_dir
+
+    options = [
         CandidateOption(
             id=f"{CANDIDATE_V0_CONFIG.candidate_name}/{CANDIDATE_V0_CONFIG.candidate_version}",
             candidate_name=CANDIDATE_V0_CONFIG.candidate_name,
@@ -118,9 +127,45 @@ def list_candidates() -> list[CandidateOption]:
             research_verdict="MIXED",
             model_type="CatBoostRegressor",
             target_label=CANDIDATE_V0_CONFIG.target,
+            prediction_semantic="EXPECTED_RETURN",
+            output_label="Прогноз изменения цены",
             eligible=True,
         )
     ]
+    v1 = CANDIDATE_V1_RANKER_CONFIG
+    v1_dir = candidate_artifact_dir(
+        candidate_name=v1.candidate_name,
+        candidate_version=v1.candidate_version,
+        config_hash=v1.config_hash(),
+    )
+    marker = Path(v1_dir) / "holdout_evaluated_marker.json"
+    config_path = Path(v1_dir) / "candidate_config.json"
+    pred_path = Path(v1_dir) / "predictions_development.csv"
+    eligible = marker.exists() and config_path.exists() and pred_path.exists()
+    verdict = "candidate"
+    if eligible:
+        try:
+            import json
+
+            verdict = str(json.loads(marker.read_text(encoding="utf-8")).get("research_verdict") or verdict)
+        except Exception:  # noqa: BLE001
+            pass
+    options.append(
+        CandidateOption(
+            id=f"{v1.candidate_name}/{v1.candidate_version}",
+            candidate_name=v1.candidate_name,
+            candidate_version=v1.candidate_version,
+            human_name=v1.human_name,
+            technical_line="CatBoostRanker · рейтинговый балл · 20 trading days",
+            research_verdict=verdict if eligible else "NOT_TRAINED",
+            model_type="CatBoostRanker",
+            target_label="ranking_score (from forward_return_20d relevance)",
+            prediction_semantic="RANKING_SCORE",
+            output_label="Рейтинговый балл",
+            eligible=eligible,
+        )
+    )
+    return options
 
 
 def list_policies() -> list[PolicyOption]:

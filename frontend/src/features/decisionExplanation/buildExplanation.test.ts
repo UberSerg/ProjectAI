@@ -212,3 +212,52 @@ describe("policy reason variants", () => {
     expect(expl.detailed).not.toMatch(/модель решила купить/i);
   });
 });
+
+describe("RANKING_SCORE explanation", () => {
+  it("does not format ranking score as predicted return %", () => {
+    const fill = {
+      execution_date: "2017-04-18",
+      decision_date: "2017-04-17",
+      instrument_id: 1,
+      ticker: "LKOH",
+      side: "BUY",
+      quantity: 1,
+      raw_open: 100,
+      fill_price: 100,
+      predicted_return_20d: 1.37,
+      rank: 4,
+      target_weight: 0.125,
+      prediction_date: "2017-04-17",
+      policy_name: "RANK_HYSTERESIS_LONG_ONLY_V1",
+      reason: "ENTER_TOP20",
+      display_name: "Lukoil",
+      metadata: {
+        prediction_semantic: "RANKING_SCORE",
+        prediction_score: 1.37,
+        prediction_candidate: "prediction_ml_candidate/v1_ranker",
+        eligible_n: 41,
+      },
+    };
+    const expl = buildDecisionExplanation(
+      contextFromSimulatorFill(fill, {
+        predictionCandidate: "prediction_ml_candidate/v1_ranker",
+      }),
+    );
+    expect(expl.summary).not.toMatch(/\+1[,.]37/);
+    expect(expl.summary).not.toMatch(/прогноз/i);
+    expect(expl.detailed).toMatch(/рейтинговый балл|порядка/i);
+    expect(expl.detailed).not.toMatch(/ожидаемого изменения цены/i);
+    expect(expl.technical.some((f) => f.label === "Ranking score" && f.value === "1.37")).toBe(
+      true,
+    );
+    expect(expl.technical.some((f) => f.label === "Prediction semantic")).toBe(true);
+    expect(expl.technical.some((f) => f.label === "Predicted return 20d")).toBe(false);
+    expect(
+      expl.technical.some(
+        (f) => f.label === "Prediction candidate (human)" && f.value === "Модель ранжирования V1",
+      ),
+    ).toBe(true);
+    assertSafeWording(expl.summary);
+    assertSafeWording(expl.detailed);
+  });
+});

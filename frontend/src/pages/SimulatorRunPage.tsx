@@ -476,6 +476,10 @@ export function SimulatorRunPage() {
           <DecisionExplanationPanel
             context={contextFromSimulatorFill(selectedFill, {
               candidateConfigHash: run.candidate_config_hash,
+              predictionCandidate:
+                run.spec?.candidate_name && run.spec?.candidate_version
+                  ? `${run.spec.candidate_name}/${run.spec.candidate_version}`
+                  : run.spec?.candidate_name ?? undefined,
             })}
             onClose={() => setSelectedFill(null)}
           />
