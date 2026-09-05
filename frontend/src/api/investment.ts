@@ -186,6 +186,9 @@ export interface InvestmentDecisionResponse {
     confidence: number | null;
     model_source: string | null;
     calibration_status?: string;
+    confidence_level?: string;
+    confidence_reason?: string;
+    sample_size?: number | null;
     prediction_quality?: string;
     limitations?: string[];
   } | null;
@@ -215,6 +218,13 @@ export interface InvestmentDecisionResponse {
     uncertainty_note: string;
     buckets: CalibrationBucketView[];
     limitations: string[];
+  };
+  equity_confidence?: {
+    confidence_level: string;
+    reason_ru: string;
+    sample_size: number | null;
+    calibration_status: string;
+    reason_codes: string[];
   };
   risk_budget: Record<string, unknown>;
   decision: InvestmentDecisionView;
@@ -281,3 +291,76 @@ export const getEquityCalibration = (signal?: AbortSignal) =>
     buckets: CalibrationBucketView[];
     limitations: string[];
   }>("/investment-decision/calibration", { signal });
+
+export interface CalibrationReport {
+  generated_at: string;
+  pipeline: string;
+  candidate_v0: {
+    id: string;
+    title: string;
+    semantic: string;
+    calibration: {
+      sample_count: number;
+      pending_count: number;
+      coverage: number | null;
+      bias: number | null;
+      mae: number | null;
+      direction_accuracy: number | null;
+      calibration_status: string;
+      uncertainty_note: string;
+      bias_sign?: string;
+      buckets: Array<{
+        bucket_name: string;
+        sample_count: number;
+        average_prediction: number | null;
+        average_realized_return: number | null;
+        median_realized_return: number | null;
+        error: number | null;
+        bias: number | null;
+        win_rate: number | null;
+      }>;
+    };
+    confidence: {
+      confidence_level: string;
+      reason_ru: string;
+      sample_size: number;
+      calibration_status: string;
+      reason_codes: string[];
+    };
+  };
+  candidate_v1: {
+    id: string;
+    title: string;
+    semantic: string;
+    calibration: {
+      sample_count: number;
+      pending_count: number;
+      coverage: number | null;
+      mean_spearman_rank_ic: number | null;
+      mean_top20_realized: number | null;
+      mean_bottom20_realized: number | null;
+      mean_top_minus_bottom: number | null;
+      calibration_status: string;
+      uncertainty_note: string;
+      rank_bucket_realized: Array<Record<string, number | string | null>>;
+    };
+    confidence: {
+      confidence_level: string;
+      reason_ru: string;
+      sample_size: number;
+      calibration_status: string;
+    };
+  };
+  chart_data: {
+    v0_buckets: Array<{
+      bucket: string;
+      average_prediction: number | null;
+      average_realized_return: number | null;
+      sample_count: number;
+    }>;
+  };
+  note: string;
+}
+
+export const getCalibrationReport = (signal?: AbortSignal) =>
+  apiRequest<CalibrationReport>("/calibration", { signal });

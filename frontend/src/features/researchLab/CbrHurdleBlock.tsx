@@ -33,6 +33,10 @@ export function CbrHurdleBlock() {
         Risk & Opportunity Engine — объяснение структуры капитала:{" "}
         <Link to="/investment-decision">Инвестиционное решение Kraken</Link>
       </p>
+      <p>
+        Качество моделей (calibration / bias / ranking):{" "}
+        <Link to="/calibration">Качество прогнозов Kraken</Link>
+      </p>
       <p className="muted">
         Сравнение Equity only / Fixed Income only / Allocation Policy / CBR без автовыбора
         победителя. Главный вопрос: оправдал ли результат риск?

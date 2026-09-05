@@ -44,6 +44,9 @@ class EquityOpportunity:
     limitations: tuple[str, ...] = ()
     prediction_quality: PredictionQuality = PredictionQuality.UNKNOWN
     calibration_status: str = "UNKNOWN"
+    confidence_level: str = "UNKNOWN"
+    confidence_reason: str = ""
+    sample_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

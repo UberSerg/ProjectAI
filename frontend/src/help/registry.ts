@@ -670,10 +670,10 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     title: "Рейтинговый балл",
     summary: "Выход модели ранжирования: число для упорядочивания инструментов, не процент доходности.",
     details:
-      "Рейтинговый балл используется для порядка, а не как процент доходности. Шкала произвольна и зависит от конкретной версии модели; сравнивать абсолютные значения между V0 и V1 или разными прогонами нельзя.",
+      "Рейтинговый балл используется для порядка, а не как процент доходности. Запрещено калибровать RANKING_SCORE как expected return %. Для качества V1 смотрят rank IC и top quantile realized.",
     interpretation: "Смотрите место в рейтинге и относительный порядок, а не «+1.37%».",
     limitations: ["Не калиброванный ожидаемый return.", "Не сравнивайте величину балла между моделями."],
-    relatedIds: ["ranking_model", "cross_sectional_rank", "ranking_relevance"],
+    relatedIds: ["ranking_model", "cross_sectional_rank", "ranking_relevance", "prediction_calibration"],
   },
   cross_sectional_rank: {
     id: "cross_sectional_rank",
@@ -1553,6 +1553,65 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     details:
       "Тексты объясняют премию над hurdle, ограничения risk budget и недостаток подтверждённых возможностей — без magic score.",
   },
+  prediction_calibration: {
+    id: "prediction_calibration",
+    kind: "metric",
+    title: "Prediction calibration",
+    summary: "Насколько фактические доходности совпадали с прогнозами модели по корзинам.",
+    details:
+      "Сравнивает predicted vs realized только по зрелым EVALUATED исходам после 20 торговых наблюдений.",
+  },
+  confidence_level: {
+    id: "confidence_level",
+    kind: "metric",
+    title: "Confidence level",
+    summary: "UNKNOWN / LOW / MEDIUM / HIGH — насколько можно доверять прогнозу.",
+    details:
+      "HIGH не назначается без строгих доказательств. Мало зрелых outcomes → UNKNOWN. Это не вероятность прибыли.",
+  },
+  model_bias: {
+    id: "model_bias",
+    kind: "metric",
+    title: "Model bias",
+    summary: "Средняя разница realized − predicted.",
+    details:
+      "Отрицательный bias значит модель систематически завышает ожидания; положительный — занижает.",
+  },
+  prediction_error: {
+    id: "prediction_error",
+    kind: "metric",
+    title: "Prediction error (MAE)",
+    summary: "Средняя абсолютная ошибка |predicted − realized|.",
+    details: "Один metric не доказывает, что модель «плохая» — смотрят вместе с bias, hit rate и n.",
+  },
+  evaluated_prediction: {
+    id: "evaluated_prediction",
+    kind: "metric",
+    title: "Evaluated prediction",
+    summary: "Прогноз, для которого уже известен realized return.",
+    details: "До зрелости статус PENDING — такие строки не входят в калибровку.",
+  },
+  mature_outcome: {
+    id: "mature_outcome",
+    kind: "metric",
+    title: "Mature outcome",
+    summary: "Исход после 20 торговых наблюдений.",
+    details: "Календарные дни ≠ торговые. Без зрелости нет честной калибровки.",
+  },
+  expected_return: {
+    id: "expected_return",
+    kind: "metric",
+    title: "Expected return",
+    summary: "Прогноз доходности Candidate V0 (EXPECTED_RETURN).",
+    details: "Не гарантия. Без калибровки confidence = UNKNOWN.",
+  },
+  calibration_bucket: {
+    id: "calibration_bucket",
+    kind: "metric",
+    title: "Calibration bucket",
+    summary: "Корзина прогнозов (lt_0, 0–2%, 2–5%, 5–10%, >10%).",
+    details: "Границы versioned (expected_return_buckets_v1) и не меняются задним числом.",
+  },
 };
 
 export const HELP_PAGES: Record<string, PageHelpContent> = {
@@ -2062,6 +2121,41 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Нет брокера и real money.",
       "Credit quality часто UNKNOWN.",
       "Налоги не моделируются.",
+    ],
+  },
+  prediction_calibration: {
+    id: "prediction_calibration",
+    title: "Качество прогнозов Kraken",
+    about:
+      "Calibration & Confidence: насколько часто ожидаемая доходность модели совпадает с реальностью.",
+    understand: [
+      "Почему прогноз ≠ гарантия",
+      "Чем EXPECTED_RETURN отличается от RANKING_SCORE",
+      "Почему pending outcomes не смешивают с evaluated",
+      "Как confidence влияет на allocation без fake certainty",
+      "Что показывают buckets prediction vs realized",
+    ],
+    metrics: [
+      "prediction_calibration",
+      "confidence_level",
+      "model_bias",
+      "prediction_error",
+      "evaluated_prediction",
+      "mature_outcome",
+      "expected_return",
+      "ranking_score",
+      "calibration_bucket",
+      "expected_excess_return",
+    ],
+    interpret: [
+      "Сначала sample size и coverage, потом bias/MAE.",
+      "Если модель систематически выше реальности — доверие падает.",
+      "V1 ranking не сравнивают return-метриками V0.",
+    ],
+    limitations: [
+      "Нет retraining и tuning моделей.",
+      "Мало зрелых outcomes → UNKNOWN — это честно.",
+      "Нет broker / real money.",
     ],
   },
   fundamentals: {
