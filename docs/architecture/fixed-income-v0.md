@@ -14,6 +14,7 @@ Cashflow-типы: `COUPON`, `AMORTIZATION`, `REDEMPTION`, `OFFER`. Оферта
 Стоимость покупки: номинал × чистая цена в процентах + НКД + комиссии. Налоги имеют статус
 `NOT_MODELED`, режим расчётов — `SETTLEMENT_NOT_MODELED_V0`.
 
-Валюта лица бумаги берётся из `FACEUNIT`, а не из `CURRENCYID`: на TQOB/TQCB часто
-`CURRENCYID=SUR` при иностранном номинале. Такие выпуски — `UNSUPPORTED` / `RESEARCH_ONLY`,
-не «рублёвая vanilla».
+Валюта номинала берётся из `FACEUNIT`. На ОФЗ MOEX часто отдаёт `SUR` — это российский
+рубль и нормализуется в canonical `RUB` (с сохранением raw value). `CURRENCYID` на доске —
+settlement/quotation и **не** подменяет валюту номинала: при `FACEUNIT=USD` и
+`CURRENCYID=SUR` бумага остаётся FX face.

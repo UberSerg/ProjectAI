@@ -130,10 +130,37 @@ export function BondsPage() {
       <div className="card">
         <h3>Инструменты fixed income</h3>
         {bonds.length ? (
-          <div className="table-wrap"><table><thead><tr><th>Тикер</th><th>Тип</th><th>Номинал</th><th>Поддержка</th><th>Кредит</th></tr></thead>
-            <tbody>{bonds.map((bond) => <tr key={bond.instrument_id}><td>{bond.symbol}</td><td>{bond.bond_type}</td><td>{bond.nominal ?? "—"}</td><td>{bond.support_status}</td><td>{bond.credit_quality_status}</td></tr>)}</tbody>
-          </table></div>
-        ) : <p className="muted">Доверенные данные облигаций ещё не загружены — NOT_READY.</p>}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Тикер</th>
+                  <th>Тип</th>
+                  <th>Валюта</th>
+                  <th>Номинал</th>
+                  <th>Поддержка</th>
+                  <th>Кредит</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bonds.map((bond) => (
+                  <tr key={bond.instrument_id}>
+                    <td>{bond.symbol}</td>
+                    <td>{bond.bond_type}</td>
+                    <td title={bond.currency_raw ? `MOEX FACEUNIT=${bond.currency_raw}` : undefined}>
+                      {bond.currency_display ?? "—"}
+                    </td>
+                    <td>{bond.nominal ?? "—"}</td>
+                    <td>{bond.support_status}</td>
+                    <td>{bond.credit_quality_status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">Доверенные данные облигаций ещё не загружены — NOT_READY.</p>
+        )}
       </div>
 
       <div className="card">

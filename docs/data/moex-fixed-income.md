@@ -4,14 +4,15 @@
 `python -m app.modules.investment.cli fixed-income-audit --live --limit 20` делает только
 ограниченную выборку (максимум 100 строк на доску).
 
-Клиент сохраняет имена и значения фактически наблюдаемых колонок без выдумывания семантики.
-Если валюта, номинал, тип купона, погашение или оферта не подтверждены источником, значение
-остаётся `UNKNOWN`, а поддержка — `RESEARCH_ONLY` либо `UNSUPPORTED`.
+## Валютные поля (подтверждено live audit)
 
-**Валюта номинала:** используйте `FACEUNIT`, не `CURRENCYID`. На живой выборке TQOB/TQCB
-часто `CURRENCYID=SUR` при `FACEUNIT=CNY/USD`. Такие выпуски не считаются рублёвой vanilla.
+| Поле | Роль | Notes |
+|------|------|-------|
+| `FACEUNIT` | Валюта номинала | MOEX: face-value currency. На ОФЗ часто `SUR` = российский рубль → canonical `RUB`. |
+| `CURRENCYID` | Settlement / quotation | На TQOB/TQCB часто `SUR` даже при `FACEUNIT=USD/CNY`. **Не** использовать как face currency. |
+| `SEC_CURRENCY` | — | В используемом board securities payload не наблюдается. |
 
-Наблюдаемые блоки ISS: `securities`, `marketdata`, `marketdata_yields`; детали выпуска —
-`/iss/securities/{SECID}.json`, cashflow-подобные данные — `bondization` (если доступно).
+Каноническая валюта ProjectAI — `RUB`. Raw MOEX value сохраняется в provenance (`raw_fields.FACEUNIT`).
 
-Планировщик обновления fixed income в V0 выключен. Обычные тесты не обращаются к MOEX.
+Клиент не выдумывает купонный график. Если тип купона не подтверждён источником, support =
+`RESEARCH_ONLY`. Планировщик обновления fixed income в V0 выключен.

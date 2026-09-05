@@ -22,6 +22,9 @@ export interface BondInstrument {
   symbol: string;
   name: string;
   bond_type: string;
+  currency?: string | null;
+  currency_display?: string | null;
+  currency_raw?: string | null;
   nominal?: number | null;
   maturity_date?: string | null;
   support_status: string;

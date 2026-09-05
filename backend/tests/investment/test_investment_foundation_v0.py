@@ -7,6 +7,7 @@ from app.modules.investment.application.services import (
     CbrHurdleProvider,
     classify_vanilla_rub_fixed_rate,
     key_rate_audit,
+    resolve_bond_face_currency,
 )
 from app.modules.investment.domain.allocation import (
     AllocationCandidate,
@@ -97,12 +98,50 @@ def test_synthetic_purchase_example_from_spec() -> None:
     assert purchase.cash_required == Decimal("992.50")
 
 
-def test_faceunit_overrides_currencyid_sur() -> None:
-    from app.modules.investment.application.services import resolve_bond_face_currency
+def test_faceunit_sur_is_canonical_rub() -> None:
+    from app.modules.investment.domain.currency import (
+        MoexCurrencyField,
+        display_currency_ru,
+        normalize_moex_currency_token,
+        resolve_nominal_currency,
+    )
 
+    sur = normalize_moex_currency_token("SUR", field=MoexCurrencyField.FACEUNIT)
+    assert sur.canonical == "RUB"
+    assert sur.raw_value == "SUR"
+    assert display_currency_ru(sur.canonical) == "Рубли"
+
+    rub = normalize_moex_currency_token("RUB", field=MoexCurrencyField.FACEUNIT)
+    assert rub.canonical == "RUB"
+
+    usd = normalize_moex_currency_token("USD", field=MoexCurrencyField.FACEUNIT)
+    assert usd.canonical == "USD"
+    cny = normalize_moex_currency_token("CNY", field=MoexCurrencyField.FACEUNIT)
+    assert cny.canonical == "CNY"
+
+    unknown = normalize_moex_currency_token("ZZZ", field=MoexCurrencyField.FACEUNIT)
+    assert unknown.canonical == "UNKNOWN"
+
+    missing = resolve_nominal_currency(face_unit=None, currency_id="SUR")
+    assert missing.canonical == "UNKNOWN"  # CURRENCYID alone must not invent face RUB
+
+    # FACEUNIT wins over settlement CURRENCYID
     assert resolve_bond_face_currency(face_unit="CNY", currency_id="SUR") == "CNY"
-    assert resolve_bond_face_currency(face_unit="RUB", currency_id="SUR") == "RUB"
+    assert resolve_bond_face_currency(face_unit="SUR", currency_id="USD") == "RUB"
+
     status, reasons = classify_vanilla_rub_fixed_rate(
+        currency=None,
+        coupon_type="FIXED",
+        has_offer=False,
+        nominal=1000,
+        maturity_date=date(2030, 1, 1),
+        face_unit="SUR",
+        currency_id="SUR",
+    )
+    assert status is BondSupportStatus.SUPPORTED
+    assert "currency_not_rub" not in reasons
+
+    status_fx, reasons_fx = classify_vanilla_rub_fixed_rate(
         currency="RUB",
         coupon_type="FIXED",
         has_offer=False,
@@ -111,8 +150,14 @@ def test_faceunit_overrides_currencyid_sur() -> None:
         face_unit="USD",
         currency_id="SUR",
     )
-    assert status is BondSupportStatus.UNSUPPORTED
-    assert "currency_not_rub" in reasons
+    assert status_fx is BondSupportStatus.UNSUPPORTED
+    assert "currency_not_rub" in reasons_fx
+
+
+def test_faceunit_overrides_currencyid_sur() -> None:
+    # Kept as regression alias of the stronger suite above.
+    assert resolve_bond_face_currency(face_unit="CNY", currency_id="SUR") == "CNY"
+    assert resolve_bond_face_currency(face_unit="SUR", currency_id="SUR") == "RUB"
 
 
 def test_cashflow_taxonomy_and_offer_is_research_only() -> None:

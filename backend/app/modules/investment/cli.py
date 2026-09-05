@@ -34,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     fi.add_argument("--limit", type=int, default=20)
     allocation = commands.add_parser("allocation-preview")
     allocation.add_argument("--capital", type=Decimal, default=Decimal("100000"))
+    ingest = commands.add_parser("ingest-bonds-sample")
+    ingest.add_argument("--per-board", type=int, default=5)
     args = parser.parse_args(argv)
 
     if args.command == "key-rate-audit":
@@ -46,6 +48,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             with core_session() as session:
                 _print(fixed_income_readiness(session))
+    elif args.command == "ingest-bonds-sample":
+        from app.modules.investment.application.ingest_bonds import ingest_bounded_rub_bonds
+
+        with core_session() as session:
+            payload = ingest_bounded_rub_bonds(session, per_board=args.per_board)
+            session.commit()
+        _print(payload)
     elif args.command == "allocation-preview":
         result = allocate_integer_lots(
             [

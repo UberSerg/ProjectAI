@@ -12,6 +12,11 @@ from sqlalchemy import Date, cast, desc, func, select, text
 from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Instrument, Series, SeriesValue
+from app.modules.investment.domain.currency import (
+    CanonicalCurrency,
+    display_currency_ru,
+    resolve_nominal_currency,
+)
 from app.modules.investment.domain.fixed_income import (
     BondSupportStatus,
     BondType,
@@ -93,21 +98,15 @@ def resolve_bond_face_currency(
     face_unit: str | None = None,
     currency_id: str | None = None,
 ) -> str | None:
-    """Prefer FACEUNIT over CURRENCYID.
+    """Canonical nominal currency or None when UNKNOWN/missing.
 
-    Live MOEX TQOB/TQCB rows often show CURRENCYID=SUR while FACEUNIT is CNY/USD.
-    Face currency decides whether the bond is a RUB vanilla candidate.
+    Prefer FACEUNIT. Do not use CURRENCYID as face fallback (settlement ≠ nominal).
+    On FACEUNIT, MOEX ``SUR``/``RUR`` normalize to ``RUB``.
     """
-    for raw in (face_unit, currency_id):
-        if raw is None:
-            continue
-        text = str(raw).strip().upper()
-        if not text:
-            continue
-        if text in {"SUR", "RUR", "RUB"}:
-            return "RUB"
-        return text
-    return None
+    resolved = resolve_nominal_currency(face_unit=face_unit, currency_id=currency_id)
+    if resolved.canonical == CanonicalCurrency.UNKNOWN.value:
+        return None
+    return resolved.canonical
 
 
 def classify_vanilla_rub_fixed_rate(
@@ -121,8 +120,15 @@ def classify_vanilla_rub_fixed_rate(
     currency_id: str | None = None,
 ) -> tuple[BondSupportStatus, list[str]]:
     reasons: list[str] = []
-    resolved = resolve_bond_face_currency(face_unit=face_unit, currency_id=currency_id) or currency
-    if resolved != "RUB":
+    face = resolve_nominal_currency(face_unit=face_unit, currency_id=currency_id)
+    if face_unit is not None and str(face_unit).strip():
+        resolved = face.canonical
+    elif currency in {CanonicalCurrency.RUB.value, "USD", "CNY", "EUR"}:
+        resolved = str(currency)
+    else:
+        resolved = face.canonical
+
+    if resolved != CanonicalCurrency.RUB.value:
         reasons.append("currency_not_rub")
     if (coupon_type or "").upper() not in {"FIXED", "CONSTANT"}:
         reasons.append("coupon_not_observed_fixed")
@@ -130,7 +136,7 @@ def classify_vanilla_rub_fixed_rate(
         reasons.append("missing_nominal")
     if maturity_date is None:
         reasons.append("missing_maturity")
-    if resolved and resolved != "RUB":
+    if resolved != CanonicalCurrency.RUB.value:
         return BondSupportStatus.UNSUPPORTED, reasons
     if has_offer:
         reasons.append("offer_requires_policy")
@@ -210,7 +216,11 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
                 "instrument_id": instrument.id,
                 "symbol": instrument.symbol,
                 "name": instrument.name,
-                "currency": instrument.currency,
+                "currency": term.currency or instrument.currency,
+                "currency_display": display_currency_ru(
+                    term.currency or instrument.currency or "UNKNOWN"
+                ),
+                "currency_raw": (term.raw_fields or {}).get("FACEUNIT"),
                 "bond_type": bond_type.value,
                 "nominal": float(term.nominal) if term.nominal is not None else None,
                 "maturity_date": term.maturity_date,
