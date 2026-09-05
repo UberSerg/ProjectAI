@@ -125,6 +125,7 @@ export const labels = {
     technical: "Технический анализ",
     fundamentals: "Фундаментал и события",
     bonds: "Облигации",
+    allocation: "Распределение капитала",
     recommendations: "Рекомендации",
     models: "Модели",
     decisionMemory: "Память решений",

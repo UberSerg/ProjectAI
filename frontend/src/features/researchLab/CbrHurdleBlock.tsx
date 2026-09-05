@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getHurdle, type HurdleQuote } from "../../api/investment";
 import { MetricHelp } from "../../help";
 
@@ -23,6 +24,10 @@ export function CbrHurdleBlock() {
         {quote?.annual_rate == null
           ? "INCONCLUSIVE — ключевая ставка или сопоставимый период недоступны."
           : `Текущий ориентир: ${(quote.annual_rate * 100).toFixed(2)}% годовых; verdict рассчитывается по результату симуляции за тот же период.`}
+      </p>
+      <p>
+        Сравнить research-политики Equity / Fixed Income / Cash / Hurdle Gate:{" "}
+        <Link to="/allocation">Распределение капитала</Link>
       </p>
     </div>
   );
