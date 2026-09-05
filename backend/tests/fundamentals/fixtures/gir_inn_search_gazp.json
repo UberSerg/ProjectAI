@@ -1,0 +1,13 @@
+{
+  "content": [
+    {
+      "id": 6622458,
+      "inn": "<strong>7736050003</strong>",
+      "shortName": "ПАО \"ГАЗПРОМ\"",
+      "ogrn": "1027700070518",
+      "statusCode": "ACTIVE"
+    }
+  ],
+  "totalElements": 1,
+  "empty": false
+}

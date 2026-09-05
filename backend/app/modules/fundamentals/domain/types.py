@@ -19,6 +19,8 @@ SOURCE_AUDIT_KIND = "FUNDAMENTAL_SOURCE_AUDIT_V1"
 # Provider / source codes written into `source` columns.
 SOURCE_MOEX_ISS = "MOEX_ISS"
 SOURCE_MARKET_CORPORATE_ACTIONS = "MARKET_CORPORATE_ACTIONS"
+SOURCE_EDISCLOSURE_GATEWAY = "EDISCLOSURE_GATEWAY"
+SOURCE_GIR_BO = "GIR_BO"
 
 # Feature set identities. Nothing is materialised into a shared feature table in V1;
 # these codes name the in-memory contracts so a later stage can pin them.
@@ -138,6 +140,51 @@ class SourceVerdict(StrEnum):
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
     DEFERRED = "DEFERRED"
+
+
+class ProviderOperationalStatus(StrEnum):
+    READY = "READY"
+    READY_REQUIRES_CREDENTIALS = "READY_REQUIRES_CREDENTIALS"
+    READY_REQUIRES_SUBSCRIPTION = "READY_REQUIRES_SUBSCRIPTION"
+    MANUAL_ONLY = "MANUAL_ONLY"
+    UNAVAILABLE = "UNAVAILABLE"
+    DEGRADED = "DEGRADED"
+
+
+class TimestampQuality(StrEnum):
+    EXACT_TIMESTAMP = "EXACT_TIMESTAMP"
+    DATE_ONLY = "DATE_ONLY"
+    INFERRED_UNSAFE = "INFERRED_UNSAFE"
+    NONE = "NONE"
+
+
+class AccessModel(StrEnum):
+    PUBLIC_API = "PUBLIC_API"
+    CREDENTIALS_REQUIRED = "CREDENTIALS_REQUIRED"
+    PAID_SUBSCRIPTION = "PAID_SUBSCRIPTION"
+    MANUAL = "MANUAL"
+    INTERNAL = "INTERNAL"
+    DISABLED = "DISABLED"
+
+
+class DisclosureEntityType(StrEnum):
+    MESSAGES = "Messages"
+    FILES = "Files"
+
+
+class MessageEventType(StrEnum):
+    PUBLISH = "Publish"
+    EXCLUDE = "Exclude"
+    RESTORE = "Restore"
+    CHANGE = "Change"
+
+
+class FileEventType(StrEnum):
+    PUBLISH = "Publish"
+    DELETE = "Delete"
+    RESTORE = "Restore"
+    CHANGE = "Change"
+    UNKNOWN = "Unknown"
 
 
 @dataclass(frozen=True, slots=True)

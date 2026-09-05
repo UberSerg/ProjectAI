@@ -73,14 +73,43 @@ SOURCE_FINDINGS: tuple[SourceFinding, ...] = (
         decision="Not used.",
     ),
     SourceFinding(
-        source="e-disclosure.ru",
+        source="e-disclosure.ru (HTML)",
         purpose="FINANCIAL_REPORTS_AND_DISCLOSURE",
         endpoint="https://www.e-disclosure.ru/",
         observed="HTTP 403 for automated access.",
         verdict=SourceVerdict.REJECTED.value,
         decision=(
             "Not automated. The block is not bypassed and the site is not scraped; "
-            "a lawful API or licensed feed is required."
+            "use gateway.e-disclosure.ru OpenAPI with contract credentials instead."
+        ),
+    ),
+    SourceFinding(
+        source="Interfax e-disclosure Gateway",
+        purpose="FINANCIAL_REPORTS_AND_DISCLOSURE",
+        endpoint="https://gateway.e-disclosure.ru/api/v1/disclosure/events",
+        observed=(
+            "OpenAPI v1 documented; auth via POST /api/v1/auth; eventDate is date-time (PIT-safe); "
+            "requires EDISCLOSURE_GATEWAY_USERNAME/SECRET."
+        ),
+        verdict=SourceVerdict.DEFERRED.value,
+        decision=(
+            "AVAILABLE_REQUIRES_CREDENTIALS — adapter ready, disabled by default "
+            "(EDISCLOSURE_GATEWAY_ENABLED=false). Not REJECTED."
+        ),
+    ),
+    SourceFinding(
+        source="GIR BO",
+        purpose="FINANCIAL_REPORTS_RAS",
+        endpoint="https://bo.nalog.gov.ru/nbo/organizations/{id}/bfo",
+        observed=(
+            "Public JSON with browser-like UA; INN exact search works for part of issuers; "
+            "BFO list embeds RAS forms in typeCorrections (balance/financialResult); "
+            "actualBfoDate is DATE_ONLY; bulk /subscriptions paths require application."
+        ),
+        verdict=SourceVerdict.DEFERRED.value,
+        decision=(
+            "Public partial RAS access with DATE_ONLY known_at — GIR_BO_ENABLED=false by "
+            "default; line codes mapped only when present; no scraping around subscription."
         ),
     ),
     SourceFinding(
@@ -101,11 +130,13 @@ SOURCE_FINDINGS: tuple[SourceFinding, ...] = (
         source="—",
         purpose="FINANCIAL_REPORTS",
         endpoint="—",
-        observed="No free source with a provable per-report publication date was found.",
+        observed=(
+            "No ingested reports yet. Gateway and GIR BO adapters exist but are off/default-deferred."
+        ),
         verdict=SourceVerdict.DEFERRED.value,
         decision=(
-            "fundamentals.financial_reports stays empty. Report ingestion records a "
-            "DEFERRED run instead of inventing periods or publication dates."
+            "fundamentals.financial_reports stays empty until a PIT-safe provider is enabled "
+            "and ingested with provable known_at."
         ),
     ),
     SourceFinding(

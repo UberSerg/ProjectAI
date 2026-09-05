@@ -19,6 +19,8 @@ PROVIDER_MOEX_IDENTITY = "MOEX_ISS_IDENTITY"
 PROVIDER_CORPORATE_EVENTS = "MARKET_CORPORATE_ACTIONS"
 PROVIDER_REPORTS = "FINANCIAL_REPORTS"
 PROVIDER_DIVIDENDS = "DIVIDENDS"
+PROVIDER_EDISCLOSURE_GATEWAY = "EDISCLOSURE_GATEWAY"
+PROVIDER_GIR_BO = "GIR_BO"
 
 # MOEX ISS security search: the only endpoint the live audit accepted. It answers
 # issuer identity (emitent_id / emitent_title / emitent_inn / isin / type) and nothing else.

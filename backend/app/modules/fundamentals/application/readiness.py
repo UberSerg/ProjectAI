@@ -13,6 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Instrument
+from app.modules.fundamentals.application.dataset_v3_gate import evaluate_dataset_v3_gate
+from app.modules.fundamentals.application.providers_matrix import providers_for_summary
 from app.modules.fundamentals.config import MAPPED_ASSET_CLASSES
 from app.modules.fundamentals.domain.types import (
     EVENT_FEATURE_SET_CODE,
@@ -36,6 +38,7 @@ from app.modules.fundamentals.infrastructure.models import (
 )
 
 # A fundamentals-aware dataset needs at least this share of the cohort mapped.
+# Kept in sync with dataset_v3_gate.MIN_MAPPED_SHARE.
 MIN_MAPPED_SHARE = 0.80
 
 
@@ -88,20 +91,14 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
         }
 
     facts = coverage(session)
-    blockers: list[str] = []
-    if facts["financial_reports"] == 0:
-        blockers.append(
-            "no financial reports: no accepted provider (e-disclosure 403, ISS has no report table)"
-        )
+    gate = evaluate_dataset_v3_gate(session)
+    blockers: list[str] = list(gate.blockers)
     if facts["dividend_events"] == 0:
         blockers.append("no dividend events: both ISS dividend endpoints rejected by audit")
-    if facts["mapped_share"] < MIN_MAPPED_SHARE:
-        blockers.append(
-            f"issuer mapping covers {facts['mapped_share']:.0%} of the cohort "
-            f"(need ≥ {MIN_MAPPED_SHARE:.0%}); run `sync-identity`"
-        )
 
-    if not blockers:
+    # Dataset V3 gate stays NOT_READY until thresholds; module status may still be PARTIAL
+    # when identity / corporate events already exist.
+    if not gate.blockers and not blockers:
         status = ReadinessStatus.READY.value
     elif facts["corporate_events"] > 0 or facts["mapped_instruments"] > 0:
         status = ReadinessStatus.PARTIAL.value
@@ -114,6 +111,9 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
         "coverage": facts,
         "blockers": blockers,
         "main_blockers": blockers,
+        "dataset_v3_status": gate.status.value,
+        "dataset_v3_criteria": gate.criteria,
+        "providers": providers_for_summary(),
         "dataset_v2_features": 90,
         "current_dataset_v2_features": 90,
         "fundamental_v1_candidate_features": (
@@ -151,8 +151,9 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
         ],
         "dataset_spec_mutated": False,
         "human_summary": (
-            "Идентичность эмитентов и SPLIT-события есть; отчёты и дивиденды без "
-            "доверенного PIT-источника — Dataset V3 / Candidate V2 не готовы."
+            "Идентичность эмитентов и SPLIT-события есть; шлюз e-disclosure доступен по OpenAPI "
+            "но требует учётных данных; ГИР БО — частичный публичный доступ. "
+            "Dataset V3 / Candidate V2 остаются NOT_READY до порогов покрытия."
         ),
         "note": (
             "Readiness measurement only. No DatasetSpec is created or changed, Dataset V2 / "

@@ -8,6 +8,7 @@ instead of inventing data.
     python -m app.modules.fundamentals.cli sync-identity [--symbols SBER,GAZP] [--dry-run]
     python -m app.modules.fundamentals.cli sync-events
     python -m app.modules.fundamentals.cli status
+    python -m app.modules.fundamentals.cli providers
     python -m app.modules.fundamentals.cli backfill
 """
 
@@ -26,6 +27,7 @@ from app.modules.fundamentals.application.identity import sync_issuer_identity
 from app.modules.fundamentals.application.ingest_dividends import run_dividend_ingestion
 from app.modules.fundamentals.application.ingest_reports import run_report_ingestion
 from app.modules.fundamentals.application.metric_registry import ensure_metric_registry
+from app.modules.fundamentals.application.providers_matrix import build_providers_matrix
 from app.modules.fundamentals.application.quality import run_quality_checks
 from app.modules.fundamentals.application.read_models import status_payload
 from app.modules.fundamentals.application.readiness import build_readiness_report
@@ -71,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("status", help="Coverage, readiness, quality and recent runs")
 
+    sub.add_parser("providers", help="Provider matrix: configured, reachable, PIT capability")
+
     backfill_p = sub.add_parser(
         "backfill",
         help="identity + events; reports/dividends are recorded DEFERRED (no provider)",
@@ -111,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
                     "quality": run_quality_checks(session),
                 }
             )
+        elif args.cmd == "providers":
+            _print(build_providers_matrix(live=False))
         elif args.cmd == "backfill":
             payload: dict[str, Any] = {"metric_registry": ensure_metric_registry(session)}
             payload["identity"] = sync_issuer_identity(
