@@ -8,4 +8,10 @@
 Если валюта, номинал, тип купона, погашение или оферта не подтверждены источником, значение
 остаётся `UNKNOWN`, а поддержка — `RESEARCH_ONLY` либо `UNSUPPORTED`.
 
+**Валюта номинала:** используйте `FACEUNIT`, не `CURRENCYID`. На живой выборке TQOB/TQCB
+часто `CURRENCYID=SUR` при `FACEUNIT=CNY/USD`. Такие выпуски не считаются рублёвой vanilla.
+
+Наблюдаемые блоки ISS: `securities`, `marketdata`, `marketdata_yields`; детали выпуска —
+`/iss/securities/{SECID}.json`, cashflow-подобные данные — `bondization` (если доступно).
+
 Планировщик обновления fixed income в V0 выключен. Обычные тесты не обращаются к MOEX.
