@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     models_data_path: str = Field(default="/data/models", alias="MODELS_DATA_PATH")
     market_update_enabled: bool = Field(default=False, alias="MARKET_UPDATE_ENABLED")
     market_update_cron: str = Field(default="0 18 * * 1-5", alias="MARKET_UPDATE_CRON")
+    # Fundamentals V1 is storage + identity only; no beat schedule is registered.
+    fundamentals_update_enabled: bool = Field(default=False, alias="FUNDAMENTALS_UPDATE_ENABLED")
     daily_research_cycle_enabled: bool = Field(default=False, alias="DAILY_RESEARCH_CYCLE_ENABLED")
     daily_research_cycle_hour: int = Field(default=18, alias="DAILY_RESEARCH_CYCLE_HOUR")
     daily_research_cycle_minute: int = Field(default=30, alias="DAILY_RESEARCH_CYCLE_MINUTE")

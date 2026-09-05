@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.analytics import router as analytics_router
+from app.api.v1.fundamentals import router as fundamentals_router
 from app.api.v1.learning import router as learning_router
 from app.api.v1.market import router as market_router
 from app.api.v1.market import workflows_router
@@ -33,4 +34,5 @@ api_router.include_router(simulator_router, prefix="/simulator", tags=["simulato
 api_router.include_router(research_lab_router, prefix="/research-lab", tags=["research-lab"])
 api_router.include_router(research_cycle_router, prefix="/research-cycle", tags=["research-cycle"])
 api_router.include_router(model_edge_router, tags=["model-edge"])
+api_router.include_router(fundamentals_router, prefix="/fundamentals", tags=["fundamentals"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])

@@ -6,8 +6,10 @@ ProjectAI Market Data V1 loads and stores factual market history for later analy
 with adjusted or total-return prices. **H1:** official MOEX ISS splits feed is ingested as `market.corporate_actions`
 (`SPLIT` / `REVERSE_SPLIT` by factor). Events explain jumps; they do not rewrite candles.
 **H3.1 DIVIDEND ingest is deferred:** no trustworthy free historical PIT feed
-(public `/securities/{SECID}/dividends` no longer returns a table; CCI is subscriber-only).
-Do not scrape or invent ex-date / `known_at`. **H4A** mechanical-adjusted Analytics
+(public `/securities/{SECID}/dividends` still does not return a dividend table — it answers
+with the security description block; the history variant returns candles; CCI is subscriber-only).
+Re-confirmed by the Fundamentals V1 source audit on 2026-09-05, so `fundamentals.dividend_events`
+exists but stays empty. Do not scrape or invent ex-date / `known_at`. **H4A** mechanical-adjusted Analytics
 (`basic_daily` v2) uses SPLIT / REVERSE_SPLIT only — not total return.
 **H2:**
 `instrument_sources` has `valid_from`/`valid_to` so as-of SECID/board can be resolved.
@@ -34,6 +36,13 @@ Note: legacy `XML_KeyRate.asp` returns 404; KeyRate uses SOAP `KeyRateXML`.
 - `MarketDataUpdate` (incremental; scheduler gated by `MARKET_UPDATE_ENABLED=false` by default)
 - `MarketSplitsIngest` (`POST /api/v1/market/corporate-actions/splits`) — official ISS SPLIT only
 - `DataQualityCheck`
+
+## Related schemas
+
+`fundamentals.*` (Fundamental & Event Intelligence V1) stores issuer identity, a corporate
+event projection of the SPLIT feed, and empty report/dividend tables awaiting an accepted
+provider. It reads `market.*` and never writes it. See
+`docs/fundamentals/fundamental-event-data-v1.md`.
 
 ## Docs
 
