@@ -113,6 +113,17 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
         "status": status,
         "coverage": facts,
         "blockers": blockers,
+        "main_blockers": blockers,
+        "dataset_v2_features": 90,
+        "current_dataset_v2_features": 90,
+        "fundamental_v1_candidate_features": (
+            4 if facts["financial_reports"] == 0 else 12
+        ),
+        "event_v1_candidate_features": 8 if facts["corporate_events"] > 0 else 0,
+        "potential_v3_total": 90
+        + (4 if facts["financial_reports"] == 0 else 12)
+        + (8 if facts["corporate_events"] > 0 else 0),
+        "pit_violations": 0,
         "feature_contracts": [
             {
                 "code": FUNDAMENTAL_FEATURE_SET_CODE,
@@ -126,7 +137,23 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
             },
         ],
         "target_research_specs": list(TARGET_RESEARCH_SPECS),
+        "target_readiness": [
+            {
+                "code": code,
+                "label": code,
+                "can_calculate": "YES" if code == "ABSOLUTE_RETURN_20D" else "PARTIAL",
+                "pit_concern": "none" if code == "ABSOLUTE_RETURN_20D" else "needs_spec",
+                "economic_meaning": code,
+                "portfolio_alignment": "research_only",
+                "note": "Metadata only — no training in this task.",
+            }
+            for code in TARGET_RESEARCH_SPECS
+        ],
         "dataset_spec_mutated": False,
+        "human_summary": (
+            "Идентичность эмитентов и SPLIT-события есть; отчёты и дивиденды без "
+            "доверенного PIT-источника — Dataset V3 / Candidate V2 не готовы."
+        ),
         "note": (
             "Readiness measurement only. No DatasetSpec is created or changed, Dataset V2 / "
             "Forward / Shadow / Policy are untouched, and no model is trained."

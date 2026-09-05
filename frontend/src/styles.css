@@ -156,7 +156,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   margin-bottom: 1.25rem;
 }
 
-.metric-card, .panel {
+.metric-card, .panel, .card {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -174,7 +174,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   margin: 0.75rem 0 1rem;
 }
 
-.panel { padding: 1rem 1.1rem; margin-bottom: 1rem; }
+.panel, .card { padding: 1rem 1.1rem; margin-bottom: 1rem; }
 
 .badge {
   display: inline-flex;
@@ -1203,3 +1203,39 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
 .coverage-count { text-align: right; font-variant-numeric: tabular-nums; font-size: 0.85rem; }
 .plain-list { margin: 0.5rem 0 0; padding-left: 1.1rem; }
 .external-archive .card h3 { margin-top: 0; }
+
+.pit-explanation-card {
+  border-left: 4px solid #3d6b8a;
+  margin-bottom: 1rem;
+}
+.pit-explanation-card h3 { margin-top: 0; }
+.research-target-block { margin-top: 1rem; }
+.research-target-block h4 { margin-bottom: 0.35rem; }
+.asof-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; margin: 0.75rem 0; }
+.asof-row input[type="date"] { margin-left: 0.35rem; }
+.tech-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0 0;
+}
+.tech-dl dt { font-size: 0.8rem; color: var(--muted); }
+.tech-dl dd { margin: 0.1rem 0 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; word-break: break-all; }
+.timeline-list { list-style: none; margin: 0.75rem 0 0; padding: 0; }
+.timeline-item {
+  display: grid;
+  grid-template-columns: 0.75rem 1fr;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.timeline-item .timeline-mark {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #3d6b8a;
+  margin-top: 0.35rem;
+}
+.fundamentals-page .card h3,
+.fundamentals-issuer-page .card h3 { margin-top: 0; }

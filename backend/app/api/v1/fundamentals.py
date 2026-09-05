@@ -29,6 +29,13 @@ def fundamentals_status() -> dict[str, Any]:
         return read_models.status_payload(session)
 
 
+@router.get("/summary")
+def fundamentals_summary() -> dict[str, Any]:
+    """UI overview alias — same foundation as /status with card-friendly counts."""
+    with core_session() as session:
+        return read_models.summary_payload(session)
+
+
 @router.get("/sources/audit")
 def fundamentals_source_audit() -> dict[str, Any]:
     with core_session() as session:
@@ -43,6 +50,13 @@ def fundamentals_coverage() -> dict[str, Any]:
 
 @router.get("/readiness")
 def fundamentals_readiness() -> dict[str, Any]:
+    with core_session() as session:
+        return read_models.readiness_payload(session)
+
+
+@router.get("/ml-readiness")
+def fundamentals_ml_readiness() -> dict[str, Any]:
+    """Alias used by Research Cockpit / Fundamentals UI."""
     with core_session() as session:
         return read_models.readiness_payload(session)
 
@@ -77,6 +91,12 @@ def fundamentals_mappings(
         return read_models.mappings_payload(session, mapping_status=mapping_status, limit=limit)
 
 
+@router.get("/issuers/{issuer_id}")
+def fundamentals_issuer(issuer_id: int) -> dict[str, Any]:
+    with core_session() as session:
+        return read_models.issuer_detail_payload(session, issuer_id)
+
+
 @router.get("/issuers/{issuer_id}/reports")
 def fundamentals_reports(
     issuer_id: int,
@@ -84,6 +104,38 @@ def fundamentals_reports(
 ) -> dict[str, Any]:
     with core_session() as session:
         return read_models.reports_payload(session, issuer_id=issuer_id, as_of=as_of)
+
+
+@router.get("/issuers/{issuer_id}/dividends")
+def fundamentals_issuer_dividends(
+    issuer_id: int,
+    as_of: Annotated[date | None, Query()] = None,
+) -> dict[str, Any]:
+    with core_session() as session:
+        return read_models.dividends_payload(session, issuer_id=issuer_id, as_of=as_of)
+
+
+@router.get("/issuers/{issuer_id}/events")
+def fundamentals_issuer_events(
+    issuer_id: int,
+    as_of: Annotated[date | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+) -> dict[str, Any]:
+    with core_session() as session:
+        return read_models.events_payload(
+            session, issuer_id=issuer_id, as_of=as_of, limit=limit
+        )
+
+
+@router.get("/issuers/{issuer_id}/as-of")
+def fundamentals_issuer_as_of(
+    issuer_id: int,
+    as_of: Annotated[date | None, Query(alias="date")] = None,
+    as_of_alt: Annotated[date | None, Query(alias="as_of")] = None,
+) -> dict[str, Any]:
+    effective = as_of or as_of_alt or date.today()
+    with core_session() as session:
+        return read_models.issuer_as_of_payload(session, issuer_id, effective)
 
 
 @router.get("/dividends")
@@ -101,12 +153,17 @@ def fundamentals_dividends(
 @router.get("/events")
 def fundamentals_events(
     instrument_id: Annotated[int | None, Query()] = None,
+    issuer_id: Annotated[int | None, Query()] = None,
     as_of: Annotated[date | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> dict[str, Any]:
     with core_session() as session:
         return read_models.events_payload(
-            session, as_of=as_of, instrument_id=instrument_id, limit=limit
+            session,
+            as_of=as_of,
+            instrument_id=instrument_id,
+            issuer_id=issuer_id,
+            limit=limit,
         )
 
 

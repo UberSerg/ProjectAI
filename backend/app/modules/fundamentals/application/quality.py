@@ -251,4 +251,37 @@ def run_quality_checks(session: Session) -> dict[str, Any]:
         "dividend_events": len(dividends),
         "mappings": len(mapping_rows),
     }
+    mapped = sum(1 for _, status, _ in mapping_rows if status == MappingStatus.MAPPED.value)
+    unknown = sum(
+        1
+        for _, status, _ in mapping_rows
+        if status in {MappingStatus.UNMAPPED.value, MappingStatus.AMBIGUOUS.value}
+    )
+    payload["issuer_mappings"] = mapped
+    payload["unknown_mappings"] = unknown
+    payload["ambiguous_facts"] = sum(
+        1 for i in issues if i.code.startswith("FACT_") and i.severity == SEVERITY_WARNING
+    )
+    payload["reports_without_known_at"] = 0  # known_at is NOT NULL in schema
+    payload["restatements"] = sum(1 for r in reports if r.is_restatement)
+    payload["rejected_rows"] = payload.get("error_count") or 0
+    if payload.get("error_count"):
+        payload["status"] = "NOT_READY"
+        payload["human_message"] = "Нельзя безопасно использовать в ML."
+        payload["pit_quality"] = "NOT_READY"
+    elif reports or dividends:
+        payload["status"] = "GOOD" if not payload.get("warning_count") else "PARTIAL"
+        payload["human_message"] = (
+            "Данные пригодны для PIT-исследований."
+            if payload["status"] == "GOOD"
+            else "Часть истории не имеет точной даты публикации."
+        )
+        payload["pit_quality"] = payload["status"]
+    else:
+        payload["status"] = "NOT_READY"
+        payload["human_message"] = (
+            "Нельзя безопасно использовать в ML: нет отчётов/дивидендов с known_at "
+            "(есть только identity и SPLIT-события)."
+        )
+        payload["pit_quality"] = "NOT_READY"
     return payload

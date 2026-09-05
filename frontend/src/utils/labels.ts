@@ -30,6 +30,10 @@ const STATUS: Record<string, string> = {
   unknown: "Неизвестно",
   not_monitored: "Не контролируется",
   info: "Информация",
+  not_ready: "Не готово",
+  partial: "Частично",
+  deferred: "Отложено",
+  good: "Хорошо",
 };
 
 const WORKFLOW_TYPE: Record<string, string> = {
@@ -119,6 +123,7 @@ export const labels = {
     analytics: "Аналитика",
     relations: "Связи",
     technical: "Технический анализ",
+    fundamentals: "Фундаментал и события",
     recommendations: "Рекомендации",
     models: "Модели",
     decisionMemory: "Память решений",

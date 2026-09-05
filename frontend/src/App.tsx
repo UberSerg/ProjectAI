@@ -2,6 +2,8 @@ import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { FundamentalIssuerPage } from "./pages/FundamentalIssuerPage";
+import { FundamentalsPage } from "./pages/FundamentalsPage";
 import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
@@ -30,6 +32,8 @@ export function App() {
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/relations" element={<RelationsPage />} />
         <Route path="/technical" element={<TechnicalPage />} />
+        <Route path="/fundamentals" element={<FundamentalsPage />} />
+        <Route path="/fundamentals/:issuerId" element={<FundamentalIssuerPage />} />
         <Route
           path="/recommendations"
           element={

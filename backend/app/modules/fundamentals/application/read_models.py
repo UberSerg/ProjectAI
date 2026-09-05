@@ -275,6 +275,7 @@ def events_payload(
     *,
     as_of: date | None = None,
     instrument_id: int | None = None,
+    issuer_id: int | None = None,
     limit: int = 200,
 ) -> dict[str, Any]:
     if not fundamentals_schema_ready(session):
@@ -283,6 +284,8 @@ def events_payload(
     stmt = select(CorporateEvent).where(CorporateEvent.known_at <= effective_as_of)
     if instrument_id is not None:
         stmt = stmt.where(CorporateEvent.instrument_id == instrument_id)
+    if issuer_id is not None:
+        stmt = stmt.where(CorporateEvent.issuer_id == issuer_id)
     rows = session.scalars(
         stmt.order_by(desc(CorporateEvent.event_date)).limit(limit)
     ).all()
@@ -290,6 +293,7 @@ def events_payload(
         "status": "OK" if rows else ReadinessStatus.NOT_READY.value,
         "as_of": effective_as_of.isoformat(),
         "instrument_id": instrument_id,
+        "issuer_id": issuer_id,
         "events": [
             {
                 "id": row.id,
@@ -303,5 +307,101 @@ def events_payload(
                 "source": row.source,
             }
             for row in rows
+        ],
+    }
+
+
+def summary_payload(session: Session) -> dict[str, Any]:
+    """UI overview card payload — honest counts + blockers."""
+    status = status_payload(session)
+    cov = status.get("coverage") or {}
+    readiness = readiness_payload(session) if fundamentals_schema_ready(session) else {}
+    return {
+        **status,
+        "issuers": cov.get("issuers") or cov.get("issuer_count") or 0,
+        "issuers_mapped": cov.get("mapped_instruments") or cov.get("mappings") or 0,
+        "reports": cov.get("financial_reports") or cov.get("reports") or 0,
+        "financial_facts": cov.get("financial_facts") or cov.get("facts") or 0,
+        "dividend_events": cov.get("dividend_events") or cov.get("dividends") or 0,
+        "corporate_events": cov.get("corporate_events") or cov.get("events") or 0,
+        "pit_quality": readiness.get("status") or status.get("status"),
+        "human_summary": (
+            "Идентичность эмитентов и события SPLIT доступны; "
+            "финансовые отчёты и дивиденды отложены — нет бесплатного PIT-источника."
+            if (cov.get("issuers") or 0) > 0
+            else "Фундаментальный слой ещё не заполнен. Запустите fundamentals backfill."
+        ),
+        "providers": (readiness.get("providers") or readiness.get("source_decisions")),
+        "blockers": readiness.get("blockers") or status.get("blockers") or [],
+    }
+
+
+def issuer_detail_payload(session: Session, issuer_id: int) -> dict[str, Any]:
+    if not fundamentals_schema_ready(session):
+        return _not_ready({"id": issuer_id})
+    issuer = session.get(Issuer, issuer_id)
+    if issuer is None:
+        return {"status": "NOT_FOUND", "id": issuer_id}
+    mappings = session.scalars(
+        select(SecurityIssuerMapping).where(SecurityIssuerMapping.issuer_id == issuer_id)
+    ).all()
+    from app.infrastructure.market.models import Instrument
+
+    securities = []
+    for m in mappings:
+        inst = session.get(Instrument, m.instrument_id)
+        securities.append(
+            {
+                "instrument_id": m.instrument_id,
+                "ticker": inst.symbol if inst else None,
+                "secid": m.external_secid,
+                "isin": m.isin,
+                "mapping_status": m.mapping_status,
+            }
+        )
+    reports = reports_payload(session, issuer_id=issuer_id)
+    return {
+        "status": "OK",
+        "id": issuer.id,
+        "title": issuer.title,
+        "name": issuer.title,
+        "title_en": issuer.title_en,
+        "inn": issuer.inn,
+        "emitent_inn": issuer.inn,
+        "emitent_id": issuer.moex_emitent_id,
+        "okpo": issuer.okpo,
+        "securities": securities,
+        "mapped_securities": securities,
+        "latest_report": reports.get("latest_report"),
+        "reporting_standard": (
+            (reports.get("latest_report") or {}).get("reporting_standard")
+        ),
+        "reports_stored": reports.get("reports_stored"),
+    }
+
+
+def issuer_as_of_payload(session: Session, issuer_id: int, as_of: date) -> dict[str, Any]:
+    """What was knowable about this issuer on as_of — PIT explorer."""
+    if not fundamentals_schema_ready(session):
+        return _not_ready({"as_of": as_of.isoformat(), "issuer_id": issuer_id})
+    reports = reports_payload(session, issuer_id=issuer_id, as_of=as_of)
+    dividends = dividends_payload(session, issuer_id=issuer_id, as_of=as_of)
+    events = events_payload(session, issuer_id=issuer_id, as_of=as_of)
+    return {
+        "status": "OK",
+        "issuer_id": issuer_id,
+        "as_of": as_of.isoformat(),
+        "date": as_of.isoformat(),
+        "latest_report": reports.get("latest_report"),
+        "report": reports.get("latest_report"),
+        "reports_visible": reports.get("reports_visible"),
+        "dividends": [],
+        "dividend_state": dividends.get("state"),
+        "upcoming_dividend": dividends.get("upcoming"),
+        "events": events.get("events") or [],
+        "known_events": events.get("events") or [],
+        "notes": [
+            "Показаны только факты с known_at ≤ выбранной даты.",
+            dividends.get("note") or "",
         ],
     }
