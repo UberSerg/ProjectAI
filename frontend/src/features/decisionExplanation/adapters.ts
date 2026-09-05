@@ -38,6 +38,20 @@ function policyDefaults(policyName?: string | null): {
   return { entryQuantile: null, exitQuantile: null, minTradeWeightDelta: null };
 }
 
+function resolvePredictionCandidate(
+  meta: Record<string, unknown> | null | undefined,
+  extras?: Partial<DecisionExplanationContext>,
+): string | null {
+  if (typeof meta?.prediction_candidate === "string" && meta.prediction_candidate) {
+    return meta.prediction_candidate;
+  }
+  const name = typeof meta?.candidate_name === "string" ? meta.candidate_name : null;
+  const version = typeof meta?.candidate_version === "string" ? meta.candidate_version : null;
+  if (name && version) return `${name}/${version}`;
+  if (name) return name;
+  return extras?.predictionCandidate ?? null;
+}
+
 export function contextFromSimulatorFill(
   fill: SimulationFill,
   extras?: Partial<DecisionExplanationContext>,
@@ -51,13 +65,21 @@ export function contextFromSimulatorFill(
     metaNumber(meta, "eligible_count");
   const entryQuantile = defaults.entryQuantile;
   const exitQuantile = defaults.exitQuantile;
+  const semantic =
+    (typeof meta?.prediction_semantic === "string" ? meta.prediction_semantic : null) ??
+    (extras?.predictionSemantic ?? null);
+  const score =
+    metaNumber(meta, "prediction_score") ??
+    (semantic === "RANKING_SCORE" ? null : fill.predicted_return_20d ?? null);
   return {
     reasonCode: fill.reason,
     ticker: fill.ticker,
     displayName: (fill as { display_name?: string | null }).display_name ?? null,
     side: fill.side,
     actionKind: inferActionKind(fill.side, fill.reason),
-    predictedReturn20d: fill.predicted_return_20d,
+    predictedReturn20d: semantic === "RANKING_SCORE" ? null : fill.predicted_return_20d,
+    predictionSemantic: semantic ?? "EXPECTED_RETURN",
+    predictionScore: score,
     rank: fill.rank,
     eligibleCount: eligible,
     targetWeight: fill.target_weight,
@@ -77,7 +99,7 @@ export function contextFromSimulatorFill(
     foldId: fill.fold_id,
     kind: "HISTORICAL_SIMULATOR",
     metadata: meta,
-    predictionCandidate: "prediction_ml_candidate/v0",
+    predictionCandidate: resolvePredictionCandidate(meta, extras),
     ...extras,
   };
 }
@@ -90,12 +112,17 @@ export function contextFromSimulatorOrder(
   const policyName = order.policy_name ?? null;
   const defaults = policyDefaults(policyName);
   const eligible = metaNumber(meta, "eligible_n") ?? metaNumber(meta, "eligible_count");
+  const semantic =
+    (typeof meta?.prediction_semantic === "string" ? meta.prediction_semantic : null) ??
+    (extras?.predictionSemantic ?? null);
   return {
     reasonCode: order.reason,
     ticker: order.ticker,
     side: order.side,
     actionKind: inferActionKind(order.side, order.reason),
-    predictedReturn20d: order.predicted_return_20d,
+    predictedReturn20d: semantic === "RANKING_SCORE" ? null : order.predicted_return_20d,
+    predictionSemantic: semantic ?? "EXPECTED_RETURN",
+    predictionScore: metaNumber(meta, "prediction_score"),
     rank: order.rank,
     eligibleCount: eligible,
     targetWeight: order.target_weight,
@@ -113,7 +140,7 @@ export function contextFromSimulatorOrder(
     foldId: order.fold_id,
     kind: "HISTORICAL_SIMULATOR",
     metadata: meta,
-    predictionCandidate: "prediction_ml_candidate/v0",
+    predictionCandidate: resolvePredictionCandidate(meta, extras),
     ...extras,
   };
 }
@@ -147,13 +174,18 @@ export function contextFromShadowOrder(
   const generatedAt =
     typeof meta?.signal_generated_at === "string" ? meta.signal_generated_at : null;
   const batchId = meta?.forward_batch_id ?? null;
+  const semantic =
+    (typeof meta?.prediction_semantic === "string" ? meta.prediction_semantic : null) ??
+    (extras?.predictionSemantic ?? null);
   return {
     reasonCode: order.reason,
     ticker: order.ticker,
     displayName: order.display_name ?? null,
     side: order.side,
     actionKind: inferActionKind(order.side, order.reason),
-    predictedReturn20d: order.predicted_return_20d,
+    predictedReturn20d: semantic === "RANKING_SCORE" ? null : order.predicted_return_20d,
+    predictionSemantic: semantic ?? "EXPECTED_RETURN",
+    predictionScore: metaNumber(meta, "prediction_score"),
     rank: order.rank,
     eligibleCount: eligible,
     targetWeight: order.target_weight,
@@ -175,7 +207,7 @@ export function contextFromShadowOrder(
     predictionGeneratedAt: generatedAt,
     kind: "FORWARD_SHADOW",
     metadata: meta,
-    predictionCandidate: "prediction_ml_candidate/v0",
+    predictionCandidate: resolvePredictionCandidate(meta, extras),
     ...extras,
   };
 }

@@ -20,6 +20,7 @@ import {
   contextFromSimulatorFill,
   DecisionExplanationPanel,
 } from "../features/decisionExplanation";
+import { modelDisplayName } from "../features/decisionExplanation/labels";
 import {
   costLabel,
   isResearchContextSegment,
@@ -183,6 +184,18 @@ export function SimulatorRunPage() {
     run.research_result ??
     (isResearchContextSegment(run.segment) ? "MIXED" : null);
 
+  const candidateId =
+    run.spec?.candidate_name && run.spec?.candidate_version
+      ? `${run.spec.candidate_name}/${run.spec.candidate_version}`
+      : run.spec?.candidate_name ?? null;
+  const candidateHuman =
+    modelDisplayName(candidateId) ??
+    (run.spec?.candidate_version === "v1_ranker"
+      ? "Модель ранжирования V1"
+      : run.spec?.candidate_version
+        ? `Candidate ${run.spec.candidate_version}`
+        : "Candidate V0");
+
   const effectiveFrom = rangeFrom || available?.from || "";
   const effectiveTo = rangeTo || available?.to || "";
 
@@ -216,7 +229,7 @@ export function SimulatorRunPage() {
 
       <div className="sim-chip-row">
         <SegmentBadge segment={run.segment} />
-        <span className="chip sim-meta-chip">Candidate V0</span>
+        <span className="chip sim-meta-chip">{candidateHuman}</span>
         <span className="chip sim-meta-chip">{policyShort(run.spec?.policy_name)}</span>
         <span className="chip sim-meta-chip" title="sim_rebalance">
           {run.spec?.rebalance === "weekly" || run.spec?.rebalance === "WEEKLY" ? "weekly" : run.spec?.rebalance ?? "weekly"}
@@ -242,7 +255,7 @@ export function SimulatorRunPage() {
           <p className="muted">Успешность прогона пайплайна (данные записаны, расчёт завершён).</p>
         </div>
         <div className="sim-status-block">
-          <h3>Research-контекст Candidate V0</h3>
+          <h3>Research-контекст · {candidateHuman}</h3>
           {researchLabel ? (
             <>
               <span className="sim-research-badge">{researchLabel}</span>
@@ -476,6 +489,7 @@ export function SimulatorRunPage() {
           <DecisionExplanationPanel
             context={contextFromSimulatorFill(selectedFill, {
               candidateConfigHash: run.candidate_config_hash,
+              predictionCandidate: candidateId ?? undefined,
             })}
             onClose={() => setSelectedFill(null)}
           />
@@ -603,7 +617,9 @@ export function SimulatorRunPage() {
           <li>Доходности — price return; дивидендный cash в V0 не моделируется.</li>
           <li>IMOEX — ценовой индекс, не total-return бенчмарк.</li>
           <li>Издержки упрощены (commission/slippage bps); не брокерский реализм.</li>
-          <li>Research-метка MIXED — контекст Candidate V0, не сигнал к реальной торговле.</li>
+          <li>
+            Research-метка MIXED — контекст {candidateHuman}, не сигнал к реальной торговле.
+          </li>
           <li>Историческая симуляция ≠ независимый рыночный опыт; walk-forward обязателен.</li>
         </ul>
       </div>

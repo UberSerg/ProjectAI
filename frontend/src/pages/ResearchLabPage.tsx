@@ -110,6 +110,12 @@ export function ResearchLabPage() {
   const selectedPolicy = options?.policies.find((p) => p.id === policyId);
   const selectedRisk = options?.risk_policies.find((r) => r.id === riskId);
   const selectedCandidate = options?.candidates.find((c) => c.id === candidateId);
+  const isRankingCandidate =
+    selectedCandidate?.prediction_semantic === "RANKING_SCORE" ||
+    selectedCandidate?.candidate_version === "v1_ranker";
+  const candidateOutputLabel =
+    selectedCandidate?.output_label ??
+    (isRankingCandidate ? "Рейтинговый балл" : "Прогноз изменения цены");
   const holdoutSeg = options?.prediction_segments.find((s) => !s.launchable);
   const periodDays = daysBetween(dateFrom, dateTo);
   const shortWarn =
@@ -240,10 +246,23 @@ export function ResearchLabPage() {
             ))}
           </select>
           {selectedCandidate ? (
-            <p className="field-hint">
-              {selectedCandidate.technical_line} · статус исследования: {selectedCandidate.research_verdict}
-              . Модель даёт прогноз, стратегия — решение, Risk — ограничения, Execution — исполнение.
-            </p>
+            <>
+              <p className="field-hint">
+                {selectedCandidate.technical_line} · статус исследования:{" "}
+                {selectedCandidate.research_verdict}. Output: {candidateOutputLabel}
+                {isRankingCandidate ? " · горизонт 20 торговых дней" : ""}. Стратегия — решение, Risk —
+                ограничения, Execution — исполнение.{" "}
+                {isRankingCandidate ? <MetricHelp metricId="ranking_score" /> : null}
+              </p>
+              {isRankingCandidate ? (
+                <p className="field-hint" data-testid="ranking-candidate-help">
+                  Модель оценивает относительную привлекательность инструментов на одну дату.
+                  Рейтинговый балл используется для определения порядка, а не является прогнозом
+                  доходности в процентах. Баллы разных моделей напрямую между собой не сравниваются.{" "}
+                  <MetricHelp metricId="ranking_model" />
+                </p>
+              ) : null}
+            </>
           ) : null}
         </fieldset>
 
@@ -415,6 +434,8 @@ export function ResearchLabPage() {
           </details>
           <div className="summary-box" data-testid="config-summary">
             <div>Модель: {selectedCandidate?.human_name}</div>
+            <div>Output: {candidateOutputLabel}</div>
+            {isRankingCandidate ? <div>Horizon: 20 торговых дней</div> : null}
             <div>Прогнозы: Development OOS</div>
             <div>Стратегия: {selectedPolicy?.human_name}</div>
             <div>Risk: {selectedRisk?.human_name}</div>

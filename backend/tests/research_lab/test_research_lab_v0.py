@@ -72,6 +72,9 @@ def mock_bundle_preview():
         prediction_hash="pred_hash",
         candidate_config_hash="cand_hash",
         dataset_values_hash="ds_hash",
+        candidate_name="prediction_ml_candidate",
+        candidate_version="v0",
+        prediction_semantic="EXPECTED_RETURN",
     )
     with patch(
         "app.modules.research_lab.application.service.load_oos_predictions",
@@ -344,9 +347,87 @@ def test_compare_fair_and_differences() -> None:
 
     assert out["fair_comparison"] is False
     assert out["fair_badge"] == "Условия различаются"
+    assert out["model_comparison"] is False
     assert out["observed_holdout_warning"]
     assert len(out["metrics_table"]) >= 5
     assert len(out["runs"]) == 3
+
+
+def test_compare_fair_when_only_candidate_differs() -> None:
+    """V0 vs V1 model A/B: same period/policy/risk/cost → fair_comparison + model_comparison."""
+
+    def _ctx(run_id: int, *, candidate_hash: str):
+        run = SimpleNamespace(
+            id=run_id,
+            status="SUCCESS",
+            segment="DEVELOPMENT_OOS",
+            simulation_spec_id=run_id,
+            date_from=date(2023, 1, 1),
+            date_to=date(2024, 12, 31),
+            candidate_config_hash=candidate_hash,
+            metrics={
+                "total_price_return": 0.1,
+                "cagr": 0.05,
+                "max_drawdown": -0.2,
+                "turnover_ratio": 8.0,
+                "sharpe_rf0": 0.3,
+                "trade_count": 100,
+                "annualized_volatility": 0.2,
+                "average_gross_exposure": 0.9,
+                "average_cash_weight": 0.1,
+                "excess_vs_imoex": 0.05,
+            },
+            benchmark={"total_price_return": -0.1},
+            provenance={},
+        )
+        payload = {
+            "policy_name": POLICY_HYSTERESIS_V1,
+            "risk_name": RISK_NAME,
+            "commission_bps": 10.0,
+            "initial_capital": 1_000_000.0,
+            "execution_timing": "next_open",
+            "fractional_shares": True,
+        }
+        summary = {
+            "id": run_id,
+            "segment": "DEVELOPMENT_OOS",
+            "spec": payload,
+            "metrics": run.metrics,
+            "research": {"display_name": f"E{run_id}", "observed_holdout": False},
+        }
+        return run, payload, summary
+
+    runs_data = [
+        _ctx(1, candidate_hash="cand_v0"),
+        _ctx(2, candidate_hash="cand_v1"),
+    ]
+    session = MagicMock()
+
+    with (
+        patch(
+            "app.modules.research_lab.application.compare.get_run",
+            side_effect=lambda _s, rid: runs_data[rid - 1][0],
+        ),
+        patch(
+            "app.modules.research_lab.application.compare.enrich_run_summary",
+            side_effect=lambda _s, run: runs_data[run.id - 1][2],
+        ),
+        patch(
+            "app.modules.research_lab.application.compare.get_nav_series",
+            return_value=[],
+        ),
+    ):
+        def session_get(_cls, sid):
+            return SimpleNamespace(payload=runs_data[sid - 1][1])
+
+        session.get.side_effect = session_get
+        out = compare_runs(session, [1, 2])
+
+    assert out["fair_comparison"] is True
+    assert out["fair_badge"] == "Сопоставимые условия"
+    assert out["model_comparison"] is True
+    assert out["differences"] == []
+    assert any("разные модели" in line for line in out["interpretation"])
 
 
 def test_quick_suite_bounded(mock_dev_bounds, mock_bundle_preview) -> None:

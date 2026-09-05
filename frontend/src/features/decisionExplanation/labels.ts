@@ -13,6 +13,9 @@ const RISK_LABELS: Record<string, string> = {
 const MODEL_LABELS: Record<string, string> = {
   prediction_ml_candidate: "Модель прогнозирования V0",
   "prediction_ml_candidate/v0": "Модель прогнозирования V0",
+  v0: "Модель прогнозирования V0",
+  "prediction_ml_candidate/v1_ranker": "Модель ранжирования V1",
+  v1_ranker: "Модель ранжирования V1",
 };
 
 export function policyDisplayName(code?: string | null): string | null {

@@ -39,6 +39,8 @@ const baseRun = {
     rebalance: "weekly",
     execution_timing: "next_open",
     initial_capital: 1_000_000,
+    candidate_name: "prediction_ml_candidate",
+    candidate_version: "v0",
   },
 };
 
@@ -210,7 +212,7 @@ describe("SimulatorRunPage", () => {
 
     expect(screen.getByText("PASS")).toBeInTheDocument();
     expect(screen.getByText("MIXED")).toBeInTheDocument();
-    expect(screen.getByText("Candidate V0")).toBeInTheDocument();
+    expect(screen.getByText("Модель прогнозирования V0")).toBeInTheDocument();
   });
 
   it("opens fill explanation with human summary and technical provenance", async () => {

@@ -34,16 +34,31 @@ function buildTechnical(ctx: DecisionExplanationContext, reasonCode: string): Te
   pushField(fields, "Prediction batch", ctx.predictionBatchId);
   pushField(fields, "Prediction as_of", ctx.predictionDate);
   pushField(fields, "Prediction generated_at", ctx.predictionGeneratedAt);
-  pushField(
-    fields,
-    "Predicted return 20d (raw)",
-    ctx.predictedReturn20d != null ? String(ctx.predictedReturn20d) : null,
-  );
-  pushField(
-    fields,
-    "Predicted return 20d",
-    formatSignedPercent(ctx.predictedReturn20d),
-  );
+  const semantic = (ctx.predictionSemantic ?? "").toUpperCase();
+  if (semantic === "RANKING_SCORE") {
+    pushField(fields, "Prediction semantic", ctx.predictionSemantic);
+    pushField(
+      fields,
+      "Ranking score",
+      ctx.predictionScore != null && Number.isFinite(ctx.predictionScore)
+        ? String(ctx.predictionScore)
+        : null,
+    );
+  } else {
+    if (ctx.predictionSemantic) {
+      pushField(fields, "Prediction semantic", ctx.predictionSemantic);
+    }
+    pushField(
+      fields,
+      "Predicted return 20d (raw)",
+      ctx.predictedReturn20d != null ? String(ctx.predictedReturn20d) : null,
+    );
+    pushField(
+      fields,
+      "Predicted return 20d",
+      formatSignedPercent(ctx.predictedReturn20d),
+    );
+  }
   if (ctx.rank != null) {
     pushField(
       fields,

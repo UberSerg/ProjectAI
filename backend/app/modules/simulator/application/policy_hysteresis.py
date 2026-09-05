@@ -27,7 +27,7 @@ class RankHysteresisLongOnlyV1Policy(PortfolioPolicy):
     Priority: retained holdings inside exit band, then fill desired entry capacity
     with highest-ranked new names in the entry band.
     Max holdings: ceil(N * exit_quantile).
-    Tie-break: predicted_return_20d descending, then instrument_id ascending.
+    Tie-break: score descending, then instrument_id ascending.
     """
 
     def decide(self, policy_input: PortfolioPolicyInput) -> PortfolioPolicyOutput:
@@ -51,7 +51,7 @@ class RankHysteresisLongOnlyV1Policy(PortfolioPolicy):
 
         ranked = sorted(
             signals,
-            key=lambda s: (-float(s.predicted_return_20d), int(s.instrument_id)),
+            key=lambda s: (-float(s.score), int(s.instrument_id)),
         )
         n = len(ranked)
         k_entry = select_top_k(n, entry_q)
@@ -122,13 +122,20 @@ class RankHysteresisLongOnlyV1Policy(PortfolioPolicy):
                     ),
                     metadata={
                         "instrument_id": iid,
-                        "predicted_return_20d": sig.predicted_return_20d,
                         "prediction_date": sig.as_of_date.isoformat(),
                         "rank": rank_idx,
+                        "eligible_count": n,
                         "fold_id": sig.fold_id,
                         "sample_id": sig.sample_id,
                         "policy": POLICY_HYSTERESIS_V1,
                         "action": action,
+                        "prediction_semantic": sig.prediction_semantic,
+                        "prediction_score": sig.score,
+                        **(
+                            {"predicted_return_20d": sig.predicted_return_20d}
+                            if sig.prediction_semantic == "EXPECTED_RETURN"
+                            else {}
+                        ),
                     },
                 )
             )

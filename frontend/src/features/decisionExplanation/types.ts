@@ -12,6 +12,9 @@ export interface DecisionExplanationContext {
   /** BUY/SELL/HOLD/NO_TRADE semantics for wording. */
   actionKind?: DecisionActionKind | null;
   predictedReturn20d?: number | null;
+  /** RANKING_SCORE | EXPECTED_RETURN */
+  predictionSemantic?: string | null;
+  predictionScore?: number | null;
   rank?: number | null;
   eligibleCount?: number | null;
   targetWeight?: number | null;

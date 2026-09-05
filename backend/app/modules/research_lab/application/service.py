@@ -292,11 +292,11 @@ def _validate_launch_request(body: dict[str, Any]) -> dict[str, Any]:
         raise InvalidSegment(f"Сегмент недоступен для лаборатории: {segment}")
 
     candidate = _resolve_candidate(str(body.get("candidate_id") or list_candidates()[0].id))
-    if (
-        candidate["candidate_name"] != CANDIDATE_V0_CONFIG.candidate_name
-        or candidate["candidate_version"] != CANDIDATE_V0_CONFIG.candidate_version
-    ):
-        raise UnknownCandidate("Кандидат не зарегистрирован для Research Lab")
+    if not candidate.get("eligible"):
+        raise UnknownCandidate(
+            f"Кандидат недоступен (нет артефактов): {candidate.get('id')}",
+            details={"candidate_id": candidate.get("id")},
+        )
 
     policy_id = str(body.get("policy_id") or "")
     risk_id = str(body.get("risk_id") or "")
@@ -398,13 +398,26 @@ def fingerprint_excluding_cost(spec: SimulationSpecV0) -> str:
 
 
 def preview_config_hash(validated: dict[str, Any]) -> tuple[SimulationSpecV0, str, str]:
-    bundle = load_oos_predictions(ALLOWED_RESEARCH_SEGMENT)  # type: ignore[arg-type]
+    cand = validated["candidate"]
+    from app.modules.prediction.candidate_v1_config import CANDIDATE_V1_RANKER_CONFIG
+
+    config_hash = None
+    if cand["candidate_version"] == CANDIDATE_V1_RANKER_CONFIG.candidate_version:
+        config_hash = CANDIDATE_V1_RANKER_CONFIG.config_hash()
+    elif cand["candidate_version"] == CANDIDATE_V0_CONFIG.candidate_version:
+        config_hash = CANDIDATE_V0_CONFIG.config_hash()
+
+    bundle = load_oos_predictions(
+        ALLOWED_RESEARCH_SEGMENT,  # type: ignore[arg-type]
+        candidate_name=cand["candidate_name"],
+        candidate_version=cand["candidate_version"],
+        config_hash=config_hash,
+    )
     if not bundle.candidate_config_hash:
         raise MissingPredictions("В артефакте прогнозов нет candidate_config_hash")
-    cand = validated["candidate"]
     if (
-        cand["candidate_name"] != CANDIDATE_V0_CONFIG.candidate_name
-        or cand["candidate_version"] != CANDIDATE_V0_CONFIG.candidate_version
+        bundle.candidate_name != cand["candidate_name"]
+        or bundle.candidate_version != cand["candidate_version"]
     ):
         raise CandidateMismatch("Кандидат не совпадает с артефактом прогнозов")
 
@@ -416,6 +429,8 @@ def preview_config_hash(validated: dict[str, Any]) -> tuple[SimulationSpecV0, st
         prediction_hash=bundle.prediction_hash,
         candidate_config_hash=bundle.candidate_config_hash,
         dataset_values_hash=bundle.dataset_values_hash,
+        candidate_name=bundle.candidate_name,
+        candidate_version=bundle.candidate_version,
         **validated["policy_kwargs"],
     )
     return spec, spec.config_hash(), fingerprint_excluding_cost(spec)
@@ -496,6 +511,9 @@ def launch_research_run(session: Session, body: dict[str, Any]) -> dict[str, Any
         slippage_bps=validated["slippage_bps"],
         cost_sensitivity_label=validated["cost_label"],
         persist=True,
+        candidate_name=validated["candidate"]["candidate_name"],
+        candidate_version=validated["candidate"]["candidate_version"],
+        config_hash=spec.candidate_config_hash,
         **validated["policy_kwargs"],
     )
     run = get_run(session, run_id) if run_id else None
