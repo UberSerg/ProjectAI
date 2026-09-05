@@ -24,6 +24,7 @@ from app.modules.investment.application.allocation_service import (
 )
 from app.modules.investment.application.services import (
     CbrHurdleProvider,
+    bond_accounting_preview,
     fixed_income_readiness,
     investment_readiness,
     list_bonds,
@@ -125,6 +126,16 @@ def fixed_income_overview() -> dict[str, Any]:
 def fixed_income_readiness_endpoint() -> dict[str, Any]:
     with core_session() as session:
         return fixed_income_readiness(session)
+
+
+@router.get("/fixed-income/instruments/{symbol}/accounting-preview")
+def fixed_income_accounting_preview(
+    symbol: str,
+    lots: Annotated[int, Query(ge=1, le=1000)] = 1,
+    cost_bps: Annotated[Decimal, Query(ge=0)] = Decimal("5"),
+) -> dict[str, Any]:
+    with core_session() as session:
+        return bond_accounting_preview(session, symbol=symbol.upper(), lots=lots, cost_bps=cost_bps)
 
 
 @router.post("/portfolio/allocation/preview")
