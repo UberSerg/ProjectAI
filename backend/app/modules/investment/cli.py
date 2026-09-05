@@ -35,7 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     allocation = commands.add_parser("allocation-preview")
     allocation.add_argument("--capital", type=Decimal, default=Decimal("100000"))
     ingest = commands.add_parser("ingest-bonds-sample")
-    ingest.add_argument("--per-board", type=int, default=5)
+    ingest.add_argument("--per-board", type=int, default=10)
+    ingest.add_argument("--board-scan-limit", type=int, default=80)
     args = parser.parse_args(argv)
 
     if args.command == "key-rate-audit":
@@ -52,7 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         from app.modules.investment.application.ingest_bonds import ingest_bounded_rub_bonds
 
         with core_session() as session:
-            payload = ingest_bounded_rub_bonds(session, per_board=args.per_board)
+            payload = ingest_bounded_rub_bonds(
+                session,
+                per_board=args.per_board,
+                board_scan_limit=args.board_scan_limit,
+            )
             session.commit()
         _print(payload)
     elif args.command == "allocation-preview":

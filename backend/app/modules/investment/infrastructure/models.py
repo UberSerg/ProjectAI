@@ -37,9 +37,7 @@ class BondTerm(Base):
     known_at: Mapped[date] = mapped_column(Date, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
     raw_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class BondCashflow(Base):
@@ -66,17 +64,13 @@ class BondCashflow(Base):
     known_at: Mapped[date] = mapped_column(Date, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
     raw_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class BondMarketSnapshot(Base):
     __tablename__ = "bond_market_snapshots"
     __table_args__ = (
-        UniqueConstraint(
-            "instrument_id", "as_of", "source", name="uq_investment_bond_market_snapshot"
-        ),
+        UniqueConstraint("instrument_id", "as_of", "source", name="uq_investment_bond_market_snapshot"),
         {"schema": "investment"},
     )
 
@@ -90,6 +84,4 @@ class BondMarketSnapshot(Base):
     yield_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))
     source: Mapped[str] = mapped_column(Text, nullable=False)
     observed_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

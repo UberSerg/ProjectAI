@@ -38,14 +38,9 @@ class TaxModelStatus(StrEnum):
 SETTLEMENT_NOT_MODELED_V0 = "SETTLEMENT_NOT_MODELED_V0"
 
 
-def real_portfolio_eligible(
-    bond_type: BondType, credit_quality: CreditQualityStatus
-) -> bool:
+def real_portfolio_eligible(bond_type: BondType, credit_quality: CreditQualityStatus) -> bool:
     """Unknown corporate credit quality is never silently treated as safe."""
-    return not (
-        bond_type is BondType.CORPORATE
-        and credit_quality is CreditQualityStatus.UNKNOWN
-    )
+    return not (bond_type is BondType.CORPORATE and credit_quality is CreditQualityStatus.UNKNOWN)
 
 
 @dataclass(frozen=True)
@@ -108,15 +103,10 @@ class TransactionCostProfile:
         raise ValueError(f"Unsupported side: {side}")
 
 
-COST_PRESETS = {
-    bps: TransactionCostProfile(Decimal(bps))
-    for bps in (0, 5, 10, 20)
-}
+COST_PRESETS = {bps: TransactionCostProfile(Decimal(bps)) for bps in (0, 5, 10, 20)}
 
 
-def affordable_lots(
-    cash: Decimal, lot_notional: Decimal, profile: TransactionCostProfile
-) -> int:
+def affordable_lots(cash: Decimal, lot_notional: Decimal, profile: TransactionCostProfile) -> int:
     if cash <= 0 or lot_notional <= 0:
         return 0
     guess = int((cash / lot_notional).to_integral_value(rounding=ROUND_FLOOR))

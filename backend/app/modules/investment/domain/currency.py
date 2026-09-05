@@ -121,9 +121,7 @@ def resolve_bond_currencies(
 ) -> dict[str, CurrencyResolution]:
     """Resolve nominal vs settlement currencies without conflating them."""
     nominal = normalize_moex_currency_token(face_unit, field=MoexCurrencyField.FACEUNIT)
-    settlement = normalize_moex_currency_token(
-        currency_id, field=MoexCurrencyField.CURRENCYID
-    )
+    settlement = normalize_moex_currency_token(currency_id, field=MoexCurrencyField.CURRENCYID)
     sec = normalize_moex_currency_token(sec_currency, field=MoexCurrencyField.SEC_CURRENCY)
     return {
         "nominal_currency": nominal,
