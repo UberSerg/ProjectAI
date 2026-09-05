@@ -273,6 +273,46 @@ export function getFundamentalsMlReadiness(signal?: AbortSignal): Promise<Fundam
   return apiRequest("/fundamentals/ml-readiness", { signal });
 }
 
+export function getFundamentalsProviders(signal?: AbortSignal): Promise<FundamentalsProvidersResponse> {
+  return apiRequest("/fundamentals/providers", { signal });
+}
+
+export interface FundamentalsProviderRow {
+  code?: string;
+  name?: string;
+  name_ru?: string;
+  provider?: string;
+  configured?: boolean;
+  enabled?: boolean;
+  reachable?: boolean | null;
+  authenticated?: boolean | null;
+  operational_status?: string;
+  status?: string;
+  pit_capability?: string;
+  timestamp_quality?: string;
+  access_model?: string;
+  last_successful_request?: string | null;
+  human_explanation?: string;
+  note?: string;
+  deferred?: boolean;
+}
+
+export interface FundamentalsProvidersResponse {
+  providers?: FundamentalsProviderRow[];
+  human_summary?: string;
+}
+
+export function providerStatusLabel(status?: string | null): string {
+  const raw = (status ?? "").toUpperCase();
+  if (raw === "READY") return "Работает";
+  if (raw === "READY_REQUIRES_CREDENTIALS") return "Нужен доступ";
+  if (raw === "READY_REQUIRES_SUBSCRIPTION") return "Нужна подписка";
+  if (raw === "MANUAL_ONLY") return "Только вручную";
+  if (raw === "DEGRADED") return "Ограничен";
+  if (raw === "UNAVAILABLE") return "Выключен";
+  return status?.trim() || "—";
+}
+
 export function getFundamentalsQuality(signal?: AbortSignal): Promise<FundamentalsQuality> {
   return apiRequest("/fundamentals/quality", { signal });
 }

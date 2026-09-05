@@ -4,14 +4,17 @@ import { errorMessage } from "../api/client";
 import {
   getFundamentalsCoverage,
   getFundamentalsMlReadiness,
+  getFundamentalsProviders,
   getFundamentalsQuality,
   getFundamentalsSummary,
   issuerDisplayName,
   listFundamentalIssuers,
+  providerStatusLabel,
   qualityHumanMessage,
   type FundamentalIssuer,
   type FundamentalsCoverageYear,
   type FundamentalsMlReadiness,
+  type FundamentalsProviderRow,
   type FundamentalsQuality,
   type FundamentalsSummary,
 } from "../api/fundamentals";
@@ -46,6 +49,7 @@ export function FundamentalsPage() {
   const [quality, setQuality] = useState<FundamentalsQuality | null>(null);
   const [ml, setMl] = useState<FundamentalsMlReadiness | null>(null);
   const [issuers, setIssuers] = useState<FundamentalIssuer[]>([]);
+  const [providers, setProviders] = useState<FundamentalsProviderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [partialNotes, setPartialNotes] = useState<string[]>([]);
@@ -62,18 +66,22 @@ export function FundamentalsPage() {
       softLoad(listFundamentalIssuers({ limit: 100 }, controller.signal), {
         items: [] as FundamentalIssuer[],
       }),
+      softLoad(getFundamentalsProviders(controller.signal), { providers: [] }),
     ])
-      .then(([sum, cov, qual, ready, iss]) => {
+      .then(([sum, cov, qual, ready, iss, prov]) => {
         setSummary(sum.value);
         setCoverage(cov.value);
         setQuality(qual.value);
         setMl(ready.value);
         setIssuers(iss.value.items ?? []);
-        const notes = [sum.error, cov.error, qual.error, ready.error, iss.error].filter(
+        setProviders(
+          (prov.value.providers?.length ? prov.value.providers : sum.value.providers) ?? [],
+        );
+        const notes = [sum.error, cov.error, qual.error, ready.error, iss.error, prov.error].filter(
           Boolean,
         ) as string[];
         setPartialNotes(notes);
-        const allFailed = notes.length === 5;
+        const allFailed = notes.length === 6;
         if (allFailed) {
           setError(
             "Контур фундаментальных данных пока недоступен или провайдеры отложены. Пустые значения — ожидаемое состояние.",
@@ -181,17 +189,25 @@ export function FundamentalsPage() {
         />
       </div>
 
-      {(summary?.providers?.length ?? 0) > 0 ? (
-        <div className="card">
-          <h3>Провайдеры</h3>
+      {(providers.length > 0 || (summary?.providers?.length ?? 0) > 0) ? (
+        <div className="card" data-testid="fundamentals-data-sources">
+          <h3>Источники данных</h3>
+          <p className="muted">
+            Статусы провайдеров — без сырых HTTP-кодов; доступ и подписка описаны по-человечески.
+          </p>
           <ul className="plain-list">
-            {summary?.providers?.map((p, idx) => (
-              <li key={`${p.code ?? p.name ?? idx}`}>
-                <strong>{p.name ?? p.code ?? "Источник"}</strong>: {p.status ?? "—"}
-                {p.note ? <span className="muted"> — {p.note}</span> : null}
-                {p.deferred ? <span className="muted"> (отложен)</span> : null}
-              </li>
-            ))}
+            {(providers.length ? providers : summary?.providers ?? []).map((p, idx) => {
+              const name = p.name_ru ?? p.name ?? p.code ?? p.provider ?? "Источник";
+              const status = providerStatusLabel(p.operational_status ?? p.status);
+              const note = p.human_explanation ?? p.note;
+              return (
+                <li key={`${p.code ?? p.provider ?? idx}`}>
+                  <strong>{name}</strong>: {status}
+                  {note ? <span className="muted"> — {note}</span> : null}
+                  {p.deferred ? <span className="muted"> (отложен)</span> : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

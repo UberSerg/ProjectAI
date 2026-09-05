@@ -126,8 +126,8 @@ def run_report_ingestion(
             summary={
                 **result.to_dict(),
                 "note": (
-                    "No accepted financial report source: e-disclosure.ru returns HTTP 403 "
-                    "and MOEX ISS exposes no report table. Nothing was written."
+                    "No financial report provider injected. Configure GIR_BO_ENABLED or "
+                    "EDISCLOSURE_GATEWAY credentials to ingest; nothing was written."
                 ),
             },
         )

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.fundamentals.application import pit
 from app.modules.fundamentals.application.audit import build_source_audit_report
+from app.modules.fundamentals.application.providers_matrix import providers_for_summary
 from app.modules.fundamentals.application.readiness import build_readiness_report, coverage
 from app.modules.fundamentals.config import fundamentals_update_enabled
 from app.modules.fundamentals.domain.types import (
@@ -331,7 +332,7 @@ def summary_payload(session: Session) -> dict[str, Any]:
             if (cov.get("issuers") or 0) > 0
             else "Фундаментальный слой ещё не заполнен. Запустите fundamentals backfill."
         ),
-        "providers": (readiness.get("providers") or readiness.get("source_decisions")),
+        "providers": providers_for_summary(),
         "blockers": readiness.get("blockers") or status.get("blockers") or [],
     }
 

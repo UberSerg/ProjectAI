@@ -15,6 +15,7 @@ vi.mock("../api/fundamentals", async () => {
     getFundamentalsCoverage: vi.fn(),
     getFundamentalsQuality: vi.fn(),
     getFundamentalsMlReadiness: vi.fn(),
+    getFundamentalsProviders: vi.fn(),
     listFundamentalIssuers: vi.fn(),
     getFundamentalIssuer: vi.fn(),
     getIssuerReports: vi.fn(),
@@ -34,7 +35,38 @@ describe("FundamentalsPage", () => {
       financial_facts: 0,
       dividend_events: 0,
       corporate_events: 0,
-      providers: [{ name: "MOEX dividends", status: "DEFERRED", deferred: true }],
+      providers: [
+        { code: "MOEX_ISS", name: "MOEX ISS", status: "READY" },
+        {
+          code: "EDISCLOSURE_GATEWAY",
+          name: "Интерфакс шлюз",
+          status: "READY_REQUIRES_CREDENTIALS",
+          deferred: true,
+        },
+      ],
+    });
+    vi.mocked(fundamentalsApi.getFundamentalsProviders).mockResolvedValue({
+      providers: [
+        {
+          code: "MOEX_ISS",
+          name_ru: "MOEX ISS",
+          operational_status: "READY",
+          human_explanation: "Идентичность эмитента",
+        },
+        {
+          code: "EDISCLOSURE_GATEWAY",
+          name_ru: "Интерфакс шлюз",
+          operational_status: "READY_REQUIRES_CREDENTIALS",
+          human_explanation: "Нужен доступ по договору",
+          deferred: true,
+        },
+        {
+          code: "GIR_BO",
+          name_ru: "ГИР БО",
+          operational_status: "READY",
+          human_explanation: "Публичный JSON; адаптер выключен по умолчанию",
+        },
+      ],
     });
     vi.mocked(fundamentalsApi.getFundamentalsCoverage).mockResolvedValue([]);
     vi.mocked(fundamentalsApi.getFundamentalsQuality).mockResolvedValue({
@@ -70,6 +102,9 @@ describe("FundamentalsPage", () => {
     expect(screen.getByTestId("pit-explanation-card")).toHaveTextContent(/15 мая/i);
     expect(screen.getByTestId("fundamentals-ml-readiness")).toHaveTextContent(/Готовность к следующей модели/i);
     expect(screen.getByTestId("fundamentals-research-targets")).toHaveTextContent(/денежную альтернативу/i);
+    expect(screen.getByTestId("fundamentals-data-sources")).toHaveTextContent(/Источники данных/i);
+    expect(screen.getByTestId("fundamentals-data-sources")).toHaveTextContent(/Интерфакс шлюз/i);
+    expect(screen.getByTestId("fundamentals-data-sources")).toHaveTextContent(/Нужен доступ/i);
   });
 
   it("shows honest empty coverage and issuers state", async () => {

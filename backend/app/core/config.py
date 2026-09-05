@@ -47,6 +47,21 @@ class Settings(BaseSettings):
     market_update_cron: str = Field(default="0 18 * * 1-5", alias="MARKET_UPDATE_CRON")
     # Fundamentals V1 is storage + identity only; no beat schedule is registered.
     fundamentals_update_enabled: bool = Field(default=False, alias="FUNDAMENTALS_UPDATE_ENABLED")
+    edisclosure_gateway_enabled: bool = Field(default=False, alias="EDISCLOSURE_GATEWAY_ENABLED")
+    edisclosure_gateway_base_url: str = Field(
+        default="https://gateway.e-disclosure.ru", alias="EDISCLOSURE_GATEWAY_BASE_URL"
+    )
+    edisclosure_gateway_username: str = Field(default="", alias="EDISCLOSURE_GATEWAY_USERNAME")
+    edisclosure_gateway_secret: str = Field(default="", alias="EDISCLOSURE_GATEWAY_SECRET")
+    gir_bo_enabled: bool = Field(default=False, alias="GIR_BO_ENABLED")
+    gir_bo_base_url: str = Field(default="https://bo.nalog.gov.ru", alias="GIR_BO_BASE_URL")
+    gir_bo_user_agent: str = Field(
+        default=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        alias="GIR_BO_USER_AGENT",
+    )
     daily_research_cycle_enabled: bool = Field(default=False, alias="DAILY_RESEARCH_CYCLE_ENABLED")
     daily_research_cycle_hour: int = Field(default=18, alias="DAILY_RESEARCH_CYCLE_HOUR")
     daily_research_cycle_minute: int = Field(default=30, alias="DAILY_RESEARCH_CYCLE_MINUTE")

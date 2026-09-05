@@ -1,0 +1,19 @@
+[
+  {
+    "id": 26949059,
+    "period": "2025",
+    "actualBfoDate": "2026-03-16",
+    "actualCorrectionNumber": 0,
+    "publishedCorrectionDate": "2026-03-17",
+    "knd": "0710099",
+    "hasAz": true
+  },
+  {
+    "id": 25000001,
+    "period": "2024",
+    "actualBfoDate": "2025-03-15",
+    "actualCorrectionNumber": 0,
+    "knd": "0710099",
+    "hasAz": true
+  }
+]

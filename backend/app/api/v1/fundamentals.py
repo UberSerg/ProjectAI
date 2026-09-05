@@ -18,6 +18,7 @@ from app.modules.fundamentals.application.features_event import materialize_even
 from app.modules.fundamentals.application.features_fundamental import (
     materialize_fundamental_daily,
 )
+from app.modules.fundamentals.application.providers_matrix import build_providers_matrix
 from app.modules.fundamentals.application.quality import run_quality_checks
 
 router = APIRouter()
@@ -59,6 +60,12 @@ def fundamentals_ml_readiness() -> dict[str, Any]:
     """Alias used by Research Cockpit / Fundamentals UI."""
     with core_session() as session:
         return read_models.readiness_payload(session)
+
+
+@router.get("/providers")
+def fundamentals_providers() -> dict[str, Any]:
+    """Provider matrix with human-readable access/subscription explanations."""
+    return build_providers_matrix(live=False)
 
 
 @router.get("/quality")
