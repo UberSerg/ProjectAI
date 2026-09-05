@@ -129,18 +129,67 @@ def build_allocation_context(
     if supported == 0:
         fi_limitations.append("no_SUPPORTED_bonds_in_local_db")
 
+    # Credit + liquidity foundation (read-only) — yield alone is not opportunity quality.
+    credit_status = "UNKNOWN"
+    liquidity_status = "UNKNOWN"
+    investment_eligibility = "RESEARCH_ONLY"
+    risk_flags: tuple[str, ...] = ()
+    try:
+        from app.modules.investment.application.credit_liquidity_service import (
+            aggregate_fixed_income_risk,
+        )
+
+        risk_report = aggregate_fixed_income_risk(session)
+        credit_counts = risk_report.get("credit_coverage") or {}
+        liq_counts = risk_report.get("liquidity_coverage") or {}
+        elig_counts = risk_report.get("eligibility_coverage") or {}
+        if credit_counts.get("AVAILABLE", 0) > 0 and credit_counts.get("UNKNOWN", 0) == 0:
+            credit_status = "AVAILABLE"
+        elif credit_counts.get("NOT_RATED", 0) and not credit_counts.get("AVAILABLE", 0):
+            credit_status = "NOT_RATED"
+        else:
+            credit_status = "UNKNOWN"
+        # Sleeve liquidity: worst non-zero bucket preference LOW > UNKNOWN > MEDIUM > GOOD
+        if liq_counts.get("LOW", 0):
+            liquidity_status = "LOW"
+        elif liq_counts.get("UNKNOWN", 0) >= (risk_report.get("total_bonds") or 0):
+            liquidity_status = "UNKNOWN"
+        elif liq_counts.get("MEDIUM", 0):
+            liquidity_status = "MEDIUM"
+        elif liq_counts.get("GOOD", 0):
+            liquidity_status = "GOOD"
+        if elig_counts.get("REAL_PORTFOLIO_CANDIDATE", 0) and not elig_counts.get(
+            "RESEARCH_ONLY", 0
+        ):
+            investment_eligibility = "REAL_PORTFOLIO_CANDIDATE"
+        elif elig_counts.get("BLOCKED", 0) and not elig_counts.get("RESEARCH_ONLY", 0):
+            investment_eligibility = "BLOCKED"
+        else:
+            investment_eligibility = "RESEARCH_ONLY"
+        for item in risk_report.get("items") or []:
+            risk_flags = tuple(
+                dict.fromkeys(list(risk_flags) + list(item.get("risk_flags") or []))
+            )
+        for warning in risk_report.get("allocation_warnings") or []:
+            fi_limitations.append(warning)
+    except Exception:  # noqa: BLE001
+        fi_limitations.append("credit_liquidity_assessment_unavailable")
+
     data_quality = "READY" if supported > 0 else ("PARTIAL" if terms_total else "NOT_READY")
     fixed_income = FixedIncomeOpportunity(
         expected_yield=expected_yield,
         duration=float(duration) if duration is not None else None,
-        credit_quality="UNKNOWN" if unknown_credit or terms_total == 0 else "OBSERVED",
-        liquidity="UNKNOWN",
+        credit_quality=credit_status if credit_status != "AVAILABLE" else "OBSERVED",
+        liquidity=liquidity_status,
         data_quality=data_quality,
         supported_ratio=supported_ratio,
         limitations=tuple(fi_limitations),
         yield_source="OBSERVED_COUPON_RATE_OR_NONE",
-        liquidity_status="UNKNOWN",
+        liquidity_status=liquidity_status,
         support_status="SUPPORTED" if supported > 0 else "NONE",
+        credit_status=credit_status,
+        investment_eligibility=investment_eligibility,
+        risk_flags=risk_flags,
     )
 
     return AllocationContext(

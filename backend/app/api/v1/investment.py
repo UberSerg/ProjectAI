@@ -155,7 +155,21 @@ def allocation_preview(request: AllocationPreviewRequest) -> dict[str, Any]:
         capital=request.capital,
         costs=profile,
     )
-    return asdict(result)
+    payload = asdict(result)
+    warnings: list[str] = ["Портфель построен."]
+    try:
+        from app.modules.investment.application.credit_liquidity_service import (
+            aggregate_fixed_income_risk,
+        )
+
+        with core_session() as session:
+            risk = aggregate_fixed_income_risk(session)
+            warnings.extend(risk.get("allocation_warnings") or [])
+    except Exception:  # noqa: BLE001
+        warnings.append("Не удалось загрузить credit/liquidity warnings.")
+    payload["warnings"] = warnings
+    payload["diagnostics"] = list(payload.get("diagnostics") or []) + warnings[1:]
+    return payload
 
 
 @router.get("/allocation/policies")
@@ -375,3 +389,24 @@ def prediction_calibration_v1() -> dict[str, Any]:
             "calibration": _ranking_payload(ranking),
             "confidence": _confidence_payload(conf),
         }
+
+
+@router.get("/fixed-income/risk")
+def fixed_income_risk_report() -> dict[str, Any]:
+    from app.modules.investment.application.credit_liquidity_service import (
+        aggregate_fixed_income_risk,
+    )
+
+    with core_session() as session:
+        return aggregate_fixed_income_risk(session)
+
+
+@router.get("/fixed-income/instruments/{instrument_id}/risk")
+def fixed_income_instrument_risk(instrument_id: int) -> dict[str, Any]:
+    from app.modules.investment.application.credit_liquidity_service import assess_instrument
+
+    try:
+        with core_session() as session:
+            return assess_instrument(session, instrument_id=instrument_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

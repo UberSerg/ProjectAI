@@ -107,6 +107,15 @@ class InvestmentDecisionEngine:
 
         fi_allowed, fi_reasons, why_fi = self._assess_fi(fixed_income, risk_budget)
         reasons.extend(fi_reasons)
+        if fixed_income is not None and (
+            fixed_income.credit_quality == "UNKNOWN"
+            or getattr(fixed_income, "credit_status", None) in {"UNKNOWN", "NOT_RATED", None}
+        ):
+            warnings.append(
+                "WARNING: кредитное качество UNKNOWN — предупреждение, не ошибка расчёта."
+            )
+        if fixed_income is not None and getattr(fixed_income, "liquidity_status", None) == "LOW":
+            warnings.append("WARNING: низкая ликвидность Fixed Income sleeve.")
 
         if not market.liquidity_ok:
             reasons.append("liquidity_stress")
@@ -303,17 +312,24 @@ class InvestmentDecisionEngine:
                 "Консервативный risk budget не допускает UNKNOWN credit quality.",
             )
 
-        if fi.credit_quality == "UNKNOWN":
+        if fi.credit_quality == "UNKNOWN" or getattr(fi, "credit_status", None) in {
+            "UNKNOWN",
+            "NOT_RATED",
+            None,
+        }:
             reasons.append("credit_quality_unknown_research_only")
 
         reasons.append("fixed_income_sleeve_available")
         yld = fi.expected_yield
         yld_txt = f"{yld:.1%}" if yld is not None else "не наблюдалась"
+        elig = getattr(fi, "investment_eligibility", None) or "RESEARCH_ONLY"
+        liq = getattr(fi, "liquidity_status", None) or fi.liquidity
         return (
             True,
             reasons,
             f"Fixed Income предлагает наблюдаемую доходность ({yld_txt}) как research-альтернативу; "
-            "высокая доходность может отражать высокий риск. "
+            f"credit={getattr(fi, 'credit_status', fi.credit_quality)}, liquidity={liq}, "
+            f"eligibility={elig}. Высокая доходность может отражать высокий риск. "
             + BOND_SAFETY_REMINDER_RU,
         )
 

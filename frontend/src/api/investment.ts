@@ -30,6 +30,12 @@ export interface BondInstrument {
   maturity_date?: string | null;
   support_status: string;
   credit_quality_status: string;
+  credit_status?: string;
+  liquidity_status?: string;
+  investment_eligibility?: string;
+  accounting_quality?: string;
+  risk_flags?: string[];
+  warnings?: string[];
   real_portfolio_eligible: boolean;
   support_reasons?: string[];
   support_reasons_ru?: string[];
@@ -87,6 +93,28 @@ export const getInvestmentReadiness = (signal?: AbortSignal) =>
 
 export const getBonds = (signal?: AbortSignal) =>
   apiRequest<{ items: BondInstrument[] }>("/fixed-income/instruments", { signal });
+
+export const getFixedIncomeRisk = (signal?: AbortSignal) =>
+  apiRequest<{
+    as_of: string;
+    total_bonds: number;
+    credit_coverage: Record<string, number>;
+    liquidity_coverage: Record<string, number>;
+    eligibility_coverage: Record<string, number>;
+    summary_ru?: string;
+    allocation_warnings: string[];
+    items: Array<{
+      symbol: string;
+      bond_type: string;
+      credit_status: string;
+      liquidity_status: string;
+      investment_eligibility: string;
+      accounting_quality: string;
+      yield_hint: number | null;
+      risk_flags: string[];
+      warnings: string[];
+    }>;
+  }>("/fixed-income/risk", { signal });
 
 export const getBondAccountingPreview = (symbol: string, lots = 1, signal?: AbortSignal) =>
   apiRequest<AccountingPreview>(
@@ -246,6 +274,9 @@ export interface InvestmentDecisionResponse {
     liquidity_status?: string | null;
     support_status?: string | null;
     supported_ratio?: number | null;
+    credit_status?: string | null;
+    investment_eligibility?: string | null;
+    risk_flags?: string[];
   } | null;
   cash_opportunity: {
     annual_rate: number | null;
@@ -284,6 +315,14 @@ export interface InvestmentDecisionResponse {
   };
   bond_safety_reminder: string;
   mode: string;
+  fixed_income_risk_summary?: {
+    summary_ru?: string;
+    warnings?: string[];
+    credit_status?: string | null;
+    liquidity_status?: string | null;
+    investment_eligibility?: string | null;
+    risk_flags?: string[];
+  };
 }
 
 export const decideInvestment = (

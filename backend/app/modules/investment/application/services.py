@@ -231,12 +231,14 @@ def investment_readiness(session: Session) -> dict[str, Any]:
             "status": flags.get("AMORTIZATION_PARTIAL", "NOT_READY"),
         },
         {"code": "OFFER_POLICY_NOT_READY", "status": "NOT_READY"},
-        {"code": "CREDIT_QUALITY_NOT_READY", "status": "NOT_READY"},
+        {"code": "CREDIT_QUALITY_NOT_READY", "status": "FOUNDATION_READY"},
+        {"code": "LIQUIDITY_FOUNDATION_READY", "status": "FOUNDATION_READY"},
         {"code": "BOND_HISTORICAL_TOTAL_RETURN", "status": "NOT_READY"},
         {"code": "REALISTIC_LOTS_READY", "status": "READY"},
         {"code": "TRANSACTION_COSTS_READY", "status": "READY"},
         {"code": "ASSET_ALLOCATION_RESEARCH_READY", "status": "READY"},
         {"code": "TAX_MODEL_NOT_READY", "status": "NOT_READY"},
+        {"code": "DIVIDEND_TOTAL_RETURN_NOT_READY", "status": "NOT_READY"},
         {"code": "REAL_MONEY_NOT_READY", "status": "NOT_READY"},
     ]
     return {"status": "PARTIAL", "checks": checks, "fixed_income": fixed_income}
@@ -245,6 +247,14 @@ def investment_readiness(session: Session) -> dict[str, Any]:
 def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
     if not _schema_ready(session):
         return []
+    from app.modules.investment.application.credit_liquidity_service import list_bond_risk_assessments
+
+    try:
+        report = list_bond_risk_assessments(session, limit=limit)
+        by_id = {item["instrument_id"]: item for item in report["items"]}
+    except Exception:  # noqa: BLE001
+        by_id = {}
+
     rows = session.execute(
         select(Instrument, BondTerm)
         .join(BondTerm, BondTerm.instrument_id == Instrument.id)
@@ -257,6 +267,7 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
     for instrument, term in rows:
         bond_type = BondType(term.bond_type)
         credit = CreditQualityStatus(term.credit_quality_status)
+        risk = by_id.get(instrument.id) or {}
         snap = session.scalar(
             select(BondMarketSnapshot)
             .where(BondMarketSnapshot.instrument_id == instrument.id)
@@ -288,6 +299,15 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
                 "maturity_date": term.maturity_date,
                 "support_status": term.support_status,
                 "credit_quality_status": credit.value,
+                "credit_status": risk.get("credit_status", credit.value),
+                "liquidity_status": risk.get("liquidity_status", "UNKNOWN"),
+                "investment_eligibility": risk.get("investment_eligibility", "RESEARCH_ONLY"),
+                "accounting_quality": risk.get(
+                    "accounting_quality",
+                    "YES" if term.support_status == "SUPPORTED" else "NO",
+                ),
+                "risk_flags": risk.get("risk_flags", ["CREDIT_UNKNOWN"]),
+                "warnings": risk.get("warnings", []),
                 "real_portfolio_eligible": real_portfolio_eligible(bond_type, credit),
                 "support_reasons": reasons,
                 "support_reasons_ru": [reason_code_ru(code) for code in reasons],
