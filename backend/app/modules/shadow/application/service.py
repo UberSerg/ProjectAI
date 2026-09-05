@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -28,8 +28,7 @@ from app.modules.shadow.config import (
     EXPERIMENT_GROUP,
     SHADOW_KIND,
     ShadowSpecConfig,
-    portfolio_a_config,
-    portfolio_b_config,
+    operational_shadow_configs,
 )
 from app.modules.shadow.infrastructure.models import (
     ShadowDecision,
@@ -142,12 +141,21 @@ def upsert_spec(session: Session, cfg: ShadowSpecConfig) -> ShadowPortfolioSpec:
     return row
 
 
-def _latest_success_batch(session: Session) -> ForwardPredictionBatch | None:
+def _latest_success_batch(
+    session: Session, *, candidate_config_hash: str | None = None
+) -> ForwardPredictionBatch | None:
+    """Latest SUCCESS Forward batch, optionally restricted to one Prediction Candidate.
+
+    Restricting by candidate is what keeps parallel candidates from cross-feeding each
+    other's Shadow portfolios.
+    """
+    q = select(ForwardPredictionBatch).where(ForwardPredictionBatch.status == "SUCCESS")
+    if candidate_config_hash is not None:
+        q = q.where(ForwardPredictionBatch.candidate_config_hash == candidate_config_hash)
     return session.scalar(
-        select(ForwardPredictionBatch)
-        .where(ForwardPredictionBatch.status == "SUCCESS")
-        .order_by(ForwardPredictionBatch.as_of_date.desc(), ForwardPredictionBatch.id.desc())
-        .limit(1)
+        q.order_by(
+            ForwardPredictionBatch.as_of_date.desc(), ForwardPredictionBatch.id.desc()
+        ).limit(1)
     )
 
 
@@ -613,24 +621,98 @@ def _fill_pending_orders(
     return filled
 
 
+def initialize_empty_shadow_portfolios(
+    session: Session,
+    *,
+    configs: Sequence[ShadowSpecConfig],
+    clock: Clock | None = None,
+) -> list[AdvanceResult]:
+    """Create cash-only Shadow portfolios with no orders/fills/decisions.
+
+    Used for prospective Model A/B activation: portfolios must start at initial capital
+    with empty history. Decisions appear only after a genuinely new post-activation
+    Forward batch for that candidate.
+    """
+    now = (clock or _utcnow)()
+    results: list[AdvanceResult] = []
+    for cfg in configs:
+        spec = upsert_spec(session, cfg)
+        portfolio = session.scalar(
+            select(ShadowPortfolio).where(ShadowPortfolio.spec_id == spec.id)
+        )
+        if portfolio is None:
+            portfolio = ShadowPortfolio(
+                spec_id=spec.id,
+                status="WAITING_FOR_NEW_MARKET",
+                activated_at=now,
+                first_forward_batch_id=None,
+                first_forward_as_of_date=None,
+                cash=float(spec.initial_capital),
+                peak_nav=float(spec.initial_capital),
+                exposure_cap=float(spec.dd_normal_gross or 1.0),
+                risk_mode="normal",
+                positions={},
+                provenance={
+                    "kind": SHADOW_KIND,
+                    "experiment_group": cfg.experiment_group,
+                    "candidate_config_hash": cfg.candidate_config_hash,
+                    "not_historical_simulator": True,
+                    "empty_activation": True,
+                    "historical_backfill": False,
+                },
+                warnings=[],
+            )
+            session.add(portfolio)
+            session.flush()
+        results.append(
+            AdvanceResult(
+                portfolio_id=portfolio.id,
+                name=spec.name,
+                status=portfolio.status,
+                summary={
+                    "cash": float(portfolio.cash),
+                    "positions": 0,
+                    "orders": 0,
+                    "fills": 0,
+                    "empty_activation": True,
+                },
+            )
+        )
+    return results
+
+
 def initialize_shadow_portfolios(
     session: Session,
     *,
     clock: Clock | None = None,
     first_batch_id: int | None = None,
+    configs: Sequence[ShadowSpecConfig] | None = None,
 ) -> list[AdvanceResult]:
-    """Create both Shadow portfolios and first decisions if a Forward batch is available."""
+    """Create the given Shadow portfolios and first decisions when a Forward batch exists.
+
+    Defaults to the operational SHADOW_FORWARD_V0 pair. Each spec consumes only Forward
+    batches produced by its own bound Prediction Candidate.
+    """
     now = (clock or _utcnow)()
-    batch = None
-    if first_batch_id is not None:
-        batch = session.get(ForwardPredictionBatch, first_batch_id)
-    if batch is None:
-        batch = _latest_success_batch(session)
-    if batch is None or batch.status != "SUCCESS" or batch.generated_at is None:
-        raise ValueError("no SUCCESS forward batch available for Shadow activation")
+    specs = list(configs) if configs is not None else list(operational_shadow_configs())
 
     results: list[AdvanceResult] = []
-    for cfg in (portfolio_a_config(), portfolio_b_config()):
+    for cfg in specs:
+        batch = None
+        if first_batch_id is not None:
+            batch = session.get(ForwardPredictionBatch, first_batch_id)
+            if batch is not None and batch.candidate_config_hash != cfg.candidate_config_hash:
+                batch = None
+        if batch is None:
+            batch = _latest_success_batch(
+                session, candidate_config_hash=cfg.candidate_config_hash
+            )
+        if batch is None or batch.status != "SUCCESS" or batch.generated_at is None:
+            raise ValueError(
+                f"no SUCCESS forward batch for candidate {cfg.candidate_name}/"
+                f"{cfg.candidate_version} — cannot activate {cfg.name}"
+            )
+
         spec = upsert_spec(session, cfg)
         portfolio = session.scalar(select(ShadowPortfolio).where(ShadowPortfolio.spec_id == spec.id))
         if portfolio is None:
@@ -647,7 +729,8 @@ def initialize_shadow_portfolios(
                 positions={},
                 provenance={
                     "kind": SHADOW_KIND,
-                    "experiment_group": EXPERIMENT_GROUP,
+                    "experiment_group": cfg.experiment_group,
+                    "candidate_config_hash": cfg.candidate_config_hash,
                     "not_historical_simulator": True,
                 },
                 warnings=[],
@@ -722,12 +805,14 @@ def advance_shadow_portfolio(
 
     late_warnings = _scan_late_input_corrections(session, portfolio)
 
-    # 1) New forward batches eligible for weekly decision
+    # 1) New forward batches eligible for weekly decision.
+    # Bound to the spec's own Prediction Candidate so parallel candidates stay isolated.
     batches = list(
         session.scalars(
             select(ForwardPredictionBatch)
             .where(
                 ForwardPredictionBatch.status == "SUCCESS",
+                ForwardPredictionBatch.candidate_config_hash == spec.candidate_config_hash,
                 ForwardPredictionBatch.generated_at.is_not(None),
                 ForwardPredictionBatch.generated_at <= now,
             )
@@ -823,6 +908,24 @@ def advance_shadow_portfolio(
     )
 
 
-def advance_all_shadow_portfolios(session: Session, *, clock: Clock | None = None) -> list[AdvanceResult]:
-    rows = list(session.scalars(select(ShadowPortfolio).order_by(ShadowPortfolio.id)))
+def advance_all_shadow_portfolios(
+    session: Session,
+    *,
+    clock: Clock | None = None,
+    experiment_groups: Sequence[str] | None = None,
+) -> list[AdvanceResult]:
+    """Advance Shadow portfolios of the given experiment groups.
+
+    Defaults to the operational SHADOW_FORWARD_V0 group only, so research experiments
+    added later can never make the operational daily Shadow stage fail.
+    """
+    groups = list(experiment_groups) if experiment_groups is not None else [EXPERIMENT_GROUP]
+    rows = list(
+        session.scalars(
+            select(ShadowPortfolio)
+            .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
+            .where(ShadowPortfolioSpec.experiment_group.in_(groups))
+            .order_by(ShadowPortfolio.id)
+        )
+    )
     return [advance_shadow_portfolio(session, p.id, clock=clock) for p in rows]

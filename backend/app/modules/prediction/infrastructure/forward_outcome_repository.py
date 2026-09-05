@@ -49,10 +49,22 @@ def get_batch_evaluation(
     )
 
 
-def list_pending_predictions(session: Session, *, batch_id: int | None = None) -> list[ForwardPrediction]:
+def list_pending_predictions(
+    session: Session,
+    *,
+    batch_id: int | None = None,
+    prediction_semantic: str | None = "EXPECTED_RETURN",
+) -> list[ForwardPrediction]:
+    """List predictions for outcome evaluation.
+
+    Restricted to EXPECTED_RETURN by default: realized-vs-predicted error arithmetic is
+    meaningless for RANKING_SCORE rows, which are evaluated by Model Edge instead.
+    """
     stmt = select(ForwardPrediction).order_by(ForwardPrediction.as_of_date, ForwardPrediction.instrument_id)
     if batch_id is not None:
         stmt = stmt.where(ForwardPrediction.batch_id == batch_id)
+    if prediction_semantic is not None:
+        stmt = stmt.where(ForwardPrediction.prediction_semantic == prediction_semantic)
     return list(session.scalars(stmt).all())
 
 

@@ -13,9 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.modules.prediction.application.forward_artifact import (
     ForwardArtifactError,
+    LoadedForwardModel,
     load_frozen_candidate_v0,
 )
-from app.modules.prediction.application.forward_assembler import assemble_forward_rows, rows_to_matrix
+from app.modules.prediction.application.forward_assembler import (
+    AssembledRow,
+    assemble_forward_rows,
+    rows_to_matrix,
+)
 from app.modules.prediction.application.forward_config import (
     EXPECTED_CANDIDATE_CONFIG_HASH,
     EXPECTED_FEATURE_COUNT,
@@ -88,10 +93,6 @@ def run_forward_signal_v0(
 
     Never retrains. Never overwrites frozen predictions. Never builds full Dataset history.
     """
-    timings: dict[str, float] = {}
-    t0 = time.perf_counter()
-
-    # --- Artifact ---
     t_art = time.perf_counter()
     try:
         loaded = load_frozen_candidate_v0(config=config, root=artifact_root)
@@ -102,7 +103,37 @@ def run_forward_signal_v0(
             as_of=None,
             summary={"error": str(exc), "stage": "artifact"},
         )
-    timings["artifact_load_sec"] = round(time.perf_counter() - t_art, 3)
+    artifact_load_sec = round(time.perf_counter() - t_art, 3)
+    return run_forward_for_loaded_model(
+        session,
+        loaded=loaded,
+        feature_config=config,
+        as_of=as_of,
+        persist=persist,
+        artifact_load_sec=artifact_load_sec,
+    )
+
+
+def run_forward_for_loaded_model(
+    session: Session,
+    *,
+    loaded: LoadedForwardModel,
+    feature_config: CandidateV0Config = CANDIDATE_V0_CONFIG,
+    as_of: date | None = None,
+    persist: bool = True,
+    artifact_load_sec: float = 0.0,
+    assembled_rows: list[AssembledRow] | None = None,
+) -> ForwardRunResult:
+    """Run one already-loaded frozen candidate over the pinned PIT feature snapshot.
+
+    `feature_config` supplies the frozen X schema shared by every candidate on this
+    contract; `loaded` supplies the model identity, config hash and prediction semantic.
+    `assembled_rows` lets a caller share one feature snapshot across candidates so that
+    the model is the only difference between two runs of the same as_of.
+    """
+    config = feature_config
+    timings: dict[str, float] = {"artifact_load_sec": artifact_load_sec}
+    t0 = time.perf_counter()
 
     # --- As-of / completeness ---
     t_ready = time.perf_counter()
@@ -190,13 +221,22 @@ def run_forward_signal_v0(
                 "candidate_config_hash": loaded.config_hash,
                 "feature_schema_hash": loaded.feature_schema_hash,
                 "segment": FORWARD_SEGMENT,
+                "candidate_name": loaded.candidate_name,
+                "candidate_version": loaded.candidate_version,
+                "prediction_semantic": loaded.prediction_semantic,
+                "eligible_count": len(existing),
             },
         )
 
     # --- Assemble features ---
     t_asm = time.perf_counter()
-    assembled = assemble_forward_rows(session, as_of=as_of_date, config=config)
+    assembled = (
+        assembled_rows
+        if assembled_rows is not None
+        else assemble_forward_rows(session, as_of=as_of_date, config=config)
+    )
     timings["feature_assembly_sec"] = round(time.perf_counter() - t_asm, 3)
+    timings["feature_snapshot_reused"] = float(assembled_rows is not None)
 
     pit_violations = [r for r in assembled if not r.pit_ok]
     if pit_violations:
@@ -267,6 +307,7 @@ def run_forward_signal_v0(
                 "input_lineage": row.lineage,
                 "quality_status": "OK",
                 "segment": FORWARD_SEGMENT,
+                "prediction_semantic": loaded.prediction_semantic,
                 "outcome_status": OUTCOME_PENDING,
                 "generated_at": generated_at,
             }
@@ -289,10 +330,11 @@ def run_forward_signal_v0(
             "technical": f"{FORWARD_TECH_FS_CODE} v{FORWARD_TECH_FS_VERSION}",
             "rules": f"{FORWARD_TECH_MODEL_CODE} v{FORWARD_TECH_MODEL_VERSION}",
             "relations": f"{FORWARD_RELATION_SET_CODE} v{FORWARD_RELATION_SET_VERSION}",
-            "candidate": f"{config.candidate_name}/{config.candidate_version}",
+            "candidate": f"{loaded.candidate_name}/{loaded.candidate_version}",
             "candidate_config_hash": loaded.config_hash,
             "feature_schema_hash": loaded.feature_schema_hash,
             "dataset_values_hash": loaded.dataset_values_hash,
+            "prediction_semantic": loaded.prediction_semantic,
         },
         "artifact_dir": str(loaded.artifact_dir),
         "completeness": completeness.to_dict(),
@@ -329,12 +371,13 @@ def run_forward_signal_v0(
         batch = repo.create_batch(
             session,
             as_of_date=as_of_date,
-            candidate_name=config.candidate_name,
-            candidate_version=config.candidate_version,
+            candidate_name=loaded.candidate_name,
+            candidate_version=loaded.candidate_version,
             candidate_config_hash=loaded.config_hash,
             feature_schema_hash=loaded.feature_schema_hash,
             dataset_values_hash=loaded.dataset_values_hash,
             segment=FORWARD_SEGMENT,
+            prediction_semantic=loaded.prediction_semantic,
         )
         inserted, notes = repo.insert_predictions_immutable(session, batch=batch, rows=ranked)
         batch.status = "SUCCESS"
@@ -364,8 +407,9 @@ def run_forward_signal_v0(
             "as_of": as_of_date.isoformat(),
             "generated_at": generated_at.isoformat(),
             "segment": FORWARD_SEGMENT,
-            "candidate_name": config.candidate_name,
-            "candidate_version": config.candidate_version,
+            "candidate_name": loaded.candidate_name,
+            "candidate_version": loaded.candidate_version,
+            "prediction_semantic": loaded.prediction_semantic,
             "candidate_config_hash": loaded.config_hash,
             "feature_schema_hash": loaded.feature_schema_hash,
             "feature_count": EXPECTED_FEATURE_COUNT,

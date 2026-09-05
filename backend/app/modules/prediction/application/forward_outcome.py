@@ -284,14 +284,21 @@ def evaluate_forward_outcomes(
     session: Session,
     *,
     batch_id: int | None = None,
+    prediction_semantic: str | None = "EXPECTED_RETURN",
 ) -> OutcomeEvalResult:
-    """Evaluate matured Forward predictions. Idempotent. Never fabricates outcomes."""
+    """Evaluate matured Forward predictions. Idempotent. Never fabricates outcomes.
+
+    Only EXPECTED_RETURN predictions are evaluated here; RANKING_SCORE candidates have no
+    predicted-vs-realized error and are compared by Model Edge on rank statistics.
+    """
     from sqlalchemy import select as sa_select
 
     from app.modules.prediction.infrastructure.forward_outcome_models import ForwardPredictionOutcome
 
     feature_set_id = _feature_set_id(session)
-    preds = repo.list_pending_predictions(session, batch_id=batch_id)
+    preds = repo.list_pending_predictions(
+        session, batch_id=batch_id, prediction_semantic=prediction_semantic
+    )
     if not preds:
         return OutcomeEvalResult(status="NO_CHANGES", summary={"evaluated_new": 0, "batches": []})
 

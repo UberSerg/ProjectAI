@@ -182,7 +182,7 @@ export function ResearchLabPage() {
     <section className="research-lab">
       <PageHeader
         title={labels.nav.lab}
-        description="Исторические исследовательские эксперименты с моделями, портфельными политиками и издержками."
+        description="Исследовательский кокпит: исторические эксперименты, диагностика моделей, проспективное A/B и живой Shadow."
         helpPageId="research_lab"
         actions={
           <Link to="/shadow" className="secondary button-link">
@@ -201,7 +201,32 @@ export function ResearchLabPage() {
         </div>
       </div>
 
-      <div className="card research-wizard">
+      <div className="card-grid research-cockpit-cards" data-testid="research-cockpit-cards">
+        <a className="card cockpit-card" href="#historical-lab">
+          <h3>Историческая лаборатория</h3>
+          <p className="muted">
+            Запуск и сравнение исторических экспериментов на Development OOS.
+          </p>
+        </a>
+        <Link className="card cockpit-card" to="/research/diagnostics">
+          <h3>Диагностика моделей</h3>
+          <p className="muted">
+            Почему такой результат: верх рейтинга, стабильность, режимы, экономика.
+          </p>
+        </Link>
+        <Link className="card cockpit-card" to="/research/prospective-models">
+          <h3>Проспективное сравнение V0/V1</h3>
+          <p className="muted">Парный эксперимент только вперёд: одинаковые условия, разная модель.</p>
+        </Link>
+        <Link className="card cockpit-card" to="/shadow">
+          <h3>Живой эксперимент</h3>
+          <p className="muted">
+            Shadow Portfolio и ежедневный исследовательский цикл — только вперёд.
+          </p>
+        </Link>
+      </div>
+
+      <div className="card research-wizard" id="historical-lab">
         <h2>Новый эксперимент</h2>
         <p className="muted">
           Здесь можно запускать исторические эксперименты на уже сохранённых out-of-sample прогнозах.

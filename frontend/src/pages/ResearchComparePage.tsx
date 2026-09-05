@@ -5,11 +5,36 @@ import {
   compareResearchRuns,
   type CompareNavPoint,
   type CompareResponse,
+  type ResearchRunSummary,
 } from "../api/researchLab";
 import { PageHeader, PageState } from "../components/Ui";
 import { MetricHelp } from "../help";
+import { excessVsCashHurdle, parseHurdleParam } from "../features/researchLab/cashHurdle";
 import { experimentName, policyHumanName, riskHumanName } from "../features/researchLab/labels";
-import { formatPercent } from "../utils/format";
+import { formatPercent, formatPercentPoints } from "../utils/format";
+
+function isPureModelComparison(data: CompareResponse): boolean {
+  if (data.model_comparison) return true;
+  if (!data.fair_comparison) return false;
+  const diffs = data.differences ?? [];
+  if (!diffs.length) {
+    const hashes = new Set(
+      data.runs.map((r) => r.candidate_config_hash).filter((h): h is string => Boolean(h)),
+    );
+    return hashes.size > 1;
+  }
+  const fields = diffs.map((d) => d.field.toLowerCase());
+  const onlyCandidate = fields.every(
+    (f) => f.includes("candidate") || f.includes("model") || f.includes("hash"),
+  );
+  return onlyCandidate && fields.length > 0;
+}
+
+function runMetric(run: ResearchRunSummary, key: string): number | null {
+  const m = (run.metrics ?? {}) as Record<string, number | null | undefined>;
+  const v = m[key];
+  return v == null || Number.isNaN(v) ? null : Number(v);
+}
 
 function MultiLineChart({
   series,
@@ -83,6 +108,7 @@ function formatMetric(metricId: string, value: number | null | undefined): strin
 
 export function ResearchComparePage() {
   const [params] = useSearchParams();
+  const hurdle = parseHurdleParam(params.get("hurdle"));
   const [data, setData] = useState<CompareResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -120,6 +146,13 @@ export function ResearchComparePage() {
     points: data.nav_series[String(run.id)] ?? [],
   }));
 
+  const pureModel = isPureModelComparison(data);
+  const metricIds = new Set(data.metrics_table.map((r) => r.metric_id));
+  const showEnrichment =
+    !metricIds.has("excess_vs_cash") ||
+    !metricIds.has("max_drawdown") ||
+    !metricIds.has("turnover_ratio");
+
   return (
     <section className="research-compare">
       <PageHeader
@@ -139,6 +172,17 @@ export function ResearchComparePage() {
       >
         {data.fair_badge} <MetricHelp metricId="fair_comparison" />
       </div>
+
+      {pureModel ? (
+        <div className="badge badge-success" data-testid="pure-model-badge">
+          Чистое сравнение моделей <MetricHelp metricId="fair_comparison" />
+          <span className="muted">
+            {" "}
+            — одинаковые политика, риск, издержки, даты, капитал и исполнение; отличается только
+            модель.
+          </span>
+        </div>
+      ) : null}
 
       {!data.period_aligned ? (
         <p className="warning-inline">
@@ -202,9 +246,77 @@ export function ResearchComparePage() {
                   ))}
                 </tr>
               ))}
+              {showEnrichment ? (
+                <>
+                  {!metricIds.has("max_drawdown") ? (
+                    <tr data-testid="enrich-max-dd">
+                      <td>
+                        Максимальная просадка <MetricHelp metricId="sim_max_drawdown" />
+                      </td>
+                      {data.runs.map((r) => (
+                        <td key={r.id} className="numeric">
+                          {formatPercent(runMetric(r, "max_drawdown"))}
+                        </td>
+                      ))}
+                    </tr>
+                  ) : null}
+                  {!metricIds.has("turnover_ratio") ? (
+                    <tr data-testid="enrich-turnover">
+                      <td>
+                        Оборот <MetricHelp metricId="sim_turnover" />
+                      </td>
+                      {data.runs.map((r) => (
+                        <td key={r.id} className="numeric">
+                          {formatMetric("turnover_ratio", runMetric(r, "turnover_ratio"))}
+                        </td>
+                      ))}
+                    </tr>
+                  ) : null}
+                  <tr data-testid="enrich-cash-hurdle">
+                    <td>
+                      Денежная альтернатива ({formatPercent(hurdle)} годовых){" "}
+                      <MetricHelp metricId="cash_hurdle" />
+                    </td>
+                    {data.runs.map((r) => {
+                      const { hurdleReturn } = excessVsCashHurdle(
+                        runMetric(r, "total_price_return"),
+                        r.date_from,
+                        r.date_to,
+                        hurdle,
+                      );
+                      return (
+                        <td key={r.id} className="numeric">
+                          {formatPercent(hurdleReturn)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr data-testid="enrich-excess-cash">
+                    <td>
+                      Разница vs денежная альтернатива <MetricHelp metricId="excess_vs_cash" />
+                    </td>
+                    {data.runs.map((r) => {
+                      const { excess } = excessVsCashHurdle(
+                        runMetric(r, "total_price_return"),
+                        r.date_from,
+                        r.date_to,
+                        hurdle,
+                      );
+                      return (
+                        <td key={r.id} className="numeric">
+                          {formatPercentPoints(excess)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </>
+              ) : null}
             </tbody>
           </table>
         </div>
+        <p className="field-hint">
+          Денежная альтернатива — пост-обработка сравнения; она не меняет сохранённые симуляции.
+        </p>
       </div>
 
       <MultiLineChart series={chartSeries} valueKey="nav_normalized" title="NAV (нормализовано к 100)" />

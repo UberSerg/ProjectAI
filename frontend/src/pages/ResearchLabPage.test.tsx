@@ -127,6 +127,9 @@ describe("ResearchLabPage", () => {
     renderLab();
     expect(await screen.findByText("Лаборатория")).toBeInTheDocument();
     expect(screen.getByTestId("research-not-live")).toBeInTheDocument();
+    expect(screen.getByTestId("research-cockpit-cards")).toBeInTheDocument();
+    expect(screen.getByText("Диагностика моделей")).toBeInTheDocument();
+    expect(screen.getByText("Проспективное сравнение V0/V1")).toBeInTheDocument();
     expect(screen.getByTestId("holdout-protected")).toBeInTheDocument();
     expect(screen.getByTestId("config-summary")).toHaveTextContent("Development OOS");
     expect(screen.getByText("Hysteresis · 10 bps")).toBeInTheDocument();

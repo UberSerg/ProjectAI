@@ -17,7 +17,11 @@ CYCLE_STEPS = [
     "RELATIONS_V2",
     "FORWARD_SIGNAL",
     "SHADOW_ADVANCE",
+    # Experimental Model Edge stages — non-fatal; must not block operational V0.
+    "PROSPECTIVE_MODEL_AB",
+    "PROSPECTIVE_MODEL_AB_SHADOW",
     "FORWARD_OUTCOME_EVALUATION",
+    "PROSPECTIVE_MODEL_AB_OUTCOME",
     "FINALIZE",
 ]
 

@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from app.modules.prediction.candidate_config import CANDIDATE_V0_CONFIG
+from app.modules.prediction.candidate_v1_config import CANDIDATE_V1_RANKER_CONFIG
 from app.modules.simulator.config import (
     POLICY_HYSTERESIS_V1,
     RISK_DD_GUARD_V1,
@@ -26,6 +27,12 @@ SHADOW_KIND = "FORWARD_SHADOW"  # distinct from HISTORICAL_SIMULATOR
 
 PORTFOLIO_A_NAME = "SHADOW_HYSTERESIS_V1"
 PORTFOLIO_B_NAME = "SHADOW_HYSTERESIS_DD_V1"
+
+# Prospective Model A/B V0 shadows. Same policy, same risk, same capital — only the
+# Prediction Candidate differs, so any NAV gap is attributable to the model.
+MODEL_AB_EXPERIMENT_GROUP = "PROSPECTIVE_MODEL_AB_V0"
+MODEL_AB_PORTFOLIO_A_NAME = "MODEL_AB_V0_HYST"
+MODEL_AB_PORTFOLIO_B_NAME = "MODEL_AB_V1_HYST"
 
 INITIAL_CAPITAL = 1_000_000.0
 EXPECTED_CANDIDATE_CONFIG_HASH = CANDIDATE_V0_CONFIG.config_hash()
@@ -100,3 +107,42 @@ def portfolio_b_config() -> ShadowSpecConfig:
         dd_risk_off_gross=V1_DD_RISK_OFF_GROSS,
         dd_normal_gross=V1_DD_NORMAL_GROSS,
     )
+
+
+def operational_shadow_configs() -> tuple[ShadowSpecConfig, ShadowSpecConfig]:
+    """The existing SHADOW_FORWARD_V0 operational pair."""
+    return portfolio_a_config(), portfolio_b_config()
+
+
+def model_ab_portfolio_a_config() -> ShadowSpecConfig:
+    """Prospective A/B side A — Candidate V0 (EXPECTED_RETURN)."""
+    return ShadowSpecConfig(
+        experiment_group=MODEL_AB_EXPERIMENT_GROUP,
+        name=MODEL_AB_PORTFOLIO_A_NAME,
+        version="v0",
+        candidate_name=CANDIDATE_V0_CONFIG.candidate_name,
+        candidate_version=CANDIDATE_V0_CONFIG.candidate_version,
+        candidate_config_hash=CANDIDATE_V0_CONFIG.config_hash(),
+        dataset_values_hash=CANDIDATE_V0_CONFIG.required_values_hash,
+        policy_name=POLICY_HYSTERESIS_V1,
+        risk_name=RISK_NAME,
+    )
+
+
+def model_ab_portfolio_b_config() -> ShadowSpecConfig:
+    """Prospective A/B side B — Candidate V1 Ranker (RANKING_SCORE)."""
+    return ShadowSpecConfig(
+        experiment_group=MODEL_AB_EXPERIMENT_GROUP,
+        name=MODEL_AB_PORTFOLIO_B_NAME,
+        version="v0",
+        candidate_name=CANDIDATE_V1_RANKER_CONFIG.candidate_name,
+        candidate_version=CANDIDATE_V1_RANKER_CONFIG.candidate_version,
+        candidate_config_hash=CANDIDATE_V1_RANKER_CONFIG.config_hash(),
+        dataset_values_hash=CANDIDATE_V1_RANKER_CONFIG.required_values_hash,
+        policy_name=POLICY_HYSTERESIS_V1,
+        risk_name=RISK_NAME,
+    )
+
+
+def model_ab_shadow_configs() -> tuple[ShadowSpecConfig, ShadowSpecConfig]:
+    return model_ab_portfolio_a_config(), model_ab_portfolio_b_config()
