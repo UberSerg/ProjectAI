@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { getResearchRun, type ResearchRunSummary } from "../api/researchLab";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
+import { EconomicViabilityBlock } from "../features/researchLab/EconomicViabilityBlock";
+import { clampHurdleRate, parseHurdleParam } from "../features/researchLab/cashHurdle";
 import { MetricHelp } from "../help";
 import {
   bpsLabel,
@@ -15,6 +17,8 @@ import { labels } from "../utils/labels";
 
 export function ResearchExperimentPage() {
   const { runId } = useParams();
+  const [params, setParams] = useSearchParams();
+  const hurdle = parseHurdleParam(params.get("hurdle"));
   const [run, setRun] = useState<ResearchRunSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -120,6 +124,22 @@ export function ResearchExperimentPage() {
         />
         <MetricCard label="Статус" value={<StatusBadge status={run.status} />} />
       </div>
+
+      <EconomicViabilityBlock
+        totalReturn={m.total_price_return}
+        cagr={m.cagr}
+        maxDrawdown={m.max_drawdown}
+        dateFrom={run.date_from}
+        dateTo={run.date_to}
+        annualRate={hurdle}
+        onAnnualRateChange={(rate) => {
+          const next = clampHurdleRate(rate);
+          const nextParams = new URLSearchParams(params);
+          nextParams.set("hurdle", next.toFixed(2));
+          setParams(nextParams, { replace: true });
+        }}
+        testId="experiment-economic"
+      />
 
       <details>
         <summary>Технические детали</summary>

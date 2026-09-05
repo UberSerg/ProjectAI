@@ -53,6 +53,40 @@ describe("help registry", () => {
     expect(getMetricHelp("daily_cycle_health")?.summary.toLowerCase()).toMatch(/синхрон/);
     expect(getMetricHelp("forward_outcome_pending")?.title).toMatch(/20d|outcome/i);
   });
+
+  it("defines Model Edge Research Pack help keys", () => {
+    for (const id of [
+      "model_quality",
+      "portfolio_translation",
+      "economic_viability",
+      "cash_hurdle",
+      "rate_based_cash_proxy",
+      "excess_vs_cash",
+      "top_tail_quality",
+      "top_k_precision",
+      "top_k_recall",
+      "loser_contamination",
+      "rank_stability",
+      "rank_churn",
+      "rank_persistence",
+      "model_disagreement",
+      "decision_attribution",
+      "regime_analysis",
+      "paired_prospective_model",
+      "sample_maturity",
+      "rank_correlation",
+      "top20_overlap",
+      "break_even_cost",
+    ]) {
+      expect(getMetricHelp(id)?.title).toBeTruthy();
+    }
+    expect(getMetricHelp("cash_hurdle")?.summary).toMatch(/Условная денежная альтернатива/);
+    expect(getMetricHelp("cash_hurdle")?.summary).toMatch(/исследовательский benchmark/);
+    expect(getMetricHelp("top_tail_quality")?.summary).toMatch(/верхнюю его часть/);
+    expect(getMetricHelp("rank_stability")?.summary).toMatch(/порядок инструментов/);
+    expect(getPageHelp("research_diagnostics")?.title).toMatch(/Диагностика/);
+    expect(getPageHelp("research_prospective")?.title).toMatch(/Проспективное/);
+  });
 });
 
 describe("quote range helpers", () => {

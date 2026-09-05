@@ -1,0 +1,1 @@
+"""Model Edge domain contracts."""

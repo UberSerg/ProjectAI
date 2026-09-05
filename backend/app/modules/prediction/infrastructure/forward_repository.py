@@ -99,6 +99,7 @@ def create_batch(
     feature_schema_hash: str,
     dataset_values_hash: str | None,
     segment: str,
+    prediction_semantic: str = "EXPECTED_RETURN",
 ) -> ForwardPredictionBatch:
     from datetime import UTC
 
@@ -110,6 +111,7 @@ def create_batch(
         candidate_config_hash=candidate_config_hash,
         feature_schema_hash=feature_schema_hash,
         dataset_values_hash=dataset_values_hash,
+        prediction_semantic=prediction_semantic,
         status="RUNNING",
         started_at=datetime.now(UTC),
     )
@@ -165,6 +167,9 @@ def insert_predictions_immutable(
                 feature_schema_hash=str(row["feature_schema_hash"]),
                 input_lineage=dict(row.get("input_lineage") or {}),
                 segment=str(row.get("segment") or batch.segment),
+                prediction_semantic=str(
+                    row.get("prediction_semantic") or batch.prediction_semantic
+                ),
                 outcome_status=str(row.get("outcome_status") or "PENDING_OUTCOME"),
                 generated_at=row.get("generated_at") or datetime.now(UTC),
             )

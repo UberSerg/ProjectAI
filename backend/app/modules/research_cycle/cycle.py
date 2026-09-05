@@ -391,6 +391,77 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
         _mark(session, workflow, "SHADOW_ADVANCE", "SUCCESS")
         session.commit()
 
+        # --- PROSPECTIVE MODEL A/B (experimental; non-fatal) ---
+        _mark(session, workflow, "PROSPECTIVE_MODEL_AB", "RUNNING")
+        try:
+            from app.modules.model_edge.application.experiment import get_experiment
+            from app.modules.model_edge.application.paired_forward import run_paired_forward
+
+            if get_experiment(session) is None:
+                ab_payload: dict[str, Any] = {
+                    "status": "SKIPPED",
+                    "reason": "experiment_not_activated",
+                    "blocks_operational_v0": False,
+                }
+                ab_step_status = "SUCCESS"
+            else:
+                paired = run_paired_forward(session, persist=True)
+                ab_payload = {
+                    **paired.to_dict(),
+                    "blocks_operational_v0": False,
+                    "historical_backfill": False,
+                }
+                if paired.status in {"ERROR", "PARTIAL"}:
+                    ab_step_status = "WARNING"
+                    ab_payload["status"] = "DEGRADED"
+                else:
+                    ab_step_status = "SUCCESS"
+        except Exception as ab_exc:  # noqa: BLE001 — research must not fail operational cycle
+            ab_payload = {
+                "status": "DEGRADED",
+                "error": str(ab_exc)[:2000],
+                "blocks_operational_v0": False,
+            }
+            ab_step_status = "WARNING"
+            logger.warning("PROSPECTIVE_MODEL_AB degraded: %s", ab_exc)
+        _store_step(workflow, "PROSPECTIVE_MODEL_AB", ab_payload)
+        _mark(session, workflow, "PROSPECTIVE_MODEL_AB", ab_step_status)
+        session.commit()
+
+        # --- PROSPECTIVE MODEL A/B SHADOW (experimental; non-fatal) ---
+        _mark(session, workflow, "PROSPECTIVE_MODEL_AB_SHADOW", "RUNNING")
+        try:
+            from app.modules.shadow.config import MODEL_AB_EXPERIMENT_GROUP
+
+            ab_shadow_results = advance_all_shadow_portfolios(
+                session, experiment_groups=[MODEL_AB_EXPERIMENT_GROUP]
+            )
+            ab_shadow_payload: dict[str, Any] = {
+                "status": "SUCCESS",
+                "blocks_operational_v0": False,
+                "results": [
+                    {
+                        "portfolio_id": r.portfolio_id,
+                        "name": r.name,
+                        "status": r.status,
+                        **r.summary,
+                    }
+                    for r in ab_shadow_results
+                ],
+            }
+            ab_shadow_step = "SUCCESS"
+        except Exception as ab_sh_exc:  # noqa: BLE001
+            ab_shadow_payload = {
+                "status": "DEGRADED",
+                "error": str(ab_sh_exc)[:2000],
+                "blocks_operational_v0": False,
+            }
+            ab_shadow_step = "WARNING"
+            logger.warning("PROSPECTIVE_MODEL_AB_SHADOW degraded: %s", ab_sh_exc)
+        _store_step(workflow, "PROSPECTIVE_MODEL_AB_SHADOW", ab_shadow_payload)
+        _mark(session, workflow, "PROSPECTIVE_MODEL_AB_SHADOW", ab_shadow_step)
+        session.commit()
+
         # --- FORWARD OUTCOME EVALUATION ---
         _mark(session, workflow, "FORWARD_OUTCOME_EVALUATION", "RUNNING")
         outcome = evaluate_forward_outcomes(session)
@@ -403,6 +474,35 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
         _mark(session, workflow, "FORWARD_OUTCOME_EVALUATION", "SUCCESS")
         session.commit()
 
+        # --- PROSPECTIVE MODEL A/B OUTCOME (experimental; non-fatal) ---
+        _mark(session, workflow, "PROSPECTIVE_MODEL_AB_OUTCOME", "RUNNING")
+        try:
+            from app.modules.model_edge.application.experiment import get_experiment
+            from app.modules.model_edge.application.paired_outcome import evaluate_paired_outcomes
+
+            if get_experiment(session) is None:
+                ab_out_payload: dict[str, Any] = {
+                    "status": "SKIPPED",
+                    "reason": "experiment_not_activated",
+                    "blocks_operational_v0": False,
+                }
+                ab_out_step = "SUCCESS"
+            else:
+                paired_out = evaluate_paired_outcomes(session)
+                ab_out_payload = {**paired_out.to_dict(), "blocks_operational_v0": False}
+                ab_out_step = "SUCCESS"
+        except Exception as ab_out_exc:  # noqa: BLE001
+            ab_out_payload = {
+                "status": "DEGRADED",
+                "error": str(ab_out_exc)[:2000],
+                "blocks_operational_v0": False,
+            }
+            ab_out_step = "WARNING"
+            logger.warning("PROSPECTIVE_MODEL_AB_OUTCOME degraded: %s", ab_out_exc)
+        _store_step(workflow, "PROSPECTIVE_MODEL_AB_OUTCOME", ab_out_payload)
+        _mark(session, workflow, "PROSPECTIVE_MODEL_AB_OUTCOME", ab_out_step)
+        session.commit()
+
         # --- FINALIZE ---
         _mark(session, workflow, "FINALIZE", "RUNNING")
         after = collect_watermarks(session)
@@ -412,6 +512,7 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
         # Preserve WARNING from forward gate without inventing data
         if str(forward_payload.get("status")).upper() == "WARNING" and not changed:
             final_status = "NO_CHANGES"
+        # Experimental PROSPECTIVE_* stages may be WARNING without failing the cycle.
         health = determine_health(after, running=False)
         duration = round(time.perf_counter() - started, 3)
         meta = dict(workflow.meta or {})

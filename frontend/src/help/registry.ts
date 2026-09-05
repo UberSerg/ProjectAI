@@ -829,6 +829,205 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     limitations: ["Уже существующие конфигурации переиспользуются, а не пересчитываются."],
     relatedIds: ["comparison_family", "fair_comparison", "experiment_reuse"],
   },
+  model_quality: {
+    id: "model_quality",
+    kind: "term",
+    title: "Качество модели",
+    summary:
+      "Насколько модель упорядочивает будущие относительные доходности инструментов на одну дату.",
+    details:
+      "Отвечает на вопрос «умеет ли модель ранжировать?». Основные индикаторы: Rank IC, качество верхней части списка, стабильность порядка. Это ещё не доказательство прибыльного портфеля.",
+    interpretation: "Сильное ранжирование ≠ автоматически сильная стратегия.",
+    relatedIds: ["rank_ic", "top_tail_quality", "portfolio_translation"],
+  },
+  portfolio_translation: {
+    id: "portfolio_translation",
+    kind: "term",
+    title: "Перевод в портфель",
+    summary:
+      "Превращается ли качество рейтинга в полезный портфель при выбранной стратегии, риске и издержках.",
+    details:
+      "Стратегия покупает верхнюю часть рейтинга, поэтому хороший общий Rank IC не гарантирует хороший портфель. Смотрите Top-tail, оборот, просадку и результат при одинаковой политике.",
+    interpretation: "Разрыв между Rank IC и портфелем — нормальный исследовательский сигнал.",
+    relatedIds: ["top_tail_quality", "model_quality", "portfolio_policy"],
+  },
+  economic_viability: {
+    id: "economic_viability",
+    kind: "term",
+    title: "Экономический смысл",
+    summary:
+      "Оправдывал ли исторический результат стратегии принятый рыночный риск относительно денежной альтернативы.",
+    details:
+      "Сравнение с фиксированной годовой ставкой (cash hurdle) и просадкой. Это исследовательский post-processing, не торговый сигнал и не рекомендация.",
+    interpretation: "Выше денежной альтернативы — интереснее для дальнейшего исследования; ниже — слабый экономический смысл на этом окне.",
+    limitations: ["Не обещание будущей доходности.", "Не тариф депозита конкретного банка."],
+    relatedIds: ["cash_hurdle", "excess_vs_cash", "break_even_cost"],
+  },
+  cash_hurdle: {
+    id: "cash_hurdle",
+    kind: "term",
+    title: "Денежная альтернатива",
+    summary:
+      "Условная денежная альтернатива. Она нужна, чтобы понять, оправдывал ли исторический результат стратегии принятый рыночный риск. 10% здесь — исследовательский benchmark, а не обещанная ставка конкретного банка.",
+    details:
+      "Фиксированная годовая ставка компаундируется по календарным дням периода: (1+r)^(days/365.25)−1. Сравнение выполняется после симуляции и никогда не записывается в кэш/NAV портфеля. Выбор ставки в UI не меняет config hash.",
+    interpretation: "Меняйте ставку, чтобы проверить чувствительность вывода — симуляция при этом не пересчитывается.",
+    limitations: ["Не банковский депозит.", "Не часть Execution Adapter."],
+    relatedIds: ["excess_vs_cash", "rate_based_cash_proxy", "economic_viability"],
+  },
+  rate_based_cash_proxy: {
+    id: "rate_based_cash_proxy",
+    kind: "term",
+    title: "Ставочный денежный ориентир",
+    summary: "Эквивалент капитала, оставленного под фиксированную годовую ставку на тот же календарный период.",
+    details:
+      "Считается только из дат и выбранной ставки. Не использует рыночные котировки облигаций и не моделирует налоги/реинвестирование купонов.",
+    relatedIds: ["cash_hurdle", "excess_vs_cash"],
+  },
+  excess_vs_cash: {
+    id: "excess_vs_cash",
+    kind: "metric",
+    title: "Разница vs денежная альтернатива",
+    summary: "Доходность стратегии минус доходность выбранной денежной альтернативы за тот же период.",
+    details:
+      "Положительное значение — стратегия обогнала выбранный cash hurdle на этом окне; отрицательное — отстала. Это процентные пункты разницы, не «гарантированный edge».",
+    interpretation: "Читайте вместе с просадкой и оборотом.",
+    relatedIds: ["cash_hurdle", "economic_viability", "sim_excess"],
+  },
+  top_tail_quality: {
+    id: "top_tail_quality",
+    kind: "metric",
+    title: "Качество верхней части рейтинга",
+    summary:
+      "Стратегия покупает не весь рейтинг, а только верхнюю его часть. Поэтому модель может иметь приемлемый общий Rank IC, но плохо выбирать именно те бумаги, которые попадают в портфель.",
+    details:
+      "Смотрите фактическую доходность Top 5/10/20/30%, hit-rate и долю «мусорных» бумаг в топе (loser contamination). Это объясняет разрыв между общим Rank IC и портфелем.",
+    relatedIds: ["top_k_precision", "top_k_recall", "loser_contamination", "portfolio_translation"],
+  },
+  top_k_precision: {
+    id: "top_k_precision",
+    kind: "metric",
+    title: "Точность Top-K",
+    summary: "Доля бумаг из верхней части рейтинга модели, которые действительно оказались сильными по факту.",
+    details: "Диагностика hit-rate / precision@K на горизонте 20 торговых дней.",
+    relatedIds: ["top_tail_quality", "top_k_recall"],
+  },
+  top_k_recall: {
+    id: "top_k_recall",
+    kind: "metric",
+    title: "Полнота Top-K",
+    summary: "Насколько верх рейтинга модели покрывает фактически лучшие инструменты даты.",
+    details: "Recall@K: доля истинных лидеров, попавших в предсказанный топ.",
+    relatedIds: ["top_tail_quality", "top_k_precision"],
+  },
+  loser_contamination: {
+    id: "loser_contamination",
+    kind: "metric",
+    title: "Загрязнение топа слабыми бумагами",
+    summary: "Как часто в верхнюю часть рейтинга попадают инструменты с слабым фактическим исходом.",
+    details:
+      "Высокая loser contamination при хорошем общем Rank IC — типичная причина слабого портфеля: стратегия покупает «грязный» топ.",
+    relatedIds: ["top_tail_quality", "portfolio_translation"],
+  },
+  rank_stability: {
+    id: "rank_stability",
+    kind: "metric",
+    title: "Стабильность рейтинга",
+    summary:
+      "Показывает, насколько сильно меняется порядок инструментов от одной даты к другой. Очень нестабильный рейтинг может увеличивать количество перестановок и издержки.",
+    details:
+      "Смотрите корреляцию рангов неделя к неделе, среднее смещение ранга, persistence Top20/Top35 и churn входов/выходов. Стабильность ≠ качество прогноза.",
+    interpretation: "Стабильный рейтинг может уменьшать лишние сделки, но сам по себе не означает edge.",
+    relatedIds: ["rank_churn", "rank_persistence", "sim_turnover"],
+  },
+  rank_churn: {
+    id: "rank_churn",
+    kind: "metric",
+    title: "Смена состава рейтинга",
+    summary: "Сколько инструментов входит и выходит из верхней зоны между датами перебалансировки.",
+    details: "Высокий churn при ненулевых издержках съедает результат даже при среднем Rank IC.",
+    relatedIds: ["rank_stability", "sim_turnover"],
+  },
+  rank_persistence: {
+    id: "rank_persistence",
+    kind: "metric",
+    title: "Удержание места в топе",
+    summary: "Доля инструментов, которые остаются в Top 20 / Top 35 от одной даты к следующей.",
+    details: "Полезно для hysteresis-политик: выше persistence — меньше вынужденных ротаций.",
+    relatedIds: ["rank_stability", "portfolio_policy"],
+  },
+  model_disagreement: {
+    id: "model_disagreement",
+    kind: "term",
+    title: "Расхождение моделей",
+    summary: "Где V0 и V1 по-разному ранжируют и отбирают инструменты на одну и ту же дату.",
+    details:
+      "Side-by-side: ранги, факт попадания в портфель и realized 20d. Фильтр «Только расхождения» помогает искать решения, которые реально меняют портфель.",
+    relatedIds: ["decision_attribution", "rank_correlation"],
+  },
+  decision_attribution: {
+    id: "decision_attribution",
+    kind: "term",
+    title: "Атрибуция решения",
+    summary: "Связь конкретного выбора модели (включить / не включить) с последующим фактическим исходом.",
+    details:
+      "Исторический факт: «V0 купила X, V1 нет; через 20 торговых наблюдений X показал …». Не рекомендация и не доказательство причинности beyond the sample.",
+    relatedIds: ["model_disagreement", "portfolio_translation"],
+  },
+  regime_analysis: {
+    id: "regime_analysis",
+    kind: "term",
+    title: "Анализ режимов",
+    summary: "Как качество модели и портфеля выглядит в разных годах / рыночных режимах.",
+    details:
+      "Разбивка по году, тренду, волатильности или ставкам. Малое число наблюдений в ячейке — предварительный сигнал, не вердикт.",
+    relatedIds: ["model_quality", "sample_maturity"],
+  },
+  paired_prospective_model: {
+    id: "paired_prospective_model",
+    kind: "term",
+    title: "Парное проспективное сравнение",
+    summary: "Две модели получают один срез признаков; отличается только модель; исполнение только вперёд.",
+    details:
+      "PROSPECTIVE_MODEL_AB_V0: без исторического paired backfill. Пустой старт после активации — нормально: ждём новый рыночный день.",
+    limitations: ["Не объявлять победителя при малой зрелости выборки."],
+    relatedIds: ["sample_maturity", "prospective_experiment", "rank_correlation"],
+  },
+  sample_maturity: {
+    id: "sample_maturity",
+    kind: "term",
+    title: "Зрелость выборки",
+    summary: "Сколько зрелых дат уже накопилось для честной оценки проспективного эксперимента.",
+    details:
+      "0 — слишком рано; 1–4 — очень мало; 5–19 — предварительные данные; 20–49 — история начинает накапливаться; 50+ — более содержательная выборка, но всё ещё не «доказательство навсегда».",
+    relatedIds: ["paired_prospective_model", "forward_outcome_pending"],
+  },
+  rank_correlation: {
+    id: "rank_correlation",
+    kind: "metric",
+    title: "Корреляция рангов моделей",
+    summary: "Насколько порядок инструментов у V0 и V1 совпадает на одну дату.",
+    details:
+      "Высокая корреляция значит модели «думают похоже», но не говорит, какая права. Смотрите вместе с Top20 overlap.",
+    relatedIds: ["top20_overlap", "model_disagreement"],
+  },
+  top20_overlap: {
+    id: "top20_overlap",
+    kind: "metric",
+    title: "Пересечение Top 20",
+    summary: "Доля общего состава верхней пятой части рейтинга между двумя моделями.",
+    details: "Низкое пересечение — модели выбирают разные портфели при той же политике входа.",
+    relatedIds: ["rank_correlation", "model_disagreement"],
+  },
+  break_even_cost: {
+    id: "break_even_cost",
+    kind: "metric",
+    title: "Порог безубыточных издержек",
+    summary: "При каких условных издержках исторический результат стратегии перестаёт быть интересным.",
+    details:
+      "Диагностика чувствительности к трению по семейству 0/5/10/20 bps. Не тариф брокера.",
+    relatedIds: ["simulation_cost", "economic_viability", "comparison_family"],
+  },
   sim_survivorship: {
     id: "sim_survivorship",
     kind: "term",
@@ -1237,6 +1436,9 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "research_period",
       "experiment_reuse",
       "quick_comparison",
+      "model_quality",
+      "economic_viability",
+      "paired_prospective_model",
       "sim_max_drawdown",
       "sim_turnover",
       "sim_sharpe",
@@ -1262,6 +1464,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Почему ниже Max DD может сопровождаться ниже Return",
       "Почему ниже Turnover важен при ненулевых издержках",
       "Почему уже наблюдавшийся HOLDOUT нельзя считать свежей проверкой",
+      "Денежная альтернатива — пост-обработка, не часть симуляции",
     ],
     metrics: [
       "fair_comparison",
@@ -1274,6 +1477,8 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "sim_turnover",
       "sim_sharpe",
       "simulation_cost",
+      "cash_hurdle",
+      "excess_vs_cash",
     ],
     interpret: [
       "Наблюдения формулируются нейтрально по метрикам — без «лучшей стратегии» и Champion.",
@@ -1281,6 +1486,70 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     limitations: [
       "Сравнение не запускает оптимизацию.",
       "Периоды могут не совпадать — это явно помечается.",
+    ],
+  },
+  research_diagnostics: {
+    id: "research_diagnostics",
+    title: "Диагностика моделей",
+    about:
+      "Разбор качества ранжирования, верхней части списка, стабильности, расхождений и экономического смысла V0/V1.",
+    understand: [
+      "Чем качество модели отличается от перевода в портфель и от экономического смысла",
+      "Почему общий Rank IC не гарантирует хороший портфель",
+      "Как читать Top-tail и загрязнение топа",
+      "Зачем смотреть стабильность рейтинга рядом с оборотом",
+      "Что показывает explorer расхождений",
+      "Денежная альтернатива — исследовательский benchmark",
+    ],
+    metrics: [
+      "model_quality",
+      "portfolio_translation",
+      "economic_viability",
+      "cash_hurdle",
+      "excess_vs_cash",
+      "top_tail_quality",
+      "rank_stability",
+      "model_disagreement",
+      "regime_analysis",
+      "rank_ic",
+      "break_even_cost",
+    ],
+    interpret: [
+      "Выводы детерминированные и фактологические — без investment advice.",
+      "Красная «тревога» не используется: только исследовательский тон.",
+    ],
+    limitations: [
+      "Историческая диагностика ≠ будущая доходность.",
+      "Survivorship и упрощённые издержки сохраняются.",
+    ],
+  },
+  research_prospective: {
+    id: "research_prospective",
+    title: "Проспективное сравнение V0/V1",
+    about:
+      "Парный эксперимент только вперёд: одинаковые признаки, политика и риск; отличается только модель.",
+    understand: [
+      "Почему пустой старт после активации — нормальное состояние",
+      "Стадии конвейера от активации до оценки",
+      "V0 expected return можно показывать как %, V1 ranking score — нельзя",
+      "Зрелость выборки и запрет на язык победителя при малой выборке",
+      "Согласие моделей ≠ правота одной из них",
+    ],
+    metrics: [
+      "paired_prospective_model",
+      "sample_maturity",
+      "rank_correlation",
+      "top20_overlap",
+      "ranking_score",
+      "prospective_experiment",
+      "forward_outcome_pending",
+    ],
+    interpret: [
+      "Пока зрелых дат мало — только наблюдение процесса, не вердикт о edge.",
+    ],
+    limitations: [
+      "Нет исторического paired backfill.",
+      "Не смешивается с операционным Shadow Hysteresis.",
     ],
   },
 };

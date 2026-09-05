@@ -24,6 +24,11 @@ class ForwardPredictionBatch(Base):
     candidate_config_hash: Mapped[str] = mapped_column(Text, nullable=False)
     feature_schema_hash: Mapped[str] = mapped_column(Text, nullable=False)
     dataset_values_hash: Mapped[str | None] = mapped_column(Text)
+    # EXPECTED_RETURN (V0 regressor) or RANKING_SCORE (V1 ranker). A RANKING_SCORE
+    # occupies predicted_return_20d but is not a return and must never be formatted as %.
+    prediction_semantic: Mapped[str] = mapped_column(
+        Text, nullable=False, default="EXPECTED_RETURN"
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="PENDING")
     instrument_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     eligible_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -70,6 +75,9 @@ class ForwardPrediction(Base):
     feature_schema_hash: Mapped[str] = mapped_column(Text, nullable=False)
     input_lineage: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     segment: Mapped[str] = mapped_column(Text, nullable=False, default="FORWARD_LIVE")
+    prediction_semantic: Mapped[str] = mapped_column(
+        Text, nullable=False, default="EXPECTED_RETURN"
+    )
     outcome_status: Mapped[str] = mapped_column(Text, nullable=False, default="PENDING_OUTCOME")
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

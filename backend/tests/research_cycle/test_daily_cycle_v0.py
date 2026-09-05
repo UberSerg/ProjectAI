@@ -18,7 +18,16 @@ def test_cycle_step_order() -> None:
     assert CYCLE_STEPS[-1] == "FINALIZE"
     assert "FORWARD_SIGNAL" in CYCLE_STEPS
     assert CYCLE_STEPS.index("SHADOW_ADVANCE") > CYCLE_STEPS.index("FORWARD_SIGNAL")
-    assert CYCLE_STEPS.index("FORWARD_OUTCOME_EVALUATION") > CYCLE_STEPS.index("SHADOW_ADVANCE")
+    assert CYCLE_STEPS.index("PROSPECTIVE_MODEL_AB") > CYCLE_STEPS.index("SHADOW_ADVANCE")
+    assert CYCLE_STEPS.index("PROSPECTIVE_MODEL_AB_SHADOW") > CYCLE_STEPS.index(
+        "PROSPECTIVE_MODEL_AB"
+    )
+    assert CYCLE_STEPS.index("FORWARD_OUTCOME_EVALUATION") > CYCLE_STEPS.index(
+        "PROSPECTIVE_MODEL_AB_SHADOW"
+    )
+    assert CYCLE_STEPS.index("PROSPECTIVE_MODEL_AB_OUTCOME") > CYCLE_STEPS.index(
+        "FORWARD_OUTCOME_EVALUATION"
+    )
 
 
 def test_health_waiting_and_lagging() -> None:
