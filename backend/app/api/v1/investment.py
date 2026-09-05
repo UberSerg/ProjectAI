@@ -331,3 +331,47 @@ def investment_decision_compare(
             capital=capital,
             equity_expected_excess_return=equity_expected_excess_return,
         )
+
+
+@router.get("/calibration")
+def prediction_calibration_report() -> dict[str, Any]:
+    """Prediction → Calibration → Confidence report (read-only)."""
+    from app.modules.prediction.application.calibration_confidence import build_calibration_report
+
+    with core_session() as session:
+        return build_calibration_report(session)
+
+
+@router.get("/calibration/v0")
+def prediction_calibration_v0() -> dict[str, Any]:
+    from app.modules.prediction.application.calibration_confidence import assess_equity_confidence
+
+    with core_session() as session:
+        cal, conf = assess_equity_confidence(session)
+        from app.modules.prediction.application.calibration_confidence import (
+            _calibration_payload,
+            _confidence_payload,
+        )
+
+        return {
+            "calibration": _calibration_payload(cal),
+            "confidence": _confidence_payload(conf),
+        }
+
+
+@router.get("/calibration/v1")
+def prediction_calibration_v1() -> dict[str, Any]:
+    from app.modules.prediction.application.calibration_confidence import (
+        _confidence_payload,
+        _ranking_payload,
+        load_v1_ranking_calibration,
+    )
+    from app.modules.prediction.domain.confidence import PredictionConfidenceEngine
+
+    with core_session() as session:
+        ranking = load_v1_ranking_calibration(session)
+        conf = PredictionConfidenceEngine().assess_ranking(ranking)
+        return {
+            "calibration": _ranking_payload(ranking),
+            "confidence": _confidence_payload(conf),
+        }

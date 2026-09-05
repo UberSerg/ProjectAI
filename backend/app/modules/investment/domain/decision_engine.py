@@ -201,7 +201,11 @@ class InvestmentDecisionEngine:
             return 0.0, reasons, "Нет данных Equity Opportunity — доля акций не назначается."
 
         cal = getattr(equity, "calibration_status", None) or "UNKNOWN"
-        if equity.prediction_quality is PredictionQuality.UNKNOWN or cal in {
+        conf_level = getattr(equity, "confidence_level", None) or "UNKNOWN"
+        conf_reason = getattr(equity, "confidence_reason", None) or ""
+        sample_size = getattr(equity, "sample_size", None)
+
+        if conf_level == "UNKNOWN" or equity.prediction_quality is PredictionQuality.UNKNOWN or cal in {
             CalibrationStatus.UNKNOWN.value,
             CalibrationStatus.INSUFFICIENT_SAMPLE.value,
             "UNKNOWN",
@@ -210,9 +214,18 @@ class InvestmentDecisionEngine:
             reasons.append("equity_confidence_unknown")
             # Still allow growth/balanced to take equity if excess clears — but capped lower.
             confidence_cap = 0.35 if "GROWTH" in budget.profile_id else 0.25
-
-        else:
+            reasons.append("equity_capped_due_to_insufficient_calibration")
+        elif conf_level == "LOW":
+            reasons.append("equity_confidence_low")
+            confidence_cap = min(budget.max_equity_weight, 0.40)
+        elif conf_level == "MEDIUM":
+            reasons.append("equity_confidence_medium")
+            confidence_cap = min(budget.max_equity_weight, 0.70)
+        elif conf_level == "HIGH":
+            reasons.append("equity_confidence_high_research_only")
             confidence_cap = budget.max_equity_weight
+        else:
+            confidence_cap = 0.25
 
         if equity.confidence is None:
             reasons.append("confidence_unknown")
@@ -236,11 +249,22 @@ class InvestmentDecisionEngine:
 
         reasons.append("equity_excess_clears_hurdle")
         target = min(budget.max_equity_weight, confidence_cap)
+        why = (
+            "Equity имеет ожидаемую премию выше hurdle (research input). "
+            f"Confidence={conf_level}, калибровка={cal}"
+            + (f", sample_size={sample_size}" if sample_size is not None else "")
+            + ". "
+        )
+        if conf_reason:
+            why += conf_reason + " "
+        if conf_level in {"UNKNOWN", "LOW"}:
+            why += (
+                f"Историческая калибровка прогноза недостаточна — Equity capped at {target:.0%}."
+            )
         return (
             target,
             reasons,
-            "Equity имеет ожидаемую премию выше hurdle (research input), "
-            f"но калибровка={cal} — доверие ограничено.",
+            why.strip(),
         )
 
     def _assess_fi(

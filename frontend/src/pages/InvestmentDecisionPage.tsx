@@ -144,7 +144,8 @@ export function InvestmentDecisionPage() {
           </p>
           <p>
             Качество сигнала: calibration={equity?.calibration_status ?? "UNKNOWN"}, confidence=
-            {equity?.confidence == null ? "UNKNOWN" : String(equity.confidence)}
+            {equity?.confidence_level ??
+              (equity?.confidence == null ? "UNKNOWN" : String(equity.confidence))}
           </p>
           <p className="muted">Риски: неизвестная калибровка, look-ahead запрещён, research-only.</p>
           <p className="muted">{decision?.why_equity_ru}</p>
@@ -179,6 +180,49 @@ export function InvestmentDecisionPage() {
           </ul>
           {decision?.status ? <StatusBadge status={decision.status.toLowerCase()} /> : null}
         </div>
+      </div>
+
+      <div className="card">
+        <h3>Качество сигнала акций</h3>
+        <div className="card-grid">
+          <MetricCard
+            label="Средняя уверенность"
+            value={
+              result?.equity_confidence?.confidence_level ??
+              equity?.confidence_level ??
+              "UNKNOWN"
+            }
+            helpId="confidence_level"
+          />
+          <MetricCard
+            label="Sample size"
+            value={String(
+              result?.equity_confidence?.sample_size ?? equity?.sample_size ?? cal?.sample_size ?? 0,
+            )}
+            helpId="mature_outcome"
+          />
+          <MetricCard
+            label="Calibration"
+            value={
+              result?.equity_confidence?.calibration_status ??
+              equity?.calibration_status ??
+              cal?.calibration_status ??
+              "UNKNOWN"
+            }
+            helpId="prediction_calibration"
+          />
+        </div>
+        <p>
+          Почему:{" "}
+          {result?.equity_confidence?.reason_ru ||
+            equity?.confidence_reason ||
+            cal?.uncertainty_note ||
+            "нет достаточного количества зрелых прогнозов"}
+        </p>
+        <p className="muted">
+          Pipeline: Prediction → Calibration → Confidence → Allocation. До: prediction only. После:
+          prediction + confidence ограничивает вес Equity без fake certainty.
+        </p>
       </div>
 
       <div className="card">

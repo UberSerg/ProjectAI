@@ -85,6 +85,9 @@ def build_allocation_context(
         ),
         prediction_quality=PredictionQuality.UNKNOWN,
         calibration_status="UNKNOWN",
+        confidence_level="UNKNOWN",
+        confidence_reason="Калибровка ещё не применена в базовом allocation context.",
+        sample_size=None,
     )
 
     terms_total = 0

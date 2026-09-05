@@ -15,7 +15,6 @@ from app.modules.investment.application.allocation_service import (
     preview_decision_lots,
 )
 from app.modules.investment.domain.calibration import (
-    CalibrationStatus,
     EquityOpportunityCalibration,
     calibrate_equity_predictions,
 )
@@ -90,7 +89,11 @@ def build_enriched_opportunities(
     equity_expected_return: float | None = None,
     equity_expected_excess_return: float | None = None,
 ) -> dict[str, Any]:
+    from app.modules.prediction.application.calibration_confidence import assess_equity_confidence
+    from app.modules.prediction.domain.confidence import ConfidenceLevel
+
     calibration = load_equity_calibration(session)
+    v0_cal, confidence_assessment = assess_equity_confidence(session)
     ctx = build_allocation_context(
         session,
         as_of=as_of,
@@ -99,17 +102,16 @@ def build_enriched_opportunities(
         equity_expected_excess_return=equity_expected_excess_return,
     )
 
-    # Confidence: never fake. UNKNOWN unless research-adequate calibration AND excess provided.
+    # Confidence: never fake numeric probability. Level comes from Confidence Engine.
     confidence: float | None = None
     pred_quality = PredictionQuality.UNKNOWN
-    if (
-        calibration.calibration_status is CalibrationStatus.ADEQUATE_FOR_RESEARCH
-        and ctx.equity
-        and ctx.equity.expected_excess_return is not None
+    level = confidence_assessment.confidence_level
+    if level in {ConfidenceLevel.MEDIUM, ConfidenceLevel.HIGH} and ctx.equity and (
+        ctx.equity.expected_excess_return is not None
     ):
         pred_quality = PredictionQuality.OBSERVED
-        # Still not a calibrated probability — leave numeric confidence None.
-        confidence = None
+    if level is ConfidenceLevel.HIGH:
+        pred_quality = PredictionQuality.CALIBRATED
 
     equity = None
     if ctx.equity is not None:
@@ -119,9 +121,14 @@ def build_enriched_opportunities(
             confidence=confidence,
             model_source=ctx.equity.model_source,
             timestamp=ctx.equity.timestamp,
-            limitations=tuple(ctx.equity.limitations) + tuple(calibration.limitations),
+            limitations=tuple(ctx.equity.limitations)
+            + tuple(calibration.limitations)
+            + tuple(confidence_assessment.limitations),
             prediction_quality=pred_quality,
-            calibration_status=calibration.calibration_status.value,
+            calibration_status=v0_cal.calibration_status.value,
+            confidence_level=level.value,
+            confidence_reason=confidence_assessment.reason_ru,
+            sample_size=confidence_assessment.sample_size,
         )
 
     fi = None
@@ -151,6 +158,8 @@ def build_enriched_opportunities(
         "fixed_income": fi,
         "cash": ctx.cash,
         "calibration": calibration,
+        "confidence_assessment": confidence_assessment,
+        "v0_calibration": v0_cal,
     }
 
 
@@ -219,6 +228,7 @@ def run_investment_decision(
         cost_bps=cost_bps,
     )
     cal: EquityOpportunityCalibration = packed["calibration"]
+    conf = packed.get("confidence_assessment")
     return {
         "as_of": packed["context"].as_of_date.isoformat(),
         "capital": str(capital),
@@ -239,6 +249,20 @@ def run_investment_decision(
             "buckets": [asdict(b) for b in cal.buckets],
             "limitations": list(cal.limitations),
         },
+        "equity_confidence": {
+            "confidence_level": getattr(conf, "confidence_level", None).value
+            if conf is not None
+            else (packed["equity"].confidence_level if packed["equity"] else "UNKNOWN"),
+            "reason_ru": getattr(conf, "reason_ru", None)
+            or (packed["equity"].confidence_reason if packed["equity"] else ""),
+            "sample_size": getattr(conf, "sample_size", None)
+            if conf is not None
+            else (packed["equity"].sample_size if packed["equity"] else 0),
+            "calibration_status": getattr(conf, "calibration_status", None)
+            if conf is not None
+            else cal.calibration_status.value,
+            "reason_codes": list(getattr(conf, "reason_codes", ()) or ()),
+        },
         "risk_budget": asdict(budget),
         "decision": _decision_payload(decision),
         "lots": lots,
@@ -255,6 +279,7 @@ def run_investment_decision(
         },
         "bond_safety_reminder": BOND_SAFETY_REMINDER_RU,
         "mode": "RISK_OPPORTUNITY_ENGINE_V0",
+        "pipeline": "Prediction → Calibration → Confidence → Allocation",
     }
 
 
