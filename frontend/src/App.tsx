@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { BondsPage } from "./pages/BondsPage";
+import { AllocationPage } from "./pages/AllocationPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FundamentalIssuerPage } from "./pages/FundamentalIssuerPage";
 import { FundamentalsPage } from "./pages/FundamentalsPage";
@@ -35,6 +36,7 @@ export function App() {
         <Route path="/technical" element={<TechnicalPage />} />
         <Route path="/fundamentals" element={<FundamentalsPage />} />
         <Route path="/bonds" element={<BondsPage />} />
+        <Route path="/allocation" element={<AllocationPage />} />
         <Route path="/fundamentals/:issuerId" element={<FundamentalIssuerPage />} />
         <Route
           path="/recommendations"

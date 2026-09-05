@@ -5,6 +5,8 @@
 
 `Models → Expected Return → CBR Hurdle → Excess Return → Asset Allocation → Equity/FI/Cash → Risk → Execution`.
 
+См. также `docs/architecture/asset-allocation-v0.md`.
+
 Ключевая ставка ЦБ РФ — первичный hurdle для рублёвого исследования. Она не является
 «безрисковой депозитной ставкой» и не обещает инвестору доступную доходность. Excess return
 равен доходности инвестиции минус доходность того же hurdle за строго тот же период.
