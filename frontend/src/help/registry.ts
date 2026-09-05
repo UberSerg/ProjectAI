@@ -1354,6 +1354,79 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
       "В карточке доступно через «Технические детали». Нужно для аудита и воспроизводимости, не для торговых решений.",
     relatedIds: ["financial_report", "corporate_event", "restatement"],
   },
+  cbr_hurdle: {
+    id: "cbr_hurdle",
+    kind: "metric",
+    title: "Порог ключевой ставки ЦБ РФ",
+    summary: "Минимальная экономическая планка для сравнения инвестиционной доходности.",
+    details:
+      "Excess return = доходность инвестиции минус доходность порога, начисленная за тот же период. Ключевая ставка не является безрисковой депозитной ставкой.",
+    limitations: ["Публикуется с точностью даты.", "Не моделирует налоги и доступные банковские продукты."],
+    relatedIds: ["excess_return", "known_at_quality"],
+  },
+  excess_return: {
+    id: "excess_return",
+    kind: "metric",
+    title: "Excess return",
+    summary: "Доходность стратегии сверх релевантного порога ключевой ставки.",
+    details: "Сравниваются одинаковые даты и горизонт; издержки показываются отдельно.",
+  },
+  known_at_quality: {
+    id: "known_at_quality",
+    kind: "metric",
+    title: "Точность known_at",
+    summary: "DATE_ONLY означает известность только календарной даты, без точного времени публикации.",
+    details: "В V0 ставка разрешена с даты наблюдения и никогда не используется раньше неё.",
+  },
+  dirty_price: {
+    id: "dirty_price",
+    kind: "metric",
+    title: "Грязная цена облигации",
+    summary: "Чистая цена плюс накопленный купонный доход (НКД).",
+    details: "Именно грязная стоимость вместе с комиссиями определяет требуемые деньги.",
+  },
+  nkd: {
+    id: "nkd",
+    kind: "metric",
+    title: "НКД",
+    summary: "Накопленный купонный доход между датами выплаты купона.",
+    details: "При покупке выплачивается продавцу сверх чистой цены.",
+  },
+  bond_offer: {
+    id: "bond_offer",
+    kind: "metric",
+    title: "Оферта облигации",
+    summary: "Право предъявить облигацию на условиях оферты; это не автоматическое погашение.",
+    details: "Без явной политики исполнения инструмент остаётся RESEARCH_ONLY.",
+  },
+  credit_quality: {
+    id: "credit_quality",
+    kind: "metric",
+    title: "Кредитное качество",
+    summary: "Наблюдаемая оценка способности эмитента обслуживать долг.",
+    details: "UNKNOWN для корпоративной облигации запрещает считать её безопасной или готовой для реального портфеля.",
+  },
+  integer_lots: {
+    id: "integer_lots",
+    kind: "metric",
+    title: "Целые лоты",
+    summary: "Реалистичный расчёт покупает только целое число биржевых лотов.",
+    details: "Остаток остаётся деньгами; отрицательный остаток запрещён.",
+  },
+  transaction_costs: {
+    id: "transaction_costs",
+    kind: "metric",
+    title: "Транзакционные издержки",
+    summary: "Комиссии брокера и биржи плюс slippage.",
+    details: "Slippage повышает цену BUY и снижает цену SELL, но не применяется к купонам и погашению.",
+  },
+  tax_not_modeled: {
+    id: "tax_not_modeled",
+    kind: "metric",
+    title: "Налоги не моделируются",
+    summary: "Статус NOT_MODELED: калькулятор не выдаёт вымышленные налоговые суммы.",
+    details: "Итоговые значения до налогов.",
+  },
 };
 
 export const HELP_PAGES: Record<string, PageHelpContent> = {
@@ -1754,6 +1827,40 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     limitations: [
       "Нет исторического paired backfill.",
       "Не смешивается с операционным Shadow Hysteresis.",
+    ],
+  },
+  investment: {
+    id: "investment",
+    title: "Инвестиционный фундамент V0",
+    about:
+      "Исследовательский контур: ключевая ставка ЦБ РФ как порог, облигации и реалистичные целые лоты.",
+    understand: [
+      "Почему ключевая ставка — hurdle, но не «безрисковая ставка»",
+      "Чем чистая цена облигации отличается от грязной и НКД",
+      "Почему оферта не означает автоматическое погашение",
+      "Почему UNKNOWN кредитного качества не означает SAFE",
+      "Как комиссии и целые лоты влияют на остаток 100 000 ₽",
+    ],
+    metrics: [
+      "cbr_hurdle",
+      "excess_return",
+      "known_at_quality",
+      "dirty_price",
+      "nkd",
+      "bond_offer",
+      "credit_quality",
+      "integer_lots",
+      "transaction_costs",
+      "tax_not_modeled",
+    ],
+    interpret: [
+      "SUPPORTED относится к ограниченной поддержке vanilla RUB fixed-rate.",
+      "RESEARCH_ONLY и NOT_READY запрещают трактовать данные как готовность к реальным деньгам.",
+    ],
+    limitations: [
+      "Налоги и расчёты по режимам settlement не моделируются.",
+      "Нет брокерского API и исполнения.",
+      "MOEX sample ограничен и сохраняет только наблюдаемые поля.",
     ],
   },
   fundamentals: {

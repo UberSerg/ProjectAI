@@ -12,6 +12,7 @@ import {
 } from "../api/researchLab";
 import { PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { MetricHelp } from "../help";
+import { CbrHurdleBlock } from "../features/researchLab/CbrHurdleBlock";
 import {
   MAX_COMPARE_RUNS,
   MIN_COMPARE_RUNS,
@@ -190,6 +191,8 @@ export function ResearchLabPage() {
           </Link>
         }
       />
+
+      <CbrHurdleBlock />
 
       <div className="info-panel research-lab-note" data-testid="research-not-live">
         <strong>Исследовательский контекст.</strong> Лаборатория использует исторические данные.

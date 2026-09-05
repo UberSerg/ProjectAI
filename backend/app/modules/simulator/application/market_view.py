@@ -10,7 +10,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.infrastructure.market.models import Candle, Instrument
+from app.infrastructure.market.models import Candle, Instrument, Series, SeriesValue
+from app.modules.investment.domain.hurdle import HurdleQuote, KnownAtQuality
 from app.modules.market.application.mechanical_adjustment import (
     MechanicalAction,
     load_mechanical_actions,
@@ -34,12 +35,14 @@ class MarketView:
         tickers: dict[int, str],
         trading_days: list[date],
         imoex_id: int | None,
+        cbr_hurdle_quotes: tuple[HurdleQuote, ...] = (),
     ) -> None:
         self.bars = bars
         self.actions = actions
         self.tickers = tickers
         self.trading_days = trading_days
         self.imoex_id = imoex_id
+        self.cbr_hurdle_quotes = cbr_hurdle_quotes
 
     def open_price(self, instrument_id: int, d: date) -> float | None:
         bar = self.bars.get(instrument_id, {}).get(d)
@@ -112,12 +115,33 @@ def load_market_view(
             continue
         actions[iid] = load_mechanical_actions(session, iid)
 
+    key_rate_rows = session.execute(
+        select(SeriesValue, Series)
+        .join(Series, Series.id == SeriesValue.series_id)
+        .where(
+            Series.code == "KEY_RATE",
+            SeriesValue.timestamp <= end_dt,
+        )
+        .order_by(SeriesValue.timestamp)
+    ).all()
+    hurdle_quotes = tuple(
+        HurdleQuote(
+            as_of=value.timestamp.date(),
+            annual_rate=float(value.value) / 100,
+            known_at=value.timestamp.date(),
+            known_at_quality=KnownAtQuality.DATE_ONLY,
+            source=series.source,
+        )
+        for value, series in key_rate_rows
+    )
+
     return MarketView(
         bars=dict(bars),
         actions=actions,
         tickers=tickers,
         trading_days=sorted(day_set),
         imoex_id=imoex.id if imoex is not None else None,
+        cbr_hurdle_quotes=hurdle_quotes,
     )
 
 

@@ -11,6 +11,7 @@ from typing import Any
 from app.domain.ports.execution import OrderIntent
 from app.domain.ports.portfolio import PortfolioPolicy, PortfolioPolicyInput
 from app.domain.ports.risk import RiskManager
+from app.modules.investment.domain.hurdle import benchmark_metrics, piecewise_calendar_accrual
 from app.modules.simulator.application.benchmark import imoex_price_return, imoex_price_series
 from app.modules.simulator.application.calendar import next_trading_day, weekly_rebalance_dates
 from app.modules.simulator.application.drawdown_guard import (
@@ -482,6 +483,19 @@ def run_simulation(
         metrics["excess_vs_imoex"] = float(metrics["total_price_return"]) - float(
             benchmark["total_price_return"]
         )
+    if start_snap and end_snap and market.cbr_hurdle_quotes:
+        cbr_return = piecewise_calendar_accrual(
+            start_snap, end_snap, market.cbr_hurdle_quotes
+        )
+        cbr_metrics = benchmark_metrics(
+            strategy_return=float(metrics.get("total_price_return") or 0),
+            hurdle_return=cbr_return,
+            periods=max(1, len(ledger.snapshots)),
+            costs=float(metrics.get("total_costs") or 0) / spec.initial_capital,
+        )
+        metrics["hurdle_return"] = cbr_metrics.hurdle_return
+        metrics["excess_vs_cbr"] = cbr_metrics.excess_return
+        metrics["cbr_hurdle_verdict"] = cbr_metrics.verdict.value
 
     values_hash = simulation_values_hash(ledger)
     metrics["simulation_values_hash"] = values_hash
