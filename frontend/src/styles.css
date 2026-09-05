@@ -1239,3 +1239,13 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
 }
 .fundamentals-page .card h3,
 .fundamentals-issuer-page .card h3 { margin-top: 0; }
+.investment-calculator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin: 0.75rem 0 1rem;
+}
+.investment-calculator label { display: grid; gap: 0.3rem; color: var(--muted); }
+.investment-calculator input { width: 9rem; }
+.bonds-page .card h3 { margin-top: 0; }

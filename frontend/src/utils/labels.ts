@@ -124,6 +124,7 @@ export const labels = {
     relations: "Связи",
     technical: "Технический анализ",
     fundamentals: "Фундаментал и события",
+    bonds: "Облигации",
     recommendations: "Рекомендации",
     models: "Модели",
     decisionMemory: "Память решений",
