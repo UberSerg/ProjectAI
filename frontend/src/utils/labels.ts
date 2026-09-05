@@ -126,6 +126,7 @@ export const labels = {
     fundamentals: "Фундаментал и события",
     bonds: "Облигации",
     allocation: "Распределение капитала",
+    investmentDecision: "Инвестиционное решение",
     recommendations: "Рекомендации",
     models: "Модели",
     decisionMemory: "Память решений",

@@ -251,3 +251,83 @@ def allocation_research_run(
 ) -> dict[str, Any]:
     run = create_allocation_research_run_contract(policy_id=policy_id, as_of_from=as_of_from, as_of_to=as_of_to)
     return asdict(run)
+
+
+class InvestmentDecisionRequest(BaseModel):
+    profile_id: str = "BALANCED_ALLOCATION_V0"
+    capital: Decimal = Field(default=Decimal("100000"), ge=0)
+    as_of: date | None = None
+    equity_expected_return: float | None = None
+    equity_expected_excess_return: float | None = None
+    equity_price: Decimal = Field(default=Decimal("300"), gt=0)
+    equity_lot_size: int = Field(default=10, gt=0)
+    bond_price: Decimal = Field(default=Decimal("980"), gt=0)
+    bond_lot_size: int = Field(default=1, gt=0)
+    cost_bps: Decimal = Field(default=Decimal("5"), ge=0)
+    volatility: float | None = None
+    drawdown: float | None = None
+
+
+@router.get("/investment-decision/profiles")
+def investment_decision_profiles() -> dict[str, Any]:
+    from app.modules.investment.application.risk_opportunity_service import list_risk_profiles
+
+    return {"profiles": list_risk_profiles()}
+
+
+@router.get("/investment-decision/calibration")
+def investment_decision_calibration() -> dict[str, Any]:
+    from app.modules.investment.application.risk_opportunity_service import load_equity_calibration
+
+    with core_session() as session:
+        cal = load_equity_calibration(session)
+    return {
+        "sample_size": cal.sample_size,
+        "bias": cal.bias,
+        "mae": cal.mae,
+        "hit_rate": cal.hit_rate,
+        "calibration_status": cal.calibration_status.value,
+        "uncertainty_note": cal.uncertainty_note,
+        "buckets": [asdict(b) for b in cal.buckets],
+        "limitations": list(cal.limitations),
+    }
+
+
+@router.post("/investment-decision/decide")
+def investment_decision_decide(request: InvestmentDecisionRequest) -> dict[str, Any]:
+    from app.modules.investment.application.risk_opportunity_service import run_investment_decision
+
+    try:
+        with core_session() as session:
+            return run_investment_decision(
+                session,
+                profile_id=request.profile_id,
+                capital=request.capital,
+                as_of=request.as_of,
+                equity_expected_return=request.equity_expected_return,
+                equity_expected_excess_return=request.equity_expected_excess_return,
+                equity_price=request.equity_price,
+                equity_lot_size=request.equity_lot_size,
+                bond_price=request.bond_price,
+                bond_lot_size=request.bond_lot_size,
+                cost_bps=request.cost_bps,
+                volatility=request.volatility,
+                drawdown=request.drawdown,
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/investment-decision/compare")
+def investment_decision_compare(
+    capital: Annotated[Decimal, Query(ge=0)] = Decimal("100000"),
+    equity_expected_excess_return: Annotated[float | None, Query()] = None,
+) -> dict[str, Any]:
+    from app.modules.investment.application.risk_opportunity_service import compare_decision_profiles
+
+    with core_session() as session:
+        return compare_decision_profiles(
+            session,
+            capital=capital,
+            equity_expected_excess_return=equity_expected_excess_return,
+        )

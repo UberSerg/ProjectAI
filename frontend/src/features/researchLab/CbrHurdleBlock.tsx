@@ -29,6 +29,14 @@ export function CbrHurdleBlock() {
         Сравнить research-политики Equity / Fixed Income / Cash / Hurdle Gate:{" "}
         <Link to="/allocation">Распределение капитала</Link>
       </p>
+      <p>
+        Risk & Opportunity Engine — объяснение структуры капитала:{" "}
+        <Link to="/investment-decision">Инвестиционное решение Kraken</Link>
+      </p>
+      <p className="muted">
+        Сравнение Equity only / Fixed Income only / Allocation Policy / CBR без автовыбора
+        победителя. Главный вопрос: оправдал ли результат риск?
+      </p>
     </div>
   );
 }

@@ -84,6 +84,7 @@ def build_allocation_context(
             "prediction_quality=UNKNOWN until calibration is proven",
         ),
         prediction_quality=PredictionQuality.UNKNOWN,
+        calibration_status="UNKNOWN",
     )
 
     terms_total = 0
@@ -134,6 +135,9 @@ def build_allocation_context(
         data_quality=data_quality,
         supported_ratio=supported_ratio,
         limitations=tuple(fi_limitations),
+        yield_source="OBSERVED_COUPON_RATE_OR_NONE",
+        liquidity_status="UNKNOWN",
+        support_status="SUPPORTED" if supported > 0 else "NONE",
     )
 
     return AllocationContext(
