@@ -5,6 +5,7 @@ import { BondsPage } from "./pages/BondsPage";
 import { AllocationPage } from "./pages/AllocationPage";
 import { CalibrationPage } from "./pages/CalibrationPage";
 import { InvestmentDecisionPage } from "./pages/InvestmentDecisionPage";
+import { PortfolioRiskPage } from "./pages/PortfolioRiskPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FundamentalIssuerPage } from "./pages/FundamentalIssuerPage";
 import { FundamentalsPage } from "./pages/FundamentalsPage";
@@ -41,6 +42,7 @@ export function App() {
         <Route path="/allocation" element={<AllocationPage />} />
         <Route path="/investment-decision" element={<InvestmentDecisionPage />} />
         <Route path="/calibration" element={<CalibrationPage />} />
+        <Route path="/portfolio-risk" element={<PortfolioRiskPage />} />
         <Route path="/fundamentals/:issuerId" element={<FundamentalIssuerPage />} />
         <Route
           path="/recommendations"

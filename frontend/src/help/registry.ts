@@ -1724,6 +1724,35 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     summary: "Отсутствие данных о рейтинге не означает безопасность.",
     details: "UNKNOWN / NOT_RATED → предупреждение в allocation, без auto-promotion.",
   },
+  portfolio_risk_gate: {
+    id: "portfolio_risk_gate",
+    kind: "metric",
+    title: "Portfolio risk gate",
+    summary: "Защитный слой: можно ли допустить инструмент/позицию в портфель-кандидат.",
+    details:
+      "Статусы APPROVED / APPROVED_WITH_WARNINGS / RESEARCH_ONLY / BLOCKED / INSUFFICIENT_DATA. Доходность сама по себе не разрешает покупку.",
+  },
+  concentration_risk: {
+    id: "concentration_risk",
+    kind: "metric",
+    title: "Concentration risk",
+    summary: "Риск слишком большой доли одной бумаги или позиции.",
+    details: "Если вес выше лимита max_single_position, позиция блокируется.",
+  },
+  credit_unknown: {
+    id: "credit_unknown",
+    kind: "metric",
+    title: "Credit unknown",
+    summary: "Кредитное качество неизвестно — это не «безопасно».",
+    details: "Обычно ведёт к RESEARCH_ONLY, а не к silent APPROVED.",
+  },
+  research_only: {
+    id: "research_only",
+    kind: "metric",
+    title: "Research only",
+    summary: "Допускается только для исследования, не для реальных денег.",
+    details: "Accounting может быть OK, но investment quality ещё не доказана.",
+  },
 };
 
 export const HELP_PAGES: Record<string, PageHelpContent> = {
@@ -2286,6 +2315,38 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Нет retraining и tuning моделей.",
       "Мало зрелых outcomes → UNKNOWN — это честно.",
       "Нет broker / real money.",
+    ],
+  },
+  portfolio_risk: {
+    id: "portfolio_risk",
+    title: "Проверка риска портфеля Kraken",
+    about:
+      "Portfolio Risk Gate: можно ли допустить инструмент и позицию в портфель-кандидат 100 000 ₽.",
+    understand: [
+      "Почему доходность сама по себе не разрешает покупку",
+      "Чем отличаются APPROVED / RESEARCH_ONLY / BLOCKED",
+      "Как credit unknown и low liquidity влияют на допуск",
+      "Что такое concentration risk",
+      "Почему research only ≠ real money",
+    ],
+    metrics: [
+      "portfolio_risk_gate",
+      "investment_eligibility",
+      "concentration_risk",
+      "liquidity_risk",
+      "credit_unknown",
+      "research_only",
+      "credit_quality",
+      "risk_flag",
+    ],
+    interpret: [
+      "Сначала смотрите blocked и insufficient_data, потом warnings.",
+      "RESEARCH_ONLY — допустимо исследовать, нельзя silently торговать.",
+    ],
+    limitations: [
+      "Нет ML и оптимизации.",
+      "Нет брокера и real money.",
+      "Покрытие рейтингов неполное.",
     ],
   },
   fundamentals: {

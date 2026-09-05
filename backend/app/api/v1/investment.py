@@ -223,6 +223,12 @@ def allocation_decide(request: AllocationDecideRequest) -> dict[str, Any]:
                         )
                     )
                 ),
+                "portfolio_risk_gate": _attach_risk_gate(
+                    session,
+                    capital=request.capital,
+                    policy_id=request.policy_id,
+                    equity_expected_excess_return=request.equity_expected_excess_return,
+                ),
                 "mode": "RESEARCH_PREVIEW_V0",
             }
     except KeyError as exc:
@@ -410,3 +416,95 @@ def fixed_income_instrument_risk(instrument_id: int) -> dict[str, Any]:
             return assess_instrument(session, instrument_id=instrument_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+class PortfolioRiskGateRequest(BaseModel):
+    capital: Decimal = Field(default=Decimal("100000"), ge=0)
+    policy_id: str = PolicyId.CBR_HURDLE_GATE_V0.value
+    profile_id: str = "BALANCED_ALLOCATION_V0"
+    equity_expected_excess_return: float | None = 0.0
+    equity_price: Decimal = Field(default=Decimal("300"), gt=0)
+    equity_lot_size: int = Field(default=10, gt=0)
+    bond_price: Decimal = Field(default=Decimal("980"), gt=0)
+    bond_lot_size: int = Field(default=1, gt=0)
+    cost_bps: Decimal = Field(default=Decimal("5"), ge=0)
+
+
+@router.post("/portfolio-risk/assess")
+def portfolio_risk_assess(request: PortfolioRiskGateRequest) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_risk_service import (
+        assess_portfolio_risk_gate,
+    )
+
+    try:
+        with core_session() as session:
+            return assess_portfolio_risk_gate(
+                session,
+                capital=request.capital,
+                policy_id=request.policy_id,
+                profile_id=request.profile_id,
+                equity_expected_excess_return=request.equity_expected_excess_return,
+                equity_price=request.equity_price,
+                equity_lot_size=request.equity_lot_size,
+                bond_price=request.bond_price,
+                bond_lot_size=request.bond_lot_size,
+                cost_bps=request.cost_bps,
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/portfolio-risk/assess")
+def portfolio_risk_assess_get(
+    capital: Annotated[Decimal, Query(ge=0)] = Decimal("100000"),
+    policy_id: Annotated[str, Query()] = PolicyId.CBR_HURDLE_GATE_V0.value,
+    profile_id: Annotated[str, Query()] = "BALANCED_ALLOCATION_V0",
+    equity_expected_excess_return: Annotated[float | None, Query()] = 0.0,
+) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_risk_service import (
+        assess_portfolio_risk_gate,
+    )
+
+    try:
+        with core_session() as session:
+            return assess_portfolio_risk_gate(
+                session,
+                capital=capital,
+                policy_id=policy_id,
+                profile_id=profile_id,
+                equity_expected_excess_return=equity_expected_excess_return,
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _attach_risk_gate(
+    session: Any,
+    *,
+    capital: Decimal,
+    policy_id: str,
+    equity_expected_excess_return: float | None,
+) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_risk_service import (
+        assess_portfolio_risk_gate,
+    )
+
+    try:
+        payload = assess_portfolio_risk_gate(
+            session,
+            capital=capital,
+            policy_id=policy_id,
+            equity_expected_excess_return=equity_expected_excess_return,
+        )
+        return payload.get("risk_assessment") or {}
+    except Exception:  # noqa: BLE001
+        return {
+            "status": "INSUFFICIENT_DATA",
+            "summary_ru": "Risk gate временно недоступен.",
+            "warnings_ru": [],
+            "explanations_ru": [],
+            "blocked": [],
+            "research_only": [],
+            "approved": [],
+            "approved_with_warnings": [],
+        }
