@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -25,7 +25,6 @@ from app.modules.model_edge.application.diagnostics_metrics import (
     top_k_precision_recall,
 )
 from app.modules.model_edge.domain.types import ActivationWatermark
-from datetime import UTC, datetime
 
 
 def test_cash_hurdle_10pct_one_year() -> None:
