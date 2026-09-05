@@ -335,6 +335,38 @@ def advance_shadow_portfolios(workflow_id: int) -> dict:
             raise
 
 
+@celery_app.task(name="projectai.update_fundamental_data")
+def update_fundamental_data() -> dict:
+    """Fundamentals V1: issuer identity + corporate event projection only.
+
+    No beat schedule is registered for this task. It no-ops unless
+    FUNDAMENTALS_UPDATE_ENABLED is on, and even then it never ingests reports or
+    dividends — no accepted provider exists.
+    """
+    from app.modules.fundamentals.application.corporate_events_sync import sync_corporate_events
+    from app.modules.fundamentals.application.identity import sync_issuer_identity
+    from app.modules.fundamentals.application.metric_registry import ensure_metric_registry
+    from app.modules.fundamentals.config import fundamentals_update_enabled
+    from app.modules.fundamentals.infrastructure.moex_issuer_provider import (
+        MoexIssuerIdentityProvider,
+    )
+
+    if not fundamentals_update_enabled():
+        return {"status": "DISABLED", "reason": "FUNDAMENTALS_UPDATE_ENABLED=false"}
+
+    with core_session() as session:
+        registry = ensure_metric_registry(session)
+        identity = sync_issuer_identity(session, MoexIssuerIdentityProvider())
+        events = sync_corporate_events(session)
+        session.commit()
+        return {
+            "status": "SUCCESS",
+            "metric_registry": registry,
+            "identity": identity.to_dict(),
+            "events": events.to_dict(),
+        }
+
+
 @celery_app.task(name="projectai.cleanup_technology_log")
 def cleanup_technology_log() -> dict:
     """Keep system.event_logs bounded to the current UTC day and size limit."""

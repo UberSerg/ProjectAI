@@ -87,6 +87,38 @@ describe("help registry", () => {
     expect(getPageHelp("research_diagnostics")?.title).toMatch(/Диагностика/);
     expect(getPageHelp("research_prospective")?.title).toMatch(/Проспективное/);
   });
+
+  it("defines Fundamental & Event help keys", () => {
+    for (const id of [
+      "fundamental_data",
+      "financial_report",
+      "reporting_period",
+      "publication_date",
+      "known_at",
+      "point_in_time",
+      "restatement",
+      "IFRS",
+      "RAS",
+      "revenue",
+      "net_income",
+      "EBITDA",
+      "cash_flow",
+      "margin",
+      "dividend_recommendation",
+      "dividend_approval",
+      "record_date",
+      "dividend_yield",
+      "corporate_event",
+      "report_age",
+      "fundamental_staleness",
+      "source_provenance",
+    ]) {
+      expect(getMetricHelp(id)?.title).toBeTruthy();
+    }
+    expect(getMetricHelp("known_at")?.summary).toMatch(/известна рынку/);
+    expect(getMetricHelp("dividend_recommendation")?.details).toMatch(/approval/i);
+    expect(getPageHelp("fundamentals")?.title).toMatch(/Фундаментал/);
+  });
 });
 
 describe("quote range helpers", () => {

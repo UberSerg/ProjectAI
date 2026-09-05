@@ -187,26 +187,28 @@ is a heuristic baseline (not alpha). Relations are **not** inside rules_v1 by de
 
 ---
 
-## Fundamental Intelligence (planned)
+## Fundamental Intelligence (V1 foundation started)
 
-Corporate reports ≠ RSS news sentiment. Prefer a dedicated **`fundamentals`** contour in
-Core DB (today’s module folder may still say `news` — rename when the stage starts).
+Corporate reports ≠ RSS news sentiment. Dedicated **`fundamentals`** schema/module exists
+(`fundamental-event-data-v1`). See `docs/fundamentals/fundamental-event-data-v1.md`.
 
 ```text
-Corporate Reports → Raw filing → Parser (+ optional LLM assist)
-  → Structured Financial Facts → Derived features → Event Study / ML / Expert (optional)
+Issuer identity (MOEX ISS) + SPLIT events (existing CA)
+  → PIT engines (known_at)
+  → Feature contracts fundamental_daily / event_daily (preview)
+  → Dataset V3 readiness measurement (no DatasetSpec mutation yet)
 ```
 
-**Expert** (optional): LLM-assisted research, narrative interpretation, or explanation —
-**not** an online decision engine and not a substitute for Trading Policy / Risk / Execution.
+**Live free feeds (audited):** MOEX public dividends endpoints do **not** return dividend
+tables; e-disclosure.ru returns **403**. Report/dividend ingest is **DEFERRED** until a
+licensed or otherwise trustworthy PIT source is available. Do not invent `known_at`.
 
-**Critical PIT:** `period_end ≠ published_at`. A model may use a report only after actual
-publication. Consensus needs its own historical snapshots / timestamps.
+**Critical PIT:** `period_end ≠ published_at` / `known_at`. A model may use a report only
+after actual publication. Consensus needs its own historical snapshots / timestamps.
 
-**Event study** (design): event at `t` → returns `t+1` / `t+3` / `t+5` / `t+10` / `t+20`.
-Complementary to continuous Relations — not a substitute.
+**Expert** (optional, later): LLM-assisted research — **not** an online decision engine.
 
-LLM may help extract/classify text. Numbers, dates, and `published_at` are never truth
+LLM may help extract/classify text later. Numbers, dates, and `published_at` are never truth
 solely because an LLM said so — validated structured facts live in Core.
 
 ---

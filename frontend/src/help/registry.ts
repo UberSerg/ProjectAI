@@ -1150,6 +1150,210 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     details: "Внешний архив живёт отдельно. Любое обогащение канона требует RAW-совместимости и явного precedence.",
     relatedIds: ["raw_price", "source_precedence"],
   },
+  fundamental_data: {
+    id: "fundamental_data",
+    kind: "term",
+    title: "Фундаментальные данные",
+    summary: "Финансовая отчётность, факты и события эмитента с учётом даты, когда они стали известны.",
+    details:
+      "Это не RSS-новости и не инвестиционные рекомендации. Контур хранит отчёты, дивиденды и корпоративные события для PIT-исследований и будущих признаков Dataset V3.",
+    interpretation: "Пустые значения при отложенных провайдерах — честное состояние, не «нулевой сигнал».",
+    limitations: [
+      "Не торговый совет.",
+      "Нельзя подставлять scraped disclosure без known_at.",
+      "Не обучает модель из UI.",
+    ],
+    relatedIds: ["financial_report", "known_at", "point_in_time", "corporate_event"],
+  },
+  financial_report: {
+    id: "financial_report",
+    kind: "term",
+    title: "Финансовый отчёт",
+    summary: "Периодическая отчётность эмитента (IFRS/RAS) с датой публикации и known_at.",
+    details:
+      "Отчёт относится к отчётному периоду, но модель может использовать его только после даты, когда информация могла стать известна рынку.",
+    relatedIds: ["reporting_period", "publication_date", "known_at", "IFRS", "RAS"],
+  },
+  reporting_period: {
+    id: "reporting_period",
+    kind: "term",
+    title: "Отчётный период",
+    summary: "Экономический интервал отчёта (квартал, полугодие, год) — не дата публикации.",
+    details:
+      "Период описывает, о каком времени говорится в цифрах. Дата публикации и known_at отвечают на вопрос «когда это стало известно».",
+    relatedIds: ["financial_report", "publication_date"],
+  },
+  publication_date: {
+    id: "publication_date",
+    kind: "term",
+    title: "Дата публикации",
+    summary: "Когда отчёт или событие были опубликованы источником.",
+    details:
+      "Отчёт за I квартал может относиться к марту, но если его опубликовали 15 мая, на 1 апреля он ещё не был известен. Не выдумываем publication date.",
+    relatedIds: ["known_at", "reporting_period", "point_in_time"],
+  },
+  known_at: {
+    id: "known_at",
+    kind: "term",
+    title: "known_at",
+    summary:
+      "Дата, начиная с которой ProjectAI считает, что информация могла быть известна рынку.",
+    details:
+      "На решении as-of t допустимы только факты с known_at ≤ t. known_at может совпадать с publication_date или быть осторожнее; отсутствие known_at — риск look-ahead и повод для PARTIAL/NOT_READY.",
+    interpretation: "Это операционный PIT-якорь ProjectAI, не «дата события в экономике».",
+    limitations: ["Не путать с effective_date / record_date / period_end."],
+    relatedIds: ["publication_date", "point_in_time", "report_age"],
+  },
+  point_in_time: {
+    id: "point_in_time",
+    kind: "term",
+    title: "Point-in-Time (PIT)",
+    summary: "На дату t разрешена только информация, которая уже могла быть известна ≤ t.",
+    details:
+      "Look-ahead leakage — жёсткая ошибка корректности. Фундаментальные отчёты, дивиденды и события входят в X(t) только через known_at / публикацию.",
+    relatedIds: ["known_at", "publication_date", "fundamental_staleness"],
+  },
+  restatement: {
+    id: "restatement",
+    kind: "term",
+    title: "Пересмотр отчёта (restatement)",
+    summary: "Новая версия отчёта за тот же период; исторически известна только с её known_at.",
+    details:
+      "Нельзя задним числом подменять цифры, доступные на прошлую дату t. UI показывает Original → Restatement и какая версия была известна когда.",
+    relatedIds: ["financial_report", "known_at", "source_provenance"],
+  },
+  IFRS: {
+    id: "IFRS",
+    kind: "term",
+    title: "IFRS",
+    summary: "Международные стандарты финансовой отчётности.",
+    details:
+      "International Financial Reporting Standards. Не предполагаем, что метрики IFRS всегда напрямую сопоставимы с RAS без нормализации.",
+    relatedIds: ["RAS", "financial_report", "revenue"],
+  },
+  RAS: {
+    id: "RAS",
+    kind: "term",
+    title: "РСБУ (RAS)",
+    summary: "Российские стандарты бухгалтерского учёта.",
+    details:
+      "Russian Accounting Standards. Метрики могут отличаться по методике от IFRS; прямое сравнение без оговорок некорректно.",
+    relatedIds: ["IFRS", "financial_report"],
+  },
+  revenue: {
+    id: "revenue",
+    kind: "metric",
+    title: "Выручка",
+    summary: "Доход от основной деятельности за отчётный период (как в источнике).",
+    details: "Значение берётся из нормализованного факта отчёта. Не прогноз и не сигнал к покупке.",
+    relatedIds: ["net_income", "margin", "financial_report"],
+  },
+  net_income: {
+    id: "net_income",
+    kind: "metric",
+    title: "Чистая прибыль",
+    summary: "Итоговый финансовый результат периода по отчёту.",
+    details: "Зависит от стандарта (IFRS/RAS) и версии отчёта; смотрите known_at и restatement.",
+    relatedIds: ["revenue", "EBITDA", "restatement"],
+  },
+  EBITDA: {
+    id: "EBITDA",
+    kind: "metric",
+    title: "EBITDA",
+    summary: "Распространённый proxy операционной прибыли; методика может отличаться.",
+    details:
+      "Не показываем EBITDA, если маппинг метрики ненадёжен. Не путать с чистой прибылью и не трактовать как рекомендацию.",
+    limitations: ["Методика источника может отличаться.", "Не отображать при ненадёжном mapping."],
+    relatedIds: ["net_income", "margin", "cash_flow"],
+  },
+  cash_flow: {
+    id: "cash_flow",
+    kind: "metric",
+    title: "Денежный поток",
+    summary: "Поток денежных средств из отчётности (операционный / свободный — как в факте).",
+    details: "Точная статья зависит от нормализации факта. Без known_at не использовать в PIT-признаках.",
+    relatedIds: ["EBITDA", "financial_report"],
+  },
+  margin: {
+    id: "margin",
+    kind: "metric",
+    title: "Маржа",
+    summary: "Отношение прибыли (или proxy) к выручке за период.",
+    details: "Производная метрика; сравнима только при согласованном стандарте и версии отчёта.",
+    relatedIds: ["revenue", "net_income", "EBITDA"],
+  },
+  dividend_recommendation: {
+    id: "dividend_recommendation",
+    kind: "term",
+    title: "Рекомендация дивиденда",
+    summary: "Предложение совета директоров / органа — ещё не утверждённый дивиденд.",
+    details:
+      "Рекомендация ≠ approval. До утверждения нельзя считать выплату фактом. На as-of t видна только стадия с known_at ≤ t.",
+    limitations: ["Не инвестиционная рекомендация ProjectAI.", "Не путать с dividend_approval."],
+    relatedIds: ["dividend_approval", "record_date", "dividend_yield"],
+  },
+  dividend_approval: {
+    id: "dividend_approval",
+    kind: "term",
+    title: "Утверждение дивиденда",
+    summary: "Официально утверждённый дивиденд (собрание акционеров / уполномоченный орган).",
+    details: "После approval известны сумма и обычно ключевые даты. Recommendation без approval — более ранняя, менее финальная стадия.",
+    relatedIds: ["dividend_recommendation", "record_date", "dividend_yield"],
+  },
+  record_date: {
+    id: "record_date",
+    kind: "term",
+    title: "Record date",
+    summary: "Дата фиксации реестра для права на дивиденд — не дата анонса.",
+    details:
+      "Record date ≠ announcement date. Известность рынку определяется known_at / публикацией, а не самим календарём выплат.",
+    relatedIds: ["dividend_approval", "known_at", "dividend_yield"],
+  },
+  dividend_yield: {
+    id: "dividend_yield",
+    kind: "metric",
+    title: "Дивидендная доходность",
+    summary: "Производная от известной суммы дивиденда и рыночной цены.",
+    details:
+      "Не total-return учёт и не обещание будущей доходности. Считается только когда сумма уже known и есть цена.",
+    limitations: ["Total-return accounting пока не ведётся.", "Не investment advice."],
+    relatedIds: ["dividend_approval", "record_date"],
+  },
+  corporate_event: {
+    id: "corporate_event",
+    kind: "term",
+    title: "Корпоративное событие",
+    summary: "Структурированное событие эмитента: публикация отчёта, дивиденд, сплит и т.п.",
+    details:
+      "UI показывает структурированный timeline, а не сырой поток раскрытий. Для SPLIT известны события из market; known_at может отсутствовать у источника.",
+    relatedIds: ["financial_report", "dividend_approval", "source_provenance"],
+  },
+  report_age: {
+    id: "report_age",
+    kind: "metric",
+    title: "Возраст отчёта",
+    summary: "Сколько дней прошло с known_at / публикации последнего usable отчёта.",
+    details: "Большой возраст → фундаментальные признаки устаревают (staleness).",
+    relatedIds: ["fundamental_staleness", "known_at", "financial_report"],
+  },
+  fundamental_staleness: {
+    id: "fundamental_staleness",
+    kind: "term",
+    title: "Устаревание фундаментала",
+    summary: "Насколько давно обновлялись отчётные факты относительно as-of даты.",
+    details:
+      "Даже корректный PIT-факт может быть экономически «старым». Staleness — отдельный quality/feature сигнал, не повод подтягивать будущие отчёты.",
+    relatedIds: ["report_age", "point_in_time", "known_at"],
+  },
+  source_provenance: {
+    id: "source_provenance",
+    kind: "term",
+    title: "Происхождение источника",
+    summary: "Провайдер, ID, timestamps, hash и версия сырья — без засорения основного UI ссылками.",
+    details:
+      "В карточке доступно через «Технические детали». Нужно для аудита и воспроизводимости, не для торговых решений.",
+    relatedIds: ["financial_report", "corporate_event", "restatement"],
+  },
 };
 
 export const HELP_PAGES: Record<string, PageHelpContent> = {
@@ -1550,6 +1754,54 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     limitations: [
       "Нет исторического paired backfill.",
       "Не смешивается с операционным Shadow Hysteresis.",
+    ],
+  },
+  fundamentals: {
+    id: "fundamentals",
+    title: "Фундаментал и события",
+    about:
+      "Отчётность, дивиденды и корпоративные события эмитентов с явным учётом known_at и даты публикации.",
+    understand: [
+      "Почему дата публикации важнее «месяца отчётного периода»",
+      "Что такое known_at и Point-in-Time",
+      "Чем IFRS отличается от РСБУ (RAS) и почему метрики не всегда сопоставимы",
+      "Почему рекомендация дивиденда ≠ утверждение",
+      "Как as-of explorer показывает, что было известно на дату",
+      "Почему пустые таблицы при недоступных лентах — честное NOT_READY",
+    ],
+    metrics: [
+      "fundamental_data",
+      "financial_report",
+      "reporting_period",
+      "publication_date",
+      "known_at",
+      "point_in_time",
+      "restatement",
+      "IFRS",
+      "RAS",
+      "revenue",
+      "net_income",
+      "EBITDA",
+      "cash_flow",
+      "margin",
+      "dividend_recommendation",
+      "dividend_approval",
+      "record_date",
+      "dividend_yield",
+      "corporate_event",
+      "report_age",
+      "fundamental_staleness",
+      "source_provenance",
+    ],
+    interpret: [
+      "Сначала смотрите PIT-карточку и статус качества (GOOD / PARTIAL / NOT_READY).",
+      "Не трактуйте фундаментальные цифры как investment advice.",
+      "ML readiness описывает кандидатов признаков и блокеры — без запуска обучения.",
+    ],
+    limitations: [
+      "Живые бесплатные дивидендные/отчётные ленты MOEX могут быть недоступны.",
+      "Не обучает Candidate и не меняет Dataset V2 / Forward / Shadow.",
+      "Не подменяет RAW market.candles.",
     ],
   },
 };

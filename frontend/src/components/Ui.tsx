@@ -5,11 +5,11 @@ import { labels } from "../utils/labels";
 export function StatusBadge({ status }: { status?: string | null }) {
   const raw = (status ?? "unknown").toLowerCase();
   const tone =
-    ["ok", "success", "succeeded", "completed", "active", "enabled", "healthy", "pass"].includes(raw)
+    ["ok", "success", "succeeded", "completed", "active", "enabled", "healthy", "pass", "good"].includes(raw)
       ? "success"
-      : ["warning", "degraded"].includes(raw)
+      : ["warning", "degraded", "partial", "deferred"].includes(raw)
         ? "warning"
-        : ["error", "failed"].includes(raw)
+        : ["error", "failed", "not_ready"].includes(raw)
           ? "error"
           : ["running", "pending"].includes(raw)
             ? "running"
