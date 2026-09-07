@@ -434,7 +434,9 @@ describe("ShadowPage", () => {
     expect(screen.getByTestId("shadow-pending-reasons")).toHaveTextContent(
       /Следующая сессия ещё не началась/i,
     );
-    expect(screen.getByTestId("shadow-readiness")).toHaveTextContent(/READY/i);
+    expect(screen.getByTestId("shadow-session-grid")).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-today-session")).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-next-session")).toHaveTextContent(/READY|Готово/i);
     expect(screen.getByTestId("shadow-lifecycle-strip")).toHaveTextContent(/Закрытие/);
     expect(screen.getByText(/не пересчитывает прошлое/i)).toBeInTheDocument();
     expect(screen.getByText("Сделок пока нет")).toBeInTheDocument();
@@ -549,5 +551,89 @@ describe("ShadowPage", () => {
     expect(screen.getAllByText(/Рейтинговый портфель/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/История NAV начнёт строиться/i)).toBeInTheDocument();
     expect(screen.getAllByText("SHADOW_HYSTERESIS_V1").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows mid-session activation copy and technical details", async () => {
+    mockDailyOps({
+      ready_for_next_session: true,
+      status_code: "READY_FOR_NEXT_SESSION",
+      current_session_status: "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN",
+      next_session_preparation_status: "READY_FOR_NEXT_SESSION",
+      mid_session_activation: true,
+      today_summary: {
+        code: "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN",
+        message_ru:
+          "Эксперимент/ордера созданы после OPEN текущей сессии — исполнение только со следующего OPEN.",
+      },
+      next_session_summary: {
+        code: "READY_FOR_NEXT_SESSION",
+        message_ru: "Подготовка к следующей сессии завершена.",
+      },
+      next_execution_session: "2026-09-08",
+      portfolios: [
+        {
+          id: 1,
+          name: "SHADOW_HYSTERESIS_V2",
+          activated_at: "2026-09-07T10:30:00+00:00",
+          status: "ACTIVE",
+        },
+      ],
+      pipeline: {
+        current_session_status: "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN",
+        next_session_preparation_status: "READY_FOR_NEXT_SESSION",
+        mid_session_activation: true,
+        today_summary: {
+          code: "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN",
+          message_ru:
+            "Эксперимент/ордера созданы после OPEN текущей сессии — исполнение только со следующего OPEN.",
+        },
+        next_session_summary: {
+          code: "READY_FOR_NEXT_SESSION",
+          message_ru: "Подготовка к следующей сессии завершена.",
+        },
+        watermarks: {
+          market: "2026-09-05",
+          analytics: "2026-09-05",
+          forward: "2026-09-05",
+          shadow_plan: "2026-09-05",
+        },
+        automation_warning: null,
+        as_of_clock: "2026-09-07T12:00:00+00:00",
+      },
+    });
+    renderPage();
+    expect(await screen.findByTestId("shadow-today-title")).toHaveTextContent(
+      /Первая сделка — на следующем открытии/i,
+    );
+    expect(screen.getByTestId("shadow-mid-session-reason")).toHaveTextContent(
+      /не использует уже известную цену открытия/i,
+    );
+    expect(screen.getByTestId("shadow-mid-next-eligible")).toHaveTextContent(/08\.09\.2026|2026-09-08/);
+    expect(screen.getByTestId("shadow-next-stage")).toHaveTextContent("READY");
+    expect(screen.getByTestId("shadow-next-watermarks")).toHaveTextContent(/Рынок/);
+  });
+
+  it("shows automation warning when RESEARCH_LIVE_MODE is off", async () => {
+    mockDailyOps({
+      ready_for_next_session: false,
+      status_code: "WAITING_FOR_ANALYTICS",
+      next_session_preparation_status: "WAITING_FOR_ANALYTICS",
+      automation: {
+        research_live_mode: false,
+        daily_research_cycle_enabled: false,
+        warning: "Автоматизация выключена — catch-up не запустится без RESEARCH_LIVE_MODE.",
+      },
+      pipeline: {
+        next_session_preparation_status: "WAITING_FOR_ANALYTICS",
+        automation_warning:
+          "Автоматизация выключена — catch-up не запустится без RESEARCH_LIVE_MODE.",
+        watermarks: { market: "2026-09-05", analytics: "2026-09-04" },
+      },
+    });
+    renderPage();
+    expect(await screen.findByTestId("shadow-automation-warning")).toHaveTextContent(
+      /RESEARCH_LIVE_MODE/i,
+    );
+    expect(screen.getByTestId("shadow-next-stage")).toHaveTextContent("PROCESSING");
   });
 });

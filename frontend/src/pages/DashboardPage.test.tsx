@@ -44,9 +44,19 @@ describe("DashboardPage", () => {
     vi.mocked(shadowApi.getShadowDailyOperations).mockResolvedValue({
       ready_for_next_session: true,
       status_code: "READY_FOR_NEXT_SESSION",
+      next_session_preparation_status: "READY_FOR_NEXT_SESSION",
+      current_session_status: "PENDING_ORDERS_AWAITING_OPEN",
       blocker_code: null,
       latest_complete_eod_date: "2026-09-05",
       pending_orders: 0,
+      today_summary: {
+        code: "PENDING_ORDERS_AWAITING_OPEN",
+        message_ru: "Есть PENDING-ордера — ждут официальный OPEN следующей сессии.",
+      },
+      next_session_summary: {
+        code: "READY_FOR_NEXT_SESSION",
+        message_ru: "Подготовка к следующей сессии завершена.",
+      },
     });
     vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
       status: "ok",
@@ -233,7 +243,7 @@ describe("DashboardPage", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Обзор")).toBeInTheDocument();
-    expect(await screen.findByText("Виртуальный портфель")).toBeInTheDocument();
+    expect(await screen.findByText("Живой эксперимент")).toBeInTheDocument();
     expect(await screen.findByText("43")).toBeInTheDocument();
     expect(
       await screen.findByText("Kraken рекомендует исследовательское распределение"),

@@ -21,6 +21,7 @@ vi.mock("../api/fundamentals", async () => {
     getIssuerDividends: vi.fn(),
     getIssuerEvents: vi.fn(),
     getIssuerAsOf: vi.fn(),
+    getTotalReturnCoverage: vi.fn(),
   };
 });
 
@@ -51,6 +52,21 @@ describe("FundamentalsPage", () => {
       main_blockers: ["Живые дивидендные/отчётные ленты недоступны"],
     });
     vi.mocked(fundamentalsApi.listFundamentalIssuers).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(fundamentalsApi.getTotalReturnCoverage).mockResolvedValue({
+      quality: "NOT_READY",
+      verdict: "NOT_READY",
+      dividend_events_stored: 0,
+      instruments_with_dividend_events: 0,
+      instruments_with_price_history: 10,
+      coverage_ratio: 0,
+      reasons: ["dividend_events_empty"],
+      notes: [],
+      mode: "TOTAL_RETURN_GROSS_V1",
+      tax_treatment: "gross_pre_tax",
+      simulator_total_return_mode: "NOT_IN_THIS_PR",
+      dataset_mutation: false,
+      training: false,
+    });
   });
 
   it("renders fundamentals route and visible PIT card", async () => {
@@ -67,6 +83,7 @@ describe("FundamentalsPage", () => {
     expect(await screen.findByTestId("fundamentals-page")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Компании" })).toBeInTheDocument();
     expect(screen.getByTestId("fundamentals-coverage-summary")).toBeInTheDocument();
+    expect(await screen.findByTestId("total-return-coverage")).toHaveTextContent(/Не готово|NOT_READY|Полная/i);
     expect(screen.getByTestId("pit-explanation-card")).toHaveTextContent(/Почему важна дата публикации/i);
     expect(screen.getByTestId("pit-explanation-card")).toHaveTextContent(/15 мая/i);
     expect(screen.getByTestId("fundamentals-ml-readiness")).toHaveTextContent(/Готовность к следующей модели/i);
@@ -99,7 +116,17 @@ describe("FundamentalIssuerPage", () => {
       securities: [{ ticker: "SBER", instrument_id: "1" }],
     });
     vi.mocked(fundamentalsApi.getIssuerReports).mockResolvedValue([]);
-    vi.mocked(fundamentalsApi.getIssuerDividends).mockResolvedValue([]);
+    vi.mocked(fundamentalsApi.getIssuerDividends).mockResolvedValue({
+      status: "NOT_READY",
+      history: [],
+      events_stored_total: 0,
+      total_return_foundation: {
+        mode: "TOTAL_RETURN_GROSS_V1",
+        available: false,
+        note: "empty dividend_events",
+      },
+      note: "Empty because MOEX dividend endpoints were rejected.",
+    });
     vi.mocked(fundamentalsApi.getIssuerEvents).mockResolvedValue([]);
   });
 
@@ -119,6 +146,7 @@ describe("FundamentalIssuerPage", () => {
     expect(screen.getByTestId("asof-date-input")).toBeInTheDocument();
     expect(screen.getByTestId("reports-empty")).toBeInTheDocument();
     expect(screen.getByTestId("dividends-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("dividends-tr-foundation")).toHaveTextContent(/NOT_READY|событий нет/i);
   });
 
   it("loads as-of result when explorer is used", async () => {
