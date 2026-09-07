@@ -13,6 +13,7 @@ interface NavItem {
 const overview: NavItem[] = [{ to: "/", label: labels.nav.overview, end: true }];
 
 const portfolio: NavItem[] = [
+  { to: "/portfolio/mine", label: labels.nav.myPortfolio },
   { to: "/portfolio/candidate", label: labels.nav.portfolioCandidate },
   { to: "/investment-decision", label: labels.nav.investmentDecision },
   { to: "/portfolio-risk", label: labels.nav.portfolioRisk },
@@ -20,6 +21,7 @@ const portfolio: NavItem[] = [
 
 const market: NavItem[] = [
   { to: "/market", label: labels.nav.quotes },
+  { to: "/instruments", label: labels.nav.instruments },
   { to: "/fundamentals", label: labels.nav.companies },
   { to: "/bonds", label: labels.nav.bonds },
 ];

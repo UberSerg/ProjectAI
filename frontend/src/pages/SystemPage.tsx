@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
+import { getInstrumentMasterSyncStatus, type InstrumentMasterSyncStatus } from "../api/instruments";
 import { getIntradayStatus, type IntradayMarketStatus } from "../api/intraday";
 import { getShadowDailyOperations, type ShadowDailyOperations } from "../api/shadow";
 import {
@@ -19,6 +21,57 @@ import { labels } from "../utils/labels";
 
 type Tab = "overview" | "diagnostics";
 type LevelFilter = "ALL" | "ERROR" | "WARNING" | "INFO";
+
+function InstrumentMasterSyncCard() {
+  const [status, setStatus] = useState<InstrumentMasterSyncStatus | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getInstrumentMasterSyncStatus(controller.signal)
+      .then((resp) => {
+        setStatus(resp);
+        setErr(null);
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setErr(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <article className="panel" data-testid="system-instrument-master-sync">
+      <h2>Instrument Master sync</h2>
+      {err ? (
+        <p className="muted">Статус временно недоступен.</p>
+      ) : !status ? (
+        <p className="muted">Загрузка…</p>
+      ) : (
+        <>
+          <div className="key-value">
+            <span>Статус</span>
+            <strong>
+              <StatusBadge status={status.status} />
+            </strong>
+          </div>
+          <div className="key-value">
+            <span>Последний sync</span>
+            <strong>{formatRelativeTime(status.finished_at ?? status.started_at)}</strong>
+          </div>
+          <div className="key-value">
+            <span>Время</span>
+            <strong>{formatDateTime(status.finished_at ?? status.started_at)}</strong>
+          </div>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Каталог MOEX: <Link to="/instruments">Инструменты</Link>. Не путать с котировками.
+          </p>
+        </>
+      )}
+    </article>
+  );
+}
 
 function IntradayQuotesStatusCard() {
   const [status, setStatus] = useState<IntradayMarketStatus | null>(null);
@@ -214,6 +267,7 @@ export function SystemPage() {
       {tab === "overview" ? (
         <div className="dashboard-grid">
           <IntradayQuotesStatusCard />
+          <InstrumentMasterSyncCard />
           <ShadowReadinessStatusCard />
           <article className="panel">
             <h2>Приложение</h2>
