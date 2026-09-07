@@ -508,3 +508,130 @@ def _attach_risk_gate(
             "approved": [],
             "approved_with_warnings": [],
         }
+
+
+class PortfolioCandidateRequest(BaseModel):
+    capital: Decimal = Field(default=Decimal("100000"), ge=0)
+    profile_id: str = "BALANCED_ALLOCATION_V0"
+    equity_expected_excess_return: float | None = 0.0
+    equity_price: Decimal = Field(default=Decimal("300"), gt=0)
+    equity_lot_size: int = Field(default=10, gt=0)
+    bond_price: Decimal = Field(default=Decimal("980"), gt=0)
+    bond_lot_size: int = Field(default=1, gt=0)
+    cost_bps: Decimal = Field(default=Decimal("5"), ge=0)
+
+
+@router.post("/portfolio/candidate/preview")
+def portfolio_candidate_preview(request: PortfolioCandidateRequest) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_candidate_service import (
+        preview_portfolio_candidate,
+    )
+
+    with core_session() as session:
+        return preview_portfolio_candidate(
+            session,
+            capital=request.capital,
+            profile_id=request.profile_id,
+            equity_expected_excess_return=request.equity_expected_excess_return,
+            equity_price=request.equity_price,
+            equity_lot_size=request.equity_lot_size,
+            bond_price=request.bond_price,
+            bond_lot_size=request.bond_lot_size,
+            cost_bps=request.cost_bps,
+        )
+
+
+@router.post("/portfolio/candidate/snapshots")
+def portfolio_candidate_create(request: PortfolioCandidateRequest) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_candidate_service import (
+        create_portfolio_candidate_snapshot,
+    )
+
+    with core_session() as session:
+        return create_portfolio_candidate_snapshot(
+            session,
+            capital=request.capital,
+            profile_id=request.profile_id,
+            equity_expected_excess_return=request.equity_expected_excess_return,
+            equity_price=request.equity_price,
+            equity_lot_size=request.equity_lot_size,
+            bond_price=request.bond_price,
+            bond_lot_size=request.bond_lot_size,
+            cost_bps=request.cost_bps,
+        )
+
+
+@router.get("/portfolio/candidate/current")
+def portfolio_candidate_current(
+    capital: Annotated[Decimal, Query()] = Decimal("100000"),
+    profile_id: Annotated[str, Query()] = "BALANCED_ALLOCATION_V0",
+) -> dict[str, Any]:
+    """Latest snapshot if present, otherwise live preview."""
+    from app.modules.investment.application.portfolio_candidate_service import (
+        get_latest_candidate_snapshot,
+        preview_portfolio_candidate,
+    )
+
+    with core_session() as session:
+        latest = get_latest_candidate_snapshot(session)
+        if latest and latest.get("payload"):
+            payload = dict(latest["payload"])
+            payload["source"] = "snapshot"
+            return payload
+        preview = preview_portfolio_candidate(
+            session, capital=capital, profile_id=profile_id
+        )
+        preview["source"] = "live_preview"
+        return preview
+
+
+@router.get("/portfolio/candidate/history")
+def portfolio_candidate_history(
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_candidate_service import (
+        list_candidate_history,
+    )
+
+    with core_session() as session:
+        return {"items": list_candidate_history(session, limit=limit)}
+
+
+@router.get("/portfolio/candidate/{candidate_id}")
+def portfolio_candidate_get(candidate_id: str) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_candidate_service import (
+        get_candidate_by_id,
+    )
+
+    with core_session() as session:
+        row = get_candidate_by_id(session, candidate_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        payload = dict(row.get("payload") or {})
+        payload["source"] = "snapshot"
+        return payload
+
+
+@router.get("/portfolio/candidate/{candidate_id}/diff")
+def portfolio_candidate_diff(candidate_id: str) -> dict[str, Any]:
+    from app.modules.investment.application.portfolio_candidate_service import (
+        get_candidate_by_id,
+        list_candidate_history,
+    )
+    from app.modules.investment.domain.portfolio_candidate import diff_candidates
+
+    with core_session() as session:
+        current = get_candidate_by_id(session, candidate_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        history = list_candidate_history(session, limit=50)
+        previous_payload = None
+        for item in history:
+            if item["candidate_id"] == candidate_id:
+                continue
+            # history is newest-first; first other id is previous
+            prev = get_candidate_by_id(session, item["candidate_id"])
+            previous_payload = prev.get("payload") if prev else None
+            break
+        return diff_candidates(previous_payload, dict(current.get("payload") or {}))
+

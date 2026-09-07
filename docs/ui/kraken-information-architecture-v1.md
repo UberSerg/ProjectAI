@@ -27,10 +27,11 @@ Forward и Shadow не меняются.
 Kraken
 ├── Обзор                         /
 ├── Портфель
-│   ├── Текущее распределение     /portfolio  (hub)
-│   ├── Инвестиционное решение    /investment-decision
-│   ├── Проверка риска            /portfolio-risk
-│   └── Распределение капитала    /allocation
+│   ├── Кандидат портфеля             /portfolio/candidate
+│   ├── Обзор портфеля                /portfolio
+│   ├── Инвестиционное решение        /investment-decision
+│   ├── Проверка риска                /portfolio-risk
+│   └── Распределение капитала         /allocation
 ├── Рынок
 │   ├── Котировки                 /market
 │   ├── Фундамент                 /fundamentals

@@ -12,6 +12,7 @@ import { FundamentalsPage } from "./pages/FundamentalsPage";
 import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { PortfolioCandidatePage } from "./pages/PortfolioCandidatePage";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { RelationsPage } from "./pages/RelationsPage";
 import { ResearchComparePage } from "./pages/ResearchComparePage";
@@ -64,6 +65,7 @@ export function App() {
         <Route path="/simulator" element={<SimulatorRunsPage />} />
         <Route path="/simulator/:runId" element={<SimulatorRunPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/portfolio/candidate" element={<PortfolioCandidatePage />} />
         <Route
           path="/decision-memory"
           element={
