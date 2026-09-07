@@ -128,6 +128,35 @@ const SHADOW_PENDING_REASON: Record<string, string> = {
   ALREADY_FILLED: "Уже исполнен",
   NO_POSITION_TO_SELL: "Нет позиции для продажи",
   FILLED: "Исполнен",
+  UNKNOWN_LOT_SIZE: "Неизвестен размер лота",
+};
+
+/** Order-plan skip reasons (lot-aware Realism V2). */
+const SHADOW_SKIP_REASON: Record<string, string> = {
+  UNKNOWN_LOT_SIZE: "Неизвестен размер лота (LOTSIZE)",
+  INSUFFICIENT_CASH_FOR_ONE_LOT: "Не хватает денег даже на один лот",
+  INSUFFICIENT_CASH_AFTER_FEES: "Не хватает денег с учётом комиссий",
+  NO_EXECUTION_PRICE: "Нет цены для планирования сделки",
+  NO_REBALANCE_REQUIRED: "Ребалансировка не требуется",
+  BELOW_ONE_LOT: "Целевой объём меньше одного лота",
+  REBALANCE_BUY: "Покупка по плану",
+  REBALANCE_SELL: "Продажа по плану",
+};
+
+/** Daily readiness / EOD status codes. */
+const SHADOW_READINESS_STATUS: Record<string, string> = {
+  READY_FOR_NEXT_SESSION: "Готов к следующей сессии",
+  WAITING_FOR_MARKET_COMPLETE: "Ждём завершённый рыночный день",
+  WAITING_FOR_ANALYTICS: "Ждём аналитику",
+  WAITING_FOR_TECHNICAL: "Ждём технические признаки",
+  WAITING_FOR_FORWARD: "Ждём Forward-прогноз",
+  CYCLE_RUNNING: "Идёт ежедневный исследовательский цикл",
+  CYCLE_STALE: "Ежедневный цикл устарел — требуется внимание",
+  PENDING_ORDERS_AWAITING_OPEN: "Ордера ждут открытия сессии",
+  ORDER_PLAN_PENDING: "Ожидается план ордеров",
+  BLOCKED_CONSISTENCY: "Заблокировано проверкой согласованности",
+  NO_SHADOW_PORTFOLIOS: "Shadow-портфели не инициализированы",
+  UNKNOWN: "Статус неизвестен",
 };
 
 const QUOTE_FRESHNESS: Record<string, string> = {
@@ -218,6 +247,13 @@ export const labels = {
   service: (value?: string | null) => lookup(SERVICE, value),
   direction: (value?: string | null) => lookup(DIRECTION, value?.toLowerCase()),
   shadowPendingReason: (value?: string | null) => lookup(SHADOW_PENDING_REASON, value?.toUpperCase()),
+  shadowSkipReason: (value?: string | null) => {
+    if (!value) return "—";
+    const key = value.toUpperCase();
+    return SHADOW_SKIP_REASON[key] ?? SHADOW_PENDING_REASON[key] ?? value;
+  },
+  shadowReadinessStatus: (value?: string | null) =>
+    lookup(SHADOW_READINESS_STATUS, value?.toUpperCase()),
   quoteFreshness: (value?: string | null) => lookup(QUOTE_FRESHNESS, value?.toUpperCase()),
   marketSession: (value?: string | null) => lookup(MARKET_SESSION, value?.toUpperCase()),
   dataFreshness: (last?: string | null): string => {

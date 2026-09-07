@@ -1,10 +1,20 @@
 /** Human labels and stage mapping for Shadow Live Research dashboard. */
 
 import type {
+  ShadowDailyOperations,
   ShadowLiveResponse,
+  ShadowOrder,
   ShadowPendingOrderReason,
   ShadowPortfolioSummary,
 } from "../../api/shadow";
+
+export const EXPERIMENT_GROUP_V1 = "SHADOW_FORWARD_V0";
+export const EXPERIMENT_GROUP_V2 = "SHADOW_PORTFOLIO_REALISM_V2";
+
+export const PORTFOLIO_A_V1 = "SHADOW_HYSTERESIS_V1";
+export const PORTFOLIO_B_V1 = "SHADOW_HYSTERESIS_DD_V1";
+export const PORTFOLIO_A_V2 = "SHADOW_HYSTERESIS_V2";
+export const PORTFOLIO_B_V2 = "SHADOW_HYSTERESIS_DD_V2";
 
 /** Hero-level live experiment status (display mapping only). */
 export type LiveExperimentUiStatus =
@@ -112,13 +122,17 @@ export function isCalmMarketClosedStatus(status: LiveExperimentUiStatus): boolea
 }
 
 export const PORTFOLIO_HUMAN_NAMES: Record<string, string> = {
-  SHADOW_HYSTERESIS_V1: "Рейтинговый портфель",
-  SHADOW_HYSTERESIS_DD_V1: "Рейтинговый портфель + защита от просадки",
+  SHADOW_HYSTERESIS_V1: "Рейтинговый портфель (V1)",
+  SHADOW_HYSTERESIS_DD_V1: "Рейтинговый + защита от просадки (V1)",
+  SHADOW_HYSTERESIS_V2: "Рейтинговый портфель",
+  SHADOW_HYSTERESIS_DD_V2: "Рейтинговый портфель + защита от просадки",
 };
 
 export const PORTFOLIO_HUMAN_SUBTITLES: Record<string, string> = {
-  SHADOW_HYSTERESIS_V1: "Рейтинговая стратегия с удержанием",
-  SHADOW_HYSTERESIS_DD_V1: "Та же стратегия + защита от глубокой просадки",
+  SHADOW_HYSTERESIS_V1: "Legacy · дробные единицы",
+  SHADOW_HYSTERESIS_DD_V1: "Legacy · дробные единицы + Drawdown Guard",
+  SHADOW_HYSTERESIS_V2: "Realism V2 · целые лоты MOEX",
+  SHADOW_HYSTERESIS_DD_V2: "Realism V2 · целые лоты + защита от просадки",
 };
 
 export function portfolioHumanName(name?: string | null): string {
@@ -129,6 +143,19 @@ export function portfolioHumanName(name?: string | null): string {
 export function portfolioHumanSubtitle(name?: string | null): string {
   if (!name) return "";
   return PORTFOLIO_HUMAN_SUBTITLES[name] ?? "";
+}
+
+export function isRealismV2Portfolio(p?: ShadowPortfolioSummary | null): boolean {
+  if (!p) return false;
+  if (p.experiment_group === EXPERIMENT_GROUP_V2) return true;
+  if (p.lot_aware) return true;
+  return p.name === PORTFOLIO_A_V2 || p.name === PORTFOLIO_B_V2;
+}
+
+export function isLegacyV1Portfolio(p?: ShadowPortfolioSummary | null): boolean {
+  if (!p) return false;
+  if (p.experiment_group === EXPERIMENT_GROUP_V1) return true;
+  return p.name === PORTFOLIO_A_V1 || p.name === PORTFOLIO_B_V1;
 }
 
 export function shadowStatusLabel(status?: string | null): string {
@@ -278,12 +305,143 @@ export function experimentMaturity(days: number | null): { label: string; hint: 
   };
 }
 
+/** True when age is too short for strategy claims (UX warning only). */
+export function hasFewObservations(days: number | null): boolean {
+  return days != null && days < 20;
+}
+
+/** Display-only lots × lot_size = units (no accounting). */
+export function formatLotsUnits(input: {
+  lots?: number | null;
+  lot_size?: number | null;
+  quantity?: number | null;
+}): string {
+  const lots = input.lots;
+  const lotSize = input.lot_size;
+  const qty = input.quantity;
+  if (lots != null && lotSize != null && lotSize > 0) {
+    const units = qty != null ? qty : lots * lotSize;
+    return `${lots}×${lotSize}=${units}`;
+  }
+  if (qty != null) return String(qty);
+  return "—";
+}
+
+export function orderLotsFromMeta(order: ShadowOrder): {
+  lots?: number | null;
+  lot_size?: number | null;
+  units?: number | null;
+} {
+  const meta = order.metadata ?? {};
+  const lots = typeof meta.lots === "number" ? meta.lots : null;
+  const lot_size = typeof meta.lot_size === "number" ? meta.lot_size : null;
+  const units = typeof meta.units === "number" ? meta.units : order.quantity;
+  return { lots, lot_size, units };
+}
+
 export function pickPortfolioA(portfolios: ShadowPortfolioSummary[]): ShadowPortfolioSummary | undefined {
-  return portfolios.find((p) => p.name === "SHADOW_HYSTERESIS_V1") ?? portfolios[0];
+  return (
+    portfolios.find((p) => p.name === PORTFOLIO_A_V2) ??
+    portfolios.find((p) => p.name === PORTFOLIO_A_V1) ??
+    portfolios.find((p) => isRealismV2Portfolio(p) && !String(p.name).includes("DD")) ??
+    portfolios[0]
+  );
 }
 
 export function pickPortfolioB(portfolios: ShadowPortfolioSummary[]): ShadowPortfolioSummary | undefined {
-  return portfolios.find((p) => p.name === "SHADOW_HYSTERESIS_DD_V1") ?? portfolios[1];
+  return (
+    portfolios.find((p) => p.name === PORTFOLIO_B_V2) ??
+    portfolios.find((p) => p.name === PORTFOLIO_B_V1) ??
+    portfolios.find((p) => isRealismV2Portfolio(p) && String(p.name).includes("DD")) ??
+    portfolios[1]
+  );
+}
+
+/** Prefer V2 arms for primary UI; keep V1 as legacy list. */
+export function partitionShadowPortfolios(portfolios: ShadowPortfolioSummary[]): {
+  primary: ShadowPortfolioSummary[];
+  legacy: ShadowPortfolioSummary[];
+  hasV2: boolean;
+} {
+  const v2 = portfolios.filter(isRealismV2Portfolio);
+  const v1 = portfolios.filter(isLegacyV1Portfolio);
+  const other = portfolios.filter((p) => !isRealismV2Portfolio(p) && !isLegacyV1Portfolio(p));
+  if (v2.length > 0) {
+    return { primary: [...v2, ...other], legacy: v1, hasV2: true };
+  }
+  return { primary: [...v1, ...other], legacy: [], hasV2: false };
+}
+
+export type LifecycleStepKey =
+  | "close"
+  | "forecast"
+  | "plan"
+  | "orders"
+  | "open"
+  | "positions"
+  | "mark";
+
+export type LifecycleStepState = "done" | "current" | "pending";
+
+export function buildDailyLifecycleSteps(input: {
+  ops?: ShadowDailyOperations | null;
+  primary?: ShadowPortfolioSummary | null;
+}): Array<{ key: LifecycleStepKey; label: string; state: LifecycleStepState }> {
+  const ops = input.ops;
+  const primary = input.primary;
+  const eodReady = Boolean(ops?.eod_readiness?.ready ?? ops?.latest_complete_eod_date);
+  const hasForward = Boolean(ops?.latest_forward_as_of);
+  const planPresent =
+    (ops?.order_plan_status ?? "").toUpperCase() === "PRESENT" ||
+    Boolean(primary?.order_plan) ||
+    (primary?.skipped?.length ?? 0) > 0;
+  const hasOrders = (ops?.pending_orders ?? primary?.pending_orders ?? 0) > 0 || (primary?.fills ?? 0) > 0;
+  const awaitingOpen =
+    (ops?.status_code ?? "").toUpperCase() === "PENDING_ORDERS_AWAITING_OPEN" ||
+    (primary?.status ?? "").toUpperCase() === "WAITING_FOR_FUTURE_MARKET_OPEN";
+  const hasPositions =
+    (primary?.live?.positions?.length ?? 0) > 0 || (primary?.position_count ?? 0) > 0;
+  const hasMarks =
+    (primary?.live?.quote_coverage ?? 0) > 0 ||
+    (primary?.live?.positions ?? []).some((p) => p.mark_price != null);
+
+  const flags = [eodReady, hasForward, planPresent, hasOrders, awaitingOpen || hasPositions, hasPositions, hasMarks];
+  let currentIdx = flags.findIndex((f) => !f);
+  if (currentIdx < 0) currentIdx = flags.length - 1;
+  // If ready_for_next and pending open, highlight «Открытие»
+  if (ops?.ready_for_next_session && awaitingOpen) currentIdx = 4;
+
+  const labels: Array<{ key: LifecycleStepKey; label: string }> = [
+    { key: "close", label: "Закрытие" },
+    { key: "forecast", label: "Прогноз" },
+    { key: "plan", label: "План" },
+    { key: "orders", label: "Ордера" },
+    { key: "open", label: "Открытие" },
+    { key: "positions", label: "Позиции" },
+    { key: "mark", label: "Оценка" },
+  ];
+
+  return labels.map((item, i) => ({
+    ...item,
+    state: (i < currentIdx ? "done" : i === currentIdx ? "current" : "pending") as LifecycleStepState,
+  }));
+}
+
+export function readinessHeadline(ops?: ShadowDailyOperations | null): {
+  ready: boolean;
+  code: string | null;
+  short: string;
+} {
+  if (!ops) {
+    return { ready: false, code: null, short: "Статус готовности ещё не загружен" };
+  }
+  const ready = Boolean(ops.ready_for_next_session);
+  const code = ops.status_code ?? ops.blocker_code ?? null;
+  return {
+    ready,
+    code,
+    short: ready ? "READY" : "NOT READY",
+  };
 }
 
 export function shortHash(value?: string | null, n = 8): string {

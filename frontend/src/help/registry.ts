@@ -601,6 +601,60 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     limitations: ["Зависит от свежести котировок.", "Не гарантия будущего результата."],
     relatedIds: ["live_mark", "shadow_portfolio", "quote_freshness"],
   },
+  lot: {
+    id: "lot",
+    kind: "term",
+    title: "Лот",
+    summary: "Целое число биржевых лотов; в Realism V2 позиции и ордера только в лотах.",
+    details:
+      "MOEX LOTSIZE задаёт размер лота. Дробные единицы V1 в новом эксперименте не используются.",
+    relatedIds: ["lot_size", "order_plan", "shadow_portfolio"],
+  },
+  lot_size: {
+    id: "lot_size",
+    kind: "term",
+    title: "Размер лота (LOTSIZE)",
+    summary: "Сколько единиц инструмента в одном биржевом лоте.",
+    details:
+      "Единицы = лоты × lot_size. Если LOTSIZE неизвестен, инструмент пропускается с явной причиной — silent lot_size=1 запрещён.",
+    relatedIds: ["lot", "order_plan"],
+  },
+  ready_for_next_session: {
+    id: "ready_for_next_session",
+    kind: "term",
+    title: "Готовность к следующей сессии",
+    summary: "Операционный статус: готов ли Shadow к OPEN следующего торгового дня.",
+    details:
+      "READY означает, что EOD-данные, цикл и план ордеров согласованы (или ордера уже ждут OPEN). NOT READY — есть blocker (данные, цикл, consistency).",
+    relatedIds: ["eod_cycle", "order_plan", "pending_order"],
+  },
+  order_plan: {
+    id: "order_plan",
+    kind: "term",
+    title: "План ордеров",
+    summary: "Lot-aware план: целые лоты, комиссии и явные причины пропусков.",
+    details:
+      "Сначала продажи, затем покупки по приоритету. Пропуски (неизвестный лот, нехватка денег на один лот и т.п.) сохраняются в metadata решения.",
+    relatedIds: ["lot", "strategic_cash", "pending_order"],
+  },
+  realized_pnl: {
+    id: "realized_pnl",
+    kind: "term",
+    title: "Реализованный P&L",
+    summary: "Прибыль/убыток по уже закрытым (частично или полностью) позициям.",
+    details:
+      "Считается на сервере при fills. Нереализованный P&L — по живой оценке открытых позиций. Комиссии показываются отдельно, если API их отдаёт.",
+    relatedIds: ["live_portfolio_nav", "live_mark"],
+  },
+  eod_cycle: {
+    id: "eod_cycle",
+    kind: "term",
+    title: "EOD / дневной цикл",
+    summary: "Цепочка после закрытия: данные → прогноз → план → ордера → готовность к OPEN.",
+    details:
+      "Intraday только исполняет на OPEN и ставит LAST-marks. Пропущенная готовность не чинится backdated fills.",
+    relatedIds: ["ready_for_next_session", "research_cycle", "order_plan"],
+  },
   signal_as_of: {
     id: "signal_as_of",
     kind: "term",
@@ -1951,9 +2005,12 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
   strategic_cash: {
     id: "strategic_cash",
     kind: "metric",
-    title: "Целевой Cash",
-    summary: "Осознанная доля денег в решении — не путать с округлением лотов.",
-    details: "Может вырасти, если Risk Gate исключил возможности.",
+    title: "Стратегический / целевой Cash",
+    summary:
+      "Осознанная доля денег: резерв Shadow-плана (не тратится на лоты) или целевой Cash в решении Kraken.",
+    details:
+      "В Shadow Realism V2 — strategic_cash_reserve и остаток после округления лотов. В кандидате портфеля — целевая доля денег, может вырасти после Risk Gate. Не путать с техническим округлением.",
+    relatedIds: ["order_plan", "lot", "live_portfolio_nav"],
   },
   rejected_candidate: {
     id: "rejected_candidate",
@@ -2223,15 +2280,18 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     id: "shadow",
     title: "Живой эксперимент",
     about:
-      "Проспективный виртуальный портфель: решения на новых данных, исполнение на следующем OPEN, живая оценка без реальных денег. Не historical backtest.",
+      "Проспективный виртуальный портфель: решения на новых данных, исполнение на следующем OPEN, живая оценка без реальных денег. Realism V2 — целые лоты и готовность к сессии. Не historical backtest.",
     understand: [
       "Что такое живой эксперимент и чем он отличается от симулятора",
+      "Готовность к следующей сессии (READY / NOT READY)",
+      "Дневной цикл: закрытие → прогноз → план → ордера → открытие → позиции → оценка",
       "Почему пока может не быть сделок",
       "Чем исполнение на OPEN отличается от живой оценки по LAST",
+      "Лоты, lot_size и остаток cash после округления",
       "Почему закрытый рынок — не ошибка",
       "Разница as_of / generated_at",
       "Что такое Forward Signal",
-      "Чем портфель A отличается от B",
+      "Чем портфель A отличается от B (и V2 от legacy V1)",
       "Почему сравнение станет полезнее со временем",
       "Почему ранние результаты нельзя считать доказательством прибыльности",
     ],
@@ -2252,6 +2312,13 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "quote_freshness",
       "delayed_observation",
       "live_portfolio_nav",
+      "lot",
+      "lot_size",
+      "ready_for_next_session",
+      "order_plan",
+      "realized_pnl",
+      "strategic_cash",
+      "eod_cycle",
       "signal_as_of",
       "signal_generated_at",
       "risk_state",
@@ -2265,6 +2332,8 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "0 fills при PENDING — корректный старт.",
       "Закрытый рынок и «ожидаем OPEN» — спокойный статус, не авария.",
       "Живая NAV на экране не равна дневной истории NAV.",
+      "Realism V2 предпочитается как основной контур; V1 показывается как legacy.",
+      "Лоты × lot_size и skip reasons — факты сервера, не клиентский пересчёт.",
       "A и B стартуют одинаково; DD Guard на B проявится только после реальной просадки.",
       "Решения объясняются Decision Explanation UX без LLM.",
       "Операционная полоса отражает ежедневный цикл и зрелость 20d outcomes.",

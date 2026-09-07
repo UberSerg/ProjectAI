@@ -14,20 +14,20 @@ import {
   type ResearchCycleOperationalStatus,
 } from "../api/researchCycle";
 import {
+  getShadowDailyOperations,
   getShadowDecisions,
   getShadowFills,
   getShadowLive,
   getShadowNav,
   getShadowOrders,
   getShadowOverview,
+  type ShadowDailyOperations,
   type ShadowDecision,
   type ShadowFill,
-  type ShadowLivePosition,
   type ShadowLiveResponse,
   type ShadowNavPoint,
   type ShadowOrder,
   type ShadowOverview,
-  type ShadowPendingOrderReason,
   type ShadowPortfolioSummary,
 } from "../api/shadow";
 import { MetricCard, PageHeader, PageState } from "../components/Ui";
@@ -38,19 +38,29 @@ import {
 import { ResearchCycleOpsStrip } from "../features/researchCycle/ResearchCycleOpsStrip";
 import { formatAutomaticSchedule } from "../features/researchCycle/helpers";
 import {
+  CashCard,
+  DailyLifecycleStrip,
   EmptyNavHistory,
+  LivePortfolioTable,
   OperationalStage,
+  PendingOrdersTable,
+  PendingReasonsList,
   PendingZeroState,
+  PnLCards,
+  ReadinessBanner,
+  SkippedReasonsList,
 } from "../features/shadow/components";
 import {
   deriveLiveExperimentStatus,
   experimentAgeDays,
   experimentAgeLabel,
   experimentMaturity,
+  hasFewObservations,
   isCalmMarketClosedStatus,
   liveExperimentStatusLabel,
   liveExperimentStatusTone,
   orderActionLabel,
+  partitionShadowPortfolios,
   pickPortfolioA,
   pickPortfolioB,
   portfolioHumanName,
@@ -200,106 +210,22 @@ function PortfolioCard({
       )}
       <p className="shadow-tech-id muted">
         Технический id: <code>{p.name}</code>
+        {p.experiment_group ? (
+          <>
+            {" "}
+            · <code>{p.experiment_group}</code>
+          </>
+        ) : null}
       </p>
     </article>
-  );
-}
-
-function LivePortfolioTable({
-  positions,
-  quoteFallbackAt,
-}: {
-  positions: ShadowLivePosition[];
-  quoteFallbackAt?: string | null;
-}) {
-  if (!positions.length) {
-    return <p className="muted">Открытых позиций сейчас нет.</p>;
-  }
-  return (
-    <div className="table-wrap">
-      <table data-testid="shadow-live-positions">
-        <thead>
-          <tr>
-            <th>Тикер</th>
-            <th className="numeric">Кол-во</th>
-            <th className="numeric">Вход</th>
-            <th className="numeric">
-              Оценка <MetricHelp metricId="live_mark" />
-            </th>
-            <th className="numeric">Изменение</th>
-            <th className="numeric">P&amp;L</th>
-            <th className="numeric">Стоимость</th>
-            <th>Время котировки</th>
-            <th>
-              Свежесть <MetricHelp metricId="quote_freshness" />
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {positions.map((row) => {
-            const stale = (row.freshness ?? "").toUpperCase() === "STALE";
-            const quoteAt = row.quote_time ?? row.observed_at ?? quoteFallbackAt;
-            return (
-              <tr key={`${row.instrument_id}-${row.ticker}`}>
-                <td>{row.ticker || "—"}</td>
-                <td className="numeric">{formatPrice(row.quantity)}</td>
-                <td className="numeric">{formatPrice(row.entry_price)}</td>
-                <td className="numeric">{formatPrice(row.mark_price)}</td>
-                <td className="numeric">
-                  {(row.change_pct ?? row.unrealized_pnl_pct) == null
-                    ? "—"
-                    : formatPercent(row.change_pct ?? row.unrealized_pnl_pct)}
-                </td>
-                <td className="numeric">
-                  {row.unrealized_pnl == null ? "—" : formatMoney(row.unrealized_pnl)}
-                </td>
-                <td className="numeric">{formatMoney(row.market_value)}</td>
-                <td>{quoteAt ? formatRelativeTime(quoteAt) : "—"}</td>
-                <td>
-                  {stale ? (
-                    <span className="shadow-badge shadow-badge-stale" data-testid="stale-badge">
-                      Устарела
-                    </span>
-                  ) : (
-                    labels.quoteFreshness(row.freshness)
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function PendingReasonsList({ reasons }: { reasons: ShadowPendingOrderReason[] }) {
-  if (!reasons.length) {
-    return <p className="muted">Нет ожидающих ордеров с причиной ожидания.</p>;
-  }
-  return (
-    <ul className="plain-list" data-testid="shadow-pending-reasons">
-      {reasons.map((r) => (
-        <li key={r.order_id}>
-          <strong>{r.ticker}</strong>: {labels.shadowPendingReason(r.reason)}
-          {r.session_date ? (
-            <span className="muted"> · сессия {formatDate(r.session_date)}</span>
-          ) : null}
-          {r.delayed_observation ? (
-            <span className="muted">
-              {" "}
-              · <MetricHelp metricId="delayed_observation" /> позднее наблюдение
-            </span>
-          ) : null}
-        </li>
-      ))}
-    </ul>
   );
 }
 
 export function ShadowPage() {
   const [overview, setOverview] = useState<ShadowOverview | null>(null);
   const [live, setLive] = useState<ShadowLiveResponse | null>(null);
+  const [ops, setOps] = useState<ShadowDailyOperations | null>(null);
+  const [opsError, setOpsError] = useState<string | null>(null);
   const [intradayStatus, setIntradayStatus] = useState<IntradayMarketStatus | null>(null);
   const [bundles, setBundles] = useState<PortfolioBundle[] | null>(null);
   const [forward, setForward] = useState<ForwardBatchDetail | null>(null);
@@ -311,6 +237,7 @@ export function ShadowPage() {
   const [lastUiUpdateAt, setLastUiUpdateAt] = useState<string | null>(null);
   const [showAllPreds, setShowAllPreds] = useState(false);
   const [showResearchDetails, setShowResearchDetails] = useState(false);
+  const [armTab, setArmTab] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<{
     order: ShadowOrder;
     portfolioName: string;
@@ -319,12 +246,22 @@ export function ShadowPage() {
 
   const refreshLive = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [liveResp, intraday] = await Promise.all([
+      const [liveResp, intraday, dailyOps] = await Promise.all([
         getShadowLive(signal),
         getIntradayStatus(signal).catch(() => null),
+        getShadowDailyOperations(signal).catch((reason: unknown) => {
+          if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+            setOpsError(errorMessage(reason));
+          }
+          return null;
+        }),
       ]);
       setLive(liveResp);
       if (intraday) setIntradayStatus(intraday);
+      if (dailyOps) {
+        setOps(dailyOps);
+        setOpsError(null);
+      }
       setLiveError(null);
       setLastUiUpdateAt(new Date().toISOString());
     } catch (reason: unknown) {
@@ -378,30 +315,52 @@ export function ShadowPage() {
 
   usePolling(() => refreshLive(), LIVE_POLL_MS, Boolean(overview && bundles && bundles.length > 0));
 
-  const portfolioA = useMemo(
-    () => (bundles ? pickPortfolioA(bundles.map((b) => b.summary)) : undefined),
-    [bundles],
-  );
-  const portfolioB = useMemo(
-    () => (bundles ? pickPortfolioB(bundles.map((b) => b.summary)) : undefined),
-    [bundles],
-  );
-  const bundleA = bundles?.find((b) => b.summary.id === portfolioA?.id);
-  const bundleB = bundles?.find((b) => b.summary.id === portfolioB?.id);
-  const primaryBundle = bundleA ?? bundles?.[0];
   const liveById = useMemo(() => {
     const m = new Map<string, ShadowPortfolioSummary>();
     for (const p of live?.portfolios ?? []) m.set(String(p.id), p);
     return m;
   }, [live]);
-  const primaryLive =
-    (primaryBundle ? liveById.get(String(primaryBundle.summary.id)) : undefined) ??
-    live?.portfolios?.[0] ??
-    primaryBundle?.summary ??
+
+  const partitioned = useMemo(() => {
+    const summaries = (bundles ?? []).map((b) => liveById.get(String(b.summary.id)) ?? b.summary);
+    return partitionShadowPortfolios(summaries);
+  }, [bundles, liveById]);
+
+  const primaryArmSummaries = partitioned.primary;
+  const legacyArmSummaries = partitioned.legacy;
+
+  useEffect(() => {
+    if (!primaryArmSummaries.length) return;
+    if (armTab && primaryArmSummaries.some((p) => String(p.id) === armTab)) return;
+    const preferred = pickPortfolioA(primaryArmSummaries) ?? primaryArmSummaries[0];
+    setArmTab(String(preferred.id));
+  }, [primaryArmSummaries, armTab]);
+
+  const activeSummary =
+    primaryArmSummaries.find((p) => String(p.id) === armTab) ??
+    pickPortfolioA(primaryArmSummaries) ??
+    primaryArmSummaries[0] ??
     null;
 
-  const ageDays = experimentAgeDays(overview?.activated_at);
+  const activeBundle = bundles?.find((b) => b.summary.id === activeSummary?.id);
+  const primaryLive = activeSummary;
+
+  const portfolioA = useMemo(
+    () => (bundles ? pickPortfolioA(primaryArmSummaries.length ? primaryArmSummaries : bundles.map((b) => b.summary)) : undefined),
+    [bundles, primaryArmSummaries],
+  );
+  const portfolioB = useMemo(
+    () => (bundles ? pickPortfolioB(primaryArmSummaries.length ? primaryArmSummaries : bundles.map((b) => b.summary)) : undefined),
+    [bundles, primaryArmSummaries],
+  );
+  const bundleA = bundles?.find((b) => b.summary.id === portfolioA?.id);
+  const bundleB = bundles?.find((b) => b.summary.id === portfolioB?.id);
+
+  const ageDays = experimentAgeDays(
+    activeSummary?.activated_at ?? overview?.activated_at,
+  );
   const maturity = experimentMaturity(ageDays);
+  const fewObs = hasFewObservations(ageDays);
 
   const uiStatus = deriveLiveExperimentStatus({
     live,
@@ -412,9 +371,9 @@ export function ShadowPage() {
 
   const selectedTickers = useMemo(() => {
     const set = new Set<string>();
-    for (const o of primaryBundle?.orders ?? []) set.add(o.ticker);
+    for (const o of activeBundle?.orders ?? []) set.add(o.ticker);
     return set;
-  }, [primaryBundle]);
+  }, [activeBundle]);
 
   const rankedPreds = useMemo(() => {
     const preds = [...(forward?.predictions ?? [])];
@@ -425,18 +384,18 @@ export function ShadowPage() {
   const visiblePreds = showAllPreds ? rankedPreds : rankedPreds.slice(0, 10);
   const targetByTicker = useMemo(() => {
     const m = new Map<string, number>();
-    for (const o of primaryBundle?.orders ?? []) {
+    for (const o of activeBundle?.orders ?? []) {
       if (o.target_weight != null) m.set(o.ticker, o.target_weight);
     }
     return m;
-  }, [primaryBundle]);
+  }, [activeBundle]);
   const nameByTicker = useMemo(() => {
     const m = new Map<string, string>();
-    for (const o of primaryBundle?.orders ?? []) {
+    for (const o of activeBundle?.orders ?? []) {
       if (o.display_name) m.set(o.ticker, o.display_name);
     }
     return m;
-  }, [primaryBundle]);
+  }, [activeBundle]);
 
   if (error) return <PageState kind="error">{error}</PageState>;
   if (!overview || bundles == null) {
@@ -460,16 +419,19 @@ export function ShadowPage() {
     );
   }
 
-  const status = primaryLive?.status ?? primaryBundle?.summary.status;
-  const pendingTotal = bundles.reduce((s, b) => s + b.summary.pending_orders, 0);
+  const status = primaryLive?.status ?? activeBundle?.summary.status;
+  const pendingTotal = bundles.reduce(
+    (s, b) => s + (liveById.get(String(b.summary.id))?.pending_orders ?? b.summary.pending_orders),
+    0,
+  );
   const fillsTotal = bundles.reduce((s, b) => s + b.summary.fills, 0);
   const latestMarket =
     primaryLive?.last_processed_market_date ??
-    primaryBundle?.summary.last_processed_market_date ??
+    activeBundle?.summary.last_processed_market_date ??
     forward?.batch.as_of_date ??
     null;
   const hasNavHistory = bundles.some((b) => b.nav.length > 0);
-  const lastDecision = primaryBundle?.decisions?.[0];
+  const lastDecision = activeBundle?.decisions?.[0];
   const lastRefreshAt =
     live?.last_intraday_refresh?.at ??
     overview.intraday?.last_refresh?.at ??
@@ -477,11 +439,9 @@ export function ShadowPage() {
     null;
   const livePositions = primaryLive?.live?.positions ?? [];
   const pendingReasons = primaryLive?.pending_order_reasons ?? [];
+  const skipped = primaryLive?.skipped ?? primaryLive?.order_plan?.skipped ?? [];
   const calmClosed = isCalmMarketClosedStatus(uiStatus);
   const liveNav = primaryLive?.live_nav ?? primaryLive?.live?.nav;
-  const initialCapital = primaryLive?.initial_capital ?? primaryBundle?.summary.initial_capital;
-  const displayPnl =
-    liveNav != null && initialCapital != null ? liveNav - initialCapital : primaryLive?.live?.unrealized_pnl;
 
   return (
     <section className="shadow-page page-layout-wide" data-layout="wide">
@@ -495,6 +455,9 @@ export function ShadowPage() {
           </Link>
         }
       />
+
+      <ReadinessBanner ops={ops} error={opsError} />
+      <DailyLifecycleStrip ops={ops} primary={primaryLive} />
 
       <div className="shadow-hero panel" data-testid="shadow-hero">
         <div className="shadow-hero-main">
@@ -522,12 +485,23 @@ export function ShadowPage() {
             <MetricHelp metricId="intraday_market" />
           </span>
           <span className="sim-meta-chip">
-            Запуск: {formatDateTime(overview.activated_at)}
+            Запуск: {formatDateTime(activeSummary?.activated_at ?? overview.activated_at)}
           </span>
           <span className="sim-meta-chip">
             Возраст: {experimentAgeLabel(ageDays)} <MetricHelp metricId="experiment_age" />
           </span>
+          {partitioned.hasV2 ? (
+            <span className="sim-meta-chip" data-testid="shadow-experiment-v2">
+              Realism V2
+            </span>
+          ) : null}
         </div>
+        {fewObs ? (
+          <p className="banner banner-warning" data-testid="shadow-few-observations">
+            Мало наблюдений: возраст эксперимента {experimentAgeLabel(ageDays)}. Ранние результаты
+            нельзя считать доказательством edge.
+          </p>
+        ) : null}
         {calmClosed ? (
           <p className="shadow-calm-note muted" data-testid="shadow-market-closed-calm">
             Когда биржа закрыта, страница остаётся спокойной: нет красной аварии, только ожидание
@@ -540,6 +514,130 @@ export function ShadowPage() {
           </p>
         ) : null}
       </div>
+
+      <div className="panel" data-testid="shadow-arms">
+        <h2 className="sim-section-title">Плечи эксперимента</h2>
+        <p className="muted">
+          NAV и позиции по плечам разделены — не смешивайте их в одну цифру.
+          {partitioned.hasV2 ? " Основной контур: Realism V2 (целые лоты)." : null}
+        </p>
+        <div className="tabs shadow-arm-tabs" role="tablist">
+          {primaryArmSummaries.map((p, idx) => {
+            const letter = p.name.includes("DD") ? "B" : idx === 0 ? "A" : String(idx + 1);
+            const selected = String(p.id) === String(activeSummary?.id);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                className={selected ? "tab active" : "tab"}
+                data-testid={`shadow-arm-tab-${p.id}`}
+                onClick={() => setArmTab(String(p.id))}
+              >
+                {letter}: {portfolioHumanName(p.name)}
+              </button>
+            );
+          })}
+        </div>
+        {activeSummary ? (
+          <div className="shadow-arm-panel" data-testid="shadow-arm-panel">
+            <header className="shadow-portfolio-card-head">
+              <div>
+                <h3 style={{ margin: "0.25rem 0" }}>{portfolioHumanName(activeSummary.name)}</h3>
+                <p className="muted">{portfolioHumanSubtitle(activeSummary.name)}</p>
+              </div>
+              <StatusChip status={activeSummary.status} />
+            </header>
+            <div className="card-grid sim-metrics-grid">
+              <MetricCard
+                label="NAV сейчас"
+                value={formatMoney(liveNav ?? activeSummary.nav)}
+                helpId="live_portfolio_nav"
+              />
+              <MetricCard
+                label="Позиций"
+                value={livePositions.length || (activeSummary.position_count ?? 0)}
+              />
+              <MetricCard
+                label="Покрытие котировок"
+                value={
+                  activeSummary.live?.quote_coverage == null
+                    ? "—"
+                    : formatPercent(activeSummary.live.quote_coverage)
+                }
+                helpId="quote_freshness"
+              />
+              <MetricCard
+                label="Lot-aware"
+                value={activeSummary.lot_aware ? "да" : "нет"}
+                helpId="lot"
+              />
+            </div>
+            <PnLCards portfolio={activeSummary} />
+            <CashCard portfolio={activeSummary} />
+            <h3 className="shadow-subheading">Позиции</h3>
+            <LivePortfolioTable
+              positions={livePositions}
+              nav={liveNav ?? activeSummary.nav}
+              quoteFallbackAt={lastRefreshAt}
+            />
+            <h3 className="shadow-subheading">
+              Ожидающие ордера <MetricHelp metricId="pending_order" />
+            </h3>
+            <PendingOrdersTable
+              orders={activeBundle?.orders ?? []}
+              reasons={pendingReasons}
+              onSelect={(order) =>
+                setSelectedOrder({
+                  order,
+                  portfolioName: activeSummary.policy_name,
+                  riskName: activeSummary.risk_name,
+                })
+              }
+            />
+            <h3 className="shadow-subheading">
+              Пропуски плана <MetricHelp metricId="order_plan" />
+            </h3>
+            <SkippedReasonsList skipped={skipped} />
+            <h3 className="shadow-subheading">Почему ордера ждут</h3>
+            <PendingReasonsList reasons={pendingReasons} />
+            {selectedOrder ? (
+              <DecisionExplanationPanel
+                title="Почему принято это решение?"
+                context={contextFromShadowOrder(selectedOrder.order, {
+                  policyName: selectedOrder.portfolioName,
+                  riskPolicyName: selectedOrder.riskName,
+                  predictionCandidate: "prediction_ml_candidate/v0",
+                  candidateConfigHash: forward?.batch.candidate_config_hash,
+                  predictionHash: forward?.batch.prediction_hash,
+                })}
+                onClose={() => setSelectedOrder(null)}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {legacyArmSummaries.length ? (
+        <div className="panel" data-testid="shadow-legacy-v1">
+          <h2 className="sim-section-title">Legacy V1</h2>
+          <p className="muted">
+            Дробные Shadow-портфели прежнего эксперимента. Не смешивайте NAV с Realism V2.
+          </p>
+          <ul className="plain-list">
+            {legacyArmSummaries.map((p) => (
+              <li key={p.id}>
+                <strong>{portfolioHumanName(p.name)}</strong>
+                {" · "}
+                NAV {formatMoney(p.live_nav ?? p.live?.nav ?? p.nav ?? p.cash)}
+                {" · "}
+                {shadowStatusLabel(p.status)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="shadow-primary-grid">
         <div className="panel" data-testid="shadow-decision-block">
@@ -613,33 +711,7 @@ export function ShadowPage() {
               </dd>
             </div>
           </dl>
-          <h3 className="shadow-subheading">Почему ордера ждут</h3>
-          <PendingReasonsList reasons={pendingReasons} />
         </div>
-      </div>
-
-      <div className="panel" data-testid="shadow-live-portfolio-block">
-        <h2 className="sim-section-title">
-          Портфель сейчас <MetricHelp metricId="live_portfolio_nav" />
-        </h2>
-        <div className="card-grid sim-metrics-grid">
-          <MetricCard label="NAV сейчас" value={formatMoney(liveNav ?? primaryLive?.nav)} helpId="live_portfolio_nav" />
-          <MetricCard
-            label="P&L с запуска"
-            value={displayPnl == null ? "—" : formatMoney(displayPnl)}
-          />
-          <MetricCard label="Позиций" value={livePositions.length || (primaryLive?.position_count ?? 0)} />
-          <MetricCard
-            label="Покрытие котировок"
-            value={
-              primaryLive?.live?.quote_coverage == null
-                ? "—"
-                : formatPercent(primaryLive.live.quote_coverage)
-            }
-            helpId="quote_freshness"
-          />
-        </div>
-        <LivePortfolioTable positions={livePositions} quoteFallbackAt={lastRefreshAt} />
       </div>
 
       <ResearchCycleOpsStrip status={cycleStatus} error={cycleError} />
@@ -653,7 +725,11 @@ export function ShadowPage() {
       </div>
 
       <div className="card-grid sim-metrics-grid">
-        <MetricCard label="Запущен" value={formatDate(overview.activated_at)} helpId="activation_date" />
+        <MetricCard
+          label="Запущен"
+          value={formatDate(activeSummary?.activated_at ?? overview.activated_at)}
+          helpId="activation_date"
+        />
         <MetricCard
           label="Последний сигнал"
           value={formatDate(forward?.batch.as_of_date)}
@@ -833,9 +909,9 @@ export function ShadowPage() {
 
           <div className="panel">
             <h2 className="sim-section-title">
-              Ожидающие ордера <MetricHelp metricId="pending_order" />
+              Ожидающие ордера (детали) <MetricHelp metricId="pending_order" />
             </h2>
-            {primaryBundle && primaryBundle.orders.filter((o) => o.status === "PENDING").length ? (
+            {activeBundle && activeBundle.orders.filter((o) => o.status === "PENDING").length ? (
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -851,7 +927,7 @@ export function ShadowPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {primaryBundle.orders
+                    {activeBundle.orders
                       .filter((o) => o.status === "PENDING")
                       .map((order) => (
                         <tr
@@ -860,8 +936,8 @@ export function ShadowPage() {
                           onClick={() =>
                             setSelectedOrder({
                               order,
-                              portfolioName: primaryBundle.summary.policy_name,
-                              riskName: primaryBundle.summary.risk_name,
+                              portfolioName: activeBundle.summary.policy_name,
+                              riskName: activeBundle.summary.risk_name,
                             })
                           }
                         >
@@ -885,19 +961,6 @@ export function ShadowPage() {
             ) : (
               <p className="muted">Нет ожидающих ордеров.</p>
             )}
-            {selectedOrder ? (
-              <DecisionExplanationPanel
-                title="Почему принято это решение?"
-                context={contextFromShadowOrder(selectedOrder.order, {
-                  policyName: selectedOrder.portfolioName,
-                  riskPolicyName: selectedOrder.riskName,
-                  predictionCandidate: "prediction_ml_candidate/v0",
-                  candidateConfigHash: forward?.batch.candidate_config_hash,
-                  predictionHash: forward?.batch.prediction_hash,
-                })}
-                onClose={() => setSelectedOrder(null)}
-              />
-            ) : null}
           </div>
 
           {hasNavHistory ? (
@@ -950,7 +1013,7 @@ export function ShadowPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(primaryBundle?.decisions ?? []).map((d) => (
+                  {(activeBundle?.decisions ?? []).map((d) => (
                     <tr key={d.id}>
                       <td>{d.iso_week}</td>
                       <td>{d.forward_batch_id}</td>
@@ -960,7 +1023,7 @@ export function ShadowPage() {
                       <td>{riskModeLabel(d.risk_mode)}</td>
                     </tr>
                   ))}
-                  {!primaryBundle?.decisions.length ? (
+                  {!activeBundle?.decisions.length ? (
                     <tr>
                       <td colSpan={6}>Пока нет решений</td>
                     </tr>
@@ -1049,7 +1112,9 @@ export function ShadowPage() {
               <div>
                 <dt>Experiment group</dt>
                 <dd>
-                  <code>{overview.experiment_group ?? "—"}</code>
+                  <code>
+                    {activeSummary?.experiment_group ?? overview.experiment_group ?? "—"}
+                  </code>
                 </dd>
               </div>
               <div>

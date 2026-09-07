@@ -97,13 +97,28 @@ describe("help registry", () => {
       "quote_freshness",
       "delayed_observation",
       "live_portfolio_nav",
+      "lot",
+      "lot_size",
+      "ready_for_next_session",
+      "order_plan",
+      "realized_pnl",
+      "strategic_cash",
+      "eod_cycle",
     ]) {
       expect(getMetricHelp(id)?.title, id).toBeTruthy();
     }
     expect(getMetricHelp("execution_price")?.summary.toLowerCase()).toMatch(/open/);
     expect(getMetricHelp("live_portfolio_nav")?.summary.toLowerCase()).toMatch(/виртуал|nav|портфел/);
     expect(getPageHelp("shadow")?.metrics).toEqual(
-      expect.arrayContaining(["intraday_market", "shadow_execution", "live_portfolio_nav"]),
+      expect.arrayContaining([
+        "intraday_market",
+        "shadow_execution",
+        "live_portfolio_nav",
+        "lot",
+        "ready_for_next_session",
+        "order_plan",
+        "eod_cycle",
+      ]),
     );
   });
 

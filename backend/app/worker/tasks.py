@@ -411,6 +411,19 @@ def daily_research_cycle_scheduled() -> dict:
     return daily_research_cycle(None)
 
 
+@celery_app.task(name="projectai.eod_readiness_retry")
+def eod_readiness_retry() -> dict:
+    """Beat: check EOD completeness and trigger cycle once when ready.
+
+    Registered only when EOD_READINESS_RETRY_ENABLED=true. Never runs the full
+    research cycle inline every N minutes.
+    """
+    from app.modules.shadow.application.daily_operations import maybe_trigger_cycle_if_ready
+
+    with core_session() as session:
+        return maybe_trigger_cycle_if_ready(session)
+
+
 @celery_app.task(name="projectai.refresh_intraday_market")
 def refresh_intraday_market() -> dict:
     """Intraday quotes → Redis cache → shadow session-open fills. No research cycle."""

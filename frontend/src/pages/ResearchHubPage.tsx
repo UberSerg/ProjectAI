@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
+import {
+  getShadowDailyOperations,
+  getShadowLive,
+  type ShadowDailyOperations,
+  type ShadowLiveResponse,
+} from "../api/shadow";
 import { PageHeader } from "../components/Ui";
 import {
   deriveLiveExperimentStatus,
   liveExperimentStatusLabel,
   pickPortfolioA,
+  readinessHeadline,
 } from "../features/shadow/helpers";
 import { labels } from "../utils/labels";
 
@@ -63,24 +69,39 @@ const groups = [
   },
 ];
 
-function useShadowLiveStatus(): string | null {
+function useShadowLiveStatus(): { liveLabel: string | null; readinessLabel: string | null } {
   const [live, setLive] = useState<ShadowLiveResponse | null>(null);
+  const [ops, setOps] = useState<ShadowDailyOperations | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    getShadowLive(controller.signal)
-      .then(setLive)
-      .catch(() => setLive(null));
+    Promise.all([
+      getShadowLive(controller.signal).catch(() => null),
+      getShadowDailyOperations(controller.signal).catch(() => null),
+    ]).then(([liveResp, dailyOps]) => {
+      setLive(liveResp);
+      setOps(dailyOps);
+    });
     return () => controller.abort();
   }, []);
-  if (!live) return null;
+  if (!live) return { liveLabel: null, readinessLabel: null };
   const primary = pickPortfolioA(live.portfolios) ?? live.portfolios[0];
-  if (!primary) return "ещё не инициализирован";
+  if (!primary) {
+    return { liveLabel: "ещё не инициализирован", readinessLabel: null };
+  }
   const status = deriveLiveExperimentStatus({
     live,
     primary,
     hasForward: true,
   });
-  return liveExperimentStatusLabel(status);
+  const readiness = readinessHeadline(ops);
+  return {
+    liveLabel: liveExperimentStatusLabel(status),
+    readinessLabel: ops
+      ? readiness.ready
+        ? "к сессии: готов"
+        : "к сессии: требует внимания"
+      : null,
+  };
 }
 
 export function ResearchHubPage() {
@@ -104,9 +125,10 @@ export function ResearchHubPage() {
             {group.cards.map((card) => (
               <Link key={card.to} to={card.to} className="hub-link research-hub-card">
                 <strong>{card.title}</strong>
-                {"liveKey" in card && card.liveKey === "shadow" && shadowStatus ? (
+                {"liveKey" in card && card.liveKey === "shadow" && shadowStatus.liveLabel ? (
                   <span className="muted" data-testid="research-hub-shadow-status">
-                    Сейчас: {shadowStatus}
+                    Сейчас: {shadowStatus.liveLabel}
+                    {shadowStatus.readinessLabel ? ` · ${shadowStatus.readinessLabel}` : ""}
                   </span>
                 ) : null}
                 <span>

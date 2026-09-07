@@ -41,6 +41,13 @@ describe("DashboardPage", () => {
         },
       ],
     });
+    vi.mocked(shadowApi.getShadowDailyOperations).mockResolvedValue({
+      ready_for_next_session: true,
+      status_code: "READY_FOR_NEXT_SESSION",
+      blocker_code: null,
+      latest_complete_eod_date: "2026-09-05",
+      pending_orders: 0,
+    });
     vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
       status: "ok",
       services: {
