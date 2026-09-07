@@ -38,17 +38,19 @@ import {
 import { ResearchCycleOpsStrip } from "../features/researchCycle/ResearchCycleOpsStrip";
 import { formatAutomaticSchedule } from "../features/researchCycle/helpers";
 import {
+  AutomationWarningBanner,
   CashCard,
   DailyLifecycleStrip,
   EmptyNavHistory,
   LivePortfolioTable,
+  NextSessionPanel,
   OperationalStage,
   PendingOrdersTable,
   PendingReasonsList,
   PendingZeroState,
   PnLCards,
-  ReadinessBanner,
   SkippedReasonsList,
+  TodaySessionPanel,
 } from "../features/shadow/components";
 import {
   deriveLiveExperimentStatus,
@@ -456,7 +458,19 @@ export function ShadowPage() {
         }
       />
 
-      <ReadinessBanner ops={ops} error={opsError} />
+      <div className="shadow-session-grid" data-testid="shadow-session-grid">
+        <TodaySessionPanel
+          ops={ops}
+          error={opsError}
+          primary={primaryLive}
+          marketSession={
+            pendingReasons.find((r) => r.market_status)?.market_status ??
+            (uiStatus === "waiting_session" ? "CLOSED" : uiStatus === "positions_open" ? "OPEN" : null)
+          }
+        />
+        <NextSessionPanel ops={ops} error={opsError} />
+      </div>
+      <AutomationWarningBanner ops={ops} />
       <DailyLifecycleStrip ops={ops} primary={primaryLive} />
 
       <div className="shadow-hero panel" data-testid="shadow-hero">

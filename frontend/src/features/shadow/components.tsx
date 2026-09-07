@@ -8,15 +8,31 @@ import type {
 } from "../../api/shadow";
 import { MetricCard } from "../../components/Ui";
 import { MetricHelp } from "../../help";
-import { formatDate, formatMoney, formatPercent, formatPrice, formatRelativeTime } from "../../utils/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatPercent,
+  formatPrice,
+  formatRelativeTime,
+} from "../../utils/format";
 import { labels } from "../../utils/labels";
 import {
+  automationWarningText,
   buildDailyLifecycleSteps,
+  earliestActivationIso,
   formatLotsUnits,
+  isMidSessionActivation,
+  mapNextSessionStage,
+  nextSessionPrepCode,
+  nextSessionStageTone,
   operationalStages,
   orderActionLabel,
   orderLotsFromMeta,
+  pipelineWatermarks,
   readinessHeadline,
+  sessionOpenIsoForDate,
+  todaySessionHeadline,
 } from "./helpers";
 
 export function OperationalStage({ status }: { status?: string | null }) {
@@ -437,6 +453,10 @@ export function CompactReadinessCard({
   error?: string | null;
 }) {
   const headline = readinessHeadline(ops);
+  const prep = nextSessionPrepCode(ops);
+  const stage = mapNextSessionStage(prep);
+  const warning = automationWarningText(ops);
+  const stageTone = nextSessionStageTone(stage);
   return (
     <article className="panel shadow-quotes-card" data-testid="system-shadow-readiness">
       <h2>
@@ -453,9 +473,15 @@ export function CompactReadinessCard({
             <strong>{headline.ready ? "готов" : "требует внимания"}</strong>
           </div>
           <div className="key-value">
+            <span>Стадия</span>
+            <strong>
+              <span className={`badge badge-${stageTone}`}>{labels.nextSessionStage(stage)}</span>
+            </strong>
+          </div>
+          <div className="key-value">
             <span>Причина</span>
             <strong>
-              {labels.shadowReadinessStatus(ops.blocker_code ?? ops.status_code)}
+              {labels.shadowReadinessStatus(ops.blocker_code ?? prep)}
             </strong>
           </div>
           <div className="key-value">
@@ -465,6 +491,323 @@ export function CompactReadinessCard({
               {ops.last_eod_cycle?.stale ? " · stale" : ""}
             </strong>
           </div>
+          {warning ? (
+            <p className="banner banner-warning" data-testid="system-automation-warning">
+              {warning}
+            </p>
+          ) : null}
+        </>
+      )}
+    </article>
+  );
+}
+
+export function AutomationWarningBanner({ ops }: { ops?: ShadowDailyOperations | null }) {
+  const warning = automationWarningText(ops);
+  if (!warning) return null;
+  return (
+    <p className="banner banner-warning" data-testid="shadow-automation-warning">
+      {warning}{" "}
+      <MetricHelp metricId="research_live_mode" />
+    </p>
+  );
+}
+
+export function TodaySessionPanel({
+  ops,
+  marketSession,
+  primary,
+  error,
+}: {
+  ops?: ShadowDailyOperations | null;
+  marketSession?: string | null;
+  primary?: ShadowPortfolioSummary | null;
+  error?: string | null;
+}) {
+  const today = todaySessionHeadline(ops);
+  const mid = today.midSession || isMidSessionActivation(ops);
+  const positions =
+    primary?.live?.positions?.length ?? primary?.position_count ?? 0;
+  const marks =
+    (primary?.live?.positions ?? []).filter((p) => p.mark_price != null).length;
+  const sessionLabel = marketSession ? labels.marketSession(marketSession) : "—";
+  const activationAt =
+    earliestActivationIso(ops) ?? primary?.activated_at ?? null;
+  const todayOpen = sessionOpenIsoForDate(
+    activationAt?.slice(0, 10) ?? ops?.latest_complete_eod_date ?? null,
+  );
+  const nextEligible = ops?.next_execution_session ?? null;
+  const pending = ops?.pending_orders ?? primary?.pending_orders ?? 0;
+
+  return (
+    <section
+      className={`panel shadow-session-panel${mid ? " shadow-session-mid" : ""}`}
+      data-testid="shadow-today-session"
+    >
+      <header className="shadow-session-head">
+        <h2 className="sim-section-title" style={{ margin: 0 }}>
+          Сегодня <MetricHelp metricId="today_vs_next_session" />
+        </h2>
+        {mid ? (
+          <span className="badge badge-warning" data-testid="shadow-today-badge">
+            Mid-session
+          </span>
+        ) : (
+          <span className="badge badge-info" data-testid="shadow-today-badge">
+            Current session
+          </span>
+        )}
+      </header>
+
+      {error ? (
+        <p className="muted">Статус сегодняшней сессии временно недоступен: {error}</p>
+      ) : (
+        <>
+          <p className="shadow-session-title" data-testid="shadow-today-title">
+            {today.title}
+          </p>
+          {mid ? (
+            <p className="shadow-session-reason" data-testid="shadow-mid-session-reason">
+              Эксперимент запущен сегодня после открытия рынка. Kraken не использует уже известную
+              цену открытия задним числом.
+            </p>
+          ) : today.messageRu ? (
+            <p className="muted" data-testid="shadow-today-message">
+              {today.messageRu}
+            </p>
+          ) : null}
+
+          <dl className="sim-dl shadow-session-meta">
+            <div>
+              <dt>Рынок</dt>
+              <dd data-testid="shadow-today-market">{sessionLabel}</dd>
+            </div>
+            <div>
+              <dt>План / ордера</dt>
+              <dd>
+                {pending > 0 ? `ожидают: ${pending}` : ops?.order_plan_status ?? "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Позиции / marks</dt>
+              <dd>
+                {positions} / {marks}
+              </dd>
+            </div>
+            {mid ? (
+              <>
+                <div>
+                  <dt>Активация</dt>
+                  <dd data-testid="shadow-mid-activation">{formatDateTime(activationAt)}</dd>
+                </div>
+                <div>
+                  <dt>OPEN сегодня</dt>
+                  <dd data-testid="shadow-mid-today-open">{formatDateTime(todayOpen)}</dd>
+                </div>
+                <div>
+                  <dt>Первая допустимая сессия</dt>
+                  <dd data-testid="shadow-mid-next-eligible">{formatDate(nextEligible)}</dd>
+                </div>
+              </>
+            ) : null}
+          </dl>
+
+          {mid || today.code ? (
+            <details className="shadow-tech-details" data-testid="shadow-today-details">
+              <summary>Технические коды</summary>
+              <dl className="sim-dl">
+                <div>
+                  <dt>current_session_status</dt>
+                  <dd>
+                    <code>{today.code ?? "—"}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>mid_session_activation</dt>
+                  <dd>
+                    <code>{String(Boolean(ops?.mid_session_activation ?? ops?.pipeline?.mid_session_activation))}</code>
+                  </dd>
+                </div>
+                {today.messageRu ? (
+                  <div>
+                    <dt>message_ru</dt>
+                    <dd>{today.messageRu}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </details>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+export function NextSessionPanel({
+  ops,
+  error,
+}: {
+  ops?: ShadowDailyOperations | null;
+  error?: string | null;
+}) {
+  const prep = nextSessionPrepCode(ops);
+  const stage = mapNextSessionStage(prep);
+  const tone = nextSessionStageTone(stage);
+  const summary = ops?.next_session_summary ?? ops?.pipeline?.next_session_summary;
+  const marks = pipelineWatermarks(ops);
+  const ready = Boolean(ops?.ready_for_next_session);
+
+  return (
+    <section
+      className={`panel shadow-session-panel shadow-session-next shadow-readiness-${tone === "error" ? "warning" : tone === "success" ? "success" : "warning"}`}
+      data-testid="shadow-next-session"
+    >
+      <header className="shadow-session-head">
+        <h2 className="sim-section-title" style={{ margin: 0 }}>
+          Следующая сессия <MetricHelp metricId="today_vs_next_session" />
+        </h2>
+        <span className={`badge badge-${tone}`} data-testid="shadow-next-stage">
+          {stage}
+        </span>
+      </header>
+
+      {error ? (
+        <p className="muted">Статус подготовки временно недоступен: {error}</p>
+      ) : !ops ? (
+        <p className="muted">Загрузка…</p>
+      ) : (
+        <>
+          <p className="shadow-session-title" data-testid="shadow-next-title">
+            {labels.nextSessionStage(stage)}
+          </p>
+          <p className="muted" data-testid="shadow-next-message">
+            {summary?.message_ru ??
+              labels.shadowReadinessStatus(ops.blocker_code ?? prep) ??
+              (ready ? "Готов к следующей сессии" : "Требует внимания")}
+          </p>
+
+          <dl className="sim-dl shadow-session-meta">
+            <div>
+              <dt>EOD дата</dt>
+              <dd>{formatDate(ops.latest_complete_eod_date)}</dd>
+            </div>
+            <div>
+              <dt>След. сессия</dt>
+              <dd>{formatDate(ops.next_execution_session)}</dd>
+            </div>
+            <div>
+              <dt>
+                Цикл <MetricHelp metricId="eod_cycle" />
+              </dt>
+              <dd>
+                {ops.last_eod_cycle?.status ?? "—"}
+                {ops.last_eod_cycle?.stale ? " · устарел" : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>
+                План <MetricHelp metricId="order_plan" />
+              </dt>
+              <dd>{ops.order_plan_status ?? "—"}</dd>
+            </div>
+          </dl>
+
+          <h3 className="shadow-subheading">Watermarks</h3>
+          <dl className="sim-dl shadow-watermarks" data-testid="shadow-next-watermarks">
+            {marks.map((m) => (
+              <div key={m.key}>
+                <dt>{m.label}</dt>
+                <dd>{formatDate(m.value)}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <details className="shadow-tech-details" data-testid="shadow-next-details">
+            <summary>Технические коды</summary>
+            <dl className="sim-dl">
+              <div>
+                <dt>next_session_preparation_status</dt>
+                <dd>
+                  <code>{prep ?? "—"}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>status_code / blocker</dt>
+                <dd>
+                  <code>{ops.status_code ?? "—"}</code>
+                  {ops.blocker_code ? (
+                    <>
+                      {" / "}
+                      <code>{ops.blocker_code}</code>
+                    </>
+                  ) : null}
+                </dd>
+              </div>
+            </dl>
+          </details>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function EodPipelineCard({
+  ops,
+  error,
+}: {
+  ops?: ShadowDailyOperations | null;
+  error?: string | null;
+}) {
+  const prep = nextSessionPrepCode(ops);
+  const stage = mapNextSessionStage(prep);
+  const tone = nextSessionStageTone(stage);
+  const marks = pipelineWatermarks(ops);
+  const warning = automationWarningText(ops);
+
+  return (
+    <article className="panel shadow-quotes-card" data-testid="system-eod-pipeline">
+      <h2>
+        EOD pipeline <MetricHelp metricId="eod_cycle" />
+      </h2>
+      {error ? (
+        <p className="muted">Статус временно недоступен.</p>
+      ) : !ops ? (
+        <p className="muted">Загрузка…</p>
+      ) : (
+        <>
+          <div className="key-value">
+            <span>Стадия</span>
+            <strong>
+              <span className={`badge badge-${tone}`}>{stage}</span>{" "}
+              {labels.nextSessionStage(stage)}
+            </strong>
+          </div>
+          <div className="key-value">
+            <span>Код</span>
+            <strong>{labels.shadowReadinessStatus(prep)}</strong>
+          </div>
+          <div className="key-value">
+            <span>Цикл</span>
+            <strong>
+              {ops.last_eod_cycle?.status ?? "—"}
+              {ops.last_eod_cycle?.covers_latest_eod === false ? " · не покрывает EOD" : ""}
+              {ops.last_eod_cycle?.stale ? " · stale" : ""}
+            </strong>
+          </div>
+          <h3 className="shadow-subheading" style={{ marginTop: "0.75rem" }}>
+            Watermarks
+          </h3>
+          {marks.map((m) => (
+            <div className="key-value" key={m.key}>
+              <span>{m.label}</span>
+              <strong>{formatDate(m.value)}</strong>
+            </div>
+          ))}
+          {warning ? (
+            <p className="banner banner-warning" data-testid="system-eod-automation-warning">
+              {warning}
+            </p>
+          ) : null}
         </>
       )}
     </article>

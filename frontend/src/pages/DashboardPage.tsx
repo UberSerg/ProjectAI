@@ -26,7 +26,14 @@ import {
   StatusBadge,
   WarningCard,
 } from "../components/Ui";
-import { pickPortfolioA, readinessHeadline } from "../features/shadow/helpers";
+import {
+  automationWarningText,
+  mapNextSessionStage,
+  nextSessionPrepCode,
+  nextSessionStageTone,
+  pickPortfolioA,
+  todaySessionHeadline,
+} from "../features/shadow/helpers";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDate, formatDuration, formatMoney, formatNumber, formatRelativeTime } from "../utils/format";
 import {
@@ -85,11 +92,20 @@ function VirtualPortfolioCard() {
       : primary?.live?.unrealized_pnl;
   const positions = primary?.live?.positions?.length ?? primary?.position_count ?? 0;
   const quoteAge = live?.last_intraday_refresh?.at ?? null;
-  const readiness = readinessHeadline(ops);
+  const today = todaySessionHeadline(ops);
+  const prep = nextSessionPrepCode(ops);
+  const nextStage = mapNextSessionStage(prep);
+  const nextTone = nextSessionStageTone(nextStage);
+  const warning = automationWarningText(ops);
+  const blocked = nextStage === "BLOCKED" || Boolean(warning);
+  const cardTone = blocked ? (nextTone === "error" ? "error" : "warning") : nextTone === "success" ? "success" : "neutral";
 
   return (
-    <article className="panel shadow-live-card" data-testid="dashboard-virtual-portfolio">
-      <h2 style={{ marginTop: 0 }}>Виртуальный портфель</h2>
+    <article
+      className={`panel shadow-live-card shadow-live-card-${cardTone}`}
+      data-testid="dashboard-virtual-portfolio"
+    >
+      <h2 style={{ marginTop: 0 }}>Живой эксперимент</h2>
       {err ? (
         <p className="muted">Живая оценка временно недоступна.</p>
       ) : !live ? (
@@ -98,20 +114,32 @@ function VirtualPortfolioCard() {
         <p className="muted">Shadow ещё не инициализирован.</p>
       ) : (
         <>
-          <p style={{ margin: "0.25rem 0" }}>
+          <p style={{ margin: "0.25rem 0" }} data-testid="dashboard-shadow-nav">
             NAV {formatMoney(nav)}
             {pnl == null ? "" : ` · P&L ${formatMoney(pnl)}`}
             {cash == null ? "" : ` · cash ${formatMoney(cash)}`}
             {` · позиций ${positions}`}
           </p>
-          <p className="muted" data-testid="dashboard-shadow-readiness">
-            К следующей сессии: {readiness.ready ? "готов" : "требует внимания"}
+          <p className="muted" data-testid="dashboard-shadow-today">
+            Сегодня: {today.title}
           </p>
+          <p className="muted" data-testid="dashboard-shadow-next">
+            Следующая сессия:{" "}
+            <span className={`badge badge-${nextTone}`}>{nextStage}</span>{" "}
+            {labels.nextSessionStage(nextStage)}
+          </p>
+          {warning ? (
+            <p className="banner banner-warning" data-testid="dashboard-automation-warning">
+              {warning}
+            </p>
+          ) : null}
           <p className="muted">Котировки: {formatRelativeTime(quoteAge)}</p>
         </>
       )}
       <p style={{ marginBottom: 0 }}>
-        <Link to="/shadow">Открыть живой эксперимент →</Link>
+        <Link to="/shadow" data-testid="dashboard-shadow-cta">
+          Открыть живой эксперимент →
+        </Link>
       </p>
     </article>
   );

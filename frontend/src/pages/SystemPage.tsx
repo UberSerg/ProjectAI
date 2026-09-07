@@ -12,7 +12,7 @@ import {
   type TechEvent,
 } from "../api/system";
 import { PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
-import { CompactReadinessCard } from "../features/shadow/components";
+import { CompactReadinessCard, EodPipelineCard } from "../features/shadow/components";
 import { formatDateTime, formatRelativeTime } from "../utils/format";
 import { overviewHealthBadgeStatus, resolveServiceStatus, SYSTEM_SERVICES } from "../utils/health";
 import { labels } from "../utils/labels";
@@ -88,7 +88,12 @@ function ShadowReadinessStatusCard() {
     return () => controller.abort();
   }, []);
 
-  return <CompactReadinessCard ops={ops} error={err} />;
+  return (
+    <>
+      <CompactReadinessCard ops={ops} error={err} />
+      <EodPipelineCard ops={ops} error={err} />
+    </>
+  );
 }
 
 export function SystemPage() {
