@@ -409,3 +409,28 @@ def daily_research_cycle(workflow_id: int | None = None) -> dict:
 def daily_research_cycle_scheduled() -> dict:
     """Beat entrypoint — only registered when DAILY_RESEARCH_CYCLE_ENABLED=true."""
     return daily_research_cycle(None)
+
+
+@celery_app.task(name="projectai.refresh_intraday_market")
+def refresh_intraday_market() -> dict:
+    """Intraday quotes → Redis cache → shadow session-open fills. No research cycle."""
+    from app.modules.market.application.intraday_refresh import run_intraday_refresh
+
+    with core_session() as session:
+        result = run_intraday_refresh(session)
+        if result.status == "SUCCESS" and result.filled > 0:
+            session.commit()
+        elif result.status == "SUCCESS":
+            session.commit()
+        return {
+            "status": result.status,
+            "enabled": result.enabled,
+            "quotes_fetched": result.quotes_fetched,
+            "quotes_cached": result.quotes_cached,
+            "universe_size": result.universe_size,
+            "filled": result.filled,
+            "skipped": result.skipped,
+            "last_refresh_at": result.last_refresh_at,
+            "error": result.error,
+            "reasons": result.reasons[:50],
+        }

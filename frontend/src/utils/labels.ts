@@ -111,6 +111,43 @@ const SERVICE: Record<string, string> = {
   backend: "Backend",
 };
 
+/** Shadow open-execution pending reason codes (display only). */
+const SHADOW_PENDING_REASON: Record<string, string> = {
+  ELIGIBLE: "Готов к исполнению на OPEN",
+  NEXT_SESSION_NOT_STARTED: "Следующая сессия ещё не началась",
+  WAITING_NEXT_SESSION: "Ждём следующую торговую сессию",
+  OPEN_PRICE_NOT_AVAILABLE: "Цена открытия ещё не доступна",
+  ORDER_CREATED_AFTER_OPEN: "Ордер создан после открытия сессии",
+  QUOTE_STALE: "Котировка устарела",
+  QUOTE_UNAVAILABLE: "Котировка недоступна",
+  MARKET_CLOSED: "Рынок закрыт",
+  NON_TRADING_DAY: "Неторговый день",
+  NO_TRADES: "Сделок по инструменту ещё не было",
+  MIN_EXECUTION_DATE_NOT_REACHED: "Ещё рано для исполнения (min execution date)",
+  INSUFFICIENT_CASH: "Недостаточно денег в виртуальном портфеле",
+  ALREADY_FILLED: "Уже исполнен",
+  NO_POSITION_TO_SELL: "Нет позиции для продажи",
+  FILLED: "Исполнен",
+};
+
+const QUOTE_FRESHNESS: Record<string, string> = {
+  LIVE: "Актуальная",
+  DELAYED: "С задержкой",
+  STALE: "Устарела",
+  SESSION_NOT_STARTED: "Сессия не началась",
+  NO_TRADES: "Нет сделок",
+  MARKET_CLOSED: "Рынок закрыт",
+  UNAVAILABLE: "Недоступна",
+};
+
+const MARKET_SESSION: Record<string, string> = {
+  PREOPEN: "Перед открытием",
+  OPEN: "Сессия открыта",
+  CLOSED: "Сессия закрыта",
+  NON_TRADING_DAY: "Неторговый день",
+  UNKNOWN: "Статус неизвестен",
+};
+
 function lookup(map: Record<string, string>, value?: string | null): string {
   if (!value) return "—";
   return map[value] ?? map[value.toLowerCase()] ?? value;
@@ -180,6 +217,9 @@ export const labels = {
   issueType: (value?: string | null) => lookup(ISSUE_TYPE, value),
   service: (value?: string | null) => lookup(SERVICE, value),
   direction: (value?: string | null) => lookup(DIRECTION, value?.toLowerCase()),
+  shadowPendingReason: (value?: string | null) => lookup(SHADOW_PENDING_REASON, value?.toUpperCase()),
+  quoteFreshness: (value?: string | null) => lookup(QUOTE_FRESHNESS, value?.toUpperCase()),
+  marketSession: (value?: string | null) => lookup(MARKET_SESSION, value?.toUpperCase()),
   dataFreshness: (last?: string | null): string => {
     if (!last) return "Нет данных";
     const days = Math.floor((Date.now() - new Date(last).getTime()) / 86_400_000);

@@ -8,11 +8,16 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.infrastructure.db.session import core_session
 from app.infrastructure.market.models import Instrument
+from app.modules.market.application.intraday_cache import IntradayQuoteCache
 from app.modules.market.application.workflows import create_workflow
+from app.modules.shadow.application.intraday_universe import resolve_intraday_universe
+from app.modules.shadow.application.live_valuation import build_live_portfolio_snapshot
 from app.modules.shadow.application.service import initialize_shadow_portfolios
 from app.modules.shadow.config import SHADOW_KIND
+from app.modules.shadow.domain.open_execution import POLICY_NAME, can_fill_with_session_open
 from app.modules.shadow.infrastructure.models import (
     ShadowDecision,
     ShadowFill,
@@ -42,6 +47,165 @@ def _position_count(positions: Any) -> int:
     if not isinstance(positions, dict):
         return 0
     return len(positions)
+
+
+def _pending_reason_for_order(
+    order: ShadowOrder,
+    quote: Any,
+    *,
+    cash: float | None = None,
+    commission_bps: float = 0.0,
+) -> dict[str, Any]:
+    base = {
+        "order_id": int(order.id),
+        "ticker": order.ticker,
+        "side": order.side,
+        "min_execution_date": order.min_execution_date.isoformat(),
+        "created_at": _dt(order.created_at),
+    }
+    if quote is None:
+        return {**base, "reason": "QUOTE_UNAVAILABLE", "session_date": None}
+    session_date = quote.trading_date
+    if session_date is None:
+        return {**base, "reason": "OPEN_PRICE_NOT_AVAILABLE", "session_date": None}
+    elig = can_fill_with_session_open(
+        order_created_at=order.created_at,
+        min_execution_date=order.min_execution_date,
+        session_date=session_date,
+        open_price=quote.open_price,
+        market_status=quote.market_status,
+        quote_freshness=quote.freshness,
+        observed_at=quote.observed_at,
+    )
+    reason = elig.reason if not elig.eligible else "ELIGIBLE"
+    if (
+        elig.eligible
+        and order.side == "BUY"
+        and cash is not None
+        and quote.open_price is not None
+        and float(order.quantity) > 0
+    ):
+        raw = float(quote.open_price)
+        notional = float(order.quantity) * raw
+        commission = notional * (float(commission_bps) / 10_000.0)
+        if notional + commission > float(cash) + 1e-6:
+            reason = "INSUFFICIENT_CASH"
+    return {
+        **base,
+        "reason": reason,
+        "session_date": session_date.isoformat(),
+        "delayed_observation": elig.delayed_observation,
+        "open_price": quote.open_price,
+        "quote_freshness": str(quote.freshness),
+        "market_status": str(quote.market_status),
+    }
+
+
+def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]:
+    settings = get_settings()
+    cache = IntradayQuoteCache()
+    last = cache.get_last_refresh()
+    members = resolve_intraday_universe(session)
+    positions = portfolio.positions or {}
+    needed_ids: set[int] = set()
+    if isinstance(positions, dict):
+        for key, row in positions.items():
+            if isinstance(row, dict) and abs(float(row.get("quantity") or 0)) > 1e-12:
+                needed_ids.add(int(row.get("instrument_id") or key))
+    pending_orders = list(
+        session.scalars(
+            select(ShadowOrder).where(
+                ShadowOrder.portfolio_id == portfolio.id,
+                ShadowOrder.status == "PENDING",
+            )
+        )
+    )
+    for order in pending_orders:
+        needed_ids.add(int(order.instrument_id))
+
+    quotes_by_instrument: dict[int, Any] = {}
+    for m in members:
+        if m.instrument_id not in needed_ids:
+            continue
+        q = cache.get(m.board, m.secid)
+        if q is not None:
+            quotes_by_instrument[m.instrument_id] = q
+
+    fills = list(
+        session.scalars(
+            select(ShadowFill).where(ShadowFill.portfolio_id == portfolio.id)
+        )
+    )
+    # Average entry from BUY fills (long-only Shadow V1).
+    buy_qty: dict[int, float] = {}
+    buy_notional: dict[int, float] = {}
+    for fill in fills:
+        if fill.side != "BUY":
+            continue
+        iid = int(fill.instrument_id)
+        buy_qty[iid] = buy_qty.get(iid, 0.0) + float(fill.quantity)
+        buy_notional[iid] = buy_notional.get(iid, 0.0) + float(fill.fill_price) * float(
+            fill.quantity
+        )
+    entry_by_instrument = {
+        iid: (buy_notional[iid] / qty) for iid, qty in buy_qty.items() if qty > 1e-12
+    }
+
+    spec = session.get(ShadowPortfolioSpec, portfolio.spec_id)
+    cost_basis_nav = float(spec.initial_capital) if spec is not None else None
+
+    snapshot = build_live_portfolio_snapshot(
+        portfolio_id=int(portfolio.id),
+        cash=float(portfolio.cash),
+        positions=positions if isinstance(positions, dict) else {},
+        quotes_by_instrument=quotes_by_instrument,
+        entry_by_instrument=entry_by_instrument,
+        cost_basis_nav=cost_basis_nav,
+    )
+    pending_reasons = [
+        _pending_reason_for_order(
+            o,
+            quotes_by_instrument.get(int(o.instrument_id)),
+            cash=float(portfolio.cash),
+            commission_bps=float(spec.commission_bps) if spec is not None else 0.0,
+        )
+        for o in pending_orders
+    ]
+    return {
+        "intraday_enabled": bool(settings.intraday_market_enabled),
+        "open_execution_policy": POLICY_NAME,
+        "last_intraday_refresh": last,
+        "live": {
+            "cash": snapshot.cash,
+            "invested_cost": snapshot.invested_cost,
+            "market_value": snapshot.market_value,
+            "nav": snapshot.nav,
+            "unrealized_pnl": snapshot.unrealized_pnl,
+            "unrealized_pnl_pct": snapshot.unrealized_pnl_pct,
+            "quote_coverage": snapshot.quote_coverage,
+            "warnings": list(snapshot.warnings),
+            "as_of": snapshot.as_of.isoformat() if snapshot.as_of else None,
+            "positions": [
+                {
+                    "instrument_id": m.instrument_id,
+                    "ticker": m.ticker,
+                    "quantity": m.quantity,
+                    "entry_price": m.entry_price,
+                    "mark_price": m.mark_price,
+                    "mark_source": m.mark_source,
+                    "market_value": m.market_value,
+                    "invested_cost": m.invested_cost,
+                    "unrealized_pnl": m.unrealized_pnl,
+                    "unrealized_pnl_pct": m.unrealized_pnl_pct,
+                    "change_pct": m.unrealized_pnl_pct,
+                    "freshness": m.freshness,
+                    "quote_time": m.quote_time.isoformat() if m.quote_time else None,
+                }
+                for m in snapshot.position_marks
+            ],
+        },
+        "pending_order_reasons": pending_reasons,
+    }
 
 
 def _portfolio_summary(
@@ -165,6 +329,11 @@ def shadow_overview() -> dict[str, Any]:
                 summary["drawdown"] = 0.0
                 summary["gross_exposure"] = 0.0
                 summary["nav_as_of"] = None
+            summary.update(_live_enrichment(session, portfolio))
+            live = summary.get("live") or {}
+            if live.get("quote_coverage", 0) > 0 and live.get("nav") is not None:
+                summary["live_nav"] = live["nav"]
+                summary["live_market_value"] = live["market_value"]
             portfolios.append(summary)
             if activated_at is None or (
                 portfolio.activated_at and portfolio.activated_at < activated_at
@@ -172,11 +341,61 @@ def shadow_overview() -> dict[str, Any]:
                 activated_at = portfolio.activated_at
             experiment_group = experiment_group or spec.experiment_group
 
+        settings = get_settings()
+        cache = IntradayQuoteCache()
         return {
             "kind": SHADOW_KIND,
             "experiment_group": experiment_group,
             "activated_at": _dt(activated_at),
             "automatic_schedule": "not_configured",
+            "intraday": {
+                "enabled": bool(settings.intraday_market_enabled),
+                "policy": POLICY_NAME,
+                "last_refresh": cache.get_last_refresh(),
+                "refresh_minutes": int(settings.intraday_refresh_minutes),
+            },
+            "portfolios": portfolios,
+        }
+
+
+@router.get("/live")
+def shadow_live() -> dict[str, Any]:
+    """Ephemeral live marks + pending open-execution reasons (no durable NAV write)."""
+    with core_session() as session:
+        rows = session.execute(
+            select(ShadowPortfolio, ShadowPortfolioSpec)
+            .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
+            .order_by(ShadowPortfolio.id)
+        ).all()
+        portfolios: list[dict[str, Any]] = []
+        for portfolio, spec in rows:
+            pending = len(
+                list(
+                    session.scalars(
+                        select(ShadowOrder).where(
+                            ShadowOrder.portfolio_id == portfolio.id,
+                            ShadowOrder.status == "PENDING",
+                        )
+                    )
+                )
+            )
+            fills = len(
+                list(
+                    session.scalars(
+                        select(ShadowFill).where(ShadowFill.portfolio_id == portfolio.id)
+                    )
+                )
+            )
+            summary = _portfolio_summary(portfolio, spec, pending=pending, fills=fills)
+            summary.update(_live_enrichment(session, portfolio))
+            portfolios.append(summary)
+        settings = get_settings()
+        cache = IntradayQuoteCache()
+        return {
+            "kind": SHADOW_KIND,
+            "intraday_enabled": bool(settings.intraday_market_enabled),
+            "open_execution_policy": POLICY_NAME,
+            "last_intraday_refresh": cache.get_last_refresh(),
             "portfolios": portfolios,
         }
 

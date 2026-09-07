@@ -85,6 +85,28 @@ describe("help registry", () => {
     expect(getMetricHelp("forward_outcome_pending")?.title).toMatch(/20d|outcome/i);
   });
 
+  it("defines intraday / shadow live help keys", () => {
+    for (const id of [
+      "intraday_market",
+      "market_session",
+      "session_open",
+      "last_price",
+      "live_mark",
+      "shadow_execution",
+      "execution_price",
+      "quote_freshness",
+      "delayed_observation",
+      "live_portfolio_nav",
+    ]) {
+      expect(getMetricHelp(id)?.title, id).toBeTruthy();
+    }
+    expect(getMetricHelp("execution_price")?.summary.toLowerCase()).toMatch(/open/);
+    expect(getMetricHelp("live_portfolio_nav")?.summary.toLowerCase()).toMatch(/виртуал|nav|портфел/);
+    expect(getPageHelp("shadow")?.metrics).toEqual(
+      expect.arrayContaining(["intraday_market", "shadow_execution", "live_portfolio_nav"]),
+    );
+  });
+
   it("defines Model Edge Research Pack help keys", () => {
     for (const id of [
       "model_quality",

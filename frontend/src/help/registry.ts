@@ -6,11 +6,16 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "last_price",
     kind: "metric",
     title: "Последняя цена",
-    summary: "Close последней доступной дневной RAW-свечи.",
+    summary: "Последняя известная цена инструмента: в дневной истории — close свечи; в живой оценке — LAST сессии.",
     details:
-      "Цена закрытия последнего торгового дня, который есть в market.candles. Это не adjusted и не total-return цена.",
-    interpretation: "Сравнивайте с предыдущими close только в контексте RAW-истории.",
-    limitations: ["Не учитывает дивиденды.", "Не пересчитывается после сплитов в этом UI."],
+      "На экране котировок это close последней дневной RAW-свечи из market.candles. В живом эксперименте LAST — только для оценки портфеля на экране, не цена виртуальной сделки.",
+    interpretation: "Сравнивайте с предыдущими close только в контексте RAW-истории; не путайте с OPEN исполнения.",
+    limitations: [
+      "Не учитывает дивиденды.",
+      "Не пересчитывается после сплитов в этом UI.",
+      "LAST ≠ цена исполнения Shadow.",
+    ],
+    relatedIds: ["live_mark", "session_open", "execution_price"],
   },
   return_1d: {
     id: "return_1d",
@@ -510,6 +515,91 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     summary: "Последняя рыночная дата, уже обработанная Shadow advance.",
     details: "Предотвращает повторное исполнение. Пропуск до activation не создаёт фейковую NAV-историю.",
     relatedIds: ["shadow_portfolio", "pending_order"],
+  },
+  intraday_market: {
+    id: "intraday_market",
+    kind: "term",
+    title: "Внутридневные котировки",
+    summary: "Кратковременные котировки сессии для наблюдения и исполнения на OPEN — не дневная история.",
+    details:
+      "Хранятся только временно (Redis). В market.candles не записываются и не участвуют в обучении моделей.",
+    interpretation: "Нужны, чтобы живой эксперимент мог увидеть официальный OPEN до появления дневной свечи.",
+    limitations: ["Не источник для прогнозов.", "Могут устаревать или отсутствовать вне сессии."],
+    relatedIds: ["market_session", "session_open", "quote_freshness", "shadow_execution"],
+  },
+  market_session: {
+    id: "market_session",
+    kind: "term",
+    title: "Торговая сессия",
+    summary: "Текущее состояние рынка: перед открытием, открыта, закрыта или неторговый день.",
+    details:
+      "Закрытый рынок — обычная пауза, а не ошибка эксперимента. Исполнение Shadow ждёт допустимую сессию.",
+    relatedIds: ["session_open", "intraday_market", "pending_order"],
+  },
+  session_open: {
+    id: "session_open",
+    kind: "term",
+    title: "Цена открытия сессии",
+    summary: "Официальный OPEN торговой сессии — единственная цена исполнения Shadow V1.",
+    details:
+      "Живой эксперимент не покупает по LAST. Пока OPEN не опубликован, ордер остаётся ожидающим.",
+    relatedIds: ["execution_price", "shadow_execution", "last_price"],
+  },
+  live_mark: {
+    id: "live_mark",
+    kind: "term",
+    title: "Живая оценка позиции",
+    summary: "Текущая оценка позиции по последней доступной котировке (обычно LAST) — только для экрана.",
+    details:
+      "Не цена исполнения и не запись в историю NAV. Помогает видеть портфель «сейчас» между дневными фиксациями.",
+    limitations: ["Может быть с задержкой или устаревшей.", "Не равна цене будущей сделки."],
+    relatedIds: ["live_portfolio_nav", "quote_freshness", "last_price"],
+  },
+  shadow_execution: {
+    id: "shadow_execution",
+    kind: "term",
+    title: "Исполнение Shadow",
+    summary: "Виртуальная сделка на следующем допустимом OPEN — без реальных денег и брокера.",
+    details:
+      "Политика SHADOW_NEXT_SESSION_OPEN_V1: ордер должен существовать до открытия сессии; цена — только официальный OPEN.",
+    relatedIds: ["session_open", "execution_price", "pending_order", "delayed_observation"],
+  },
+  execution_price: {
+    id: "execution_price",
+    kind: "term",
+    title: "Цена исполнения",
+    summary: "В Shadow V1 это всегда официальный OPEN сессии, никогда LAST.",
+    details:
+      "LAST используется только для живой оценки портфеля на экране. Сделка и P&L исполнения считаются по OPEN.",
+    relatedIds: ["session_open", "shadow_execution", "live_mark"],
+  },
+  quote_freshness: {
+    id: "quote_freshness",
+    kind: "term",
+    title: "Свежесть котировки",
+    summary: "Насколько актуальна внутридневная котировка: живая, с задержкой, устаревшая или недоступна.",
+    details:
+      "Устаревшая или недоступная котировка блокирует исполнение на OPEN и помечает оценку портфеля как ненадёжную.",
+    relatedIds: ["intraday_market", "live_mark", "delayed_observation"],
+  },
+  delayed_observation: {
+    id: "delayed_observation",
+    kind: "term",
+    title: "Позднее наблюдение",
+    summary: "OPEN увидели уже после открытия сессии — сделка всё ещё по OPEN, время фиксации = момент наблюдения.",
+    details:
+      "Разрешено только если ордер существовал до открытия. Это не «догон по LAST» и не переписывание истории.",
+    relatedIds: ["shadow_execution", "session_open", "quote_freshness"],
+  },
+  live_portfolio_nav: {
+    id: "live_portfolio_nav",
+    kind: "term",
+    title: "Живая стоимость портфеля",
+    summary: "Оценка NAV виртуального портфеля по текущим котировкам — без записи в дневную историю.",
+    details:
+      "Показывает «сколько сейчас стоит эксперимент». Дневная NAV-история строится отдельно после реальных исполнений.",
+    limitations: ["Зависит от свежести котировок.", "Не гарантия будущего результата."],
+    relatedIds: ["live_mark", "shadow_portfolio", "quote_freshness"],
   },
   signal_as_of: {
     id: "signal_as_of",
@@ -2133,11 +2223,12 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     id: "shadow",
     title: "Живой эксперимент",
     about:
-      "Проспективный Shadow Portfolio: Forward Signal → решения → ожидание будущего OPEN → fills/NAV. Не historical backtest.",
+      "Проспективный виртуальный портфель: решения на новых данных, исполнение на следующем OPEN, живая оценка без реальных денег. Не historical backtest.",
     understand: [
       "Что такое живой эксперимент и чем он отличается от симулятора",
       "Почему пока может не быть сделок",
-      "Почему нельзя использовать прошлые OPEN",
+      "Чем исполнение на OPEN отличается от живой оценки по LAST",
+      "Почему закрытый рынок — не ошибка",
       "Разница as_of / generated_at",
       "Что такое Forward Signal",
       "Чем портфель A отличается от B",
@@ -2151,6 +2242,16 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "activation_date",
       "pending_order",
       "market_watermark",
+      "intraday_market",
+      "market_session",
+      "session_open",
+      "last_price",
+      "live_mark",
+      "shadow_execution",
+      "execution_price",
+      "quote_freshness",
+      "delayed_observation",
+      "live_portfolio_nav",
       "signal_as_of",
       "signal_generated_at",
       "risk_state",
@@ -2162,9 +2263,11 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     ],
     interpret: [
       "0 fills при PENDING — корректный старт.",
+      "Закрытый рынок и «ожидаем OPEN» — спокойный статус, не авария.",
+      "Живая NAV на экране не равна дневной истории NAV.",
       "A и B стартуют одинаково; DD Guard на B проявится только после реальной просадки.",
       "Решения объясняются Decision Explanation UX без LLM.",
-      "Операционная полоса сверху отражает ежедневный цикл и зрелость 20d outcomes.",
+      "Операционная полоса отражает ежедневный цикл и зрелость 20d outcomes.",
     ],
     limitations: [
       "Автоматическое расписание зависит от DAILY_RESEARCH_CYCLE_ENABLED.",

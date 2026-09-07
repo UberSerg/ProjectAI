@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as intradayApi from "../api/intraday";
 import * as systemApi from "../api/system";
 import { SystemPage } from "./SystemPage";
 
 vi.mock("../api/system");
+vi.mock("../api/intraday");
 
 function mockOverview() {
   vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
@@ -26,6 +28,16 @@ function mockOverview() {
     raw_storage_path: "/data/raw",
   });
   vi.mocked(systemApi.getTechEvents).mockResolvedValue([]);
+  vi.mocked(intradayApi.getIntradayStatus).mockResolvedValue({
+    enabled: false,
+    refresh_minutes: 5,
+    cache_ttl_seconds: 1200,
+    http_timeout_seconds: 20,
+    persistence: "redis_ephemeral_only",
+    writes_market_candles: false,
+    policy: "SHADOW_NEXT_SESSION_OPEN_V1",
+    last_refresh: null,
+  });
 }
 
 describe("SystemPage", () => {
@@ -43,6 +55,7 @@ describe("SystemPage", () => {
       </MemoryRouter>,
     );
 
+    expect(await screen.findByText("Рыночные котировки")).toBeInTheDocument();
     expect(await screen.findByText("Основная БД")).toBeInTheDocument();
     expect(screen.getByText("База памяти")).toBeInTheDocument();
     expect(screen.getByText("Не контролируется")).toBeInTheDocument();

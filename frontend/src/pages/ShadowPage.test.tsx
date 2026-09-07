@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as forwardApi from "../api/forward";
+import * as intradayApi from "../api/intraday";
 import * as researchCycleApi from "../api/researchCycle";
 import * as shadowApi from "../api/shadow";
 import { HelpProvider } from "../help";
@@ -11,6 +12,7 @@ import { ShadowPage } from "./ShadowPage";
 vi.mock("../api/shadow");
 vi.mock("../api/forward");
 vi.mock("../api/researchCycle");
+vi.mock("../api/intraday");
 
 const portfolioA = {
   id: "1",
@@ -75,13 +77,79 @@ const mgntOrder = {
   },
 };
 
+function mockLive(overrides?: Partial<shadowApi.ShadowLiveResponse>) {
+  vi.mocked(shadowApi.getShadowLive).mockResolvedValue({
+    kind: "FORWARD_SHADOW",
+    intraday_enabled: true,
+    open_execution_policy: "SHADOW_NEXT_SESSION_OPEN_V1",
+    last_intraday_refresh: { at: "2026-09-07T07:05:00Z", metrics: {} },
+    portfolios: [
+      {
+        ...portfolioA,
+        intraday_enabled: true,
+        live: {
+          cash: 1_000_000,
+          market_value: 0,
+          nav: 1_000_000,
+          unrealized_pnl: null,
+          quote_coverage: 1,
+          warnings: [],
+          positions: [],
+        },
+        pending_order_reasons: [
+          {
+            order_id: 1,
+            ticker: "MGNT",
+            side: "BUY",
+            min_execution_date: "2026-09-05",
+            created_at: portfolioA.activated_at,
+            reason: "NEXT_SESSION_NOT_STARTED",
+            session_date: "2026-09-07",
+            market_status: "CLOSED",
+            quote_freshness: "SESSION_NOT_STARTED",
+          },
+        ],
+      },
+      {
+        ...portfolioB,
+        intraday_enabled: true,
+        live: {
+          cash: 1_000_000,
+          market_value: 0,
+          nav: 1_000_000,
+          positions: [],
+        },
+        pending_order_reasons: [],
+      },
+    ],
+    ...overrides,
+  });
+}
+
 function mockHappyPath() {
   vi.mocked(shadowApi.getShadowOverview).mockResolvedValue({
     kind: "FORWARD_SHADOW",
     experiment_group: "SHADOW_FORWARD_V0",
     activated_at: portfolioA.activated_at,
     automatic_schedule: "not_configured",
+    intraday: {
+      enabled: true,
+      policy: "SHADOW_NEXT_SESSION_OPEN_V1",
+      last_refresh: { at: "2026-09-07T07:05:00Z" },
+      refresh_minutes: 5,
+    },
     portfolios: [portfolioA, portfolioB],
+  });
+  mockLive();
+  vi.mocked(intradayApi.getIntradayStatus).mockResolvedValue({
+    enabled: true,
+    refresh_minutes: 5,
+    cache_ttl_seconds: 1200,
+    http_timeout_seconds: 20,
+    persistence: "redis_ephemeral_only",
+    writes_market_candles: false,
+    policy: "SHADOW_NEXT_SESSION_OPEN_V1",
+    last_refresh: { at: "2026-09-07T07:05:00Z" },
   });
   vi.mocked(shadowApi.getShadowOrders).mockImplementation(async (id) => {
     if (String(id) === "1" || String(id) === "2") {
@@ -225,33 +293,98 @@ function renderPage() {
   );
 }
 
+async function expandResearchDetails() {
+  const btn = await screen.findByRole("button", { name: "Показать" });
+  fireEvent.click(btn);
+}
+
 describe("ShadowPage", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockHappyPath();
   });
 
-  it("loads live experiment with two portfolios and pending-only truth", async () => {
+  it("loads live experiment with waiting session status and pending reasons", async () => {
     renderPage();
     expect(await screen.findByText("Живой эксперимент")).toBeInTheDocument();
+    expect(screen.getByText(/проверяет решения на новых данных без реальных денег/i)).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-live-status")).toHaveTextContent(/Ожидаем торговую сессию/i);
+    expect(screen.getByTestId("shadow-market-closed-calm")).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-decision-block")).toHaveTextContent(/2026-W36/);
+    expect(screen.getByTestId("shadow-pending-reasons")).toHaveTextContent(
+      /Следующая сессия ещё не началась/i,
+    );
     expect(screen.getByText(/не пересчитывает прошлое/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Рейтинговый портфель/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/защита от просадки/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Сделок пока нет")).toBeInTheDocument();
     expect(screen.getAllByText(/Ожидаем открытие рынка/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/ошибка эксперимента/i)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/1[\u00a0 ]000[\u00a0 ]000/).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("MGNT").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("2026-W36").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/История NAV начнёт строиться/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/выключено/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Ожидаем 4\/20/)).toBeInTheDocument();
     expect(screen.getByText(/Состояние контура/i)).toBeInTheDocument();
-    expect(screen.getAllByText("SHADOW_HYSTERESIS_V1").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows updates disabled status without red market-closed panic", async () => {
+    mockLive({
+      intraday_enabled: false,
+      portfolios: [
+        {
+          ...portfolioA,
+          intraday_enabled: false,
+          live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
+          pending_order_reasons: [],
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByTestId("shadow-live-status")).toHaveTextContent(
+      /Живые обновления выключены/i,
+    );
+    expect(screen.getByTestId("shadow-market-closed-calm")).toBeInTheDocument();
+    expect(screen.queryByText(/ошибка эксперимента/i)).not.toBeInTheDocument();
+  });
+
+  it("shows live positions with stale badge", async () => {
+    mockLive({
+      intraday_enabled: true,
+      portfolios: [
+        {
+          ...portfolioA,
+          status: "ACTIVE",
+          position_count: 1,
+          pending_orders: 0,
+          fills: 1,
+          live_nav: 1_015_000,
+          live: {
+            cash: 500_000,
+            market_value: 515_000,
+            nav: 1_015_000,
+            quote_coverage: 1,
+            positions: [
+              {
+                instrument_id: 53,
+                ticker: "MGNT",
+                quantity: 100,
+                mark_price: 5150,
+                mark_source: "LAST",
+                market_value: 515_000,
+                freshness: "STALE",
+                quote_time: "2026-09-07T06:00:00Z",
+              },
+            ],
+          },
+          pending_order_reasons: [],
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByTestId("shadow-live-status")).toHaveTextContent(/Позиции открыты/i);
+    const table = await screen.findByTestId("shadow-live-positions");
+    expect(within(table).getByText("MGNT")).toBeInTheDocument();
+    expect(within(table).getByTestId("stale-badge")).toHaveTextContent(/Устарела/i);
   });
 
   it("opens MGNT explanation without saying bought", async () => {
     renderPage();
+    await expandResearchDetails();
     expect(await screen.findAllByText(/Ожидает покупки/i)).toBeTruthy();
     const row = screen.getAllByText(/Ожидает покупки/i)[0].closest("tr");
     expect(row).toBeTruthy();
@@ -267,10 +400,14 @@ describe("ShadowPage", () => {
     expect(await screen.findByText(/boom/i)).toBeInTheDocument();
   });
 
-  it("maps waiting status and A/B risk difference", async () => {
+  it("maps waiting status and A/B risk difference in research details", async () => {
     renderPage();
+    await expandResearchDetails();
     expect(await screen.findByText(/Базовые ограничения риска/i)).toBeInTheDocument();
     expect(screen.getByText(/Активируется при просадке/i)).toBeInTheDocument();
     expect(screen.getAllByText(/защита от просадки/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Рейтинговый портфель/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/История NAV начнёт строиться/i)).toBeInTheDocument();
+    expect(screen.getAllByText("SHADOW_HYSTERESIS_V1").length).toBeGreaterThanOrEqual(1);
   });
 });

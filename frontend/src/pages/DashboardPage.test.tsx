@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import * as investmentApi from "../api/investment";
 import * as marketApi from "../api/market";
+import * as shadowApi from "../api/shadow";
 import * as systemApi from "../api/system";
 import * as workflowsApi from "../api/workflows";
 import { DashboardPage } from "./DashboardPage";
@@ -13,9 +14,33 @@ vi.mock("../api/market");
 vi.mock("../api/system");
 vi.mock("../api/workflows");
 vi.mock("../api/investment");
+vi.mock("../api/shadow");
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    vi.mocked(shadowApi.getShadowLive).mockResolvedValue({
+      kind: "FORWARD_SHADOW",
+      intraday_enabled: false,
+      last_intraday_refresh: null,
+      portfolios: [
+        {
+          id: "1",
+          name: "SHADOW_HYSTERESIS_V1",
+          status: "WAITING_FOR_FUTURE_MARKET_OPEN",
+          policy_name: "RANK_HYSTERESIS_LONG_ONLY_V1",
+          risk_name: "RISK_GUARDRAILS_V0",
+          cash: 1_000_000,
+          nav: 1_000_000,
+          initial_capital: 1_000_000,
+          risk_mode: "normal",
+          exposure_cap: 1,
+          pending_orders: 0,
+          fills: 0,
+          position_count: 0,
+          live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
+        },
+      ],
+    });
     vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
       status: "ok",
       services: {
@@ -201,6 +226,7 @@ describe("DashboardPage", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Обзор")).toBeInTheDocument();
+    expect(await screen.findByText("Виртуальный портфель")).toBeInTheDocument();
     expect(await screen.findByText("43")).toBeInTheDocument();
     expect(
       await screen.findByText("Kraken рекомендует исследовательское распределение"),

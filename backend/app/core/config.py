@@ -60,6 +60,14 @@ class Settings(BaseSettings):
         default=date(2015, 1, 1), alias="MARKET_DEFAULT_BACKFILL_FROM"
     )
 
+    # Intraday Market Layer V1 — opt-in; quotes are Redis-ephemeral only (never market.candles).
+    intraday_market_enabled: bool = Field(default=False, alias="INTRADAY_MARKET_ENABLED")
+    intraday_refresh_minutes: int = Field(default=5, alias="INTRADAY_REFRESH_MINUTES")
+    intraday_cache_ttl_seconds: int = Field(default=1200, alias="INTRADAY_CACHE_TTL_SECONDS")
+    intraday_http_timeout_seconds: float = Field(
+        default=20.0, alias="INTRADAY_HTTP_TIMEOUT_SECONDS"
+    )
+
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
