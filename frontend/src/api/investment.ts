@@ -510,6 +510,51 @@ export const assessPortfolioRisk = (
     signal,
   });
 
+export interface PortfolioCandidatePosition {
+  instrument_id?: number | null;
+  symbol: string;
+  display_name: string;
+  sleeve: string;
+  asset_class: string;
+  lots: number;
+  units: number;
+  lot_size?: number | null;
+  reference_price: string;
+  dirty_price?: string | null;
+  nkd?: string | null;
+  estimated_notional: string;
+  estimated_fees: string;
+  target_weight: number;
+  actual_weight: number;
+  risk_status: string;
+  executable: boolean;
+  reason_ru: string;
+  warnings_ru: string[];
+  credit_status?: string | null;
+  liquidity_status?: string | null;
+  confidence_label_ru?: string | null;
+  selection_rank?: number | null;
+  bond_type?: string | null;
+  coupon_rate?: number | null;
+  maturity_date?: string | null;
+  yield_value?: number | null;
+  signal_semantic?: string | null;
+  signal_value?: number | null;
+  eligibility?: string | null;
+  extra?: Record<string, unknown>;
+}
+
+export interface PortfolioCandidateSummary {
+  positions_count: number;
+  equity_positions: number;
+  fixed_income_positions: number;
+  equity_rub: string;
+  fixed_income_rub: string;
+  cash_rub: string;
+  research_only_count: number;
+  executable_count: number;
+}
+
 export interface PortfolioCandidate {
   candidate_id: string;
   version: string;
@@ -522,6 +567,7 @@ export interface PortfolioCandidate {
   subtitle_ru?: string;
   source?: string;
   persisted?: boolean;
+  summary?: PortfolioCandidateSummary;
   readiness: {
     mode_ru: string;
     ready_for_real_money: boolean;
@@ -534,18 +580,21 @@ export interface PortfolioCandidate {
       actual_weight: number;
       target_rub: string;
       actual_rub: string;
+      difference_rub?: string;
     };
     fixed_income: {
       target_weight: number;
       actual_weight: number;
       target_rub: string;
       actual_rub: string;
+      difference_rub?: string;
     };
     cash: {
       target_weight: number;
       actual_weight: number;
       target_rub: string;
       actual_rub: string;
+      difference_rub?: string;
       adjusted_target_weight_after_gate?: number;
     };
     adjusted_after_gate?: {
@@ -554,26 +603,7 @@ export interface PortfolioCandidate {
       cash_weight: number;
     };
   };
-  positions: Array<{
-    symbol: string;
-    display_name: string;
-    sleeve: string;
-    asset_class: string;
-    lots: number;
-    units: number;
-    reference_price: string;
-    estimated_notional: string;
-    estimated_fees: string;
-    target_weight: number;
-    actual_weight: number;
-    risk_status: string;
-    executable: boolean;
-    reason_ru: string;
-    warnings_ru: string[];
-    credit_status?: string | null;
-    liquidity_status?: string | null;
-    confidence_label_ru?: string | null;
-  }>;
+  positions: PortfolioCandidatePosition[];
   cash: {
     strategic_target_rub: string;
     strategic_target_weight: number;
@@ -594,7 +624,11 @@ export interface PortfolioCandidate {
   money: {
     starting_capital: string;
     invested: string;
+    equity_invested?: string;
+    fixed_income_invested?: string;
     fees: string;
+    equity_fees?: string;
+    fixed_income_fees?: string;
     strategic_cash: string;
     lot_remainder: string;
     ending_preview_cash: string;
@@ -604,6 +638,8 @@ export interface PortfolioCandidate {
   benchmark: {
     cbr_hurdle_annual: number | null;
     hurdle_1y?: number | null;
+    hurdle_20d?: number | null;
+    horizon?: string;
     note_ru?: string;
   };
   decision_quality: {
@@ -614,11 +650,16 @@ export interface PortfolioCandidate {
     sample_size?: number | null;
     gate_status?: string;
   };
+  composition?: {
+    equity?: Record<string, unknown>;
+    fixed_income?: Record<string, unknown>;
+  };
   provenance?: Record<string, unknown>;
   freshness?: {
     market_as_of?: string | null;
     generated_at?: string;
     stale?: boolean;
+    stale_after_days?: number;
     stale_note_ru?: string | null;
   };
   level_explanations?: {
@@ -628,12 +669,21 @@ export interface PortfolioCandidate {
   };
   diff?: {
     has_previous: boolean;
+    previous_candidate_id?: string;
     summary_ru: string;
-    changes: Array<{ text_ru: string; kind?: string }>;
+    changes: Array<{
+      text_ru: string;
+      kind?: string;
+      symbol?: string;
+      sleeve?: string;
+      label_ru?: string;
+      from?: unknown;
+      to?: unknown;
+    }>;
   };
   empty_states?: Record<string, string>;
   disclaimers_ru?: string[];
-  risk_assessment_summary?: string | null;
+  risk_assessment_summary?: string | Record<string, unknown> | null;
 }
 
 export const getCurrentPortfolioCandidate = (

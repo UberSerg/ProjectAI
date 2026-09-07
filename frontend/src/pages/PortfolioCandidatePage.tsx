@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
   createPortfolioCandidateSnapshot,
   previewPortfolioCandidate,
   type PortfolioCandidate,
+  type PortfolioCandidatePosition,
 } from "../api/investment";
 import {
   AllocationBars,
@@ -22,6 +23,7 @@ import {
 
 function TruncateReason({ text, limit = 140 }: { text: string; limit?: number }) {
   const [open, setOpen] = useState(false);
+  if (!text) return <>—</>;
   if (text.length <= limit) return <>{text}</>;
   return (
     <>
@@ -45,19 +47,142 @@ function pct(weight: number | null | undefined): string {
   return `${(weight * 100).toFixed(0)}%`;
 }
 
+function instrumentTypeLabel(p: PortfolioCandidatePosition): string {
+  const asset = (p.asset_class || "").toLowerCase();
+  if (asset.includes("bond") || asset.includes("fixed") || p.sleeve === "FIXED_INCOME") {
+    return p.bond_type || "Облигация";
+  }
+  if (asset.includes("equity") || p.sleeve === "EQUITY_ALPHA") {
+    return "Акция";
+  }
+  return p.asset_class || p.sleeve || "—";
+}
+
+function creditLabel(status: string | null | undefined): string | null {
+  if (!status) return null;
+  const raw = status.toUpperCase();
+  if (raw === "UNKNOWN" || raw === "NOT_RATED") {
+    return "Кредитное качество не подтверждено";
+  }
+  return status;
+}
+
+function riskStatusLabel(status: string): string | undefined {
+  const raw = status.toUpperCase();
+  if (raw === "RESEARCH_ONLY") return "Только исследование";
+  if (raw === "APPROVED_WITH_WARNINGS") return "Допущено с предупреждениями";
+  if (raw === "APPROVED") return "Допущено";
+  if (raw === "BLOCKED") return "Заблокировано";
+  if (raw === "INSUFFICIENT_DATA") return "Недостаточно данных";
+  return undefined;
+}
+
 function copyComposition(candidate: PortfolioCandidate) {
   const lines = [
     "Research Portfolio Candidate",
     `id=${candidate.candidate_id}`,
+    `version=${candidate.version}`,
     `as_of=${candidate.as_of ?? ""}`,
     `capital=${candidate.capital}`,
-    "ticker,instrument,lots,units,price,amount,sleeve,status",
+    "ticker,instrument,type,lots,units,price,amount,sleeve,status,executable",
     ...candidate.positions.map(
       (p) =>
-        `${p.symbol},${p.display_name},${p.lots},${p.units},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status}`,
+        `${p.symbol},${p.display_name},${instrumentTypeLabel(p)},${p.lots},${p.units},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status},${p.executable}`,
     ),
   ];
   void navigator.clipboard.writeText(lines.join("\n"));
+}
+
+function PositionDetails({
+  position,
+  provenance,
+}: {
+  position: PortfolioCandidatePosition;
+  provenance?: Record<string, unknown>;
+}) {
+  const credit = creditLabel(position.credit_status);
+  return (
+    <div className="position-details" style={{ padding: "0.75rem 0.5rem", whiteSpace: "normal" }}>
+      <div className="card-grid" style={{ marginBottom: "0.75rem" }}>
+        <div>
+          <strong>Почему</strong>
+          <p style={{ margin: "0.35rem 0 0" }}>{position.reason_ru || "—"}</p>
+          {position.warnings_ru?.length ? (
+            <ul className="plain-list" style={{ marginTop: "0.5rem" }}>
+              {position.warnings_ru.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <div>
+          <strong>Деньги</strong>
+          <ul className="plain-list" style={{ marginTop: "0.35rem" }}>
+            <li>Цена: {money(position.reference_price)}</li>
+            {position.dirty_price != null ? <li>Dirty price: {money(position.dirty_price)}</li> : null}
+            {position.nkd != null ? <li>НКД: {money(position.nkd)}</li> : null}
+            <li>Сумма: {money(position.estimated_notional)}</li>
+            <li>Комиссия (оценка): {money(position.estimated_fees)}</li>
+            <li>
+              Вес: цель {pct(position.target_weight)} → факт {pct(position.actual_weight)}
+            </li>
+            <li>
+              Лоты: {position.lots}
+              {position.lot_size != null ? ` × ${position.lot_size} шт.` : ""} ({position.units} ед.)
+            </li>
+          </ul>
+        </div>
+        <div>
+          <strong>Риск</strong>
+          <ul className="plain-list" style={{ marginTop: "0.35rem" }}>
+            <li>
+              Статус:{" "}
+              <StatusBadge
+                status={position.risk_status}
+                label={riskStatusLabel(position.risk_status)}
+              />
+            </li>
+            <li>
+              {position.executable
+                ? "Исполняемая research-позиция (не приказ брокеру)"
+                : "Только исследование — не язык покупки"}
+            </li>
+            {credit ? <li>{credit}</li> : null}
+            {position.liquidity_status ? <li>Ликвидность: {position.liquidity_status}</li> : null}
+            {position.confidence_label_ru ? (
+              <li>Уверенность: {position.confidence_label_ru}</li>
+            ) : null}
+            {position.eligibility ? <li>Eligibility: {position.eligibility}</li> : null}
+          </ul>
+        </div>
+        <div>
+          <strong>Provenance</strong>
+          <ul className="plain-list" style={{ marginTop: "0.35rem" }}>
+            {position.selection_rank != null ? (
+              <li>Ранг отбора: {position.selection_rank}</li>
+            ) : null}
+            {position.signal_semantic ? <li>Сигнал: {position.signal_semantic}</li> : null}
+            {position.coupon_rate != null ? (
+              <li>Купон: {position.coupon_rate.toFixed(2)}%</li>
+            ) : null}
+            {position.maturity_date ? <li>Погашение: {position.maturity_date}</li> : null}
+            {position.yield_value != null ? (
+              <li>Доходность: {(position.yield_value <= 1 ? position.yield_value * 100 : position.yield_value).toFixed(2)}%</li>
+            ) : null}
+            {provenance?.equity_policy ? (
+              <li>Equity policy: {String(provenance.equity_policy)}</li>
+            ) : null}
+            {provenance?.fixed_income_policy ? (
+              <li>FI policy: {String(provenance.fixed_income_policy)}</li>
+            ) : null}
+            {provenance?.candidate_version ? (
+              <li>Версия: {String(provenance.candidate_version)}</li>
+            ) : null}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function PortfolioCandidatePage() {
@@ -68,6 +193,7 @@ export function PortfolioCandidatePage() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
 
   const load = (nextCapital = capital, signal?: AbortSignal) => {
     setLoading(true);
@@ -92,12 +218,14 @@ export function PortfolioCandidatePage() {
   }, []);
 
   const alloc = candidate?.allocation;
+  const summary = candidate?.summary;
   const exportCsv = useMemo(() => {
     if (!candidate) return "";
-    const header = "ticker,instrument,lots,units,price,amount,sleeve,status";
+    const header =
+      "ticker,instrument,type,lots,units,price,amount,sleeve,status,executable";
     const rows = candidate.positions.map(
       (p) =>
-        `${p.symbol},"${p.display_name}",${p.lots},${p.units},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status}`,
+        `${p.symbol},"${p.display_name}","${instrumentTypeLabel(p)}",${p.lots},${p.units},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status},${p.executable}`,
     );
     return [header, ...rows].join("\n");
   }, [candidate]);
@@ -128,6 +256,13 @@ export function PortfolioCandidatePage() {
       />
     );
   }
+
+  const positionsCount = summary?.positions_count ?? candidate.positions.length;
+  const researchOnly =
+    summary?.research_only_count ??
+    candidate.positions.filter((p) => p.risk_status.toUpperCase() === "RESEARCH_ONLY").length;
+  const executableCount =
+    summary?.executable_count ?? candidate.positions.filter((p) => p.executable).length;
 
   return (
     <section className="portfolio-candidate-page">
@@ -170,8 +305,8 @@ export function PortfolioCandidatePage() {
       </div>
 
       <HeroCard
-        eyebrow="Что сделать с капиталом?"
-        headline={`${money(candidate.capital)} · статус ${candidate.status}`}
+        eyebrow="Конкретный состав"
+        headline={`${positionsCount} позиций · ${money(candidate.capital)} · ${candidate.status}`}
         actions={
           <>
             <button type="button" className="why-toggle" onClick={() => setWhyOpen((v) => !v)}>
@@ -215,6 +350,40 @@ export function PortfolioCandidatePage() {
           Данные на {candidate.as_of ?? "—"}. Сформирован {candidate.generated_at}.
           {candidate.freshness?.stale ? ` ${candidate.freshness.stale_note_ru}` : ""}
         </p>
+        <div className="card-grid">
+          <MetricCard
+            label="Позиций"
+            value={String(positionsCount)}
+            helpId="concrete_portfolio"
+            hint={`Акции ${summary?.equity_positions ?? "—"} · Облигации ${summary?.fixed_income_positions ?? "—"}`}
+          />
+          <MetricCard
+            label="Акции"
+            value={money(summary?.equity_rub ?? alloc?.equity.actual_rub)}
+            helpId="portfolio_composition"
+          />
+          <MetricCard
+            label="Облигации"
+            value={money(summary?.fixed_income_rub ?? alloc?.fixed_income.actual_rub)}
+            helpId="instrument_selection"
+          />
+          <MetricCard
+            label="Деньги"
+            value={money(summary?.cash_rub ?? candidate.cash.total_cash_rub)}
+            helpId="unallocated_capital"
+            hint={`Целевой Cash ${money(candidate.cash.strategic_target_rub)}; остаток лотов ${money(candidate.cash.lot_remainder_rub)}`}
+          />
+          <MetricCard
+            label="Только исследование"
+            value={String(researchOnly)}
+            helpId="research_position"
+          />
+          <MetricCard
+            label="Исполняемые (research)"
+            value={String(executableCount)}
+            helpId="executable_position"
+          />
+        </div>
         {alloc ? (
           <>
             <AllocationBars
@@ -222,24 +391,6 @@ export function PortfolioCandidatePage() {
               fixedIncome={alloc.fixed_income.target_weight}
               cash={alloc.cash.target_weight}
             />
-            <div className="card-grid">
-              <MetricCard
-                label="Акции (цель → факт)"
-                value={`${pct(alloc.equity.target_weight)} → ${money(alloc.equity.actual_rub)}`}
-                helpId="target_allocation"
-              />
-              <MetricCard
-                label="Облигации (цель → факт)"
-                value={`${pct(alloc.fixed_income.target_weight)} → ${money(alloc.fixed_income.actual_rub)}`}
-                helpId="actual_allocation"
-              />
-              <MetricCard
-                label="Деньги итого"
-                value={money(candidate.cash.total_cash_rub)}
-                helpId="strategic_cash"
-                hint={`Целевой Cash ${money(candidate.cash.strategic_target_rub)}; остаток лотов ${money(candidate.cash.lot_remainder_rub)}`}
-              />
-            </div>
             <p className="muted">
               Фактическое распределение может отличаться, потому что реальные инструменты покупаются
               целыми лотами.
@@ -265,6 +416,7 @@ export function PortfolioCandidatePage() {
               <thead>
                 <tr>
                   <th>Инструмент</th>
+                  <th>Тип</th>
                   <th>Лотов</th>
                   <th>Сумма</th>
                   <th>Вес</th>
@@ -273,29 +425,71 @@ export function PortfolioCandidatePage() {
                 </tr>
               </thead>
               <tbody>
-                {candidate.positions.map((p) => (
-                  <tr key={`${p.symbol}-${p.sleeve}`}>
-                    <td>
-                      <strong>{p.display_name}</strong>
-                      <div className="muted">{p.symbol}</div>
-                    </td>
-                    <td>{p.lots}</td>
-                    <td>{money(p.estimated_notional)}</td>
-                    <td>{pct(p.actual_weight)}</td>
-                    <td>
-                      <StatusBadge status={p.risk_status} />
-                      {!p.executable ? (
-                        <div className="muted">не executable</div>
+                {candidate.positions.map((p) => {
+                  const rowKey = `${p.symbol}-${p.sleeve}-${p.selection_rank ?? ""}`;
+                  const open = expandedSymbol === rowKey;
+                  const credit = creditLabel(p.credit_status);
+                  const isResearch =
+                    p.risk_status.toUpperCase() === "RESEARCH_ONLY" || !p.executable;
+                  return (
+                    <Fragment key={rowKey}>
+                      <tr>
+                        <td>
+                          <button
+                            type="button"
+                            className="why-toggle"
+                            style={{ display: "block", textAlign: "left" }}
+                            onClick={() => setExpandedSymbol(open ? null : rowKey)}
+                          >
+                            <strong>{p.display_name}</strong>
+                          </button>
+                          <div className="muted">{p.symbol}</div>
+                        </td>
+                        <td>{instrumentTypeLabel(p)}</td>
+                        <td>{p.lots}</td>
+                        <td>{money(p.estimated_notional)}</td>
+                        <td>{pct(p.actual_weight)}</td>
+                        <td>
+                          <StatusBadge
+                            status={p.risk_status}
+                            label={riskStatusLabel(p.risk_status)}
+                          />
+                          {isResearch ? (
+                            <div className="muted">Только исследование</div>
+                          ) : null}
+                          {credit ? <div className="muted">{credit}</div> : null}
+                        </td>
+                        <td style={{ maxWidth: "18rem", whiteSpace: "normal" }}>
+                          <TruncateReason text={p.reason_ru} />
+                          {p.warnings_ru?.length ? (
+                            <div className="muted">
+                              <TruncateReason text={p.warnings_ru[0]} limit={100} />
+                            </div>
+                          ) : null}
+                          <div>
+                            <button
+                              type="button"
+                              className="why-toggle"
+                              onClick={() => setExpandedSymbol(open ? null : rowKey)}
+                            >
+                              {open ? "Скрыть детали" : "Детали"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {open ? (
+                        <tr>
+                          <td colSpan={7}>
+                            <PositionDetails
+                              position={p}
+                              provenance={candidate.provenance}
+                            />
+                          </td>
+                        </tr>
                       ) : null}
-                    </td>
-                    <td style={{ maxWidth: "18rem", whiteSpace: "normal" }}>
-                      <TruncateReason text={p.reason_ru} />
-                      {p.warnings_ru?.length ? (
-                        <div className="muted">{p.warnings_ru[0]}</div>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -370,12 +564,17 @@ export function PortfolioCandidatePage() {
               <tbody>
                 {candidate.rejected_candidates.map((r) => (
                   <tr key={`${r.symbol}-${r.reason_ru}`}>
-                    <td>{r.display_name}</td>
+                    <td>
+                      <strong>{r.display_name}</strong>
+                      <div className="muted">{r.symbol}</div>
+                    </td>
                     <td>{r.opportunity_hint ?? "—"}</td>
                     <td>
                       <StatusBadge status={r.risk_status} />
                     </td>
-                    <td style={{ whiteSpace: "normal", maxWidth: "22rem" }}>{r.reason_ru}</td>
+                    <td style={{ whiteSpace: "normal", maxWidth: "22rem" }}>
+                      <TruncateReason text={r.reason_ru} limit={180} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -395,7 +594,9 @@ export function PortfolioCandidatePage() {
         {candidate.diff?.changes?.length ? (
           <ul className="plain-list">
             {candidate.diff.changes.map((c) => (
-              <li key={c.text_ru}>{c.text_ru}</li>
+              <li key={`${c.kind ?? "chg"}-${c.symbol ?? ""}-${c.text_ru}`}>
+                {c.text_ru}
+              </li>
             ))}
           </ul>
         ) : null}
@@ -404,7 +605,22 @@ export function PortfolioCandidatePage() {
       <h2>Деньги</h2>
       <div className="card-grid">
         <MetricCard label="Инвестировано" value={money(candidate.money.invested)} />
-        <MetricCard label="Комиссии (до налогов)" value={money(candidate.money.fees)} helpId="cash_remainder" />
+        <MetricCard
+          label="Акции (вложено)"
+          value={money(candidate.money.equity_invested)}
+          helpId="portfolio_composition"
+        />
+        <MetricCard
+          label="Облигации (вложено)"
+          value={money(candidate.money.fixed_income_invested)}
+          helpId="instrument_selection"
+        />
+        <MetricCard
+          label="Комиссии (до налогов)"
+          value={money(candidate.money.fees)}
+          helpId="lot_rounding"
+          hint={`Акции ${money(candidate.money.equity_fees)}; облигации ${money(candidate.money.fixed_income_fees)}`}
+        />
         <MetricCard
           label="Целевой Cash"
           value={money(candidate.money.strategic_cash)}
@@ -413,7 +629,7 @@ export function PortfolioCandidatePage() {
         <MetricCard
           label="Остаток из-за лотов"
           value={money(candidate.money.lot_remainder)}
-          helpId="cash_remainder"
+          helpId="lot_rounding"
         />
       </div>
       <p className="muted">
@@ -430,6 +646,8 @@ export function PortfolioCandidatePage() {
               {
                 candidate_id: candidate.candidate_id,
                 version: candidate.version,
+                summary: candidate.summary,
+                composition: candidate.composition,
                 provenance: candidate.provenance,
                 level_3: candidate.level_explanations?.level_3,
                 risk_summary: candidate.risk_assessment_summary,

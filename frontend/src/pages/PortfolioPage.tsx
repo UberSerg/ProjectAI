@@ -4,8 +4,8 @@ import { ExplanationCard, HeroCard, PageHeader } from "../components/Ui";
 const links = [
   {
     to: "/portfolio/candidate",
-    title: "Кандидат портфеля",
-    text: "Главный экран: что Kraken сделал бы с 100 000 ₽, позиции, риски и отклонения.",
+    title: "Открыть кандидат портфеля",
+    text: "Главный экран: конкретные тикеры, лоты, суммы, риски и отклонения.",
   },
   {
     to: "/investment-decision",
@@ -48,9 +48,8 @@ export function PortfolioPage() {
         headline="Сначала кандидат портфеля, потом детали"
       >
         <p style={{ margin: 0 }}>
-          Откройте{" "}
-          <Link to="/portfolio/candidate">Кандидат портфеля</Link> — один экран с ответом на 100 000 ₽.
-          Остальные страницы объясняют, почему получился такой ответ.
+          <Link to="/portfolio/candidate">Открыть кандидат портфеля</Link> — один экран с конкретным
+          составом на 100 000 ₽. Остальные страницы объясняют, почему получился такой ответ.
         </p>
       </HeroCard>
 

@@ -76,13 +76,31 @@ class CandidatePosition:
     credit_status: str | None = None
     liquidity_status: str | None = None
     confidence_label_ru: str | None = None
+    instrument_id: int | None = None
+    selection_rank: int | None = None
+    lot_size: int | None = None
+    eligibility: str | None = None
+    bond_type: str | None = None
+    dirty_price: Decimal | None = None
+    nkd: Decimal | None = None
+    coupon_rate: float | None = None
+    maturity_date: str | None = None
+    yield_value: float | None = None
+    signal_semantic: str | None = None
+    signal_value: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["reference_price"] = str(self.reference_price)
-        payload["estimated_notional"] = str(self.estimated_notional)
-        payload["estimated_fees"] = str(self.estimated_fees)
+        for key in (
+            "reference_price",
+            "estimated_notional",
+            "estimated_fees",
+            "dirty_price",
+            "nkd",
+        ):
+            if payload.get(key) is not None:
+                payload[key] = str(payload[key])
         payload["warnings_ru"] = list(self.warnings_ru)
         return payload
 
@@ -183,8 +201,10 @@ def diff_candidates(previous: dict[str, Any] | None, current: dict[str, Any]) ->
                     "text_ru": f"{label}: {float(prev_w) * 100:.0f}% → {float(cur_w) * 100:.0f}%",
                 }
             )
-    prev_syms = {p.get("symbol") for p in previous.get("positions") or []}
-    cur_syms = {p.get("symbol") for p in current.get("positions") or []}
+    prev_pos = {p.get("symbol"): p for p in previous.get("positions") or []}
+    cur_pos = {p.get("symbol"): p for p in current.get("positions") or []}
+    prev_syms = set(prev_pos)
+    cur_syms = set(cur_pos)
     for sym in sorted(prev_syms - cur_syms):
         changes.append(
             {
@@ -199,6 +219,42 @@ def diff_candidates(previous: dict[str, Any] | None, current: dict[str, Any]) ->
                 "kind": "position_added",
                 "symbol": sym,
                 "text_ru": f"Позиция {sym} добавлена.",
+            }
+        )
+    for sym in sorted(prev_syms & cur_syms):
+        prev_lots = int(prev_pos[sym].get("lots") or 0)
+        cur_lots = int(cur_pos[sym].get("lots") or 0)
+        if prev_lots != cur_lots:
+            changes.append(
+                {
+                    "kind": "lots_changed",
+                    "symbol": sym,
+                    "from": prev_lots,
+                    "to": cur_lots,
+                    "text_ru": f"{sym}: {prev_lots} → {cur_lots} лот(ов).",
+                }
+            )
+        prev_status = prev_pos[sym].get("risk_status")
+        cur_status = cur_pos[sym].get("risk_status")
+        if prev_status and cur_status and prev_status != cur_status:
+            changes.append(
+                {
+                    "kind": "risk_status_changed",
+                    "symbol": sym,
+                    "from": prev_status,
+                    "to": cur_status,
+                    "text_ru": f"{sym}: Risk Gate {prev_status} → {cur_status}.",
+                }
+            )
+    prev_cash = float(((previous.get("cash") or {}).get("total_cash_rub")) or 0)
+    cur_cash = float(((current.get("cash") or {}).get("total_cash_rub")) or 0)
+    if abs(prev_cash - cur_cash) > 0.5:
+        changes.append(
+            {
+                "kind": "cash_changed",
+                "from": prev_cash,
+                "to": cur_cash,
+                "text_ru": f"Cash: {prev_cash:,.0f} → {cur_cash:,.0f} ₽",
             }
         )
     prev_h = previous.get("benchmark", {}).get("cbr_hurdle_annual")
