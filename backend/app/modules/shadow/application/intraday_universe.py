@@ -1,4 +1,6 @@
-"""Resolve tickers/boards for intraday refresh from active shadow portfolios."""
+"""Resolve tickers/boards for intraday refresh from active shadow portfolios
+and Manual Portfolio positions.
+"""
 
 from __future__ import annotations
 
@@ -40,8 +42,32 @@ def _pick_board_source(sources: list[InstrumentSource]) -> InstrumentSource | No
     return sources[0]
 
 
+def _manual_position_ids(session: Session) -> dict[int, str]:
+    """Union Manual Portfolio position instrument_ids into the intraday universe."""
+    try:
+        from app.modules.portfolio.infrastructure.models import ManualPortfolio, ManualPosition
+    except Exception:  # noqa: BLE001 — module/table may be absent pre-migration
+        return {}
+
+    needed: dict[int, str] = {}
+    try:
+        portfolios = list(session.scalars(select(ManualPortfolio)))
+    except Exception:  # noqa: BLE001
+        return {}
+    for portfolio in portfolios:
+        for pos in session.scalars(
+            select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
+        ):
+            if abs(float(pos.units or 0)) < 1e-12:
+                continue
+            needed[int(pos.instrument_id)] = ""
+    return needed
+
+
 def resolve_intraday_universe(session: Session) -> list[UniverseMember]:
-    """Union of PENDING order tickers + open position tickers across active shadows."""
+    """Union of PENDING order tickers + open position tickers across active shadows
+    + Manual Portfolio positions.
+    """
     portfolios = list(
         session.scalars(
             select(ShadowPortfolio).where(ShadowPortfolio.status.in_(ACTIVE_STATUSES))
@@ -68,6 +94,9 @@ def resolve_intraday_universe(session: Session) -> list[UniverseMember]:
                 ticker = str(row.get("ticker") or needed.get(iid) or "")
                 needed[iid] = ticker
 
+    for iid, ticker in _manual_position_ids(session).items():
+        needed.setdefault(iid, ticker)
+
     if not needed:
         return []
 
@@ -75,7 +104,7 @@ def resolve_intraday_universe(session: Session) -> list[UniverseMember]:
         session.scalars(
             select(InstrumentSource).where(
                 InstrumentSource.instrument_id.in_(list(needed.keys())),
-                InstrumentSource.source == "MOEX",
+                InstrumentSource.source.in_(("MOEX", "MOEX_ISS")),
                 InstrumentSource.valid_to.is_(None),
             )
         )
