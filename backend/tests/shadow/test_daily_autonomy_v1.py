@@ -22,8 +22,8 @@ from app.modules.shadow.application.daily_operations import (
 )
 from app.modules.shadow.application.pipeline_status import (
     CURRENT_MID_SESSION_WAIT,
-    detect_mid_session_activation,
     build_pipeline_status,
+    detect_mid_session_activation,
 )
 from app.modules.shadow.domain.open_execution import (
     REASON_ELIGIBLE,
