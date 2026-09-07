@@ -96,14 +96,41 @@ def build_allocation_context(
     expected_yield = None
     duration = None
     try:
-        terms_total = int(session.scalar(select(func.count()).select_from(BondTerm)) or 0)
+        from app.infrastructure.market.models import UniverseMembership
+        from app.modules.market.application.research_universe import RESEARCH_FI_V1
+
+        pinned = (
+            select(UniverseMembership.instrument_id).where(
+                UniverseMembership.universe_code == RESEARCH_FI_V1
+            )
+        )
+        terms_total = int(
+            session.scalar(
+                select(func.count())
+                .select_from(BondTerm)
+                .where(BondTerm.instrument_id.in_(pinned))
+            )
+            or 0
+        )
         supported = int(
-            session.scalar(select(func.count()).select_from(BondTerm).where(BondTerm.support_status == "SUPPORTED"))
+            session.scalar(
+                select(func.count())
+                .select_from(BondTerm)
+                .where(
+                    BondTerm.support_status == "SUPPORTED",
+                    BondTerm.instrument_id.in_(pinned),
+                )
+            )
             or 0
         )
         unknown_credit = int(
             session.scalar(
-                select(func.count()).select_from(BondTerm).where(BondTerm.credit_quality_status == "UNKNOWN")
+                select(func.count())
+                .select_from(BondTerm)
+                .where(
+                    BondTerm.credit_quality_status == "UNKNOWN",
+                    BondTerm.instrument_id.in_(pinned),
+                )
             )
             or 0
         )
@@ -113,6 +140,7 @@ def build_allocation_context(
             .where(
                 BondTerm.support_status == "SUPPORTED",
                 BondTerm.coupon_rate.is_not(None),
+                BondTerm.instrument_id.in_(pinned),
             )
             .limit(1)
         ).first()

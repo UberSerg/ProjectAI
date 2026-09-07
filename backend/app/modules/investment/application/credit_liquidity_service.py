@@ -153,15 +153,29 @@ def assess_instrument(
     }
 
 
-def list_bond_risk_assessments(session: Session, *, limit: int = 100) -> dict[str, Any]:
+def list_bond_risk_assessments(
+    session: Session,
+    *,
+    limit: int = 100,
+    universe_code: str | None = None,
+) -> dict[str, Any]:
     as_of = date.today()
-    rows = session.execute(
+    q = (
         select(Instrument, BondTerm)
         .join(BondTerm, BondTerm.instrument_id == Instrument.id)
         .where(Instrument.asset_class == "bond")
         .order_by(Instrument.symbol)
         .limit(limit)
-    ).all()
+    )
+    if universe_code:
+        from app.infrastructure.market.models import UniverseMembership
+
+        q = q.join(
+            UniverseMembership,
+            UniverseMembership.instrument_id == Instrument.id,
+        ).where(UniverseMembership.universe_code == universe_code)
+
+    rows = session.execute(q).all()
 
     items = []
     credit_counts = {s.value: 0 for s in CreditStatus}
@@ -213,6 +227,7 @@ def list_bond_risk_assessments(session: Session, *, limit: int = 100) -> dict[st
     return {
         "as_of": as_of.isoformat(),
         "total_bonds": len(items),
+        "universe_code": universe_code,
         "credit_coverage": credit_counts,
         "liquidity_coverage": liq_counts,
         "eligibility_coverage": elig_counts,
@@ -223,7 +238,10 @@ def list_bond_risk_assessments(session: Session, *, limit: int = 100) -> dict[st
 
 
 def aggregate_fixed_income_risk(session: Session) -> dict[str, Any]:
-    report = list_bond_risk_assessments(session)
+    from app.modules.market.application.research_universe import RESEARCH_FI_V1
+
+    # Opportunity / allocation aggregates use the pinned strategy universe.
+    report = list_bond_risk_assessments(session, universe_code=RESEARCH_FI_V1)
     unknown_credit = report["credit_coverage"].get("UNKNOWN", 0) + report["credit_coverage"].get(
         "NOT_RATED", 0
     )

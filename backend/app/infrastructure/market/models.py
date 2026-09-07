@@ -81,6 +81,31 @@ class InstrumentMasterSyncRun(Base):
     report: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
 
+class InstrumentEnrichmentJob(Base):
+    """Async enrichment queue status per (instrument_id, kind) — upsert, not history log."""
+
+    __tablename__ = "instrument_enrichment_jobs"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", "kind", name="uq_market_instrument_enrichment_jobs_instrument_kind"),
+        {"schema": "market"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    instrument_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("market.instruments.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="PENDING")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class InstrumentSource(Base):
     __tablename__ = "instrument_sources"
     __table_args__ = (
