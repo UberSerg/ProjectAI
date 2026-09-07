@@ -145,21 +145,22 @@ def enqueue_p0_portfolio_positions(session: Session) -> dict[str, int]:
         enqueue_fi_kinds(session, int(instrument.id), EnrichmentPriority.P0_PORTFOLIO)
         count += 1
 
-    # Shadow positions if table exists.
+    # Shadow positions if table exists (SAVEPOINT so missing schema cannot abort txn).
     try:
-        rows = session.execute(
-            text(
-                """
-                SELECT DISTINCT sp.instrument_id
-                FROM shadow.positions sp
-                JOIN market.instruments i ON i.id = sp.instrument_id
-                WHERE lower(i.asset_class) = 'bond'
-                """
-            )
-        ).all()
-        for (iid,) in rows:
-            enqueue_fi_kinds(session, int(iid), EnrichmentPriority.P0_PORTFOLIO)
-            count += 1
+        with session.begin_nested():
+            rows = session.execute(
+                text(
+                    """
+                    SELECT DISTINCT sp.instrument_id
+                    FROM shadow.positions sp
+                    JOIN market.instruments i ON i.id = sp.instrument_id
+                    WHERE lower(i.asset_class) = 'bond'
+                    """
+                )
+            ).all()
+            for (iid,) in rows:
+                enqueue_fi_kinds(session, int(iid), EnrichmentPriority.P0_PORTFOLIO)
+                count += 1
     except Exception:  # noqa: BLE001
         pass
 
