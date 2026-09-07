@@ -20,11 +20,23 @@ describe("AppShell investor-first nav", () => {
     renderShell();
     const nav = screen.getByTestId("primary-nav");
     expect(nav.querySelector('a[href="/research-hub"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/portfolio/mine"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/portfolio/candidate"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/instruments"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/bonds"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/fundamentals"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/investment-decision"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/calibration"]')).toBeTruthy();
+  });
+
+  it("puts my portfolio first under portfolio group", () => {
+    renderShell();
+    const nav = screen.getByTestId("primary-nav");
+    const links = [...nav.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+    const mine = links.indexOf("/portfolio/mine");
+    const candidate = links.indexOf("/portfolio/candidate");
+    expect(mine).toBeGreaterThanOrEqual(0);
+    expect(candidate).toBeGreaterThan(mine);
   });
 
   it("does not list analytics, technical, relations, allocation as primary links", () => {

@@ -275,7 +275,8 @@ describe("PortfolioPage", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText(/Обзор портфеля/i)).toBeInTheDocument();
-    expect(screen.getAllByText("Открыть кандидат портфеля").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Мой портфель").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Кандидат портфеля")).toBeInTheDocument();
     expect(screen.getByText("Инвестиционное решение")).toBeInTheDocument();
     expect(screen.getByText("Проверка риска")).toBeInTheDocument();
   });

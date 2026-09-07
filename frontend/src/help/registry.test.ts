@@ -38,6 +38,9 @@ describe("help registry", () => {
       "bond_detail",
       "portfolio_hub",
       "portfolio_candidate",
+      "manual_portfolio",
+      "instruments_catalog",
+      "instrument_catalog_detail",
       "prediction_calibration",
       "fundamentals",
       "allocation",
@@ -58,6 +61,9 @@ describe("help registry", () => {
     "bond_detail",
     "portfolio_hub",
     "portfolio_candidate",
+    "manual_portfolio",
+    "instruments_catalog",
+    "instrument_catalog_detail",
     "prediction_calibration",
     "fundamentals",
     "allocation",
@@ -201,6 +207,33 @@ describe("help registry", () => {
     expect(getMetricHelp("known_at")?.summary).toMatch(/известна рынку/);
     expect(getMetricHelp("dividend_recommendation")?.details).toMatch(/approval/i);
     expect(getPageHelp("fundamentals")?.title).toMatch(/Компании/);
+  });
+
+  it("defines manual portfolio + instrument master help keys (§185-187)", () => {
+    for (const id of [
+      "manual_portfolio",
+      "manual_portfolio_source",
+      "average_purchase_price",
+      "current_value",
+      "unrealized_pnl",
+      "portfolio_weight",
+      "allocation",
+      "issuer_concentration",
+      "instrument_master",
+      "support_level",
+      "model_coverage",
+      "rebalance",
+      "indicative_price",
+      "bond_clean_price",
+      "accrued_coupon",
+      "bond_dirty_value",
+      "maturity",
+      "coupon_schedule",
+    ]) {
+      expect(getMetricHelp(id)?.title, id).toBeTruthy();
+    }
+    expect(getPageHelp("manual_portfolio")?.about).toMatch(/вручную|ручн/i);
+    expect(getPageHelp("instruments_catalog")?.about).toMatch(/не означает/i);
   });
 });
 

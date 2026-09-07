@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as instrumentsApi from "../api/instruments";
 import * as intradayApi from "../api/intraday";
 import * as shadowApi from "../api/shadow";
 import * as systemApi from "../api/system";
@@ -9,6 +10,7 @@ import { SystemPage } from "./SystemPage";
 vi.mock("../api/system");
 vi.mock("../api/intraday");
 vi.mock("../api/shadow");
+vi.mock("../api/instruments");
 
 function mockOverview() {
   vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
@@ -30,6 +32,13 @@ function mockOverview() {
     raw_storage_path: "/data/raw",
   });
   vi.mocked(systemApi.getTechEvents).mockResolvedValue([]);
+  vi.mocked(instrumentsApi.getInstrumentMasterSyncStatus).mockResolvedValue({
+    id: 1,
+    status: "SUCCESS",
+    started_at: "2026-09-07T10:00:00+00:00",
+    finished_at: "2026-09-07T10:05:00+00:00",
+    report: { created: 1, updated: 2 },
+  });
   vi.mocked(intradayApi.getIntradayStatus).mockResolvedValue({
     enabled: false,
     refresh_minutes: 5,
@@ -59,7 +68,7 @@ function mockOverview() {
 
 describe("SystemPage", () => {
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -73,7 +82,8 @@ describe("SystemPage", () => {
     );
 
     expect(await screen.findByText("Рыночные котировки")).toBeInTheDocument();
-    expect(await screen.findByTestId("system-eod-pipeline")).toHaveTextContent(/WAITING_EOD|Ждём закрытия/i);
+    expect(await screen.findByTestId("system-instrument-master-sync")).toBeInTheDocument();
+    expect(await screen.findAllByText(/WAITING_EOD|Ждём закрытия/i)).not.toHaveLength(0);
     expect(screen.getByTestId("system-automation-warning")).toHaveTextContent(/RESEARCH_LIVE_MODE/i);
     expect(await screen.findByText("Основная БД")).toBeInTheDocument();
     expect(screen.getByText("База памяти")).toBeInTheDocument();

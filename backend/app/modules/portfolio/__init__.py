@@ -1,1 +1,1 @@
-"""Portfolio module boundary — Historical Simulator V0 lives in app.modules.simulator."""
+"""Portfolio module — Manual Portfolio V1 + Historical Simulator boundary."""

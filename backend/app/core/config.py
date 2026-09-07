@@ -74,6 +74,17 @@ class Settings(BaseSettings):
         default=20.0, alias="INTRADAY_HTTP_TIMEOUT_SECONDS"
     )
 
+    # MOEX Instrument Master V1 — opt-in daily catalog sync (never mutates research Dataset).
+    moex_instrument_master_sync_enabled: bool = Field(
+        default=False, alias="MOEX_INSTRUMENT_MASTER_SYNC_ENABLED"
+    )
+    moex_instrument_master_sync_cron: str = Field(
+        default="15 17 * * 1-5", alias="MOEX_INSTRUMENT_MASTER_SYNC_CRON"
+    )
+    moex_instrument_master_stale_hours: int = Field(
+        default=36, alias="MOEX_INSTRUMENT_MASTER_STALE_HOURS"
+    )
+
     @model_validator(mode="after")
     def _apply_research_live_mode(self) -> Self:
         """RESEARCH_LIVE_MODE is a convenience profile; explicit false flags stay off only when live=false."""
