@@ -653,7 +653,78 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     summary: "Цепочка после закрытия: данные → прогноз → план → ордера → готовность к OPEN.",
     details:
       "Intraday только исполняет на OPEN и ставит LAST-marks. Пропущенная готовность не чинится backdated fills.",
-    relatedIds: ["ready_for_next_session", "research_cycle", "order_plan"],
+    relatedIds: ["ready_for_next_session", "research_cycle", "order_plan", "today_vs_next_session"],
+  },
+  today_vs_next_session: {
+    id: "today_vs_next_session",
+    kind: "term",
+    title: "Сегодня vs следующая сессия",
+    summary:
+      "Два независимых контура: текущая сессия (fills/marks) и подготовка к следующему OPEN (EOD → план).",
+    details:
+      "«Сегодня» отвечает на вопрос «что происходит с ордерами и позициями сейчас». «Следующая сессия» — готов ли pipeline (WAITING_EOD / PROCESSING / READY / BLOCKED) к завтрашнему открытию. Их нельзя смешивать в один статус READY.",
+    interpretation:
+      "READY у следующей сессии не означает, что сегодня уже были сделки. Mid-session activation относится к блоку «Сегодня».",
+    relatedIds: ["ready_for_next_session", "prospective_wait_tomorrow", "eod_cycle", "research_live_mode"],
+  },
+  prospective_wait_tomorrow: {
+    id: "prospective_wait_tomorrow",
+    kind: "term",
+    title: "Почему Kraken ждёт до завтра",
+    summary:
+      "Если эксперимент активирован после OPEN, первая сделка только на следующем открытии — без look-ahead.",
+    details:
+      "Prospective integrity: уже известная цена открытия текущего дня не используется задним числом. Ордера ждут допустимую будущую сессию. Это не баг и не «пропуск прибыли», а защита от подгонки под известный OPEN.",
+    interpretation:
+      "Текст «Первая сделка — на следующем открытии» — штатный сценарий mid-session start. Технические коды раскрываются в details.",
+    limitations: [
+      "Не отменяет необходимость RESEARCH_LIVE_MODE для автоматического catch-up.",
+    ],
+    relatedIds: ["today_vs_next_session", "prospective_experiment", "session_open", "pending_order"],
+  },
+  research_live_mode: {
+    id: "research_live_mode",
+    kind: "term",
+    title: "RESEARCH_LIVE_MODE",
+    summary:
+      "Операторский профиль автоматизации: daily research cycle, EOD readiness retry и intraday.",
+    details:
+      "Если Shadow ACTIVE, а автоматизация выключена, catch-up сам не запустится. UI показывает предупреждение — это не ошибка pipeline, а режим без unattended операций.",
+    relatedIds: ["eod_cycle", "ready_for_next_session", "research_cycle"],
+  },
+  price_return: {
+    id: "price_return",
+    kind: "term",
+    title: "Доходность цены",
+    summary: "Изменение цены инструмента без учёта денежных выплат инвестору.",
+    details:
+      "Price return = (P_end / P_start) − 1. Дивиденды и другие cash distributions не входят в эту метрику.",
+    relatedIds: ["total_return_dividends", "total_return_gross"],
+  },
+  total_return_dividends: {
+    id: "total_return_dividends",
+    kind: "term",
+    title: "Дивиденды",
+    summary: "Денежные выплаты на акцию (gross), учтённые как события с known_at и ex_date.",
+    details:
+      "Foundation хранит dividend events отдельно от raw OHLCV. Пустой store → coverage NOT_READY; выдуманные дивиденды не показываются.",
+    relatedIds: ["price_return", "total_return_gross", "dividend_yield", "known_at"],
+  },
+  total_return_gross: {
+    id: "total_return_gross",
+    kind: "term",
+    title: "Полная доходность",
+    summary:
+      "Полная доходность учитывает и изменение цены акции, и денежные выплаты инвестору (gross, pre-tax).",
+    details:
+      "TOTAL_RETURN_GROSS_V1 — foundation helpers и coverage API. Не мутирует Dataset V2, не включает simulator total-return mode в этом этапе и не кредитует Shadow автоматически.",
+    interpretation:
+      "NOT_READY при пустом dividend feed — честный статус. Не путать с price-only метриками симулятора.",
+    limitations: [
+      "Налоги и net total return — вне scope v1.",
+      "Simulator total-return mode: NOT_IN_THIS_PR.",
+    ],
+    relatedIds: ["price_return", "total_return_dividends", "dividend_yield"],
   },
   signal_as_of: {
     id: "signal_as_of",
@@ -2283,7 +2354,9 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Проспективный виртуальный портфель: решения на новых данных, исполнение на следующем OPEN, живая оценка без реальных денег. Realism V2 — целые лоты и готовность к сессии. Не historical backtest.",
     understand: [
       "Что такое живой эксперимент и чем он отличается от симулятора",
-      "Готовность к следующей сессии (READY / NOT READY)",
+      "Сегодня vs следующая сессия (два независимых статуса)",
+      "Почему Kraken ждёт до завтра после mid-session activation",
+      "Готовность к следующей сессии (WAITING_EOD / PROCESSING / READY / BLOCKED)",
       "Дневной цикл: закрытие → прогноз → план → ордера → открытие → позиции → оценка",
       "Почему пока может не быть сделок",
       "Чем исполнение на OPEN отличается от живой оценки по LAST",
@@ -2294,11 +2367,14 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Чем портфель A отличается от B (и V2 от legacy V1)",
       "Почему сравнение станет полезнее со временем",
       "Почему ранние результаты нельзя считать доказательством прибыльности",
+      "Доходность цены / Дивиденды / Полная доходность (термины foundation)",
     ],
     metrics: [
       "shadow_portfolio",
       "forward_signal",
       "prospective_experiment",
+      "prospective_wait_tomorrow",
+      "today_vs_next_session",
       "activation_date",
       "pending_order",
       "market_watermark",
@@ -2319,6 +2395,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "realized_pnl",
       "strategic_cash",
       "eod_cycle",
+      "research_live_mode",
       "signal_as_of",
       "signal_generated_at",
       "risk_state",
@@ -2327,9 +2404,13 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "research_cycle",
       "daily_cycle_health",
       "forward_outcome_pending",
+      "price_return",
+      "total_return_dividends",
+      "total_return_gross",
     ],
     interpret: [
       "0 fills при PENDING — корректный старт.",
+      "«Первая сделка — на следующем открытии» после mid-session — штат, не авария.",
       "Закрытый рынок и «ожидаем OPEN» — спокойный статус, не авария.",
       "Живая NAV на экране не равна дневной истории NAV.",
       "Realism V2 предпочитается как основной контур; V1 показывается как legacy.",
@@ -2337,10 +2418,11 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "A и B стартуют одинаково; DD Guard на B проявится только после реальной просадки.",
       "Решения объясняются Decision Explanation UX без LLM.",
       "Операционная полоса отражает ежедневный цикл и зрелость 20d outcomes.",
+      "Предупреждение RESEARCH_LIVE_MODE — про автоматизацию, не про READY pipeline.",
     ],
     limitations: [
-      "Автоматическое расписание зависит от DAILY_RESEARCH_CYCLE_ENABLED.",
-      "Нет дивидендов / total return.",
+      "Автоматическое расписание зависит от RESEARCH_LIVE_MODE / DAILY_RESEARCH_CYCLE_ENABLED.",
+      "Total return foundation есть в Help и coverage; Shadow пока price-mark, без автокредита дивидендов.",
       "Короткий горизонт ≠ proof of edge.",
       "Не брокер и не рекомендации.",
     ],
@@ -2861,6 +2943,9 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "dividend_approval",
       "record_date",
       "dividend_yield",
+      "price_return",
+      "total_return_dividends",
+      "total_return_gross",
       "corporate_event",
       "report_age",
       "fundamental_staleness",
@@ -2868,6 +2953,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     ],
     interpret: [
       "Сначала смотрите покрытие и статус данных по компаниям.",
+      "Coverage полной доходности может быть NOT_READY при пустом dividend feed — это честно.",
       "Не трактуйте фундаментальные цифры как investment advice.",
       "ML readiness описывает кандидатов признаков и блокеры — без запуска обучения.",
     ],
