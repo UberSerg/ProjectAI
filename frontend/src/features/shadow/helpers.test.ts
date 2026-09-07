@@ -38,8 +38,8 @@ describe("shadow session helpers", () => {
   it("prefers latest activation for mid-session display", () => {
     const ops: ShadowDailyOperations = {
       portfolios: [
-        { activated_at: "2026-09-04T14:15:29.275066+00:00" },
-        { activated_at: "2026-09-07T13:38:24.403001+00:00" },
+        { id: 1, name: "V1", activated_at: "2026-09-04T14:15:29.275066+00:00" },
+        { id: 5, name: "V2", activated_at: "2026-09-07T13:38:24.403001+00:00" },
       ],
     };
     expect(latestActivationIso(ops)).toBe("2026-09-07T13:38:24.403001+00:00");
