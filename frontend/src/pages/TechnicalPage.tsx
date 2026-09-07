@@ -115,7 +115,7 @@ export function TechnicalPage() {
     <section>
       <PageHeader
         title={labels.nav.technical}
-        description="Правила rules_v1: score и confidence по тренду, моментуму, RSI и объёму. Не рекомендация BUY/SELL."
+        description="Промежуточные математические признаки рынка. Это не самостоятельная рекомендация купить или продать."
         helpPageId="technical"
         actions={
           <>

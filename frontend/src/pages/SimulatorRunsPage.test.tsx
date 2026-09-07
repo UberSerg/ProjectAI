@@ -69,13 +69,14 @@ describe("SimulatorRunsPage", () => {
     expect(screen.getByText("DEV OOS")).toBeInTheDocument();
     expect(screen.getByText("HOLDOUT")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /HOLDOUT/i })).toHaveAttribute("href", "/simulator/3");
+    expect(screen.getAllByRole("link", { name: /^Открыть$/i }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("abcdef01").length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows empty and error states", async () => {
     vi.mocked(simulatorApi.listSimulatorRuns).mockResolvedValue([]);
     const { unmount } = renderRuns();
-    expect(await screen.findByText(/нет сохранённых прогонов/i)).toBeInTheDocument();
+    expect(await screen.findByText("Пока нет сохранённых прогонов симулятора.")).toBeInTheDocument();
     unmount();
 
     vi.mocked(simulatorApi.listSimulatorRuns).mockRejectedValue(new Error("offline"));

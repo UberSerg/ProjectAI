@@ -347,6 +347,53 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
     return result
 
 
+def get_bond_detail(session: Session, symbol: str) -> dict[str, Any] | None:
+    """Read-only bond detail for UI drill-down. No domain calculation changes."""
+    items = list_bonds(session, limit=500)
+    bond = next((item for item in items if str(item.get("symbol", "")).upper() == symbol.upper()), None)
+    if bond is None:
+        return None
+    instrument_id = int(bond["instrument_id"])
+    cashflows = session.scalars(
+        select(BondCashflow)
+        .where(BondCashflow.instrument_id == instrument_id)
+        .order_by(BondCashflow.cashflow_date)
+    ).all()
+    return {
+        **bond,
+        "cashflows": [
+            {
+                "cashflow_date": cf.cashflow_date.isoformat() if cf.cashflow_date else None,
+                "cashflow_type": cf.cashflow_type,
+                "amount": float(cf.amount) if cf.amount is not None else None,
+                "currency": cf.currency,
+                "source": cf.source,
+            }
+            for cf in cashflows
+        ],
+        "why_kraken_ru": _bond_why_kraken(bond),
+    }
+
+
+def _bond_why_kraken(bond: dict[str, Any]) -> str:
+    eligibility = str(bond.get("investment_eligibility") or "RESEARCH_ONLY")
+    support = str(bond.get("support_status") or "")
+    credit = str(bond.get("credit_status") or bond.get("credit_quality_status") or "UNKNOWN")
+    parts = [
+        f"Поддержка учёта: {support}.",
+        f"Eligibility: {eligibility}.",
+        f"Кредитный статус: {credit}.",
+    ]
+    if bond.get("why_not_supported"):
+        parts.append(str(bond["why_not_supported"]))
+    if bond.get("credit_safety_note"):
+        parts.append(str(bond["credit_safety_note"]))
+    warnings = bond.get("warnings") or []
+    if warnings:
+        parts.append("Предупреждения: " + "; ".join(str(w) for w in warnings[:4]))
+    return " ".join(parts)
+
+
 def bond_accounting_preview(
     session: Session,
     *,

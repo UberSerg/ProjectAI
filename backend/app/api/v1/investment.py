@@ -26,6 +26,7 @@ from app.modules.investment.application.services import (
     CbrHurdleProvider,
     bond_accounting_preview,
     fixed_income_readiness,
+    get_bond_detail,
     investment_readiness,
     list_bonds,
 )
@@ -109,6 +110,16 @@ def fixed_income_instruments(
     with core_session() as session:
         items = list_bonds(session, limit)
     return {"items": items, "count": len(items)}
+
+
+@router.get("/fixed-income/instruments/{symbol}")
+def fixed_income_instrument_detail(symbol: str) -> dict[str, Any]:
+    """Read-only bond detail for investor drill-down."""
+    with core_session() as session:
+        detail = get_bond_detail(session, symbol.upper())
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Bond not found")
+    return detail
 
 
 @router.get("/fixed-income/overview")

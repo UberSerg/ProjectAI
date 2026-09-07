@@ -65,7 +65,8 @@ describe("FundamentalsPage", () => {
     );
 
     expect(await screen.findByTestId("fundamentals-page")).toBeInTheDocument();
-    expect(screen.getByText("Фундаментал и события")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Компании" })).toBeInTheDocument();
+    expect(screen.getByTestId("fundamentals-coverage-summary")).toBeInTheDocument();
     expect(screen.getByTestId("pit-explanation-card")).toHaveTextContent(/Почему важна дата публикации/i);
     expect(screen.getByTestId("pit-explanation-card")).toHaveTextContent(/15 мая/i);
     expect(screen.getByTestId("fundamentals-ml-readiness")).toHaveTextContent(/Готовность к следующей модели/i);
@@ -84,7 +85,7 @@ describe("FundamentalsPage", () => {
     );
 
     expect(await screen.findByTestId("fundamentals-coverage-empty")).toBeInTheDocument();
-    expect(screen.getByTestId("fundamentals-issuers-empty")).toHaveTextContent(/Список эмитентов пуст/i);
+    expect(screen.getByTestId("fundamentals-issuers-empty")).toHaveTextContent(/Список компаний пуст/i);
     expect(screen.getByTestId("fundamentals-quality")).toHaveTextContent(/Нельзя безопасно использовать в ML/i);
   });
 });
@@ -180,6 +181,6 @@ describe("fundamentals help keys", () => {
     expect(getMetricHelp("IFRS")?.summary).toMatch(/Международные стандарты/i);
     expect(getMetricHelp("RAS")?.summary).toMatch(/Российские стандарты/i);
     expect(getMetricHelp("dividend_recommendation")?.summary).toMatch(/не утверждённый/i);
-    expect(getPageHelp("fundamentals")?.title).toMatch(/Фундаментал/);
+    expect(getPageHelp("fundamentals")?.title).toMatch(/Компании/);
   });
 });

@@ -127,7 +127,7 @@ export function RelationsPage() {
     <section>
       <PageHeader
         title={labels.nav.relations}
-        description="Статистическая структура рынка: корреляции и lead-lag. Не выдача BUY/SELL."
+        description="Как рынки и показатели исторически двигались относительно друг друга. Исследовательский вход модели, не торговая рекомендация."
         helpPageId="relations"
         actions={
           <>

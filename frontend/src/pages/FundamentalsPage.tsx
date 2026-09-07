@@ -18,6 +18,7 @@ import {
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { MetricHelp } from "../help";
 import { formatDate, formatDateTime, formatNumber } from "../utils/format";
+import { labels } from "../utils/labels";
 
 function coverageCount(row: FundamentalsCoverageYear): number {
   return Number(row.issuers_with_fundamentals ?? row.issuers ?? row.count ?? 0) || 0;
@@ -38,6 +39,65 @@ function readinessLabel(status?: string | null): string {
   if (raw === "PARTIAL") return "Частично";
   if (raw === "NOT_READY" || raw === "DEFERRED") return "Не готово";
   return status?.trim() || "Не готово";
+}
+
+type CoverageStatus = "with_data" | "partial" | "none";
+
+function presentMetrics(issuer: FundamentalIssuer): string[] {
+  const report = issuer.latest_report;
+  if (!report) return [];
+  const metrics: Array<[string, unknown]> = [
+    ["Выручка", report.revenue],
+    ["Чистая прибыль", report.net_income],
+    ["EBITDA", report.ebitda],
+    ["Денежный поток", report.cash_flow],
+  ];
+  return metrics.filter(([, v]) => v != null && v !== "").map(([name]) => name);
+}
+
+function issuerCoverageStatus(issuer: FundamentalIssuer): CoverageStatus {
+  const metrics = presentMetrics(issuer);
+  const hasReport = Boolean(issuer.latest_report);
+  const status = String(issuer.status ?? "").toUpperCase();
+  if (status === "PARTIAL" || (hasReport && metrics.length > 0 && metrics.length < 4)) {
+    return "partial";
+  }
+  if (hasReport && metrics.length > 0) return "with_data";
+  if (hasReport) return "partial";
+  return "none";
+}
+
+function coverageStatusLabel(status: CoverageStatus): string {
+  if (status === "with_data") return "Есть данные";
+  if (status === "partial") return "Частично";
+  return "Нет данных";
+}
+
+function lastPeriodLabel(issuer: FundamentalIssuer): string {
+  const report = issuer.latest_report;
+  if (!report) return "—";
+  return (
+    report.period_label ??
+    report.reporting_period ??
+    formatDate(report.period_end) ??
+    "—"
+  );
+}
+
+function freshnessLabel(issuer: FundamentalIssuer): string {
+  const pub =
+    issuer.latest_report?.publication_date ??
+    issuer.latest_report?.published_at ??
+    issuer.latest_report?.known_at ??
+    null;
+  if (pub) return formatDate(pub);
+  if (issuer.report_age_days != null) return `${issuer.report_age_days} дн.`;
+  return "—";
+}
+
+function sourceLabel(issuer: FundamentalIssuer): string {
+  const prov = issuer.latest_report?.provenance ?? issuer.latest_report?.source;
+  return prov?.provider ?? issuer.reporting_standard ?? "—";
 }
 
 export function FundamentalsPage() {
@@ -94,6 +154,19 @@ export function FundamentalsPage() {
     [coverage],
   );
 
+  const coverageStats = useMemo(() => {
+    let withData = 0;
+    let partial = 0;
+    let none = 0;
+    for (const issuer of issuers) {
+      const s = issuerCoverageStatus(issuer);
+      if (s === "with_data") withData += 1;
+      else if (s === "partial") partial += 1;
+      else none += 1;
+    }
+    return { withData, partial, none, total: issuers.length };
+  }, [issuers]);
+
   const qualityStatus =
     quality?.status ?? quality?.pit_quality ?? summary?.pit_quality ?? summary?.status ?? "NOT_READY";
   const qualityMessage = qualityHumanMessage(
@@ -107,16 +180,21 @@ export function FundamentalsPage() {
   const v3Total = ml?.potential_v3_total ?? null;
   const blockers = ml?.main_blockers ?? ml?.blockers ?? [];
   const targets = ml?.target_readiness ?? [];
+  const periodsCovered = coverage.length;
 
-  if (loading) return <PageState kind="loading" title="Загрузка фундаментальных данных…" />;
+  if (loading) return <PageState kind="loading" title="Загрузка данных о компаниях…" />;
 
   return (
     <div className="fundamentals-page" data-testid="fundamentals-page">
       <PageHeader
-        title="Фундаментал и события"
-        description="Финансовая отчётность, дивиденды и корпоративные события с учётом того, когда информация стала известна рынку."
+        title={labels.nav.companies}
+        description="Какие фундаментальные данные о компаниях есть у Kraken: отчётность, дивиденды, события — с учётом даты, когда информация стала известна."
         helpPageId="fundamentals"
       />
+      <p className="page-purpose">
+        Сначала покрытие: сколько компаний в universe, по каким есть факты, где дыры. Это не экран
+        «купить акцию» — только честная карта данных.
+      </p>
 
       <div className="card pit-explanation-card" data-testid="pit-explanation-card">
         <h3>
@@ -146,33 +224,33 @@ export function FundamentalsPage() {
         </div>
       ) : null}
 
-      <div className="card-grid" data-testid="fundamentals-overview-cards">
+      <div className="card-grid" data-testid="fundamentals-coverage-summary">
         <MetricCard
-          label="Эмитенты с привязкой"
-          value={formatNumber(summary?.issuers_mapped ?? summary?.issuers)}
+          label="Компаний в universe"
+          value={formatNumber(coverageStats.total || summary?.issuers_mapped || summary?.issuers)}
           helpId="fundamental_data"
         />
-        <MetricCard label="Отчёты" value={formatNumber(summary?.reports)} helpId="financial_report" />
+        <MetricCard label="С данными" value={formatNumber(coverageStats.withData)} />
         <MetricCard
-          label="Финансовые факты"
-          value={formatNumber(summary?.financial_facts ?? summary?.facts)}
+          label="Без данных"
+          value={formatNumber(
+            coverageStats.total
+              ? coverageStats.none
+              : Math.max(
+                  0,
+                  Number(summary?.issuers_mapped ?? summary?.issuers ?? 0) -
+                    Number(summary?.reports ?? 0),
+                ),
+          )}
         />
-        <MetricCard
-          label="Дивидендные события"
-          value={formatNumber(summary?.dividend_events ?? summary?.dividends)}
-          helpId="dividend_approval"
-        />
-        <MetricCard
-          label="Корпоративные события"
-          value={formatNumber(summary?.corporate_events ?? summary?.events)}
-          helpId="corporate_event"
-        />
-        <MetricCard
-          label="Начало покрытия"
-          value={formatDate(summary?.coverage_start)}
-          helpId="coverage"
-        />
+        <MetricCard label="Частично" value={formatNumber(coverageStats.partial)} />
+        <MetricCard label="Периодов в покрытии" value={formatNumber(periodsCovered)} helpId="coverage" />
         <MetricCard label="Последнее обновление" value={formatDateTime(summary?.latest_update)} />
+        <MetricCard
+          label="Отчёты / факты"
+          value={`${formatNumber(summary?.reports)} / ${formatNumber(summary?.financial_facts ?? summary?.facts)}`}
+          helpId="financial_report"
+        />
         <MetricCard
           label="Качество PIT"
           value={<StatusBadge status={String(qualityStatus).toLowerCase()} />}
@@ -219,6 +297,72 @@ export function FundamentalsPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="card" data-testid="fundamentals-issuers">
+        <h3>Компании</h3>
+        {issuers.length === 0 ? (
+          <p className="muted" data-testid="fundamentals-issuers-empty">
+            Список компаний пуст. Identity из MOEX может появиться раньше дивидендов и отчётности —
+            до появления строк раздел остаётся пустым честно.
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Компания</th>
+                  <th>Статус данных</th>
+                  <th>Метрики</th>
+                  <th>Последний период</th>
+                  <th>Источник</th>
+                  <th>Свежесть</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {issuers.map((issuer) => {
+                  const status = issuerCoverageStatus(issuer);
+                  const metrics = presentMetrics(issuer);
+                  return (
+                    <tr key={String(issuer.id)}>
+                      <td>
+                        <div>{issuerDisplayName(issuer)}</div>
+                        <div className="muted" style={{ fontSize: "0.85em" }}>
+                          {(issuer.securities ?? issuer.mapped_securities ?? [])
+                            .map((s) => s.ticker ?? s.secid)
+                            .filter(Boolean)
+                            .join(", ") || "—"}
+                        </div>
+                      </td>
+                      <td>
+                        <StatusBadge
+                          status={
+                            status === "with_data"
+                              ? "ok"
+                              : status === "partial"
+                                ? "partial"
+                                : "not_ready"
+                          }
+                        />{" "}
+                        {coverageStatusLabel(status)}
+                      </td>
+                      <td>{metrics.length ? metrics.join(", ") : "—"}</td>
+                      <td>{lastPeriodLabel(issuer)}</td>
+                      <td>{sourceLabel(issuer)}</td>
+                      <td>{freshnessLabel(issuer)}</td>
+                      <td>
+                        <Link className="inline-link" to={`/companies/${issuer.id}`}>
+                          Открыть
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -307,51 +451,6 @@ export function FundamentalsPage() {
             <p className="muted">{ml?.research_summary ?? ml?.human_summary ?? null}</p>
           )}
         </div>
-      </div>
-
-      <div className="card" data-testid="fundamentals-issuers">
-        <h3>Эмитенты</h3>
-        {issuers.length === 0 ? (
-          <p className="muted" data-testid="fundamentals-issuers-empty">
-            Список эмитентов пуст. Identity из MOEX может появиться раньше дивидендов и отчётности —
-            до появления строк раздел остаётся пустым честно.
-          </p>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Эмитент</th>
-                  <th>ИНН</th>
-                  <th>Ценные бумаги</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {issuers.map((issuer) => {
-                  const securities = issuer.securities ?? issuer.mapped_securities ?? [];
-                  return (
-                    <tr key={String(issuer.id)}>
-                      <td>{issuerDisplayName(issuer)}</td>
-                      <td>{issuer.inn ?? issuer.emitent_inn ?? "—"}</td>
-                      <td>
-                        {securities.length
-                          ? securities
-                              .map((s) => s.ticker ?? s.secid ?? s.isin)
-                              .filter(Boolean)
-                              .join(", ")
-                          : "—"}
-                      </td>
-                      <td>
-                        <Link to={`/fundamentals/${issuer.id}`}>Открыть</Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
     </div>
   );

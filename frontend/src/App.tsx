@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { BondsPage } from "./pages/BondsPage";
+import { BondDetailPage } from "./pages/BondDetailPage";
 import { AllocationPage } from "./pages/AllocationPage";
 import { CalibrationPage } from "./pages/CalibrationPage";
 import { InvestmentDecisionPage } from "./pages/InvestmentDecisionPage";
@@ -15,9 +16,11 @@ import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { PortfolioCandidatePage } from "./pages/PortfolioCandidatePage";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { RelationsPage } from "./pages/RelationsPage";
+import { ResearchAdvancedPage } from "./pages/ResearchAdvancedPage";
 import { ResearchComparePage } from "./pages/ResearchComparePage";
 import { ResearchDiagnosticsPage } from "./pages/ResearchDiagnosticsPage";
 import { ResearchExperimentPage } from "./pages/ResearchExperimentPage";
+import { ResearchHubPage } from "./pages/ResearchHubPage";
 import { ResearchLabPage } from "./pages/ResearchLabPage";
 import { ResearchProspectiveModelsPage } from "./pages/ResearchProspectiveModelsPage";
 import { ShadowPage } from "./pages/ShadowPage";
@@ -40,12 +43,15 @@ export function App() {
         <Route path="/relations" element={<RelationsPage />} />
         <Route path="/technical" element={<TechnicalPage />} />
         <Route path="/fundamentals" element={<FundamentalsPage />} />
+        <Route path="/companies" element={<FundamentalsPage />} />
         <Route path="/bonds" element={<BondsPage />} />
+        <Route path="/bonds/:secid" element={<BondDetailPage />} />
         <Route path="/allocation" element={<AllocationPage />} />
         <Route path="/investment-decision" element={<InvestmentDecisionPage />} />
         <Route path="/calibration" element={<CalibrationPage />} />
         <Route path="/portfolio-risk" element={<PortfolioRiskPage />} />
         <Route path="/fundamentals/:issuerId" element={<FundamentalIssuerPage />} />
+        <Route path="/companies/:issuerId" element={<FundamentalIssuerPage />} />
         <Route
           path="/recommendations"
           element={
@@ -57,11 +63,13 @@ export function App() {
           }
         />
         <Route path="/shadow" element={<ShadowPage />} />
-        <Route path="/research" element={<ResearchLabPage />} />
+        <Route path="/research-hub" element={<ResearchHubPage />} />
+        <Route path="/research/advanced" element={<ResearchAdvancedPage />} />
         <Route path="/research/compare" element={<ResearchComparePage />} />
         <Route path="/research/diagnostics" element={<ResearchDiagnosticsPage />} />
         <Route path="/research/prospective-models" element={<ResearchProspectiveModelsPage />} />
         <Route path="/research/:runId" element={<ResearchExperimentPage />} />
+        <Route path="/research" element={<ResearchLabPage />} />
         <Route path="/simulator" element={<SimulatorRunsPage />} />
         <Route path="/simulator/:runId" element={<SimulatorRunPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />

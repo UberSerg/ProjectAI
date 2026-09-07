@@ -231,7 +231,7 @@ describe("PortfolioPage", () => {
         <PortfolioPage />
       </MemoryRouter>,
     );
-    expect(screen.getByText("Портфель")).toBeInTheDocument();
+    expect(screen.getByText(/Обзор портфеля/i)).toBeInTheDocument();
     expect(screen.getAllByText("Открыть кандидат портфеля").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Инвестиционное решение")).toBeInTheDocument();
     expect(screen.getByText("Проверка риска")).toBeInTheDocument();
@@ -270,6 +270,8 @@ describe("Navigation", () => {
     expect(screen.getByText("Исторические симуляции")).toBeInTheDocument();
     expect(screen.getByText("Процессы")).toBeInTheDocument();
     expect(screen.getByText("Портфель")).toBeInTheDocument();
-    expect(screen.getAllByText("Скоро").length).toBeGreaterThan(0);
+    expect(screen.getByText("Обзор исследований")).toBeInTheDocument();
+    expect(screen.getByText("Компании")).toBeInTheDocument();
+    expect(screen.queryByText("Скоро")).toBeNull();
   });
 });

@@ -14,29 +14,22 @@ const overview: NavItem[] = [{ to: "/", label: labels.nav.overview, end: true }]
 
 const portfolio: NavItem[] = [
   { to: "/portfolio/candidate", label: labels.nav.portfolioCandidate },
-  { to: "/portfolio", label: labels.nav.portfolioHub },
   { to: "/investment-decision", label: labels.nav.investmentDecision },
   { to: "/portfolio-risk", label: labels.nav.portfolioRisk },
-  { to: "/allocation", label: labels.nav.allocation },
 ];
 
 const market: NavItem[] = [
   { to: "/market", label: labels.nav.quotes },
-  { to: "/fundamentals", label: labels.nav.fundamentalsShort },
+  { to: "/fundamentals", label: labels.nav.companies },
   { to: "/bonds", label: labels.nav.bonds },
 ];
 
 const research: NavItem[] = [
+  { to: "/research-hub", label: labels.nav.researchHub },
   { to: "/calibration", label: labels.nav.calibration },
   { to: "/simulator", label: labels.nav.historicalSimulations },
   { to: "/shadow", label: labels.nav.liveExperiment },
-  { to: "/analytics", label: labels.nav.analytics },
-  { to: "/technical", label: labels.nav.technical },
-  { to: "/relations", label: labels.nav.relations },
   { to: "/research", label: labels.nav.researchLab },
-  { to: "/models", label: labels.nav.models, soon: true },
-  { to: "/recommendations", label: labels.nav.recommendations, soon: true },
-  { to: "/decision-memory", label: labels.nav.decisionMemory, soon: true },
 ];
 
 const system: NavItem[] = [
@@ -68,7 +61,7 @@ export function AppShell() {
     <ToastProvider>
       <HelpProvider>
         <div className="layout">
-          <aside className="sidebar">
+          <aside className="sidebar sidebar-compact">
             <div className="brand">
               <span className="brand-mark">K</span>
               <div className="brand-copy">
@@ -76,7 +69,7 @@ export function AppShell() {
                 <span className="brand-tag">инвестиционный помощник</span>
               </div>
             </div>
-            <nav className="sidebar-nav">
+            <nav className="sidebar-nav" data-testid="primary-nav">
               <NavGroup items={overview} />
               <NavGroup title={labels.nav.portfolioGroup} items={portfolio} />
               <NavGroup title={labels.nav.marketGroup} items={market} />
