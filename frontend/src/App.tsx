@@ -12,6 +12,7 @@ import { FundamentalsPage } from "./pages/FundamentalsPage";
 import { InstrumentPage } from "./pages/InstrumentPage";
 import { MarketPage } from "./pages/MarketPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { PortfolioPage } from "./pages/PortfolioPage";
 import { RelationsPage } from "./pages/RelationsPage";
 import { ResearchComparePage } from "./pages/ResearchComparePage";
 import { ResearchDiagnosticsPage } from "./pages/ResearchDiagnosticsPage";
@@ -62,16 +63,7 @@ export function App() {
         <Route path="/research/:runId" element={<ResearchExperimentPage />} />
         <Route path="/simulator" element={<SimulatorRunsPage />} />
         <Route path="/simulator/:runId" element={<SimulatorRunPage />} />
-        <Route
-          path="/portfolio"
-          element={
-            <PlaceholderPage
-              title={labels.nav.portfolio}
-              description="Управление портфелем будет доступно на следующем этапе."
-              bullets={["позиции и веса", "ограничения риска", "исполнение сделок"]}
-            />
-          }
-        />
+        <Route path="/portfolio" element={<PortfolioPage />} />
         <Route
           path="/decision-memory"
           element={

@@ -42,8 +42,8 @@ export function PortfolioRiskPage() {
   return (
     <div className="allocation-page">
       <PageHeader
-        title="Проверка риска портфеля Kraken"
-        description="Opportunity → Risk Checks → Eligibility → Portfolio Candidate. Доходность сама по себе не разрешает покупку."
+        title="Проверка риска"
+        description="Может ли Kraken допустить инструмент и позицию в портфель-кандидат? Доходность сама по себе не разрешает покупку."
         helpPageId="portfolio_risk"
       />
       {error ? <div className="banner banner-warning">{error}</div> : null}

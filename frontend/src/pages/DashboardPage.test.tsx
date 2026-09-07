@@ -2,14 +2,17 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import * as investmentApi from "../api/investment";
 import * as marketApi from "../api/market";
 import * as systemApi from "../api/system";
 import * as workflowsApi from "../api/workflows";
 import { DashboardPage } from "./DashboardPage";
+import { PortfolioPage } from "./PortfolioPage";
 
 vi.mock("../api/market");
 vi.mock("../api/system");
 vi.mock("../api/workflows");
+vi.mock("../api/investment");
 
 describe("DashboardPage", () => {
   beforeEach(() => {
@@ -46,6 +49,28 @@ describe("DashboardPage", () => {
         steps: [],
       },
     ]);
+    vi.mocked(investmentApi.getHurdle).mockResolvedValue({
+      status: "OK",
+      annual_rate: 0.18,
+      hurdle_1y: 0.18,
+      as_of: "2026-09-01",
+    } as never);
+    vi.mocked(investmentApi.decideInvestment).mockResolvedValue({
+      as_of: "2026-09-05",
+      capital: "100000",
+      cbr_hurdle_annual: 0.18,
+      equity_opportunity: { calibration_status: "INSUFFICIENT_SAMPLE" },
+      decision: {
+        equity_weight: 0.25,
+        fixed_income_weight: 0.65,
+        cash_weight: 0.1,
+        status: "RESEARCH_ONLY",
+        explanations: ["Тестовое объяснение"],
+        warnings: ["Equity confidence неизвестна"],
+      },
+      calibration: { uncertainty_note: "Мало проверенных прогнозов" },
+      bond_safety_reminder: "Высокая доходность может отражать риск",
+    } as never);
   });
 
   it("renders russian overview metrics and real DB statuses", async () => {
@@ -56,8 +81,11 @@ describe("DashboardPage", () => {
     );
     expect(await screen.findByText("Обзор")).toBeInTheDocument();
     expect(await screen.findByText("43")).toBeInTheDocument();
-    expect(screen.getByText("Система работает нормально")).toBeInTheDocument();
-    expect(screen.getByText("Основная БД")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Kraken рекомендует исследовательское распределение"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Система работает нормально")).toBeInTheDocument();
+    expect(await screen.findByText("Основная БД")).toBeInTheDocument();
     expect(screen.getByText("База памяти")).toBeInTheDocument();
     expect(screen.getAllByText("Работает").length).toBeGreaterThanOrEqual(2);
   });
@@ -70,6 +98,19 @@ describe("DashboardPage", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Не удалось получить данные")).toBeInTheDocument();
+  });
+});
+
+describe("PortfolioPage", () => {
+  it("renders portfolio hub links", () => {
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Портфель")).toBeInTheDocument();
+    expect(screen.getByText("Инвестиционное решение")).toBeInTheDocument();
+    expect(screen.getByText("Проверка риска")).toBeInTheDocument();
   });
 });
 
@@ -94,14 +135,17 @@ describe("Navigation", () => {
       dq_errors: 0,
     });
     vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([]);
+    vi.mocked(investmentApi.getHurdle).mockResolvedValue(null as never);
+    vi.mocked(investmentApi.decideInvestment).mockRejectedValue(new Error("offline"));
     render(
       <MemoryRouter>
         <App />
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Рыночные данные")).toBeInTheDocument();
-    expect(screen.getByText("Симуляции")).toBeInTheDocument();
+    expect(await screen.findByText("Котировки")).toBeInTheDocument();
+    expect(screen.getByText("Исторические симуляции")).toBeInTheDocument();
     expect(screen.getByText("Процессы")).toBeInTheDocument();
+    expect(screen.getByText("Портфель")).toBeInTheDocument();
     expect(screen.getAllByText("Скоро").length).toBeGreaterThan(0);
   });
 });

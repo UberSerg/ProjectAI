@@ -65,7 +65,7 @@ describe("SimulatorRunsPage", () => {
     ]);
 
     renderRuns();
-    expect(await screen.findByText("Симуляции")).toBeInTheDocument();
+    expect(await screen.findByText("Исторические симуляции")).toBeInTheDocument();
     expect(screen.getByText("DEV OOS")).toBeInTheDocument();
     expect(screen.getByText("HOLDOUT")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /HOLDOUT/i })).toHaveAttribute("href", "/simulator/3");

@@ -47,8 +47,8 @@ export function CalibrationPage() {
   return (
     <div className="allocation-page">
       <PageHeader
-        title="Качество прогнозов Kraken"
-        description="Prediction → Calibration → Confidence. Прогноз не равен гарантии."
+        title="Качество прогнозов"
+        description="Насколько моделям можно доверять прямо сейчас. Не обещание доходности."
         helpPageId="prediction_calibration"
       />
       {error ? <div className="banner banner-warning">{error}</div> : null}

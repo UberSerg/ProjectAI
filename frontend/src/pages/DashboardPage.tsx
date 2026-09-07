@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
+import {
+  decideInvestment,
+  getHurdle,
+  type HurdleQuote,
+  type InvestmentDecisionResponse,
+} from "../api/investment";
 import { getMarketSummary, type MarketSummary } from "../api/market";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
-import { MetricCard, PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import {
+  AllocationBars,
+  DataQualityCard,
+  ExplanationCard,
+  HeroCard,
+  MetricCard,
+  PageHeader,
+  PageState,
+  RiskCard,
+  ServiceDot,
+  StatusBadge,
+  WarningCard,
+} from "../components/Ui";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDate, formatDuration, formatNumber } from "../utils/format";
 import {
@@ -19,12 +37,21 @@ interface DashboardData {
   health: HealthResponse;
   market: MarketSummary;
   workflows: Workflow[];
+  hurdle: HurdleQuote | null;
+  decision: InvestmentDecisionResponse | null;
+  decisionError: string | null;
+}
+
+function pct(weight: number | undefined | null): string {
+  if (weight == null) return "—";
+  return `${(weight * 100).toFixed(0)}%`;
 }
 
 export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [whyOpen, setWhyOpen] = useState(false);
 
   function load() {
     const controller = new AbortController();
@@ -34,10 +61,26 @@ export function DashboardPage() {
       getSystemHealth(controller.signal),
       getMarketSummary(controller.signal),
       getWorkflows(controller.signal),
+      getHurdle(controller.signal).catch(() => null),
+      decideInvestment(
+        { profile_id: "BALANCED_ALLOCATION_V0", capital: 100000 },
+        controller.signal,
+      ).catch((reason: unknown) => ({ __error: errorMessage(reason) })),
     ])
-      .then(([health, market, workflows]) => setData({ health, market, workflows }))
+      .then(([health, market, workflows, hurdle, decisionOrError]) => {
+        const decisionError =
+          decisionOrError && typeof decisionOrError === "object" && "__error" in decisionOrError
+            ? String((decisionOrError as { __error: string }).__error)
+            : null;
+        const decision = decisionError
+          ? null
+          : (decisionOrError as InvestmentDecisionResponse);
+        setData({ health, market, workflows, hurdle, decision, decisionError });
+      })
       .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setError(errorMessage(reason));
+        }
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -49,7 +92,18 @@ export function DashboardPage() {
       getMarketSummary(),
       getWorkflows(),
     ]);
-    setData({ health, market, workflows });
+    setData((prev) =>
+      prev
+        ? { ...prev, health, market, workflows }
+        : {
+            health,
+            market,
+            workflows,
+            hurdle: null,
+            decision: null,
+            decisionError: null,
+          },
+    );
   }, []);
 
   useEffect(() => load(), []);
@@ -77,14 +131,127 @@ export function DashboardPage() {
   const recent = [...data.workflows]
     .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
     .slice(0, 8);
+  const decision = data.decision?.decision;
+  const equityW = decision?.equity_weight ?? 0;
+  const fiW = decision?.fixed_income_weight ?? 0;
+  const cashW = decision?.cash_weight ?? 0;
+  const risks = [
+    ...(decision?.warnings ?? []),
+    ...(data.decision?.bond_safety_reminder ? [data.decision.bond_safety_reminder] : []),
+  ].slice(0, 4);
 
   return (
     <section>
-      <PageHeader title={labels.nav.overview} description="Состояние платформы и рыночных данных" helpPageId="overview" />
+      <PageHeader
+        title={labels.nav.overview}
+        description="За несколько секунд: что предлагает Kraken, почему и какие риски."
+        helpPageId="overview"
+      />
+
+      <HeroCard
+        eyebrow="Текущее решение"
+        headline={
+          decision
+            ? "Kraken рекомендует исследовательское распределение"
+            : "Решение пока недоступно"
+        }
+        actions={
+          <>
+            <button type="button" className="why-toggle" onClick={() => setWhyOpen((v) => !v)}>
+              {whyOpen ? "Скрыть «Почему?»" : "Почему?"}
+            </button>
+            <Link className="why-toggle" to="/investment-decision">
+              Открыть решение
+            </Link>
+            <Link className="why-toggle" to="/portfolio-risk">
+              Проверка риска
+            </Link>
+          </>
+        }
+      >
+        {decision ? (
+          <>
+            <AllocationBars equity={equityW} fixedIncome={fiW} cash={cashW} />
+            <p className="muted" style={{ margin: 0 }}>
+              Акции {pct(equityW)} · Облигации {pct(fiW)} · Деньги {pct(cashW)}. Это research-кандидат
+              на 100 000 ₽, не приказ брокеру.
+            </p>
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>
+            {data.decisionError ??
+              "Пока нет готового инвестиционного решения. Откройте раздел «Инвестиционное решение»."}
+          </p>
+        )}
+        <div className="reveal-panel" hidden={!whyOpen}>
+          <div className="level-stack">
+            <ExplanationCard title="Простыми словами" level={1}>
+              {decision?.explanations?.[0] ??
+                "Kraken сравнивает возможности акций и облигаций с ключевой ставкой ЦБ и учитывает уверенность модели."}
+            </ExplanationCard>
+            <div className="card-grid">
+              <MetricCard
+                label="Ключевая ставка ЦБ"
+                value={
+                  data.hurdle?.annual_rate == null
+                    ? "Нет данных"
+                    : `${(data.hurdle.annual_rate * 100).toFixed(2)}%`
+                }
+                helpId="cbr_hurdle"
+                hint="Порог сравнения, не «безрисковый депозит»."
+              />
+              <MetricCard
+                label="Уверенность модели"
+                value={data.decision?.equity_opportunity?.calibration_status ?? "UNKNOWN"}
+                helpId="opportunity_confidence"
+              />
+              <MetricCard
+                label="Статус решения"
+                value={<StatusBadge status={decision?.status ?? "unknown"} />}
+                helpId="investment_decision"
+              />
+            </div>
+          </div>
+        </div>
+      </HeroCard>
+
+      <div className="card-grid">
+        <RiskCard title="Риски прямо сейчас">
+          {risks.length ? (
+            <ul className="plain-list">
+              {risks.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>Явных предупреждений в текущем решении нет — это не значит «без риска».</p>
+          )}
+        </RiskCard>
+        <WarningCard title="Доверие к прогнозу">
+          <p>
+            {data.decision?.calibration.uncertainty_note ??
+              "Без достаточного числа проверенных прогнозов Kraken не притворяется уверенным."}
+          </p>
+          <p>
+            <Link to="/calibration">Смотреть качество прогнозов →</Link>
+          </p>
+        </WarningCard>
+        <DataQualityCard title="Контекст рынка">
+          <p>
+            Ставка ЦБ:{" "}
+            {data.hurdle?.annual_rate == null
+              ? "нет данных"
+              : `${(data.hurdle.annual_rate * 100).toFixed(2)}%`}
+          </p>
+          <p>Инструментов: {formatNumber(data.market.instruments_count)}</p>
+          <p>Последние данные: {formatDate(data.market.last_successful_update ?? null)}</p>
+          <p>Свежесть: {labels.dataFreshness(data.market.last_successful_update ?? null)}</p>
+        </DataQualityCard>
+      </div>
 
       <div className="hero-status">
         <div>
-          <h2>ProjectAI</h2>
+          <h2 style={{ margin: 0 }}>Kraken</h2>
           <p className="subtitle">{overviewHealthTitle(data.health)}</p>
         </div>
         <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
@@ -98,60 +265,52 @@ export function DashboardPage() {
         <MetricCard
           label="Последние данные"
           value={formatDate(data.market.last_successful_update ?? null)}
-          hint="по последней успешной загрузке"
         />
       </div>
 
-      <div className="dashboard-grid">
-        <article className="panel">
-          <h2>Качество данных</h2>
-          <div className="key-value">
-            <span>Ошибки</span>
-            <strong>{formatNumber(data.market.dq_errors)}</strong>
-          </div>
-          <div className="key-value">
-            <span>Предупреждения</span>
-            <strong>{formatNumber(data.market.dq_warnings)}</strong>
-          </div>
-          {data.market.dq_errors === 0 && data.market.dq_warnings === 0 ? (
-            <p className="muted">Критичных проблем не зафиксировано.</p>
-          ) : null}
-        </article>
-
-        <article className="panel">
-          <h2>Состояние сервисов</h2>
-          <div className="service-list">
-            {DASHBOARD_SERVICES.map((key) => (
-              <div className="service-item" key={key}>
-                <span>{labels.service(key)}</span>
-                <ServiceDot status={resolveServiceStatus(data.health.services, key)} />
-              </div>
-            ))}
-          </div>
-        </article>
+      <h2>Сервисы</h2>
+      <div className="card-grid">
+        {DASHBOARD_SERVICES.map((service) => (
+          <article className="metric-card" key={service}>
+            <span className="metric-label">{labels.service(service)}</span>
+            <ServiceDot status={resolveServiceStatus(data.health.services, service)} />
+          </article>
+        ))}
       </div>
 
-      <article className="panel">
-        <div className="page-header" style={{ marginBottom: "0.5rem" }}>
-          <h2>Последние процессы</h2>
-          <Link className="inline-link" to="/workflows">
-            Все процессы
-          </Link>
-        </div>
-        {recent.length === 0 ? (
-          <p className="muted">Процессов пока нет.</p>
-        ) : (
-          <div className="workflow-list">
-            {recent.map((wf) => (
-              <Link className="workflow-row" key={wf.id} to={`/workflows?focus=${wf.id}`}>
-                <strong>{labels.workflowType(wf.workflow_type) || wf.name}</strong>
-                <StatusBadge status={wf.status} />
-                <span className="muted">{formatDuration(wf.duration_seconds)}</span>
-              </Link>
-            ))}
+      <h2>Недавние процессы</h2>
+      <div className="card">
+        {recent.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Процесс</th>
+                  <th>Статус</th>
+                  <th>Начало</th>
+                  <th>Длительность</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <Link to="/workflows">{labels.workflowType(item.workflow_type)}</Link>
+                    </td>
+                    <td>
+                      <StatusBadge status={item.status} />
+                    </td>
+                    <td>{formatDate(item.started_at)}</td>
+                    <td>{formatDuration(item.duration_seconds)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        ) : (
+          <p className="muted">Пока нет завершённых процессов — это нормально для тихого окна.</p>
         )}
-      </article>
+      </div>
     </section>
   );
 }
