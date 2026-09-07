@@ -10,7 +10,7 @@ import {
   type PortfolioCandidate,
 } from "../api/investment";
 import { getMarketSummary, type MarketSummary } from "../api/market";
-import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
+import { getShadowDailyOperations, getShadowLive, type ShadowDailyOperations, type ShadowLiveResponse } from "../api/shadow";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import {
@@ -26,7 +26,7 @@ import {
   StatusBadge,
   WarningCard,
 } from "../components/Ui";
-import { pickPortfolioA } from "../features/shadow/helpers";
+import { pickPortfolioA, readinessHeadline } from "../features/shadow/helpers";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
 import { formatDate, formatDuration, formatMoney, formatNumber, formatRelativeTime } from "../utils/format";
 import {
@@ -54,13 +54,18 @@ function pct(weight: number | undefined | null): string {
 
 function VirtualPortfolioCard() {
   const [live, setLive] = useState<ShadowLiveResponse | null>(null);
+  const [ops, setOps] = useState<ShadowDailyOperations | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    getShadowLive(controller.signal)
-      .then((resp) => {
+    Promise.all([
+      getShadowLive(controller.signal),
+      getShadowDailyOperations(controller.signal).catch(() => null),
+    ])
+      .then(([resp, dailyOps]) => {
         setLive(resp);
+        setOps(dailyOps);
         setErr(null);
       })
       .catch((reason: unknown) => {
@@ -73,12 +78,14 @@ function VirtualPortfolioCard() {
 
   const primary = live ? pickPortfolioA(live.portfolios) ?? live.portfolios[0] : null;
   const nav = primary?.live_nav ?? primary?.live?.nav ?? primary?.nav ?? primary?.cash;
+  const cash = primary?.live?.cash ?? primary?.cash;
   const pnl =
     nav != null && primary?.initial_capital != null
       ? nav - primary.initial_capital
       : primary?.live?.unrealized_pnl;
   const positions = primary?.live?.positions?.length ?? primary?.position_count ?? 0;
   const quoteAge = live?.last_intraday_refresh?.at ?? null;
+  const readiness = readinessHeadline(ops);
 
   return (
     <article className="panel shadow-live-card" data-testid="dashboard-virtual-portfolio">
@@ -94,7 +101,11 @@ function VirtualPortfolioCard() {
           <p style={{ margin: "0.25rem 0" }}>
             NAV {formatMoney(nav)}
             {pnl == null ? "" : ` · P&L ${formatMoney(pnl)}`}
+            {cash == null ? "" : ` · cash ${formatMoney(cash)}`}
             {` · позиций ${positions}`}
+          </p>
+          <p className="muted" data-testid="dashboard-shadow-readiness">
+            К следующей сессии: {readiness.ready ? "готов" : "требует внимания"}
           </p>
           <p className="muted">Котировки: {formatRelativeTime(quoteAge)}</p>
         </>

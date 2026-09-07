@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
 import { getIntradayStatus, type IntradayMarketStatus } from "../api/intraday";
+import { getShadowDailyOperations, type ShadowDailyOperations } from "../api/shadow";
 import {
   getDiagnosticsText,
   getSystemHealth,
@@ -11,6 +12,7 @@ import {
   type TechEvent,
 } from "../api/system";
 import { PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { CompactReadinessCard } from "../features/shadow/components";
 import { formatDateTime, formatRelativeTime } from "../utils/format";
 import { overviewHealthBadgeStatus, resolveServiceStatus, SYSTEM_SERVICES } from "../utils/health";
 import { labels } from "../utils/labels";
@@ -65,6 +67,28 @@ function IntradayQuotesStatusCard() {
       )}
     </article>
   );
+}
+
+function ShadowReadinessStatusCard() {
+  const [ops, setOps] = useState<ShadowDailyOperations | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getShadowDailyOperations(controller.signal)
+      .then((resp) => {
+        setOps(resp);
+        setErr(null);
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setErr(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  return <CompactReadinessCard ops={ops} error={err} />;
 }
 
 export function SystemPage() {
@@ -185,6 +209,7 @@ export function SystemPage() {
       {tab === "overview" ? (
         <div className="dashboard-grid">
           <IntradayQuotesStatusCard />
+          <ShadowReadinessStatusCard />
           <article className="panel">
             <h2>Приложение</h2>
             <div className="key-value">

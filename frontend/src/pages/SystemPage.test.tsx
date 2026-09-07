@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as intradayApi from "../api/intraday";
+import * as shadowApi from "../api/shadow";
 import * as systemApi from "../api/system";
 import { SystemPage } from "./SystemPage";
 
 vi.mock("../api/system");
 vi.mock("../api/intraday");
+vi.mock("../api/shadow");
 
 function mockOverview() {
   vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
@@ -37,6 +39,12 @@ function mockOverview() {
     writes_market_candles: false,
     policy: "SHADOW_NEXT_SESSION_OPEN_V1",
     last_refresh: null,
+  });
+  vi.mocked(shadowApi.getShadowDailyOperations).mockResolvedValue({
+    ready_for_next_session: false,
+    status_code: "WAITING_FOR_MARKET_COMPLETE",
+    blocker_code: "WAITING_FOR_MARKET_COMPLETE",
+    last_eod_cycle: { status: "SUCCESS", stale: false },
   });
 }
 

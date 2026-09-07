@@ -39,6 +39,7 @@ const portfolioA = {
   last_decision_iso_week: "2026-W36",
   experiment_group: "SHADOW_FORWARD_V0",
   kind: "FORWARD_SHADOW",
+  lot_aware: false,
 };
 
 const portfolioB = {
@@ -52,12 +53,54 @@ const portfolioB = {
   dd_normal_gross: 1,
 };
 
+const portfolioA_V2 = {
+  ...portfolioA,
+  id: "3",
+  name: "SHADOW_HYSTERESIS_V2",
+  experiment_group: "SHADOW_PORTFOLIO_REALISM_V2",
+  lot_aware: true,
+  execution_version: "LOT_AWARE_V2",
+  skipped: [
+    {
+      ticker: "SBER",
+      reason: "INSUFFICIENT_CASH_FOR_ONE_LOT",
+      lot_size: 10,
+    },
+  ],
+  order_plan: {
+    strategic_cash_reserve: 50_000,
+    rounding_remainder: 12_345.67,
+    skipped: [
+      {
+        ticker: "SBER",
+        reason: "INSUFFICIENT_CASH_FOR_ONE_LOT",
+        lot_size: 10,
+      },
+    ],
+  },
+};
+
+const portfolioB_V2 = {
+  ...portfolioA_V2,
+  id: "4",
+  name: "SHADOW_HYSTERESIS_DD_V2",
+  risk_name: "DRAWDOWN_GUARD_V1",
+  dd_trigger: -0.2,
+  dd_recovery: -0.1,
+  skipped: [],
+  order_plan: {
+    strategic_cash_reserve: 50_000,
+    rounding_remainder: 0,
+    skipped: [],
+  },
+};
+
 const mgntOrder = {
   id: 1,
   ticker: "MGNT",
   display_name: "Magnit",
   side: "BUY",
-  quantity: 71.66,
+  quantity: 600,
   target_weight: 0.1111111111111111,
   reason: "ENTER_TOP20",
   status: "PENDING",
@@ -74,8 +117,33 @@ const mgntOrder = {
     signal_as_of: "2026-09-02",
     forward_batch_id: 1,
     signal_generated_at: "2026-09-04T13:40:38.343892+00:00",
+    lots: 6,
+    lot_size: 100,
+    units: 600,
   },
 };
+
+function mockDailyOps(overrides?: Partial<shadowApi.ShadowDailyOperations>) {
+  vi.mocked(shadowApi.getShadowDailyOperations).mockResolvedValue({
+    latest_complete_eod_date: "2026-09-05",
+    latest_forward_as_of: "2026-09-05",
+    order_plan_status: "PRESENT",
+    pending_orders: 9,
+    ready_for_next_session: true,
+    next_execution_session: "2026-09-06",
+    status_code: "PENDING_ORDERS_AWAITING_OPEN",
+    blocker_code: "PENDING_ORDERS_AWAITING_OPEN",
+    eod_readiness: { ready: true, latest_complete_eod_date: "2026-09-05", reason: "eod_complete" },
+    last_eod_cycle: {
+      workflow_id: 9,
+      status: "SUCCESS",
+      finished_at: "2026-09-05T18:30:20Z",
+      covers_latest_eod: true,
+      stale: false,
+    },
+    ...overrides,
+  });
+}
 
 function mockLive(overrides?: Partial<shadowApi.ShadowLiveResponse>) {
   vi.mocked(shadowApi.getShadowLive).mockResolvedValue({
@@ -126,10 +194,13 @@ function mockLive(overrides?: Partial<shadowApi.ShadowLiveResponse>) {
   });
 }
 
-function mockHappyPath() {
+function mockHappyPath(opts?: { withV2?: boolean }) {
+  const portfolios = opts?.withV2
+    ? [portfolioA, portfolioB, portfolioA_V2, portfolioB_V2]
+    : [portfolioA, portfolioB];
   vi.mocked(shadowApi.getShadowOverview).mockResolvedValue({
     kind: "FORWARD_SHADOW",
-    experiment_group: "SHADOW_FORWARD_V0",
+    experiment_group: opts?.withV2 ? "SHADOW_PORTFOLIO_REALISM_V2" : "SHADOW_FORWARD_V0",
     activated_at: portfolioA.activated_at,
     automatic_schedule: "not_configured",
     intraday: {
@@ -138,9 +209,60 @@ function mockHappyPath() {
       last_refresh: { at: "2026-09-07T07:05:00Z" },
       refresh_minutes: 5,
     },
-    portfolios: [portfolioA, portfolioB],
+    portfolios,
   });
-  mockLive();
+  if (opts?.withV2) {
+    mockLive({
+      portfolios: [
+        {
+          ...portfolioA_V2,
+          intraday_enabled: true,
+          live: {
+            cash: 950_000,
+            market_value: 0,
+            nav: 950_000,
+            realized_pnl: 0,
+            fees_paid: 120,
+            unrealized_pnl: 0,
+            quote_coverage: 1,
+            positions: [],
+          },
+          pending_order_reasons: [
+            {
+              order_id: 1,
+              ticker: "MGNT",
+              side: "BUY",
+              min_execution_date: "2026-09-05",
+              reason: "NEXT_SESSION_NOT_STARTED",
+              session_date: "2026-09-07",
+              market_status: "CLOSED",
+            },
+          ],
+        },
+        {
+          ...portfolioB_V2,
+          intraday_enabled: true,
+          live: { cash: 950_000, market_value: 0, nav: 950_000, positions: [] },
+          pending_order_reasons: [],
+        },
+        {
+          ...portfolioA,
+          intraday_enabled: true,
+          live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
+          pending_order_reasons: [],
+        },
+        {
+          ...portfolioB,
+          intraday_enabled: true,
+          live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
+          pending_order_reasons: [],
+        },
+      ],
+    });
+  } else {
+    mockLive();
+  }
+  mockDailyOps();
   vi.mocked(intradayApi.getIntradayStatus).mockResolvedValue({
     enabled: true,
     refresh_minutes: 5,
@@ -151,20 +273,18 @@ function mockHappyPath() {
     policy: "SHADOW_NEXT_SESSION_OPEN_V1",
     last_refresh: { at: "2026-09-07T07:05:00Z" },
   });
-  vi.mocked(shadowApi.getShadowOrders).mockImplementation(async (id) => {
-    if (String(id) === "1" || String(id) === "2") {
-      return [
-        mgntOrder,
-        ...Array.from({ length: 8 }, (_, i) => ({
-          ...mgntOrder,
-          id: i + 2,
-          ticker: `T${i + 2}`,
-          rank: i + 2,
-          predicted_return_20d: 0.1 - i * 0.01,
-        })),
-      ];
-    }
-    return [];
+  vi.mocked(shadowApi.getShadowOrders).mockImplementation(async () => {
+    return [
+      mgntOrder,
+      ...Array.from({ length: 8 }, (_, i) => ({
+        ...mgntOrder,
+        id: i + 2,
+        ticker: `T${i + 2}`,
+        rank: i + 2,
+        predicted_return_20d: 0.1 - i * 0.01,
+        metadata: { lots: 1, lot_size: 10, units: 10 },
+      })),
+    ];
   });
   vi.mocked(shadowApi.getShadowFills).mockResolvedValue([]);
   vi.mocked(shadowApi.getShadowNav).mockResolvedValue([]);
@@ -314,12 +434,27 @@ describe("ShadowPage", () => {
     expect(screen.getByTestId("shadow-pending-reasons")).toHaveTextContent(
       /Следующая сессия ещё не началась/i,
     );
+    expect(screen.getByTestId("shadow-readiness")).toHaveTextContent(/READY/i);
+    expect(screen.getByTestId("shadow-lifecycle-strip")).toHaveTextContent(/Закрытие/);
     expect(screen.getByText(/не пересчитывает прошлое/i)).toBeInTheDocument();
     expect(screen.getByText("Сделок пока нет")).toBeInTheDocument();
     expect(screen.getAllByText(/Ожидаем открытие рынка/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/ошибка эксперимента/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Ожидаем 4\/20/)).toBeInTheDocument();
     expect(screen.getByText(/Состояние контура/i)).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-few-observations")).toHaveTextContent(/Мало наблюдений/i);
+  });
+
+  it("prefers Realism V2 arms and shows skip reasons in Russian", async () => {
+    mockHappyPath({ withV2: true });
+    renderPage();
+    expect(await screen.findByTestId("shadow-experiment-v2")).toHaveTextContent(/Realism V2/i);
+    expect(screen.getByTestId("shadow-legacy-v1")).toBeInTheDocument();
+    expect(await screen.findByTestId("shadow-skipped-reasons")).toHaveTextContent(
+      /Не хватает денег даже на один лот/i,
+    );
+    expect(screen.getByTestId("shadow-cash-card")).toHaveTextContent(/Стратегический резерв/i);
+    expect(screen.getByTestId("shadow-pending-orders")).toHaveTextContent(/6×100=600/);
   });
 
   it("shows updates disabled status without red market-closed panic", async () => {
@@ -342,7 +477,7 @@ describe("ShadowPage", () => {
     expect(screen.queryByText(/ошибка эксперимента/i)).not.toBeInTheDocument();
   });
 
-  it("shows live positions with stale badge", async () => {
+  it("shows live positions with lots, avg entry and stale badge", async () => {
     mockLive({
       intraday_enabled: true,
       portfolios: [
@@ -362,10 +497,14 @@ describe("ShadowPage", () => {
               {
                 instrument_id: 53,
                 ticker: "MGNT",
-                quantity: 100,
+                quantity: 600,
+                lots: 6,
+                lot_size: 100,
+                avg_entry: 5000,
                 mark_price: 5150,
                 mark_source: "LAST",
                 market_value: 515_000,
+                unrealized_pnl: 15_000,
                 freshness: "STALE",
                 quote_time: "2026-09-07T06:00:00Z",
               },
@@ -379,6 +518,7 @@ describe("ShadowPage", () => {
     expect(await screen.findByTestId("shadow-live-status")).toHaveTextContent(/Позиции открыты/i);
     const table = await screen.findByTestId("shadow-live-positions");
     expect(within(table).getByText("MGNT")).toBeInTheDocument();
+    expect(within(table).getByText("6×100=600")).toBeInTheDocument();
     expect(within(table).getByTestId("stale-badge")).toHaveTextContent(/Устарела/i);
   });
 

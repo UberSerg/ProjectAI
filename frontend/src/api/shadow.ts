@@ -7,11 +7,17 @@ export interface ShadowLivePosition {
   instrument_id: number;
   ticker: string;
   quantity: number;
+  lots?: number | null;
+  lot_size?: number | null;
+  avg_entry?: number | null;
+  cost_basis?: number | null;
+  realized_pnl?: number | null;
   mark_price?: number | null;
   mark_source?: string | null;
   market_value?: number | null;
   freshness?: string | null;
   entry_price?: number | null;
+  invested_cost?: number | null;
   /** Alias used by UI; prefer unrealized_pnl_pct from API when present. */
   change_pct?: number | null;
   unrealized_pnl?: number | null;
@@ -22,12 +28,49 @@ export interface ShadowLivePosition {
 
 export interface ShadowLiveSnapshot {
   cash: number;
+  invested_cost?: number | null;
   market_value: number;
   nav: number;
   unrealized_pnl?: number | null;
+  unrealized_pnl_pct?: number | null;
+  realized_pnl?: number | null;
+  fees_paid?: number | null;
   quote_coverage?: number | null;
   warnings?: string[];
+  as_of?: string | null;
   positions: ShadowLivePosition[];
+}
+
+export interface ShadowCashBreakdown {
+  cash?: number | null;
+  invested_cost?: number | null;
+  market_value?: number | null;
+  nav?: number | null;
+  fees_paid?: number | null;
+  realized_pnl?: number | null;
+  unrealized_pnl?: number | null;
+}
+
+export interface ShadowOrderPlanSkipped {
+  instrument_id?: number;
+  ticker: string;
+  action?: string;
+  reason: string;
+  lot_size?: number | null;
+  rank?: number | null;
+}
+
+export interface ShadowOrderPlan {
+  projected_cash?: number | null;
+  fees_total?: number | null;
+  rounding_remainder?: number | null;
+  starting_cash?: number | null;
+  strategic_cash_reserve?: number | null;
+  sell_proceeds?: number | null;
+  buy_notional?: number | null;
+  rows?: Array<Record<string, unknown>>;
+  skipped?: ShadowOrderPlanSkipped[];
+  orders?: Array<Record<string, unknown>>;
 }
 
 export interface ShadowPendingOrderReason {
@@ -42,6 +85,14 @@ export interface ShadowPendingOrderReason {
   open_price?: number | null;
   quote_freshness?: string | null;
   market_status?: string | null;
+}
+
+export interface ShadowReadinessSummary {
+  ready_for_next_session?: boolean | null;
+  blocker_code?: string | null;
+  status_code?: string | null;
+  latest_complete_eod_date?: string | null;
+  pending_orders?: number | null;
 }
 
 export interface ShadowPortfolioSummary {
@@ -75,6 +126,10 @@ export interface ShadowPortfolioSummary {
   dd_risk_off_gross?: number | null;
   dd_normal_gross?: number | null;
   kind?: string;
+  fractional_shares?: boolean;
+  lot_aware?: boolean;
+  execution_version?: string | null;
+  version?: string | null;
   /** Live / intraday enrichment from overview or /live. */
   intraday_enabled?: boolean;
   open_execution_policy?: string | null;
@@ -82,8 +137,12 @@ export interface ShadowPortfolioSummary {
   live?: ShadowLiveSnapshot | null;
   live_nav?: number | null;
   live_market_value?: number | null;
+  cash_breakdown?: ShadowCashBreakdown | null;
+  order_plan?: ShadowOrderPlan | null;
+  skipped?: ShadowOrderPlanSkipped[] | null;
   pending_order_reasons?: ShadowPendingOrderReason[];
   pending_execution?: boolean;
+  readiness?: ShadowReadinessSummary | null;
 }
 
 export interface ShadowOverviewIntraday {
@@ -108,6 +167,44 @@ export interface ShadowLiveResponse {
   open_execution_policy?: string | null;
   last_intraday_refresh?: IntradayLastRefresh | null;
   portfolios: ShadowPortfolioSummary[];
+}
+
+export interface ShadowDailyOperations {
+  latest_complete_eod_date?: string | null;
+  latest_forward_as_of?: string | null;
+  order_plan_status?: string | null;
+  pending_orders?: number | null;
+  ready_for_next_session?: boolean | null;
+  next_execution_session?: string | null;
+  status_code?: string | null;
+  blocker_code?: string | null;
+  eod_readiness?: {
+    ready?: boolean;
+    blocker_code?: string | null;
+    latest_complete_eod_date?: string | null;
+    reason?: string | null;
+  } | null;
+  automation?: Record<string, unknown> | null;
+  last_eod_cycle?: {
+    workflow_id?: number | null;
+    status?: string | null;
+    finished_at?: string | null;
+    covers_latest_eod?: boolean | null;
+    stale?: boolean | null;
+  } | null;
+  last_intraday_refresh?: IntradayLastRefresh | null;
+  consistency?: Array<Record<string, unknown>>;
+  portfolios?: Array<{
+    id: number;
+    name: string;
+    experiment_group?: string | null;
+    status?: string;
+    lot_aware?: boolean;
+    fractional_shares?: boolean;
+    cash?: number;
+    last_processed_market_date?: string | null;
+  }>;
+  watermarks?: Record<string, string | null>;
 }
 
 export interface ShadowOrder {
@@ -179,6 +276,10 @@ export function getShadowOverview(signal?: AbortSignal): Promise<ShadowOverview>
 
 export function getShadowLive(signal?: AbortSignal): Promise<ShadowLiveResponse> {
   return apiRequest("/shadow/live", { signal });
+}
+
+export function getShadowDailyOperations(signal?: AbortSignal): Promise<ShadowDailyOperations> {
+  return apiRequest("/shadow/daily-operations", { signal });
 }
 
 export function listShadowPortfolios(signal?: AbortSignal): Promise<ShadowPortfolioSummary[]> {
