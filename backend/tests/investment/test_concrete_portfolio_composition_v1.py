@@ -72,14 +72,85 @@ def test_equity_deterministic_and_no_synthetic_sleeve() -> None:
     assert a.equal_weight <= 0.15 + 1e-9
 
 
-def test_equity_blocked_excluded() -> None:
-    rows = [_eq("SBER", 1), _eq("BAD", 2)]
-    gate = {"SBER": "RESEARCH_ONLY", "BAD": "BLOCKED"}
-    sel = select_equity_composition(
-        rows, sleeve_weight=0.2, capital=Decimal("100000"), gate_status_by_symbol=gate
+def test_equity_unknown_lot_size_rejected() -> None:
+    rows = [_eq("SBER", 1, lot=10), _eq("NOLOt", 2)]
+    rows[1] = EquityCandidateRow(
+        instrument_id=2,
+        symbol="NOLOT",
+        display_name="NOLOT",
+        rank=2,
+        signal_value=0.1,
+        signal_semantic="EXPECTED_RETURN",
+        reference_price=Decimal("100"),
+        lot_size=None,
+        model_name="prediction_ml_candidate",
+        model_version="v0",
+        batch_id=1,
+        as_of="2026-09-03",
     )
-    assert all(r.symbol != "BAD" for r in sel.selected)
-    assert any(r["symbol"] == "BAD" for r in sel.rejected)
+    gate = {r.symbol: "RESEARCH_ONLY" for r in rows}
+    sel = select_equity_composition(
+        rows, sleeve_weight=0.25, capital=Decimal("100000"), gate_status_by_symbol=gate
+    )
+    assert all(r.symbol != "NOLOT" for r in sel.selected)
+    assert any(
+        r["symbol"] == "NOLOT" and r["risk_status"] == "INSUFFICIENT_DATA" for r in sel.rejected
+    )
+
+
+def test_parse_moex_share_lot_size() -> None:
+    from app.infrastructure.market.moex_iss import parse_moex_share_lot_size
+
+    assert parse_moex_share_lot_size({"securities": {"columns": ["SECID", "LOTSIZE"], "data": [["SBER", 10]]}}) == 10
+    assert parse_moex_share_lot_size({"securities": {"columns": ["SECID", "LOTSIZE"], "data": [["X", None]]}}) is None
+    assert parse_moex_share_lot_size({"securities": {"columns": ["SECID"], "data": [["X"]]}}) is None
+
+
+def test_resolve_equity_lot_from_metadata_no_network() -> None:
+    from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
+
+    session = MagicMock()
+    instrument = MagicMock()
+    instrument.id = 7
+    instrument.symbol = "SBER"
+    src = MagicMock()
+    src.instrument_id = 7
+    src.source = "MOEX"
+    src.board = "TQBR"
+    src.external_id = "SBER"
+    src.source_metadata = {
+        "LOTSIZE": 10,
+        "lotsize_provenance": {"field": "LOTSIZE", "source": "MOEX_ISS", "value": 10},
+    }
+    session.scalars.return_value = [src]
+    resolved = resolve_equity_lot_sizes(session, [instrument], fetch_missing=False)
+    assert resolved[7].lot_size == 10
+    assert resolved[7].status == "OK"
+
+
+def test_resolve_equity_lot_missing_without_default() -> None:
+    from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
+
+    session = MagicMock()
+    instrument = MagicMock()
+    instrument.id = 8
+    instrument.symbol = "XYZ"
+    src = MagicMock()
+    src.instrument_id = 8
+    src.source = "MOEX"
+    src.board = "TQBR"
+    src.external_id = "XYZ"
+    src.source_metadata = {}
+    session.scalars.return_value = [src]
+    resolved = resolve_equity_lot_sizes(session, [instrument], fetch_missing=False)
+    assert resolved[8].lot_size is None
+    assert resolved[8].status == "UNKNOWN_LOTSIZE"
+
+
+def test_composition_config_has_no_silent_equity_lot_default() -> None:
+    cfg = CompositionConfig()
+    assert not hasattr(cfg, "default_equity_lot_size")
+
 
 
 def test_fi_prefers_government_not_max_ytm_and_no_synthetic() -> None:

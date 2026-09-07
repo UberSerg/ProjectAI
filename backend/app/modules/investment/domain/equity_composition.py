@@ -24,11 +24,12 @@ class EquityCandidateRow:
     signal_value: float
     signal_semantic: str
     reference_price: Decimal
-    lot_size: int
+    lot_size: int | None
     model_name: str
     model_version: str
     batch_id: int
     as_of: str
+    lot_size_provenance: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +73,15 @@ def select_equity_composition(
         if status in {"BLOCKED", "INSUFFICIENT_DATA"}:
             rejected.append(_rej(row, status, "Исключено Risk Gate до включения в состав."))
             continue
+        if row.lot_size is None or row.lot_size <= 0:
+            rejected.append(
+                _rej(
+                    row,
+                    "INSUFFICIENT_DATA",
+                    "Неизвестен размер лота (LOTSIZE) по источнику MOEX — позиция не включается.",
+                )
+            )
+            continue
         if row.reference_price * row.lot_size <= 0:
             rejected.append(_rej(row, "INSUFFICIENT_DATA", "Нет корректной цены или размера лота."))
             continue
@@ -96,7 +106,7 @@ def select_equity_composition(
             break
         if target_per < config.min_position_rub:
             break
-        lot_cost = float(row.reference_price * row.lot_size)
+        lot_cost = float(row.reference_price * int(row.lot_size))
         if lot_cost > target_per * 1.05:
             rejected.append(
                 _rej(

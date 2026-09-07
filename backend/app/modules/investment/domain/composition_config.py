@@ -20,7 +20,7 @@ class CompositionConfig:
     max_fixed_income_positions: int = 5  # allows ~70% FI sleeve under 15% concentration cap
     min_position_rub: float = 3_000.0
     max_single_position_weight: float = 0.15
-    default_equity_lot_size: int = 1  # LOTSIZE not yet persisted on market.instruments
+    # Equity LOTSIZE must come from MOEX source_metadata / ISS — never invent default=1.
     prefer_government_bonds: bool = True
     cost_bps: float = 5.0
     stale_after_days: int = 10

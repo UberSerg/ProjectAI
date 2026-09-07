@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.investment.application.credit_liquidity_service import list_bond_risk_assessments
+from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.investment.domain.composition_config import (
     DEFAULT_COMPOSITION_CONFIG,
     CompositionConfig,
@@ -62,14 +63,33 @@ def load_equity_candidates(
         )
     }
     prices = _latest_closes(session, list(instruments.keys()))
+    lot_map = resolve_equity_lot_sizes(session, list(instruments.values()), fetch_missing=True)
 
     rows: list[EquityCandidateRow] = []
+    skipped_unknown_lot: list[dict[str, Any]] = []
     for pred in preds:
         inst = instruments.get(int(pred.instrument_id))
         if inst is None:
             continue
         price = prices.get(int(inst.id))
         if price is None or price <= 0:
+            continue
+        lot_res = lot_map.get(int(inst.id))
+        lot_size = lot_res.lot_size if lot_res is not None else None
+        provenance = dict(lot_res.provenance) if lot_res is not None else {"reason": "no_resolution"}
+        if lot_size is None or lot_size <= 0:
+            skipped_unknown_lot.append(
+                {
+                    "symbol": inst.symbol,
+                    "instrument_id": int(inst.id),
+                    "status": lot_res.status if lot_res else "UNKNOWN_LOTSIZE",
+                    "reason_ru": (
+                        "Неизвестен размер лота (LOTSIZE) по источнику MOEX — "
+                        "тикер не включается в состав (без silent default=1)."
+                    ),
+                    "provenance": provenance,
+                }
+            )
             continue
         rank = int(pred.rank) if pred.rank is not None else 10_000 + int(pred.instrument_id)
         rows.append(
@@ -81,15 +101,16 @@ def load_equity_candidates(
                 signal_value=float(pred.predicted_return_20d),
                 signal_semantic=str(batch.prediction_semantic or "EXPECTED_RETURN"),
                 reference_price=price,
-                lot_size=config.default_equity_lot_size,
+                lot_size=lot_size,
                 model_name=batch.candidate_name,
                 model_version=batch.candidate_version,
                 batch_id=int(batch.id),
                 as_of=batch.as_of_date.isoformat(),
+                lot_size_provenance=provenance,
             )
         )
     meta = {
-        "status": "OK",
+        "status": "OK" if rows else ("NO_PRICED_WITH_LOTSIZE" if preds else "EMPTY_BATCH"),
         "batch_id": batch.id,
         "candidate_name": batch.candidate_name,
         "candidate_version": batch.candidate_version,
@@ -97,6 +118,9 @@ def load_equity_candidates(
         "as_of": batch.as_of_date.isoformat(),
         "prediction_count": len(preds),
         "priced_count": len(rows),
+        "unknown_lot_size_count": len(skipped_unknown_lot),
+        "unknown_lot_size": skipped_unknown_lot[: config.max_rejected_shown],
+        "lot_size_policy": "MOEX_ISS_ONLY_NO_DEFAULT",
     }
     return rows, meta
 

@@ -133,6 +133,22 @@ class MoexIssProvider(MarketDataProvider):
         response = self.client.get(url, params={"iss.meta": "off"})
         return parse_moex_security_boards(response.json()), response.content
 
+    def fetch_share_lot_size(self, secid: str, *, board: str = "TQBR") -> tuple[int | None, bytes]:
+        """Observed equity LOTSIZE from ISS board securities endpoint. No invented default."""
+        url = (
+            f"{self.base_url}/iss/engines/stock/markets/shares"
+            f"/boards/{board}/securities/{secid}.json"
+        )
+        response = self.client.get(
+            url,
+            params={
+                "iss.meta": "off",
+                "securities.columns": "SECID,LOTSIZE",
+                "marketdata.columns": "SECID",
+            },
+        )
+        return parse_moex_share_lot_size(response.json()), response.content
+
     def fetch_stock_splits(self) -> tuple[SplitParseResult, tuple[bytes, ...]]:
         """Official ISS stock splits. Fields: tradedate, secid, before, after. No known_at."""
         url = f"{self.base_url}/iss/statistics/engines/stock/splits.json"
@@ -249,6 +265,24 @@ def parse_moex_security_boards(payload: dict[str, Any]) -> list[MoexBoardWindow]
             )
         )
     return result
+
+
+def parse_moex_share_lot_size(payload: dict[str, Any]) -> int | None:
+    """Parse LOTSIZE from shares board securities payload. Returns None if absent/invalid."""
+    block = payload.get("securities") or {}
+    columns = block.get("columns") or []
+    rows = block.get("data") or []
+    if not columns or not rows:
+        return None
+    row = dict(zip(columns, rows[0], strict=False))
+    raw = row.get("LOTSIZE")
+    if raw in (None, ""):
+        return None
+    try:
+        lot = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return lot if lot > 0 else None
 
 
 def _description_secid(payload: dict[str, Any]) -> str:

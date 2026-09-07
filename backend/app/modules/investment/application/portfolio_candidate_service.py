@@ -96,6 +96,20 @@ def build_portfolio_candidate(
     rejected: list[RejectedCandidate] = []
     for raw in list(equity_sel.rejected) + list(fi_sel.rejected):
         rejected.append(RejectedCandidate(**raw))
+    for raw in composed["equity_meta"].get("unknown_lot_size") or []:
+        rejected.append(
+            RejectedCandidate(
+                symbol=str(raw["symbol"]),
+                display_name=str(raw.get("display_name") or raw["symbol"]),
+                sleeve="EQUITY_ALPHA",
+                opportunity_hint="LOTSIZE unknown",
+                risk_status="INSUFFICIENT_DATA",
+                reason_ru=str(
+                    raw.get("reason_ru")
+                    or "Неизвестен размер лота (LOTSIZE) — позиция не включается."
+                ),
+            )
+        )
 
     # Unrealized sleeve weight → cash (composer may not change economic policy, only fail soft).
     realized_eq_target = equity_sel.equal_weight * len(equity_sel.selected)
@@ -112,12 +126,14 @@ def build_portfolio_candidate(
     eq_by_sym = {r.symbol: r for r in equity_sel.selected}
     fi_by_sym = {r.symbol: r for r in fi_sel.selected}
     for row in equity_sel.selected:
+        if row.lot_size is None or row.lot_size <= 0:
+            continue
         lot_candidates.append(
             AllocationCandidate(
                 symbol=row.symbol,
                 sleeve=AssetSleeve.EQUITY_ALPHA,
                 price=row.reference_price,
-                lot_size=row.lot_size,
+                lot_size=int(row.lot_size),
                 target_weight=Decimal(str(equity_sel.equal_weight)),
             )
         )
@@ -176,6 +192,7 @@ def build_portfolio_candidate(
                     "data_quality": "READY",
                     "support_status": "SUPPORTED",
                     "risk_flags": ("equity_confidence_unknown",) if confidence_unknown else (),
+                    "lot_size_provenance": row.lot_size_provenance,
                 }
             )
         elif pos.symbol in fi_by_sym:
@@ -287,6 +304,7 @@ def build_portfolio_candidate(
                 extra={
                     "selection_reason": p.get("selection_reason"),
                     "final_gate_explanations_ru": p.get("final_gate_explanations_ru"),
+                    "lot_size_provenance": p.get("lot_size_provenance"),
                 },
             )
         )
@@ -506,7 +524,7 @@ def build_portfolio_candidate(
                 "max_fixed_income_positions": config.max_fixed_income_positions,
                 "min_position_rub": config.min_position_rub,
                 "max_single_position_weight": config.max_single_position_weight,
-                "default_equity_lot_size": config.default_equity_lot_size,
+                "equity_lot_size_policy": "MOEX_ISS_ONLY_NO_DEFAULT",
             },
         },
         "freshness": {
