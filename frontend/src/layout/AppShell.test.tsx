@@ -36,4 +36,12 @@ describe("AppShell investor-first nav", () => {
     expect(nav.querySelector('a[href="/allocation"]')).toBeNull();
     expect(nav.querySelector('a[href="/portfolio"]')).toBeNull();
   });
+
+  it("uses wide main layout without artificial reading max-width", () => {
+    renderShell("/portfolio/candidate");
+    const main = screen.getByTestId("app-main");
+    expect(main).toHaveAttribute("data-layout", "wide");
+    expect(main.className.split(/\s+/)).toEqual(expect.arrayContaining(["content", "content-wide"]));
+    expect(main.className).not.toMatch(/content-reading|page-layout-reading/);
+  });
 });

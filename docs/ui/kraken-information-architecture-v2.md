@@ -66,12 +66,13 @@ Kraken
 
 ## Wide layout rules
 
-- Sidebar ~200px (`.sidebar-compact`).
-- `.content` до `min(1600px, 100%)` — широкие таблицы на весь контент.
-- `.content-reading` ~720px для статей/help-блоков при необходимости.
-- `.table-wrap`: только `overflow-x: auto`, без фиксированного `max-height` (нет вложенного вертикального скролла таблиц).
-- `@media (max-width: 1024px)`: sidebar сверху, usable single-column layout.
-- `.page-purpose` — приглушённый подзаголовок «зачем раздел».
+- Sidebar ~200px (`.sidebar-compact`); grid `200px minmax(0, 1fr)`.
+- `.content` / `.content-wide`: **no** artificial max-width — fills remaining main column.
+- Root cause of V2 narrow UI: `design-system.css` (imported after `styles.css`) re-applied `max-width: 1180px` on `.content`, overriding the V2 `min(1600px)` attempt.
+- `.page-layout-reading` / `.content-reading` (~42rem) only for long text/help article blocks.
+- `.page-purpose` and `.subtitle` may keep a soft reading max (~52rem) without capping the page shell.
+- `.table-wrap`: `width: 100%`, `overflow-x: auto` only when columns overflow.
+- `@media (max-width: 1024px)`: sidebar stacks; main stays full width.
 
 ## Out of scope
 

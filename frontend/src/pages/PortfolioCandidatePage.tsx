@@ -265,7 +265,7 @@ export function PortfolioCandidatePage() {
     summary?.executable_count ?? candidate.positions.filter((p) => p.executable).length;
 
   return (
-    <section className="portfolio-candidate-page">
+    <section className="portfolio-candidate-page page-layout-wide" data-layout="wide">
       <PageHeader
         title="Кандидат портфеля Kraken"
         description="Исследовательский портфель на основе текущих данных и правил риска. Не инструкция к покупке."

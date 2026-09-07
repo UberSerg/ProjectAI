@@ -32,14 +32,21 @@ body {
   min-height: 100vh;
 }
 
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
 .layout {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 200px minmax(0, 1fr);
+  width: 100%;
   min-height: 100vh;
 }
 
 .sidebar {
   width: 200px;
+  max-width: 200px;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
   padding: 1.1rem 0.7rem;
@@ -51,6 +58,7 @@ body {
 
 .sidebar-compact {
   width: 200px;
+  max-width: 200px;
 }
 
 .brand {
@@ -121,15 +129,24 @@ body {
   padding: 0.1rem 0.45rem;
 }
 
+/* Fills the grid's 1fr column; design-system must not re-cap this. */
 .content {
-  padding: 1.5rem 1.75rem 2.5rem;
-  min-width: 0;
-  max-width: min(1600px, 100%);
+  box-sizing: border-box;
   width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 1.5rem 1.75rem 2.5rem;
 }
 
-.content-reading {
-  max-width: 720px;
+.content-wide,
+.page-layout-wide {
+  width: 100%;
+  max-width: none;
+}
+
+.content-reading,
+.page-layout-reading {
+  max-width: 42rem;
 }
 
 h1 { margin: 0 0 0.25rem; font-size: 1.65rem; font-weight: 700; }
@@ -503,7 +520,8 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
   }
   .content {
     padding: 1rem 1rem 2rem;
-    max-width: 100%;
+    max-width: none;
+    width: 100%;
   }
   .card-grid {
     grid-template-columns: 1fr 1fr;

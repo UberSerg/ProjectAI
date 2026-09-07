@@ -77,7 +77,7 @@ export function AppShell() {
               <NavGroup title={labels.nav.systemGroup} items={system} />
             </nav>
           </aside>
-          <main className="content">
+          <main className="content content-wide" data-layout="wide" data-testid="app-main">
             <Outlet />
           </main>
         </div>
