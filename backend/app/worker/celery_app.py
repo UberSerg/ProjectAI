@@ -64,6 +64,16 @@ def create_celery_app() -> Celery:
             "task": "projectai.sync_moex_instrument_master_scheduled",
             "schedule": crontab(**_parse_cron(settings.moex_instrument_master_sync_cron)),
         }
+    if settings.fi_enrichment_enabled:
+        beat_schedule["fi-enrichment-batch"] = {
+            "task": "projectai.enrich_fixed_income_instruments_scheduled",
+            "schedule": crontab(**_parse_cron(settings.fi_enrichment_cron)),
+        }
+    if settings.dividend_sync_enabled:
+        beat_schedule["dividend-history-sync"] = {
+            "task": "projectai.sync_dividend_history",
+            "schedule": crontab(**_parse_cron(settings.dividend_sync_cron)),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],

@@ -315,6 +315,17 @@ class MoexInstrumentMasterSync:
             flag_modified(src, "source_metadata")
             src.instrument_id = int(existing.id)
 
+        # Async FI enrichment for bonds — never auto-grows research_fi_v1.
+        if (existing.asset_class or "").lower() == "bond":
+            try:
+                from app.modules.investment.application.enrichment_service import (
+                    enqueue_new_bond_from_master,
+                )
+
+                enqueue_new_bond_from_master(self.session, existing)
+            except Exception as exc:  # noqa: BLE001
+                report.notes.append(f"fi_enqueue_failed:{existing.symbol}:{type(exc).__name__}")
+
     def _deactivate_missing(
         self, seen_keys: set[tuple[str, str]], report: SyncReport
     ) -> int:

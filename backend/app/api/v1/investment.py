@@ -139,6 +139,35 @@ def fixed_income_readiness_endpoint() -> dict[str, Any]:
         return fixed_income_readiness(session)
 
 
+@router.get("/fixed-income/coverage")
+def fixed_income_coverage(
+    write_artifact: Annotated[bool, Query()] = False,
+) -> dict[str, Any]:
+    """FI enrichment coverage: master bonds / terms / cashflows / jobs / research_fi_v1 pin."""
+    from app.modules.investment.application.enrichment_service import (
+        fi_coverage_report,
+        write_fi_coverage_artifact,
+    )
+
+    with core_session() as session:
+        report = fi_coverage_report(session)
+        if write_artifact:
+            path = write_fi_coverage_artifact(session)
+            report["artifact_path"] = str(path)
+        return report
+
+
+@router.post("/fixed-income/enrichment/run")
+def fixed_income_enrichment_run() -> dict[str, Any]:
+    """Manual bounded enrichment batch (respects FI_ENRICHMENT_ENABLED)."""
+    from app.modules.investment.application.enrichment_service import run_fi_enrichment_batch
+
+    with core_session() as session:
+        result = run_fi_enrichment_batch(session, acquire_lock=True)
+        session.commit()
+        return result
+
+
 @router.get("/fixed-income/instruments/{symbol}/accounting-preview")
 def fixed_income_accounting_preview(
     symbol: str,
