@@ -197,6 +197,7 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
                     "invested_cost": m.invested_cost,
                     "unrealized_pnl": m.unrealized_pnl,
                     "unrealized_pnl_pct": m.unrealized_pnl_pct,
+                    "change_pct": m.unrealized_pnl_pct,
                     "freshness": m.freshness,
                     "quote_time": m.quote_time.isoformat() if m.quote_time else None,
                 }

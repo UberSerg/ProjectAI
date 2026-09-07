@@ -246,7 +246,9 @@ function LivePortfolioTable({
                 <td className="numeric">{formatPrice(row.entry_price)}</td>
                 <td className="numeric">{formatPrice(row.mark_price)}</td>
                 <td className="numeric">
-                  {row.change_pct == null ? "—" : formatPercent(row.change_pct)}
+                  {(row.change_pct ?? row.unrealized_pnl_pct) == null
+                    ? "—"
+                    : formatPercent(row.change_pct ?? row.unrealized_pnl_pct)}
                 </td>
                 <td className="numeric">
                   {row.unrealized_pnl == null ? "—" : formatMoney(row.unrealized_pnl)}

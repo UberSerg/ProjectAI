@@ -11,10 +11,11 @@ export interface ShadowLivePosition {
   mark_source?: string | null;
   market_value?: number | null;
   freshness?: string | null;
-  /** Optional fields if backend enrichment adds them later. */
   entry_price?: number | null;
+  /** Alias used by UI; prefer unrealized_pnl_pct from API when present. */
   change_pct?: number | null;
   unrealized_pnl?: number | null;
+  unrealized_pnl_pct?: number | null;
   quote_time?: string | null;
   observed_at?: string | null;
 }
