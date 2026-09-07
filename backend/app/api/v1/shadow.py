@@ -132,13 +132,16 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         iid: (buy_notional[iid] / qty) for iid, qty in buy_qty.items() if qty > 1e-12
     }
 
+    spec = session.get(ShadowPortfolioSpec, portfolio.spec_id)
+    cost_basis_nav = float(spec.initial_capital) if spec is not None else None
+
     snapshot = build_live_portfolio_snapshot(
         portfolio_id=int(portfolio.id),
         cash=float(portfolio.cash),
         positions=positions if isinstance(positions, dict) else {},
         quotes_by_instrument=quotes_by_instrument,
         entry_by_instrument=entry_by_instrument,
-        cost_basis_nav=float(portfolio.initial_capital),
+        cost_basis_nav=cost_basis_nav,
     )
     pending_reasons = [
         _pending_reason_for_order(o, quotes_by_instrument.get(int(o.instrument_id)))
