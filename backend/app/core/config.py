@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     daily_research_cycle_hour: int = Field(default=18, alias="DAILY_RESEARCH_CYCLE_HOUR")
     daily_research_cycle_minute: int = Field(default=30, alias="DAILY_RESEARCH_CYCLE_MINUTE")
     daily_research_cycle_timezone: str = Field(default="UTC", alias="DAILY_RESEARCH_CYCLE_TIMEZONE")
+    # Optional lightweight readiness poll — triggers cycle once when EOD complete (not full cycle every N min).
+    eod_readiness_retry_enabled: bool = Field(default=False, alias="EOD_READINESS_RETRY_ENABLED")
+    eod_readiness_retry_minutes: int = Field(default=15, alias="EOD_READINESS_RETRY_MINUTES")
     moex_base_url: str = Field(default="https://iss.moex.com", alias="MOEX_BASE_URL")
     cbr_base_url: str = Field(default="https://www.cbr.ru", alias="CBR_BASE_URL")
     http_timeout_seconds: float = Field(default=30.0, alias="HTTP_TIMEOUT_SECONDS")

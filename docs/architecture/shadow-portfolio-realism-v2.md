@@ -64,4 +64,22 @@ Missed days / missed readiness → operational incident, **no** retrospective sa
 
 ## Settings
 
-See `.env.example`: `DAILY_RESEARCH_CYCLE_*`, `INTRADAY_MARKET_*`, optional EOD readiness retry.
+See `.env.example`:
+
+- `DAILY_RESEARCH_CYCLE_*` — scheduled full EOD cycle
+- `EOD_READINESS_RETRY_ENABLED` / `EOD_READINESS_RETRY_MINUTES` — lightweight completeness poll that triggers the cycle **once** when ready (does not re-run the full cycle every few minutes)
+- `INTRADAY_MARKET_*` — OPEN fills + LAST marks
+
+## Init V2 (does not touch V1)
+
+```bash
+# CLI
+python -m app.modules.shadow.cli init --group realism-v2
+
+# API
+POST /api/v1/shadow/init?group=realism-v2
+```
+
+Daily Research Cycle advances both `SHADOW_FORWARD_V0` and `SHADOW_PORTFOLIO_REALISM_V2`.
+
+Ops: `GET /api/v1/shadow/daily-operations` (alias `/operations/status`).

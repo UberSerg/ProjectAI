@@ -44,6 +44,13 @@ def create_celery_app() -> Celery:
                 hour=settings.daily_research_cycle_hour,
             ),
         }
+    if getattr(settings, "eod_readiness_retry_enabled", False):
+        # Lightweight readiness check only — does not re-run the full cycle every poll.
+        minutes = max(1, int(getattr(settings, "eod_readiness_retry_minutes", 15) or 15))
+        beat_schedule["eod-readiness-retry"] = {
+            "task": "projectai.eod_readiness_retry",
+            "schedule": crontab(minute=f"*/{minutes}"),
+        }
     if settings.intraday_market_enabled:
         # Every N minutes during the UTC day; task no-ops cheaply if disabled at runtime.
         beat_schedule["intraday-market-refresh"] = {
