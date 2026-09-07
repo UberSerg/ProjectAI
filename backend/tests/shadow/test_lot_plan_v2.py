@@ -7,9 +7,8 @@ from decimal import Decimal
 import pytest
 
 from app.modules.investment.domain.fixed_income import TransactionCostProfile
-from app.modules.shadow.domain.accounting import apply_buy, apply_sell, empty_position
+from app.modules.shadow.domain.accounting import apply_buy, apply_sell
 from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
-
 
 COSTS0 = TransactionCostProfile(Decimal("0"))
 COSTS5 = TransactionCostProfile(Decimal("5"))

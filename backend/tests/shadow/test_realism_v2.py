@@ -14,9 +14,9 @@ from app.modules.shadow.application.daily_operations import (
 )
 from app.modules.shadow.application.lot_aware import is_lot_aware_spec
 from app.modules.shadow.config import (
+    EXECUTION_VERSION_LOT_AWARE_V2,
     EXPERIMENT_GROUP,
     EXPERIMENT_GROUP_V2,
-    EXECUTION_VERSION_LOT_AWARE_V2,
     portfolio_a_config,
     realism_v2_shadow_configs,
 )
