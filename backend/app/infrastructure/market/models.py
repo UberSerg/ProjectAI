@@ -44,10 +44,41 @@ class Instrument(Base):
     active_from: Mapped[date | None] = mapped_column(Date)
     active_to: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    instrument_subtype: Mapped[str | None] = mapped_column(Text)
+    support_level: Mapped[str | None] = mapped_column(Text)
+    primary_board: Mapped[str | None] = mapped_column(Text)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     sources: Mapped[list[InstrumentSource]] = relationship(back_populates="instrument")
+
+
+class UniverseMembership(Base):
+    """Explicit research/product universe membership (not the full MOEX catalog)."""
+
+    __tablename__ = "universe_memberships"
+    __table_args__ = (
+        {"schema": "market"},
+    )
+
+    universe_code: Mapped[str] = mapped_column(Text, primary_key=True)
+    instrument_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("market.instruments.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InstrumentMasterSyncRun(Base):
+    __tablename__ = "instrument_master_sync_runs"
+    __table_args__ = {"schema": "market"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    report: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
 
 class InstrumentSource(Base):
