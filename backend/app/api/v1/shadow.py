@@ -112,11 +112,33 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         if q is not None:
             quotes_by_instrument[m.instrument_id] = q
 
+    fills = list(
+        session.scalars(
+            select(ShadowFill).where(ShadowFill.portfolio_id == portfolio.id)
+        )
+    )
+    # Average entry from BUY fills (long-only Shadow V1).
+    buy_qty: dict[int, float] = {}
+    buy_notional: dict[int, float] = {}
+    for fill in fills:
+        if fill.side != "BUY":
+            continue
+        iid = int(fill.instrument_id)
+        buy_qty[iid] = buy_qty.get(iid, 0.0) + float(fill.quantity)
+        buy_notional[iid] = buy_notional.get(iid, 0.0) + float(fill.fill_price) * float(
+            fill.quantity
+        )
+    entry_by_instrument = {
+        iid: (buy_notional[iid] / qty) for iid, qty in buy_qty.items() if qty > 1e-12
+    }
+
     snapshot = build_live_portfolio_snapshot(
         portfolio_id=int(portfolio.id),
         cash=float(portfolio.cash),
         positions=positions if isinstance(positions, dict) else {},
         quotes_by_instrument=quotes_by_instrument,
+        entry_by_instrument=entry_by_instrument,
+        cost_basis_nav=float(portfolio.initial_capital),
     )
     pending_reasons = [
         _pending_reason_for_order(o, quotes_by_instrument.get(int(o.instrument_id)))
@@ -128,20 +150,28 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         "last_intraday_refresh": last,
         "live": {
             "cash": snapshot.cash,
+            "invested_cost": snapshot.invested_cost,
             "market_value": snapshot.market_value,
             "nav": snapshot.nav,
             "unrealized_pnl": snapshot.unrealized_pnl,
+            "unrealized_pnl_pct": snapshot.unrealized_pnl_pct,
             "quote_coverage": snapshot.quote_coverage,
             "warnings": list(snapshot.warnings),
+            "as_of": snapshot.as_of.isoformat() if snapshot.as_of else None,
             "positions": [
                 {
                     "instrument_id": m.instrument_id,
                     "ticker": m.ticker,
                     "quantity": m.quantity,
+                    "entry_price": m.entry_price,
                     "mark_price": m.mark_price,
                     "mark_source": m.mark_source,
                     "market_value": m.market_value,
+                    "invested_cost": m.invested_cost,
+                    "unrealized_pnl": m.unrealized_pnl,
+                    "unrealized_pnl_pct": m.unrealized_pnl_pct,
                     "freshness": m.freshness,
+                    "quote_time": m.quote_time.isoformat() if m.quote_time else None,
                 }
                 for m in snapshot.position_marks
             ],

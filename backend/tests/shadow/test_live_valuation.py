@@ -36,11 +36,14 @@ def test_live_nav_from_last() -> None:
         cash=50_000.0,
         positions={"1": {"instrument_id": 1, "ticker": "SBER", "quantity": 100.0}},
         quotes_by_instrument={1: quote},
-        cost_basis_nav=60_000.0,
+        entry_by_instrument={1: 100.0},
     )
     assert snap.market_value == 11_000.0
     assert snap.nav == 61_000.0
+    assert snap.invested_cost == 10_000.0
     assert snap.unrealized_pnl == 1_000.0
+    assert snap.position_marks[0].entry_price == 100.0
+    assert snap.position_marks[0].unrealized_pnl == 1_000.0
     assert snap.position_marks[0].mark_source == "LAST"
     assert snap.quote_coverage == 1.0
 
