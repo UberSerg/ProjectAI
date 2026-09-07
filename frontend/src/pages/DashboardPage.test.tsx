@@ -73,12 +73,22 @@ describe("DashboardPage", () => {
     } as never);
     vi.mocked(investmentApi.previewPortfolioCandidate).mockResolvedValue({
       candidate_id: "pc_test",
-      version: "PORTFOLIO_CANDIDATE_V1",
+      version: "CONCRETE_PORTFOLIO_CANDIDATE_V1",
       as_of: "2026-09-05",
       generated_at: "2026-09-07T00:00:00Z",
       capital: "100000",
       currency: "RUB",
       status: "READY_FOR_RESEARCH",
+      summary: {
+        positions_count: 2,
+        equity_positions: 1,
+        fixed_income_positions: 1,
+        equity_rub: "24000",
+        fixed_income_rub: "63000",
+        cash_rub: "13000",
+        research_only_count: 1,
+        executable_count: 1,
+      },
       readiness: {
         mode_ru: "Исследовательский режим",
         ready_for_real_money: false,
@@ -95,7 +105,52 @@ describe("DashboardPage", () => {
         },
         cash: { target_weight: 0.1, actual_weight: 0.13, target_rub: "10000", actual_rub: "13000" },
       },
-      positions: [],
+      positions: [
+        {
+          instrument_id: 1,
+          symbol: "SBER",
+          display_name: "Сбербанк",
+          sleeve: "EQUITY_ALPHA",
+          asset_class: "equity",
+          lots: 8,
+          units: 80,
+          lot_size: 10,
+          reference_price: "300",
+          estimated_notional: "24000",
+          estimated_fees: "12",
+          target_weight: 0.25,
+          actual_weight: 0.24,
+          risk_status: "RESEARCH_ONLY",
+          executable: false,
+          reason_ru: "Research-only equity sleeve pick.",
+          warnings_ru: [],
+          selection_rank: 1,
+        },
+        {
+          instrument_id: 2,
+          symbol: "SU26238RMFS4",
+          display_name: "ОФЗ 26238",
+          sleeve: "FIXED_INCOME",
+          asset_class: "bond",
+          lots: 6,
+          units: 6,
+          lot_size: 1,
+          reference_price: "98.5",
+          dirty_price: "100.2",
+          nkd: "1.7",
+          estimated_notional: "63000",
+          estimated_fees: "30",
+          target_weight: 0.65,
+          actual_weight: 0.63,
+          risk_status: "APPROVED_WITH_WARNINGS",
+          executable: true,
+          reason_ru: "Government bond research pick.",
+          warnings_ru: [],
+          credit_status: "UNKNOWN",
+          bond_type: "ОФЗ",
+          selection_rank: 1,
+        },
+      ],
       cash: {
         strategic_target_rub: "10000",
         strategic_target_weight: 0.1,
@@ -108,15 +163,33 @@ describe("DashboardPage", () => {
       money: {
         starting_capital: "100000",
         invested: "87000",
-        fees: "40",
+        equity_invested: "24000",
+        fixed_income_invested: "63000",
+        fees: "42",
+        equity_fees: "12",
+        fixed_income_fees: "30",
         strategic_cash: "10000",
         lot_remainder: "3000",
         ending_preview_cash: "13000",
+      },
+      composition: {
+        equity: { selected: 1 },
+        fixed_income: { selected: 1 },
+      },
+      provenance: {
+        candidate_version: "CONCRETE_PORTFOLIO_CANDIDATE_V1",
+        equity_policy: "EQUITY_COMPOSITION_V1",
+        fixed_income_policy: "FIXED_INCOME_COMPOSITION_V1",
       },
       benchmark: { cbr_hurdle_annual: 0.18 },
       decision_quality: {
         equity_confidence_label_ru: "Недостаточно данных",
         equity_confidence_reason_ru: "Мало данных",
+      },
+      diff: {
+        has_previous: false,
+        summary_ru: "Это первый сохранённый кандидат портфеля.",
+        changes: [],
       },
     } as never);
   });
@@ -136,6 +209,8 @@ describe("DashboardPage", () => {
     expect(await screen.findByText("Основная БД")).toBeInTheDocument();
     expect(screen.getByText("База памяти")).toBeInTheDocument();
     expect(screen.getAllByText("Работает").length).toBeGreaterThanOrEqual(2);
+    expect(await screen.findByText(/2 позиций/)).toBeInTheDocument();
+    expect(screen.getByText("Открыть состав")).toBeInTheDocument();
   });
 
   it("renders error state", async () => {
@@ -157,6 +232,7 @@ describe("PortfolioPage", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText("Портфель")).toBeInTheDocument();
+    expect(screen.getAllByText("Открыть кандидат портфеля").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Инвестиционное решение")).toBeInTheDocument();
     expect(screen.getByText("Проверка риска")).toBeInTheDocument();
   });

@@ -235,6 +235,7 @@ export function DashboardPage() {
         <div className="ds-card ds-card-hero">
           <div className="ds-card-title">Кандидат портфеля</div>
           <div className="ds-card-headline">
+            {data.candidate.summary?.positions_count ?? data.candidate.positions.length} позиций ·{" "}
             {data.candidate.as_of ?? "сейчас"} · {data.candidate.status}
           </div>
           <AllocationBars
@@ -248,7 +249,7 @@ export function DashboardPage() {
           </p>
           <div className="page-actions" style={{ marginTop: "0.75rem" }}>
             <Link className="why-toggle" to="/portfolio/candidate">
-              Открыть портфель
+              Открыть состав
             </Link>
           </div>
         </div>

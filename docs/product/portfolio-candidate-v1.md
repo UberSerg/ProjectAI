@@ -8,6 +8,9 @@
 
 Это **не** рекомендация к покупке и **не** real-money portfolio.
 
+См. также: `docs/product/concrete-portfolio-composition-v1.md` —
+конкретный тикерный состав поверх sleeves.
+
 ## Source of truth
 
 Orchestration поверх существующих сервисов:
