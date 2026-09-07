@@ -4,8 +4,8 @@ from fastapi import APIRouter
 
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.fundamentals import router as fundamentals_router
-from app.api.v1.intraday_market import router as intraday_market_router
 from app.api.v1.instruments import router as instruments_router
+from app.api.v1.intraday_market import router as intraday_market_router
 from app.api.v1.investment import router as investment_router
 from app.api.v1.learning import router as learning_router
 from app.api.v1.manual_portfolios import router as manual_portfolios_router

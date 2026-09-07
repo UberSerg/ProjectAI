@@ -77,10 +77,10 @@ def trigger_instrument_master_sync(
 
 @router.get("/{id_or_secid}")
 def get_catalog_instrument(id_or_secid: str) -> dict[str, Any]:
+    from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
     from app.infrastructure.market.models import Instrument
-    from sqlalchemy import select
 
     with core_session() as session:
         raw = (id_or_secid or "").strip()

@@ -9,18 +9,18 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Candle, Instrument, InstrumentSource
+from app.modules.fundamentals.infrastructure.models import SecurityIssuerMapping
 from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.investment.infrastructure.models import BondCashflow, BondTerm
 from app.modules.market.application.instrument_classification import (
     CATALOG_ONLY,
-    INACTIVE,
-    OFZ_GOV,
     CORPORATE_BOND,
-    MUNICIPAL_BOND,
     FUND,
+    INACTIVE,
+    MUNICIPAL_BOND,
+    OFZ_GOV,
 )
 from app.modules.market.application.research_universe import is_research_member
-from app.modules.fundamentals.infrastructure.models import SecurityIssuerMapping
 
 
 @dataclass(frozen=True, slots=True)

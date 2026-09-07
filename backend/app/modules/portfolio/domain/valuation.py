@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.investment.domain.fixed_income import calculate_bond_purchase
 from app.modules.investment.infrastructure.models import BondMarketSnapshot, BondTerm
-from app.modules.market.application.intraday_cache import IntradayQuoteCache
 from app.modules.market.application.instrument_capabilities import resolve_instrument_capabilities
+from app.modules.market.application.intraday_cache import IntradayQuoteCache
 
 Quality = Literal["LIVE", "PARTIAL", "STALE", "UNSUPPORTED"]
 
