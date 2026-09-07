@@ -32,6 +32,19 @@ function mockOverview() {
     raw_storage_path: "/data/raw",
   });
   vi.mocked(systemApi.getTechEvents).mockResolvedValue([]);
+  vi.mocked(systemApi.getSystemDataCoverage).mockResolvedValue({
+    master: { active: 3597, bonds: 3098 },
+    fixed_income: { bonds_in_master: 3098, bond_terms: 163, instruments_with_cashflows: 163 },
+    dividends: { status: "NOT_READY", events: 0 },
+    total_return: { status: "NOT_READY" },
+    prediction_universe: { code: "research_equity_v1", count: 40 },
+    fi_strategy_universe: { code: "research_fi_v1", count: 21 },
+    processes: {
+      fi_enrichment_enabled: true,
+      dividend_sync_enabled: false,
+      moex_instrument_master_sync_enabled: true,
+    },
+  });
   vi.mocked(instrumentsApi.getInstrumentMasterSyncStatus).mockResolvedValue({
     id: 1,
     status: "SUCCESS",

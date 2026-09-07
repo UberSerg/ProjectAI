@@ -141,3 +141,14 @@ def get_primary_compare_candidate() -> dict[str, Any]:
 def get_primary_rebalance() -> dict[str, Any]:
     with core_session() as session:
         return advisory_rebalance(session)
+
+
+@router.get("/primary/cashflows")
+def get_primary_cashflows() -> dict[str, Any]:
+    """Portfolio Cashflow Intelligence V1 — 30d/90d/12m gross bond payments."""
+    from app.modules.investment.application.portfolio_cashflow_service import (
+        build_manual_portfolio_cashflows,
+    )
+
+    with core_session() as session:
+        return build_manual_portfolio_cashflows(session)

@@ -128,6 +128,8 @@ export function BondsPage() {
       <p className="page-purpose">
         Раздел показывает, какие облигации Kraken видит в контуре: доходность, срок, кредит, ликвидность
         и eligibility. Откройте карточку бумаги для drill-down — список сам по себе не инвестиционный совет.
+        Каталог расширяется через async enrichment; Candidate FI pool закреплён в{" "}
+        <MetricHelp metricId="research_fi_v1" />.
       </p>
       {error ? <div className="banner banner-warning">{error}</div> : null}
 

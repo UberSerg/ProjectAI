@@ -130,15 +130,34 @@ def load_fixed_income_candidates(
     *,
     config: CompositionConfig = DEFAULT_COMPOSITION_CONFIG,
 ) -> tuple[list[FixedIncomeCandidateRow], dict[str, Any]]:
-    risk_report = list_bond_risk_assessments(session, limit=200)
+    from app.modules.market.application.research_universe import (
+        RESEARCH_FI_V1,
+        research_fi_member_ids,
+        seed_research_fi_membership,
+    )
+
+    # Ensure pin exists once from current BondTerm sample; never auto-grow later.
+    seed_research_fi_membership(session, only_if_empty=True)
+    pinned_ids = research_fi_member_ids(session)
+
+    risk_report = list_bond_risk_assessments(
+        session, limit=200, universe_code=RESEARCH_FI_V1
+    )
     risk_by_id = {int(i["instrument_id"]): i for i in risk_report.get("items") or []}
 
-    terms = session.execute(
+    terms_q = (
         select(Instrument, BondTerm)
         .join(BondTerm, BondTerm.instrument_id == Instrument.id)
         .where(Instrument.asset_class == "bond")
         .order_by(Instrument.symbol)
-    ).all()
+    )
+    if pinned_ids:
+        terms_q = terms_q.where(Instrument.id.in_(pinned_ids))
+    else:
+        # Empty pin → no Candidate FI pool (safe: do not fall back to all BondTerm).
+        terms_q = terms_q.where(Instrument.id.in_([-1]))
+
+    terms = session.execute(terms_q).all()
 
     cf_counts = dict(
         session.execute(
@@ -200,6 +219,13 @@ def load_fixed_income_candidates(
         "audited_count": len(terms),
         "with_snapshot": len(rows),
         "risk_as_of": risk_report.get("as_of"),
+        "universe_code": RESEARCH_FI_V1,
+        "universe_pinned_count": len(pinned_ids),
+        "note": (
+            "Candidate FI pool is pinned to research_fi_v1. "
+            "Enrichment expands catalog valuation only; strategy universe stays "
+            "pinned until an explicit version bump."
+        ),
     }
     return rows, meta
 

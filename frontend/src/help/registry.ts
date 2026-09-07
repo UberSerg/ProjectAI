@@ -2206,6 +2206,57 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     summary: "Матрица «что Kraken умеет»: котировка, оценка, прогноз, FI, ребаланс, потоки.",
     details: "predict только для research membership. Наличие в каталоге не включает predict.",
   },
+  research_fi_v1: {
+    id: "research_fi_v1",
+    kind: "metric",
+    title: "research_fi_v1",
+    summary: "Закреплённый FI-пул для Candidate / Opportunity (~текущий BondTerm sample).",
+    details:
+      "Обогащение каталога не расширяет этот universe. Manual Portfolio / Shadow могут ценить любые обогащённые облигации. Рост пула — только явный version bump.",
+    relatedIds: ["fi_enrichment", "portfolio_cashflows"],
+  },
+  fi_enrichment: {
+    id: "fi_enrichment",
+    kind: "metric",
+    title: "FI Enrichment",
+    summary: "Асинхронное обогащение облигаций: terms, cashflows, market snapshots.",
+    details:
+      "Очередь market.instrument_enrichment_jobs с приоритетами P0…P4. Включается FI_ENRICHMENT_ENABLED. Не трогает Dataset V2 и research_fi_v1.",
+    relatedIds: ["research_fi_v1", "bond_known_at_quality"],
+  },
+  bond_known_at_quality: {
+    id: "bond_known_at_quality",
+    kind: "metric",
+    title: "CURRENT_STATE_ONLY",
+    summary: "Качество known_at для MOEX bondization — только текущее состояние расписания.",
+    details:
+      "Нет timestamp публикации и истории ревизий купонов. Подходит для live as-of-now учёта, не для PIT walk-forward «что знали в t».",
+  },
+  portfolio_cashflows: {
+    id: "portfolio_cashflows",
+    kind: "metric",
+    title: "Выплаты портфеля",
+    summary: "Gross-проекция купонов / амортизаций / погашений на 30д / 90д / 12м.",
+    details:
+      "Оферты информационные. Redemption и финальная амортизация в одну дату не двойятся. До налогов и комиссий.",
+    relatedIds: ["fi_enrichment"],
+  },
+  system_data_coverage: {
+    id: "system_data_coverage",
+    kind: "metric",
+    title: "System Data Coverage",
+    summary: "Сводка Master / FI / dividends / prediction / total-return readiness.",
+    details: "Дивиденды остаются NOT_READY без принятого provider. FI enrichment и dividend sync — отдельные process flags.",
+  },
+  dividend_coverage_v2: {
+    id: "dividend_coverage_v2",
+    kind: "metric",
+    title: "Dividend Coverage V2",
+    summary: "Честный статус дивидендного покрытия для gross total return.",
+    details:
+      "MOEX ISS dividends endpoints REJECTED. Provider port готов; ingest выключен. Dataset/features не получают дивиденды.",
+    relatedIds: ["total_return_dividends"],
+  },
   rebalance: {
     id: "rebalance",
     kind: "metric",
@@ -3005,12 +3056,16 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "accrued_coupon",
       "support_level",
       "model_coverage",
+      "research_fi_v1",
+      "portfolio_cashflows",
+      "fi_enrichment",
     ],
     interpret: [
       "Сначала NAV, качество котировок и состав.",
       "Анализ — advisory, не BLOCKED gate.",
       "Сравнение: NOT_IN_CANDIDATE ≠ SELL.",
       "Ребаланс — расчётный план без заявок.",
+      "Выплаты — gross календарь облигаций.",
     ],
     limitations: [
       "Нет брокера и real money.",

@@ -8,6 +8,7 @@ import {
   type BondDetail,
 } from "../api/investment";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
+import { MetricHelp } from "../help";
 
 function fmtMoney(value: number | string | null | undefined): string {
   if (value == null || value === "") return "—";
@@ -36,7 +37,14 @@ export function BondDetailPage() {
       .then((detail) => {
         setBond(detail);
         if (detail.support_status === "SUPPORTED") {
-          return getBondAccountingPreview(detail.symbol, 1, controller.signal).then(setAccounting);
+          return getBondAccountingPreview(detail.symbol, 1, controller.signal)
+            .then(setAccounting)
+            .catch((reason: unknown) => {
+              if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+                // Keep bond detail even if accounting preview fails.
+                setAccounting(null);
+              }
+            });
         }
         setAccounting(null);
         return undefined;
@@ -47,7 +55,9 @@ export function BondDetailPage() {
           setBond(null);
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
   }, [secid]);
 
@@ -134,6 +144,20 @@ export function BondDetailPage() {
         ) : accounting ? (
           <p className="muted">{accounting.note ?? accounting.status}</p>
         ) : null}
+      </div>
+
+      <div className="card" data-testid="bond-data-quality">
+        <h2>Качество данных</h2>
+        <p>
+          <MetricHelp metricId="bond_known_at_quality" />
+        </p>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          known_at quality:{" "}
+          <strong>{bond.data_quality?.known_at_quality ?? "CURRENT_STATE_ONLY"}</strong>. Расписание
+          купонов с MOEX bondization отражает текущее состояние рынка — без исторической
+          реконструкции «что было известно в момент t». Не использовать как PIT-архив для
+          walk-forward.
+        </p>
       </div>
 
       <div className="card">

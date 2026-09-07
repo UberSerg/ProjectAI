@@ -85,6 +85,18 @@ class Settings(BaseSettings):
         default=36, alias="MOEX_INSTRUMENT_MASTER_STALE_HOURS"
     )
 
+    # Fixed Income Enrichment V2 — opt-in; bounded batches so EOD/intraday are not starved.
+    fi_enrichment_enabled: bool = Field(default=False, alias="FI_ENRICHMENT_ENABLED")
+    fi_enrichment_batch_size: int = Field(default=50, alias="FI_ENRICHMENT_BATCH_SIZE")
+    fi_enrichment_max_concurrency: int = Field(default=2, alias="FI_ENRICHMENT_MAX_CONCURRENCY")
+    fi_enrichment_pacing_ms: int = Field(default=200, alias="FI_ENRICHMENT_PACING_MS")
+    fi_enrichment_cron: str = Field(default="*/20 * * * *", alias="FI_ENRICHMENT_CRON")
+    fi_enrichment_startup_p0: bool = Field(default=True, alias="FI_ENRICHMENT_STARTUP_P0")
+
+    # Dividend sync — stays off until an accepted public provider exists.
+    dividend_sync_enabled: bool = Field(default=False, alias="DIVIDEND_SYNC_ENABLED")
+    dividend_sync_cron: str = Field(default="30 4 * * 1-5", alias="DIVIDEND_SYNC_CRON")
+
     @model_validator(mode="after")
     def _apply_research_live_mode(self) -> Self:
         """RESEARCH_LIVE_MODE is a convenience profile; explicit false flags stay off only when live=false."""

@@ -142,6 +142,7 @@ vi.mock("../api/manualPortfolios", () => ({
   updatePrimaryCash: vi.fn(),
   addPrimaryPosition: vi.fn(),
   deletePrimaryPosition: vi.fn(),
+  getPrimaryCashflows: vi.fn(),
 }));
 
 vi.mock("../api/instruments", () => ({
@@ -222,6 +223,19 @@ describe("MyPortfolioPage", () => {
       page: 1,
       page_size: 12,
     });
+    vi.mocked(portfolioApi.getPrimaryCashflows).mockResolvedValue({
+      as_of: "2026-09-07",
+      windows: {
+        "30d": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
+        "90d": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
+        "12m": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
+      },
+      events: [],
+      maturity_ladder: {},
+      gov_corp: { government: 0, corporate: 0 },
+      disclaimer:
+        "Выплаты рассчитаны по текущему опубликованному графику облигации и могут измениться.",
+    } as never);
   });
 
   it("shows empty state with CTA", async () => {

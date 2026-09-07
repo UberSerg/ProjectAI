@@ -65,6 +65,18 @@ async def lifespan(_app: FastAPI):
             logger.info("startup_instrument_master_catchup", extra={"catchup": master_catchup})
     except Exception as exc:  # noqa: BLE001
         logger.warning("startup_instrument_master_catchup_failed", extra={"error": str(exc)})
+    # FI enrichment: optional P0 enqueue for Manual/Shadow bond positions only.
+    try:
+        with core_session() as session:
+            from app.modules.investment.application.enrichment_service import (
+                maybe_startup_fi_enrichment_p0,
+            )
+
+            fi_catchup = maybe_startup_fi_enrichment_p0(session)
+            session.commit()
+            logger.info("startup_fi_enrichment_p0", extra={"catchup": fi_catchup})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("startup_fi_enrichment_p0_failed", extra={"error": str(exc)})
     yield
     logger.info("service_stopping", extra={"component": "backend"})
 

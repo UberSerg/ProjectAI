@@ -145,6 +145,16 @@ def add_position(
     portfolio.updated_at = now
     portfolio.version = int(portfolio.version or 1) + 1
     session.flush()
+
+    # P0 enrichment for newly added / updated bond positions.
+    if (instrument.asset_class or "").lower() == "bond":
+        try:
+            from app.modules.investment.application.enrichment_service import enqueue_fi_kinds
+            from app.modules.investment.domain.enrichment import EnrichmentPriority
+
+            enqueue_fi_kinds(session, int(instrument.id), EnrichmentPriority.P0_PORTFOLIO)
+        except Exception:  # noqa: BLE001
+            pass
     return pos
 
 

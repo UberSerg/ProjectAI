@@ -465,3 +465,40 @@ def sync_moex_instrument_master_scheduled() -> dict:
     if not get_settings().moex_instrument_master_sync_enabled:
         return {"status": "DISABLED"}
     return sync_moex_instrument_master()
+
+
+@celery_app.task(name="projectai.enrich_fixed_income_instruments")
+def enrich_fixed_income_instruments() -> dict:
+    """Bounded FI enrichment batch — separate from EOD; respects FI_ENRICHMENT_ENABLED."""
+    from app.modules.investment.application.enrichment_service import run_fi_enrichment_batch
+
+    with core_session() as session:
+        result = run_fi_enrichment_batch(session, acquire_lock=True)
+        session.commit()
+        return result
+
+
+@celery_app.task(name="projectai.enrich_fixed_income_instruments_scheduled")
+def enrich_fixed_income_instruments_scheduled() -> dict:
+    from app.core.config import get_settings
+
+    if not get_settings().fi_enrichment_enabled:
+        return {"status": "DISABLED"}
+    return enrich_fixed_income_instruments()
+
+
+@celery_app.task(name="projectai.sync_dividend_history")
+def sync_dividend_history() -> dict:
+    """Dividend sync — no-ops with NOT_READY until an accepted provider exists."""
+    from app.core.config import get_settings
+    from app.modules.fundamentals.application.dividend_provider import get_dividend_provider
+
+    if not get_settings().dividend_sync_enabled:
+        return {"status": "DISABLED", "reason": "DIVIDEND_SYNC_ENABLED=false"}
+    readiness = get_dividend_provider().readiness()
+    return {
+        "status": "NOT_READY",
+        "provider": readiness,
+        "ingested": 0,
+        "note": "No accepted dividend provider; nothing ingested.",
+    }

@@ -156,3 +156,49 @@ def diagnostics_text() -> Response:
         body = build_diagnostics_text(session)
     # Explicit UTF-8 bytes + charset (Windows clients must not guess the encoding).
     return Response(content=body.encode("utf-8"), media_type="text/plain; charset=utf-8")
+
+
+@router.get("/data-coverage")
+def system_data_coverage() -> dict[str, Any]:
+    """System Data Coverage: Master / FI terms / cashflows / dividends / prediction / TR."""
+    from app.core.config import get_settings
+    from app.modules.fundamentals.application.dividend_provider import (
+        dividend_coverage_v2,
+        total_return_readiness_report,
+    )
+    from app.modules.investment.application.enrichment_service import fi_coverage_report
+    from app.modules.market.application.instrument_master_sync import latest_sync_status
+    from app.modules.market.application.research_universe import (
+        RESEARCH_EQUITY_V1,
+        RESEARCH_FI_V1,
+        research_fi_member_ids,
+        research_member_ids,
+    )
+
+    settings = get_settings()
+    with core_session() as session:
+        master = latest_sync_status(session)
+        fi = fi_coverage_report(session)
+        div = dividend_coverage_v2(session)
+        tr = total_return_readiness_report(session)
+        return {
+            "master": master,
+            "fixed_income": fi,
+            "dividends": div,
+            "total_return": tr,
+            "prediction_universe": {
+                "code": RESEARCH_EQUITY_V1,
+                "count": len(research_member_ids(session)),
+            },
+            "fi_strategy_universe": {
+                "code": RESEARCH_FI_V1,
+                "count": len(research_fi_member_ids(session)),
+            },
+            "processes": {
+                "fi_enrichment_enabled": bool(settings.fi_enrichment_enabled),
+                "dividend_sync_enabled": bool(settings.dividend_sync_enabled),
+                "moex_instrument_master_sync_enabled": bool(
+                    settings.moex_instrument_master_sync_enabled
+                ),
+            },
+        }

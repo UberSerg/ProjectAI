@@ -6,22 +6,96 @@ import { getIntradayStatus, type IntradayMarketStatus } from "../api/intraday";
 import { getShadowDailyOperations, type ShadowDailyOperations } from "../api/shadow";
 import {
   getDiagnosticsText,
+  getSystemDataCoverage,
   getSystemHealth,
   getSystemInfo,
   getTechEvents,
   type HealthResponse,
+  type SystemDataCoverage,
   type SystemInfo,
   type TechEvent,
 } from "../api/system";
 import { PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
+import { MetricHelp } from "../help";
 import { CompactReadinessCard, EodPipelineCard } from "../features/shadow/components";
 import { formatDateTime, formatRelativeTime } from "../utils/format";
 import { overviewHealthBadgeStatus, resolveServiceStatus, SYSTEM_SERVICES } from "../utils/health";
 import { labels } from "../utils/labels";
 
-type Tab = "overview" | "diagnostics";
+type Tab = "overview" | "diagnostics" | "coverage";
 type LevelFilter = "ALL" | "ERROR" | "WARNING" | "INFO";
 
+function DataCoverageCard() {
+  const [coverage, setCoverage] = useState<SystemDataCoverage | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getSystemDataCoverage(controller.signal)
+      .then((resp) => {
+        setCoverage(resp);
+        setErr(null);
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setErr(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  const fi = coverage?.fixed_income as Record<string, unknown> | undefined;
+  const processes = coverage?.processes;
+
+  return (
+    <article className="panel" data-testid="system-data-coverage">
+      <h2>
+        Data Coverage <MetricHelp metricId="system_data_coverage" />
+      </h2>
+      {err ? (
+        <p className="muted">Coverage временно недоступен.</p>
+      ) : !coverage ? (
+        <p className="muted">Загрузка…</p>
+      ) : (
+        <>
+          <div className="key-value">
+            <span>Master sync</span>
+            <strong>{String((coverage.master as { status?: string } | null)?.status ?? "—")}</strong>
+          </div>
+          <div className="key-value">
+            <span>FI terms / cashflows</span>
+            <strong>
+              {String(fi?.bond_terms ?? "—")} / {String(fi?.instruments_with_cashflows ?? "—")}
+            </strong>
+          </div>
+          <div className="key-value">
+            <span>research_fi_v1</span>
+            <strong>{coverage.fi_strategy_universe.count}</strong>
+          </div>
+          <div className="key-value">
+            <span>Dividends</span>
+            <strong>{String((coverage.dividends as { verdict?: string }).verdict ?? "NOT_READY")}</strong>
+          </div>
+          <div className="key-value">
+            <span>Total return</span>
+            <strong>{String((coverage.total_return as { verdict?: string }).verdict ?? "NOT_READY")}</strong>
+          </div>
+          <div className="key-value">
+            <span>Prediction universe</span>
+            <strong>
+              {coverage.prediction_universe.code}: {coverage.prediction_universe.count}
+            </strong>
+          </div>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Processes: FI enrichment {processes?.fi_enrichment_enabled ? "ON" : "OFF"} · dividend sync{" "}
+            {processes?.dividend_sync_enabled ? "ON" : "OFF"} · master{" "}
+            {processes?.moex_instrument_master_sync_enabled ? "ON" : "OFF"}
+          </p>
+        </>
+      )}
+    </article>
+  );
+}
 function InstrumentMasterSyncCard() {
   const [status, setStatus] = useState<InstrumentMasterSyncStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -257,6 +331,14 @@ export function SystemPage() {
         </button>
         <button
           type="button"
+          className={`tab${tab === "coverage" ? " active" : ""}`}
+          onClick={() => setTab("coverage")}
+          data-testid="tab-coverage"
+        >
+          Data Coverage
+        </button>
+        <button
+          type="button"
           className={`tab${tab === "diagnostics" ? " active" : ""}`}
           onClick={() => setTab("diagnostics")}
         >
@@ -268,6 +350,7 @@ export function SystemPage() {
         <div className="dashboard-grid">
           <IntradayQuotesStatusCard />
           <InstrumentMasterSyncCard />
+          <DataCoverageCard />
           <ShadowReadinessStatusCard />
           <article className="panel">
             <h2>Приложение</h2>
@@ -307,6 +390,12 @@ export function SystemPage() {
               ))}
             </div>
           </article>
+        </div>
+      ) : null}
+
+      {tab === "coverage" ? (
+        <div className="dashboard-grid" data-testid="tab-coverage-panel">
+          <DataCoverageCard />
         </div>
       ) : null}
 

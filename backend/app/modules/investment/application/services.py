@@ -349,10 +349,33 @@ def list_bonds(session: Session, limit: int = 100) -> list[dict[str, Any]]:
 
 def get_bond_detail(session: Session, symbol: str) -> dict[str, Any] | None:
     """Read-only bond detail for UI drill-down. No domain calculation changes."""
-    items = list_bonds(session, limit=500)
-    bond = next((item for item in items if str(item.get("symbol", "")).upper() == symbol.upper()), None)
-    if bond is None:
+    if not _schema_ready(session):
         return None
+    instrument = session.scalar(
+        select(Instrument).where(
+            func.upper(Instrument.symbol) == symbol.upper(),
+            func.lower(Instrument.asset_class) == "bond",
+        )
+    )
+    if instrument is None:
+        return None
+    # Build list large enough for enriched catalog; match by instrument_id.
+    items = list_bonds(session, limit=5000)
+    bond = next(
+        (item for item in items if int(item.get("instrument_id") or 0) == int(instrument.id)),
+        None,
+    )
+    if bond is None:
+        return {
+            "instrument_id": instrument.id,
+            "symbol": instrument.symbol,
+            "name": instrument.name,
+            "support_status": "UNSUPPORTED",
+            "cashflows": [],
+            "data_quality": {"known_at_quality": "UNKNOWN", "source": None},
+            "why_kraken_ru": "Инструмент есть в каталоге; terms ещё не обогащены.",
+            "enrichment_pending": True,
+        }
     instrument_id = int(bond["instrument_id"])
     cashflows = session.scalars(
         select(BondCashflow)
@@ -372,6 +395,7 @@ def get_bond_detail(session: Session, symbol: str) -> dict[str, Any] | None:
             for cf in cashflows
         ],
         "why_kraken_ru": _bond_why_kraken(bond),
+        "enrichment_pending": False,
     }
 
 

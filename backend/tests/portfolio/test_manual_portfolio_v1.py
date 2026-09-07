@@ -46,6 +46,17 @@ def _schema_ready(session: Session) -> bool:
         return False
 
 
+def _reset_primary_portfolio(session: Session) -> None:
+    """Isolate analysis assertions from live primary holdings (txn rolls back)."""
+    portfolio = get_or_create_primary(session)
+    for pos in list(portfolio.positions or []):
+        session.delete(pos)
+    portfolio.cash_rub = Decimal("0")
+    portfolio.updated_at = datetime.now(UTC)
+    session.flush()
+    session.expire(portfolio, ["positions"])
+
+
 @pytest.fixture
 def mp_db() -> Generator[Session, None, None]:
     try:
@@ -67,6 +78,7 @@ def mp_db() -> Generator[Session, None, None]:
             pytest.skip(f"core database unavailable: {exc}")
         if not _schema_ready(session):
             pytest.skip("alembic 20260908_0021 not applied")
+        _reset_primary_portfolio(session)
         yield session
     finally:
         session.close()
