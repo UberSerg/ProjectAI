@@ -1027,6 +1027,55 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
 .shadow-readiness {
   margin-bottom: 1rem;
 }
+.shadow-session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.shadow-session-panel {
+  margin-bottom: 0;
+}
+.shadow-session-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.shadow-session-title {
+  margin: 0.25rem 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.shadow-session-reason {
+  margin: 0.35rem 0 0.75rem;
+  line-height: 1.45;
+}
+.shadow-session-meta {
+  margin-top: 0.5rem;
+}
+.shadow-watermarks {
+  margin-top: 0.25rem;
+}
+.shadow-tech-details {
+  margin-top: 0.75rem;
+}
+.shadow-tech-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.shadow-live-card-warning {
+  border-color: #ca8a04;
+}
+.shadow-live-card-error {
+  border-color: #b91c1c;
+}
+.shadow-live-card-success {
+  border-color: #166534;
+}
 .shadow-readiness-main {
   display: flex;
   gap: 0.85rem;

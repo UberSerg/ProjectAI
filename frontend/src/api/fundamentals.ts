@@ -146,16 +146,57 @@ export interface FundamentalDividend {
   approval_date?: string | null;
   record_date?: string | null;
   payment_date?: string | null;
+  ex_date?: string | null;
   amount?: number | null;
+  amount_per_share?: number | null;
   currency?: string | null;
   dividend_yield?: number | null;
   yield?: number | null;
   status?: string | null;
   known_at?: string | null;
   stage?: string | null;
+  version?: number | string | null;
   provenance?: SourceProvenance | null;
-  source?: SourceProvenance | null;
+  source?: SourceProvenance | string | null;
   [key: string]: unknown;
+}
+
+export interface TotalReturnFoundationHint {
+  mode?: string | null;
+  available?: boolean | null;
+  note?: string | null;
+}
+
+export interface IssuerDividendsPayload {
+  status?: string | null;
+  as_of?: string | null;
+  instrument_id?: number | null;
+  issuer_id?: number | null;
+  events_stored_total?: number | null;
+  events_visible?: number | null;
+  history: FundamentalDividend[];
+  state?: Record<string, unknown> | null;
+  upcoming?: Record<string, unknown> | null;
+  total_return_foundation?: TotalReturnFoundationHint | null;
+  note?: string | null;
+}
+
+export type TotalReturnCoverageQuality = "READY" | "PARTIAL" | "NOT_READY";
+
+export interface TotalReturnCoverage {
+  quality: TotalReturnCoverageQuality | string;
+  verdict?: string | null;
+  instruments_with_price_history?: number | null;
+  dividend_events_stored?: number | null;
+  instruments_with_dividend_events?: number | null;
+  coverage_ratio?: number | null;
+  reasons?: string[];
+  notes?: string[];
+  mode?: string | null;
+  tax_treatment?: string | null;
+  simulator_total_return_mode?: string | null;
+  dataset_mutation?: boolean | null;
+  training?: boolean | null;
 }
 
 export interface FundamentalEvent {
@@ -233,10 +274,37 @@ export function getIssuerReports(
 export function getIssuerDividends(
   issuerId: string | number,
   signal?: AbortSignal,
-): Promise<FundamentalDividend[]> {
-  return apiRequest(`/fundamentals/issuers/${issuerId}/dividends`, { signal }).then((payload) =>
-    asArray<FundamentalDividend>(payload),
-  );
+): Promise<IssuerDividendsPayload> {
+  return apiRequest(`/fundamentals/issuers/${issuerId}/dividends`, { signal }).then((payload) => {
+    if (Array.isArray(payload)) {
+      return {
+        status: payload.length ? "OK" : "NOT_READY",
+        history: payload as FundamentalDividend[],
+        events_visible: payload.length,
+      };
+    }
+    const obj = (payload ?? {}) as Record<string, unknown>;
+    const history = asArray<FundamentalDividend>(payload, ["history", "items", "rows", "data", "events"]);
+    return {
+      status: typeof obj.status === "string" ? obj.status : history.length ? "OK" : "NOT_READY",
+      as_of: typeof obj.as_of === "string" ? obj.as_of : null,
+      instrument_id: typeof obj.instrument_id === "number" ? obj.instrument_id : null,
+      issuer_id: typeof obj.issuer_id === "number" ? obj.issuer_id : null,
+      events_stored_total:
+        typeof obj.events_stored_total === "number" ? obj.events_stored_total : null,
+      events_visible: typeof obj.events_visible === "number" ? obj.events_visible : history.length,
+      history,
+      state: (obj.state as Record<string, unknown> | null | undefined) ?? null,
+      upcoming: (obj.upcoming as Record<string, unknown> | null | undefined) ?? null,
+      total_return_foundation:
+        (obj.total_return_foundation as TotalReturnFoundationHint | null | undefined) ?? null,
+      note: typeof obj.note === "string" ? obj.note : null,
+    };
+  });
+}
+
+export function getTotalReturnCoverage(signal?: AbortSignal): Promise<TotalReturnCoverage> {
+  return apiRequest("/fundamentals/total-return/coverage", { signal });
 }
 
 export function getIssuerEvents(
@@ -308,7 +376,15 @@ export function reportStandard(report?: FundamentalReport | null): string {
 }
 
 export function provenanceOf(
-  row?: { provenance?: SourceProvenance | null; source?: SourceProvenance | null } | null,
+  row?: {
+    provenance?: SourceProvenance | null;
+    source?: SourceProvenance | string | null;
+  } | null,
 ): SourceProvenance | null {
-  return row?.provenance ?? row?.source ?? null;
+  if (row?.provenance) return row.provenance;
+  if (row?.source && typeof row.source === "object") return row.source;
+  if (typeof row?.source === "string" && row.source.trim()) {
+    return { provider: row.source };
+  }
+  return null;
 }

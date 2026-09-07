@@ -413,10 +413,10 @@ def daily_research_cycle_scheduled() -> dict:
 
 @celery_app.task(name="projectai.eod_readiness_retry")
 def eod_readiness_retry() -> dict:
-    """Beat: check EOD completeness and trigger cycle once when ready.
+    """Beat: catch-up when complete EOD exists but analytics/downstream lag.
 
-    Registered only when EOD_READINESS_RETRY_ENABLED=true. Never runs the full
-    research cycle inline every N minutes.
+    Registered when EOD_READINESS_RETRY_ENABLED=true (also implied by
+    RESEARCH_LIVE_MODE). Never runs the full research cycle inline every N minutes.
     """
     from app.modules.shadow.application.daily_operations import maybe_trigger_cycle_if_ready
 

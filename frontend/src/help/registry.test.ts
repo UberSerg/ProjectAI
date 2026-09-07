@@ -104,9 +104,21 @@ describe("help registry", () => {
       "realized_pnl",
       "strategic_cash",
       "eod_cycle",
+      "today_vs_next_session",
+      "prospective_wait_tomorrow",
+      "research_live_mode",
+      "price_return",
+      "total_return_dividends",
+      "total_return_gross",
     ]) {
       expect(getMetricHelp(id)?.title, id).toBeTruthy();
     }
+    expect(getMetricHelp("prospective_wait_tomorrow")?.summary.toLowerCase()).toMatch(
+      /завтра|следующ|open/i,
+    );
+    expect(getMetricHelp("total_return_gross")?.summary.toLowerCase()).toMatch(
+      /полная доходность|дивиденд/i,
+    );
     expect(getMetricHelp("execution_price")?.summary.toLowerCase()).toMatch(/open/);
     expect(getMetricHelp("live_portfolio_nav")?.summary.toLowerCase()).toMatch(/виртуал|nav|портфел/);
     expect(getPageHelp("shadow")?.metrics).toEqual(
@@ -118,6 +130,9 @@ describe("help registry", () => {
         "ready_for_next_session",
         "order_plan",
         "eod_cycle",
+        "today_vs_next_session",
+        "prospective_wait_tomorrow",
+        "total_return_gross",
       ]),
     );
   });

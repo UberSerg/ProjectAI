@@ -169,6 +169,43 @@ export interface ShadowLiveResponse {
   portfolios: ShadowPortfolioSummary[];
 }
 
+export interface PipelineSummaryRu {
+  code: string;
+  message_ru: string;
+}
+
+export interface ShadowPipelineWatermarks {
+  market?: string | null;
+  analytics?: string | null;
+  technical?: string | null;
+  relations?: string | null;
+  forward?: string | null;
+  shadow_plan?: string | null;
+  [key: string]: string | null | undefined;
+}
+
+export interface ShadowPipelineStatus {
+  watermarks?: ShadowPipelineWatermarks | null;
+  current_session_status?: string | null;
+  next_session_preparation_status?: string | null;
+  mid_session_activation?: boolean | null;
+  today_summary?: PipelineSummaryRu | null;
+  next_session_summary?: PipelineSummaryRu | null;
+  automation_warning?: string | null;
+  as_of_clock?: string | null;
+}
+
+export interface ShadowAutomationFlags {
+  research_live_mode?: boolean | null;
+  daily_research_cycle_enabled?: boolean | null;
+  daily_research_cycle_hour?: number | null;
+  daily_research_cycle_minute?: number | null;
+  eod_readiness_retry_enabled?: boolean | null;
+  eod_readiness_retry_minutes?: number | null;
+  intraday_market_enabled?: boolean | null;
+  warning?: string | null;
+}
+
 export interface ShadowDailyOperations {
   latest_complete_eod_date?: string | null;
   latest_forward_as_of?: string | null;
@@ -178,13 +215,20 @@ export interface ShadowDailyOperations {
   next_execution_session?: string | null;
   status_code?: string | null;
   blocker_code?: string | null;
+  current_session_status?: string | null;
+  next_session_preparation_status?: string | null;
+  mid_session_activation?: boolean | null;
+  today_summary?: PipelineSummaryRu | null;
+  next_session_summary?: PipelineSummaryRu | null;
+  pipeline?: ShadowPipelineStatus | null;
   eod_readiness?: {
     ready?: boolean;
     blocker_code?: string | null;
     latest_complete_eod_date?: string | null;
     reason?: string | null;
+    completeness?: Record<string, unknown> | null;
   } | null;
-  automation?: Record<string, unknown> | null;
+  automation?: ShadowAutomationFlags | null;
   last_eod_cycle?: {
     workflow_id?: number | null;
     status?: string | null;
@@ -202,6 +246,7 @@ export interface ShadowDailyOperations {
     lot_aware?: boolean;
     fractional_shares?: boolean;
     cash?: number;
+    activated_at?: string | null;
     last_processed_market_date?: string | null;
   }>;
   watermarks?: Record<string, string | null>;

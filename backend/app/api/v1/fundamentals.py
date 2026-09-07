@@ -150,6 +150,15 @@ def fundamentals_dividends(
         )
 
 
+@router.get("/total-return/coverage")
+def fundamentals_total_return_coverage() -> dict[str, Any]:
+    """Gross total-return foundation coverage (honest NOT_READY without dividend feed)."""
+    from app.modules.fundamentals.application.total_return import dividend_coverage_payload
+
+    with core_session() as session:
+        return dividend_coverage_payload(session)
+
+
 @router.get("/events")
 def fundamentals_events(
     instrument_id: Annotated[int | None, Query()] = None,

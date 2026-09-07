@@ -6,6 +6,7 @@ import {
   getFundamentalsMlReadiness,
   getFundamentalsQuality,
   getFundamentalsSummary,
+  getTotalReturnCoverage,
   issuerDisplayName,
   listFundamentalIssuers,
   qualityHumanMessage,
@@ -14,6 +15,7 @@ import {
   type FundamentalsMlReadiness,
   type FundamentalsQuality,
   type FundamentalsSummary,
+  type TotalReturnCoverage,
 } from "../api/fundamentals";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { MetricHelp } from "../help";
@@ -106,6 +108,7 @@ export function FundamentalsPage() {
   const [quality, setQuality] = useState<FundamentalsQuality | null>(null);
   const [ml, setMl] = useState<FundamentalsMlReadiness | null>(null);
   const [issuers, setIssuers] = useState<FundamentalIssuer[]>([]);
+  const [trCoverage, setTrCoverage] = useState<TotalReturnCoverage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [partialNotes, setPartialNotes] = useState<string[]>([]);
@@ -122,18 +125,23 @@ export function FundamentalsPage() {
       softLoad(listFundamentalIssuers({ limit: 100 }, controller.signal), {
         items: [] as FundamentalIssuer[],
       }),
+      softLoad(getTotalReturnCoverage(controller.signal), {
+        quality: "NOT_READY",
+        reasons: [],
+      } as TotalReturnCoverage),
     ])
-      .then(([sum, cov, qual, ready, iss]) => {
+      .then(([sum, cov, qual, ready, iss, tr]) => {
         setSummary(sum.value);
         setCoverage(cov.value);
         setQuality(qual.value);
         setMl(ready.value);
         setIssuers(iss.value.items ?? []);
-        const notes = [sum.error, cov.error, qual.error, ready.error, iss.error].filter(
+        setTrCoverage(tr.value);
+        const notes = [sum.error, cov.error, qual.error, ready.error, iss.error, tr.error].filter(
           Boolean,
         ) as string[];
         setPartialNotes(notes);
-        const allFailed = notes.length === 5;
+        const allFailed = notes.length === 6;
         if (allFailed) {
           setError(
             "Контур фундаментальных данных пока недоступен или провайдеры отложены. Пустые значения — ожидаемое состояние.",
@@ -257,7 +265,47 @@ export function FundamentalsPage() {
           helpId="point_in_time"
           hint={qualityMessage}
         />
+        <MetricCard
+          label="Полная доходность"
+          value={readinessLabel(trCoverage?.quality)}
+          helpId="total_return_gross"
+          hint={
+            trCoverage?.dividend_events_stored != null
+              ? `дивидендных событий: ${trCoverage.dividend_events_stored}`
+              : trCoverage?.reasons?.[0] ?? undefined
+          }
+        />
       </div>
+
+      {trCoverage ? (
+        <div className="card" data-testid="total-return-coverage">
+          <h3>
+            Coverage полной доходности <MetricHelp metricId="total_return_gross" />
+          </h3>
+          <p className="muted">
+            <MetricHelp metricId="price_return" /> / <MetricHelp metricId="total_return_dividends" /> /{" "}
+            <MetricHelp metricId="total_return_gross" /> — термины foundation v1. Simulator и Dataset V2
+            здесь не мутируются.
+          </p>
+          <div className="key-value">
+            <span>Качество</span>
+            <strong>{readinessLabel(trCoverage.quality)}</strong>
+          </div>
+          <div className="key-value">
+            <span>События дивидендов</span>
+            <strong>{formatNumber(trCoverage.dividend_events_stored)}</strong>
+          </div>
+          <div className="key-value">
+            <span>Инструменты с дивидендами</span>
+            <strong>{formatNumber(trCoverage.instruments_with_dividend_events)}</strong>
+          </div>
+          {(trCoverage.reasons?.length ?? 0) > 0 ? (
+            <p className="muted" data-testid="total-return-reasons">
+              Причины: {trCoverage.reasons?.join("; ")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {(summary?.providers?.length ?? 0) > 0 ? (
         <div className="card">

@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.modules.research_cycle.config import CYCLE_STEPS
 from app.modules.research_cycle.watermarks import determine_health, relations_due
 from app.modules.shadow.application.execution_eligibility import (
@@ -99,10 +101,16 @@ def test_locking_blocks_second_run(mock_lock: MagicMock) -> None:
     assert result["reason"] == "ALREADY_RUNNING"
 
 
-def test_research_cycle_api_status_contract() -> None:
+def test_research_cycle_api_status_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     from fastapi.testclient import TestClient
 
+    from app.core.config import get_settings
     from app.main import app
+
+    monkeypatch.setenv("RESEARCH_LIVE_MODE", "false")
+    monkeypatch.setenv("DAILY_RESEARCH_CYCLE_ENABLED", "false")
+    monkeypatch.setenv("EOD_READINESS_RETRY_ENABLED", "false")
+    get_settings.cache_clear()
 
     client = TestClient(app)
     response = client.get("/api/v1/research-cycle/status")
@@ -112,3 +120,4 @@ def test_research_cycle_api_status_contract() -> None:
     assert "watermarks" in payload
     assert "schedule" in payload
     assert payload["schedule"]["enabled"] is False
+    get_settings.cache_clear()

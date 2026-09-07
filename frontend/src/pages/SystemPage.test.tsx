@@ -43,8 +43,17 @@ function mockOverview() {
   vi.mocked(shadowApi.getShadowDailyOperations).mockResolvedValue({
     ready_for_next_session: false,
     status_code: "WAITING_FOR_MARKET_COMPLETE",
+    next_session_preparation_status: "WAITING_FOR_MARKET_COMPLETE",
     blocker_code: "WAITING_FOR_MARKET_COMPLETE",
     last_eod_cycle: { status: "SUCCESS", stale: false },
+    pipeline: {
+      watermarks: { market: "2026-09-05", analytics: null, forward: null, shadow_plan: null },
+      next_session_preparation_status: "WAITING_FOR_MARKET_COMPLETE",
+    },
+    automation: {
+      research_live_mode: false,
+      warning: "Автоматизация выключена — catch-up не запустится без RESEARCH_LIVE_MODE.",
+    },
   });
 }
 
@@ -64,6 +73,8 @@ describe("SystemPage", () => {
     );
 
     expect(await screen.findByText("Рыночные котировки")).toBeInTheDocument();
+    expect(await screen.findByTestId("system-eod-pipeline")).toHaveTextContent(/WAITING_EOD|Ждём закрытия/i);
+    expect(screen.getByTestId("system-automation-warning")).toHaveTextContent(/RESEARCH_LIVE_MODE/i);
     expect(await screen.findByText("Основная БД")).toBeInTheDocument();
     expect(screen.getByText("База памяти")).toBeInTheDocument();
     expect(screen.getByText("Не контролируется")).toBeInTheDocument();

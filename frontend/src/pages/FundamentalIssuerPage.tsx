@@ -16,6 +16,7 @@ import {
   type FundamentalEvent,
   type FundamentalIssuer,
   type FundamentalReport,
+  type IssuerDividendsPayload,
   type SourceProvenance,
 } from "../api/fundamentals";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
@@ -80,18 +81,15 @@ function DividendTimeline({ rows }: { rows: FundamentalDividend[] }) {
       <table data-testid="dividends-table">
         <thead>
           <tr>
-            <th>Анонс</th>
-            <th>
-              Рекомендация <MetricHelp metricId="dividend_recommendation" />
-            </th>
-            <th>
-              Утверждение <MetricHelp metricId="dividend_approval" />
-            </th>
+            <th>Ex-date</th>
             <th>
               Record date <MetricHelp metricId="record_date" />
             </th>
             <th>Выплата</th>
-            <th>Сумма</th>
+            <th>
+              Сумма <MetricHelp metricId="total_return_dividends" />
+            </th>
+            <th>Валюта</th>
             <th>
               Доходность <MetricHelp metricId="dividend_yield" />
             </th>
@@ -99,26 +97,30 @@ function DividendTimeline({ rows }: { rows: FundamentalDividend[] }) {
               Known at <MetricHelp metricId="known_at" />
             </th>
             <th>Статус</th>
+            <th>Источник</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, idx) => (
-            <tr key={String(row.id ?? idx)}>
-              <td>{formatDate(row.announcement_date)}</td>
-              <td>{formatDate(row.recommendation_date)}</td>
-              <td>{formatDate(row.approval_date)}</td>
-              <td>{formatDate(row.record_date)}</td>
-              <td>{formatDate(row.payment_date)}</td>
-              <td>
-                {row.amount == null
-                  ? "—"
-                  : `${formatNumber(row.amount)}${row.currency ? ` ${row.currency}` : ""}`}
-              </td>
-              <td>{formatPercent(row.dividend_yield ?? row.yield)}</td>
-              <td>{formatDateTime(row.known_at)}</td>
-              <td>{row.status ?? row.stage ?? "—"}</td>
-            </tr>
-          ))}
+          {rows.map((row, idx) => {
+            const amount = row.amount_per_share ?? row.amount;
+            const sourceLabel =
+              typeof row.source === "string"
+                ? row.source
+                : row.source?.provider ?? row.provenance?.provider ?? "—";
+            return (
+              <tr key={String(row.id ?? `${row.ex_date ?? ""}-${idx}`)}>
+                <td>{formatDate(row.ex_date)}</td>
+                <td>{formatDate(row.record_date)}</td>
+                <td>{formatDate(row.payment_date)}</td>
+                <td>{amount == null ? "—" : formatNumber(amount)}</td>
+                <td>{row.currency ?? "—"}</td>
+                <td>{formatPercent(row.dividend_yield ?? row.yield)}</td>
+                <td>{formatDateTime(row.known_at)}</td>
+                <td>{row.status ?? row.stage ?? "—"}</td>
+                <td>{sourceLabel}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -221,6 +223,7 @@ export function FundamentalIssuerPage() {
   const [issuer, setIssuer] = useState<FundamentalIssuer | null>(null);
   const [reports, setReports] = useState<FundamentalReport[]>([]);
   const [dividends, setDividends] = useState<FundamentalDividend[]>([]);
+  const [dividendsMeta, setDividendsMeta] = useState<IssuerDividendsPayload | null>(null);
   const [events, setEvents] = useState<FundamentalEvent[]>([]);
   const [asOfDate, setAsOfDate] = useState("2024-04-01");
   const [asOf, setAsOf] = useState<FundamentalAsOf | null>(null);
@@ -239,13 +242,17 @@ export function FundamentalIssuerPage() {
         id: issuerId,
       } as FundamentalIssuer),
       softLoad(getIssuerReports(issuerId, controller.signal), [] as FundamentalReport[]),
-      softLoad(getIssuerDividends(issuerId, controller.signal), [] as FundamentalDividend[]),
+      softLoad(getIssuerDividends(issuerId, controller.signal), {
+        history: [],
+        status: "NOT_READY",
+      } as IssuerDividendsPayload),
       softLoad(getIssuerEvents(issuerId, controller.signal), [] as FundamentalEvent[]),
     ])
       .then(([iss, reps, divs, evs]) => {
         setIssuer(iss.value);
         setReports(reps.value);
-        setDividends(divs.value);
+        setDividendsMeta(divs.value);
+        setDividends(divs.value.history ?? []);
         setEvents(evs.value);
         if (iss.error && reps.error && divs.error && evs.error) {
           setError(
@@ -406,11 +413,30 @@ export function FundamentalIssuerPage() {
       </div>
 
       <div className="card" data-testid="dividends-section">
-        <h3>Дивиденды</h3>
+        <h3>
+          Дивиденды <MetricHelp metricId="total_return_dividends" />
+        </h3>
         <p className="muted">
-          Рекомендация ≠ утверждённый дивиденд. Record date ≠ дата анонса. Доходность — производная
-          от известной суммы и рыночной цены; total-return учёт пока не ведётся.
+          События дивидендов — foundation для полной доходности (gross).{" "}
+          <MetricHelp metricId="total_return_gross" /> не подменяет Dataset V2 и не кредитует Shadow
+          автоматически.
         </p>
+        {dividendsMeta?.total_return_foundation ? (
+          <p className="muted" data-testid="dividends-tr-foundation">
+            Foundation: {dividendsMeta.total_return_foundation.mode ?? "TOTAL_RETURN_GROSS_V1"} ·{" "}
+            {dividendsMeta.total_return_foundation.available
+              ? "есть события в store"
+              : "событий нет (coverage NOT_READY)"}
+            {dividendsMeta.events_stored_total != null
+              ? ` · stored ${dividendsMeta.events_stored_total}`
+              : null}
+          </p>
+        ) : null}
+        {dividendsMeta?.note ? (
+          <p className="muted" data-testid="dividends-note">
+            {dividendsMeta.note}
+          </p>
+        ) : null}
         <DividendTimeline rows={dividends} />
         {dividends.map((d, idx) => (
           <ProvenanceDetails key={`div-prov-${String(d.id ?? idx)}`} data={provenanceOf(d)} />
