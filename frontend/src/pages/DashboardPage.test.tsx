@@ -210,7 +210,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("База памяти")).toBeInTheDocument();
     expect(screen.getAllByText("Работает").length).toBeGreaterThanOrEqual(2);
     expect(await screen.findByText(/2 позиций/)).toBeInTheDocument();
-    expect(screen.getByText("Открыть состав")).toBeInTheDocument();
+    expect(screen.getAllByText("Открыть состав").length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders error state", async () => {

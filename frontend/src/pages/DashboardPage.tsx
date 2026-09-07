@@ -174,7 +174,7 @@ export function DashboardPage() {
               {whyOpen ? "Скрыть «Почему?»" : "Почему?"}
             </button>
             <Link className="why-toggle" to="/portfolio/candidate">
-              Открыть портфель
+              Открыть состав
             </Link>
             <Link className="why-toggle" to="/investment-decision">
               Открыть решение
