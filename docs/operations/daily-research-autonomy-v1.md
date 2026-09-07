@@ -60,4 +60,17 @@ When an active Shadow experiment exists and automation is OFF, UI/API must show 
 
 ## Catch-up
 
-On startup / readiness beat: if `market_watermark > analytics_watermark` and automation enabled → trigger Daily Research Cycle once (lock protected). Catch-up builds decision for completed EOD T; it never backfills fills for orders created after an already-known OPEN.
+On API startup / readiness beat: if automation enabled (`RESEARCH_LIVE_MODE` or `EOD_READINESS_RETRY_ENABLED`) and a complete EOD exists while analytics/technical/forward lag (or last cycle does not cover that EOD) → trigger Daily Research Cycle **once** (Redis lock + `ALREADY_CURRENT` / `CYCLE_RUNNING`).
+
+Stage codes: `SUCCESS` | `ALREADY_CURRENT` | `WAITING_INPUT` | `FAILED` | `DISABLED`.
+
+Catch-up builds the decision for completed EOD T; it never backfills fills for orders created after an already-known OPEN.
+
+## API
+
+`GET /api/v1/shadow/daily-operations` includes:
+
+- `pipeline.watermarks` — market / analytics / technical / relations / forward / shadow_plan
+- `current_session_status` vs `next_session_preparation_status`
+- `mid_session_activation`, `today_summary`, `next_session_summary` (Russian-ready codes)
+- `automation.research_live_mode` + warning when Shadow is active but automation is off

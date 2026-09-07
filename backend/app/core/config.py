@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import date
 from functools import lru_cache
+from typing import Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +48,8 @@ class Settings(BaseSettings):
     market_update_cron: str = Field(default="0 18 * * 1-5", alias="MARKET_UPDATE_CRON")
     # Fundamentals V1 is storage + identity only; no beat schedule is registered.
     fundamentals_update_enabled: bool = Field(default=False, alias="FUNDAMENTALS_UPDATE_ENABLED")
+    # Live research profile: when true, enables daily cycle + EOD readiness retry + intraday.
+    research_live_mode: bool = Field(default=False, alias="RESEARCH_LIVE_MODE")
     daily_research_cycle_enabled: bool = Field(default=False, alias="DAILY_RESEARCH_CYCLE_ENABLED")
     daily_research_cycle_hour: int = Field(default=18, alias="DAILY_RESEARCH_CYCLE_HOUR")
     daily_research_cycle_minute: int = Field(default=30, alias="DAILY_RESEARCH_CYCLE_MINUTE")
@@ -70,6 +73,15 @@ class Settings(BaseSettings):
     intraday_http_timeout_seconds: float = Field(
         default=20.0, alias="INTRADAY_HTTP_TIMEOUT_SECONDS"
     )
+
+    @model_validator(mode="after")
+    def _apply_research_live_mode(self) -> Self:
+        """RESEARCH_LIVE_MODE is a convenience profile; explicit false flags stay off only when live=false."""
+        if self.research_live_mode:
+            self.daily_research_cycle_enabled = True
+            self.eod_readiness_retry_enabled = True
+            self.intraday_market_enabled = True
+        return self
 
     cors_origins: list[str] = Field(
         default_factory=lambda: [

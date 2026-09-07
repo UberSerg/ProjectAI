@@ -45,6 +45,15 @@ async def lifespan(_app: FastAPI):
             )
     except Exception as exc:  # noqa: BLE001 — startup must not fail on cleanup
         logger.warning("technology_log_cleanup_failed", extra={"error": str(exc)})
+    # Catch-up: if live automation is on and Shadow exists with lagging analytics, trigger once.
+    try:
+        with core_session() as session:
+            from app.modules.shadow.application.daily_operations import maybe_startup_catchup
+
+            catchup = maybe_startup_catchup(session)
+            logger.info("startup_research_catchup", extra={"catchup": catchup})
+    except Exception as exc:  # noqa: BLE001 — broker/DB must not block boot
+        logger.warning("startup_research_catchup_failed", extra={"error": str(exc)})
     yield
     logger.info("service_stopping", extra={"component": "backend"})
 
