@@ -72,7 +72,12 @@ describe("CalibrationPage", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Качество прогнозов")).toBeInTheDocument();
+    expect(screen.getByTestId("calibration-hero-title")).toHaveTextContent(
+      /Пока рано опираться на прогнозы акций/i,
+    );
+    expect(screen.getByTestId("calibration-hero-body")).toHaveTextContent(/Зрелых исходов недостаточно/i);
     expect(screen.getByText(/Модель прогнозирования доходности/)).toBeInTheDocument();
     expect(screen.getByText(/Модель ранжирования/)).toBeInTheDocument();
+    expect(screen.getByText(/Метрики модели/)).toBeInTheDocument();
   });
 });

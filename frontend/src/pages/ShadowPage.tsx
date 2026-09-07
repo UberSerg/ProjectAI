@@ -281,9 +281,12 @@ export function ShadowPage() {
       <section>
         <PageHeader
           title={labels.nav.liveExperiment}
-          description="Проспективное наблюдение за решениями ProjectAI"
+          description="Живой эксперимент: решения фиксируются только после появления новых данных, без пересчёта прошлого."
           helpPageId="shadow"
         />
+        <p className="page-purpose">
+          Это не брокерский портфель. Пустой список значит: shadow ещё не инициализирован операционно.
+        </p>
         <PageState kind="empty">
           Shadow-портфели ещё не инициализированы. Сначала выполните init через CLI/API.
         </PageState>
@@ -304,7 +307,7 @@ export function ShadowPage() {
     <section className="shadow-page">
       <PageHeader
         title={labels.nav.liveExperiment}
-        description="Проспективное наблюдение за решениями ProjectAI на данных, которые появились после запуска эксперимента."
+        description="Живой эксперимент: проспективное наблюдение за решениями на данных после запуска. Не historical backtest и не реальные деньги."
         helpPageId="shadow"
         actions={
           <Link to="/simulator" className="secondary button-link">
@@ -312,6 +315,10 @@ export function ShadowPage() {
           </Link>
         }
       />
+      <p className="page-purpose">
+        Если позиций 0 — это часто нормальный старт: ордера ждут будущего OPEN или ещё не сформированы.
+        Не путайте пустую экспозицию с «сломанным» портфелем.
+      </p>
 
       <div className="shadow-header-meta">
         <StatusChip status={status} />
@@ -366,6 +373,28 @@ export function ShadowPage() {
       <OperationalStage status={status} />
 
       {fillsTotal === 0 ? <PendingZeroState pendingCount={pendingTotal} /> : null}
+
+      {bundles.every((b) => (b.summary.position_count ?? 0) === 0) ? (
+        <div className="shadow-zero panel" data-testid="shadow-zero-positions">
+          <h2 className="sim-section-title">Позиций пока нет</h2>
+          <p>
+            Эксперимент живой, но открытых позиций сейчас 0. Это не выдуманный P&amp;L и не скрытая
+            экспозиция — только то, что уже успело исполниться на будущих OPEN.
+          </p>
+          <ul className="plain-list">
+            <li>Ожидающих ордеров: {pendingTotal}</li>
+            <li>Исполненных сделок: {fillsTotal}</li>
+            <li>
+              Операционный статус: {shadowStatusLabel(status)}
+              {pendingTotal > 0
+                ? " — ордера сформированы и ждут допустимого будущего открытия рынка"
+                : fillsTotal === 0
+                  ? " — сделок ещё не было"
+                  : " — после исполнений позиции могли быть закрыты или ещё не отражены"}
+            </li>
+          </ul>
+        </div>
+      ) : null}
 
       <div className="panel">
         <h2 className="sim-section-title">

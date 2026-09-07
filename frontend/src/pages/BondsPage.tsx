@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getBondAccountingPreview,
   getBonds,
@@ -43,6 +44,7 @@ function fmtMoney(value: number | string | null | undefined): string {
 }
 
 export function BondsPage() {
+  const navigate = useNavigate();
   const [hurdle, setHurdle] = useState<HurdleQuote | null>(null);
   const [checks, setChecks] = useState<ReadinessCheck[]>([]);
   const [bonds, setBonds] = useState<BondInstrument[]>([]);
@@ -60,6 +62,8 @@ export function BondsPage() {
   const [filterCredit, setFilterCredit] = useState("");
   const [filterLiquidity, setFilterLiquidity] = useState("");
   const [filterEligibility, setFilterEligibility] = useState("");
+
+  const openBond = (symbol: string) => navigate(`/bonds/${encodeURIComponent(symbol)}`);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,8 +123,12 @@ export function BondsPage() {
       <PageHeader
         title="Облигации"
         description="Главный вопрос: подходит ли бумага? Уметь посчитать купоны ≠ считать её безопасной."
-        helpPageId="investment"
+        helpPageId="bonds"
       />
+      <p className="page-purpose">
+        Раздел показывает, какие облигации Kraken видит в контуре: доходность, срок, кредит, ликвидность
+        и eligibility. Откройте карточку бумаги для drill-down — список сам по себе не инвестиционный совет.
+      </p>
       {error ? <div className="banner banner-warning">{error}</div> : null}
 
       <div className="bond-fit-grid">
@@ -342,17 +350,34 @@ export function BondsPage() {
                   <th>Liquidity</th>
                   <th>Eligibility</th>
                   <th>Данные</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((bond) => (
                   <tr
                     key={bond.instrument_id}
-                    className={selected?.instrument_id === bond.instrument_id ? "row-selected" : undefined}
-                    onClick={() => setSelected(bond)}
-                    style={{ cursor: "pointer" }}
+                    className={`clickable${selected?.instrument_id === bond.instrument_id ? " selected" : ""}`}
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`Открыть ${bond.symbol}`}
+                    onClick={() => openBond(bond.symbol)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openBond(bond.symbol);
+                      }
+                    }}
                   >
-                    <td>{bond.symbol}</td>
+                    <td>
+                      <Link
+                        className="ticker-link"
+                        to={`/bonds/${encodeURIComponent(bond.symbol)}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {bond.symbol}
+                      </Link>
+                    </td>
                     <td>{bond.bond_type}</td>
                     <td>{bond.clean_price_percent ?? "—"}</td>
                     <td>{bond.nkd ?? "—"}</td>
@@ -370,6 +395,18 @@ export function BondsPage() {
                     <td>{bond.investment_eligibility ?? "RESEARCH_ONLY"}</td>
                     <td title={bond.data_quality?.source}>
                       {bond.data_quality?.known_at_quality ?? "—"}
+                    </td>
+                    <td>
+                      <Link
+                        className="inline-link"
+                        to={`/bonds/${encodeURIComponent(bond.symbol)}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelected(bond);
+                        }}
+                      >
+                        Открыть
+                      </Link>
                     </td>
                   </tr>
                 ))}

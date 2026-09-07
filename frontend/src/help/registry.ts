@@ -1986,8 +1986,9 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
   },
   analytics: {
     id: "analytics",
-    title: "Аналитика",
-    about: "Версионируемые производные признаки из рыночных данных (feature sets).",
+    title: "Аналитика (экспертный слой)",
+    about:
+      "Версионируемые производные признаки из рыночных данных. Экспертный слой — не основной путь инвестора; вход через «Расширенная аналитика».",
     understand: [
       "Какой feature set активен",
       "Покрытие инструментов",
@@ -1998,12 +1999,13 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Признаки — входы для моделей, не рекомендации.",
       "Mechanical V2 — отдельный набор; не активируется этим экраном.",
     ],
-    limitations: ["UI не запускает ML-обучение."],
+    limitations: ["UI не запускает ML-обучение.", "Скрыт из primary nav — deep-link / expert hub."],
   },
   relations: {
     id: "relations",
-    title: "Связи",
-    about: "Статистическая структура рынка: корреляции и lead-lag.",
+    title: "Связи рынка (экспертный слой)",
+    about:
+      "Статистическая структура рынка: корреляции и lead-lag. Экспертный слой расширенной аналитики.",
     understand: [
       "Какие пары сильнее связаны на окне",
       "Есть ли выраженный лаг",
@@ -2017,12 +2019,14 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
     limitations: [
       "Корреляция ≠ причинность.",
       "Не выдача BUY/SELL.",
+      "Скрыт из primary nav — deep-link / expert hub.",
     ],
   },
   technical: {
     id: "technical",
-    title: "Технический анализ",
-    about: "Rules_v1: score, direction и confidence по тренду, моментуму, RSI и объёму.",
+    title: "Технические сигналы (экспертный слой)",
+    about:
+      "Rules_v1: score, direction и confidence по тренду, моментуму, RSI и объёму. Экспертный слой, не investment advice.",
     understand: [
       "Распределение бычьих/нейтральных/медвежьих состояний",
       "Сигналы по инструментам на as_of",
@@ -2033,7 +2037,11 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Сортируйте по confidence осторожно: это не вероятность прибыли.",
       "Invalid / предупреждения важнее «красивого» score.",
     ],
-    limitations: ["Не рекомендация к сделке.", "Не брокерский сигнал."],
+    limitations: [
+      "Не рекомендация к сделке.",
+      "Не брокерский сигнал.",
+      "Скрыт из primary nav — deep-link / expert hub.",
+    ],
   },
   workflows: {
     id: "workflows",
@@ -2437,14 +2445,15 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
   },
   prediction_calibration: {
     id: "prediction_calibration",
-    title: "Качество прогнозов Kraken",
+    title: "Качество прогнозов",
     about:
-      "Calibration & Confidence: насколько часто ожидаемая доходность модели совпадает с реальностью.",
+      "Насколько прогнозам акций можно доверять сейчас: зрелые и pending исходы, статус калибровки и влияние на долю капитала. Не обещание доходности.",
     understand: [
       "Почему прогноз ≠ гарантия",
+      "Сколько зрелых outcomes уже есть и сколько ждут горизонта",
+      "Что значит INSUFFICIENT_SAMPLE / UNKNOWN для инвестора",
+      "Как низкая уверенность ограничивает долю акций",
       "Чем EXPECTED_RETURN отличается от RANKING_SCORE",
-      "Почему pending outcomes не смешивают с evaluated",
-      "Как confidence влияет на allocation без fake certainty",
       "Что показывают buckets prediction vs realized",
     ],
     metrics: [
@@ -2460,7 +2469,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "expected_excess_return",
     ],
     interpret: [
-      "Сначала sample size и coverage, потом bias/MAE.",
+      "Сначала смотрите вывод для инвестора и sample size, потом Bias/MAE.",
       "Если модель систематически выше реальности — доверие падает.",
       "V1 ranking не сравнивают return-метриками V0.",
     ],
@@ -2552,17 +2561,113 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Equity confidence и corporate credit могут оставаться UNKNOWN.",
     ],
   },
+  portfolio_hub: {
+    id: "portfolio_hub",
+    title: "Обзор портфеля (хаб)",
+    about:
+      "Служебный хаб deep-link: ссылки на кандидат, решение, риск и связанные экраны. Не primary nav.",
+    understand: [
+      "Где главный экран инвестора (кандидат портфеля)",
+      "Чем хаб отличается от кандидата",
+      "Куда ушло подробное распределение",
+    ],
+    metrics: ["portfolio_candidate", "investment_decision", "portfolio_risk_gate"],
+    interpret: ["Сначала кандидат, потом детали решения и риска."],
+    limitations: ["Не состав портфеля и не брокерский экран."],
+  },
+  research_hub: {
+    id: "research_hub",
+    title: "Обзор исследований",
+    about:
+      "Точка входа в research: проверка моделей, стратегий и экспертных внутренних данных — с пояснением, нужно ли обычному пользователю.",
+    understand: [
+      "Чем калибровка отличается от симулятора и shadow",
+      "Где лежит расширенная аналитика",
+      "Что не нужно инвестору каждый день",
+    ],
+    metrics: ["prediction_calibration", "shadow_portfolio", "sim_oos"],
+    interpret: [
+      "Обычный путь инвестора — портфель; этот хаб — для доверия и разбора.",
+    ],
+    limitations: ["Не торговый терминал.", "Нет брокера."],
+  },
+  research_advanced: {
+    id: "research_advanced",
+    title: "Расширенная аналитика",
+    about:
+      "Экспертный слой: аналитика признаков, технические сигналы и связи рынка. Не основной путь инвестора.",
+    understand: [
+      "Куда вести за feature sets",
+      "Где technical rules",
+      "Где relations snapshots",
+    ],
+    metrics: ["feature_coverage", "technical_score", "relations_term"],
+    interpret: ["Это сырьё моделей, не investment advice."],
+    limitations: ["Скрыто из primary flat nav.", "Deep-links /analytics, /technical, /relations сохранены."],
+  },
+  bonds: {
+    id: "bonds",
+    title: "Облигации",
+    about:
+      "Список бумаг fixed income: подходит ли бумага, eligibility, кредит, ликвидность. Drill-down — карточка SECID.",
+    understand: [
+      "Чем купон, амортизация, оферта и погашение отличаются",
+      "Что значит SUPPORTED и RESEARCH_ONLY",
+      "Почему учёт потоков не равен кредитной безопасности",
+      "Как открыть карточку облигации",
+    ],
+    metrics: [
+      "cbr_hurdle",
+      "bond_supported",
+      "credit_quality",
+      "liquidity_risk",
+      "investment_eligibility",
+      "accounting_vs_credit",
+      "bond_ytm",
+      "nkd",
+      "dirty_price",
+    ],
+    interpret: [
+      "Сначала eligibility и credit, потом YTM.",
+      "Accounting YES ≠ Investment YES.",
+    ],
+    limitations: [
+      "Налоги не моделируются.",
+      "Нет брокерского исполнения.",
+    ],
+  },
+  bond_detail: {
+    id: "bond_detail",
+    title: "Карточка облигации",
+    about:
+      "Drill-down по SECID: основное, деньги, risk, cashflows, why Kraken и provenance данных.",
+    understand: [
+      "Почему бумага SUPPORTED / RESEARCH_ONLY",
+      "Какие денежные потоки наблюдаются",
+      "Какие risk flags видны",
+    ],
+    metrics: [
+      "bond_supported",
+      "bond_coupon_schedule",
+      "bond_redemption",
+      "credit_quality",
+      "investment_eligibility",
+      "dirty_price",
+      "nkd",
+    ],
+    interpret: ["Why Kraken объясняет ограничения без «красивой» доходности."],
+    limitations: ["Read-only. Не приказ на покупку."],
+  },
   fundamentals: {
     id: "fundamentals",
-    title: "Фундаментал и события",
+    title: "Компании",
     about:
-      "Отчётность, дивиденды и корпоративные события эмитентов с явным учётом known_at и даты публикации.",
+      "Покрытие фундаментальных данных по компаниям: кто в universe, у кого есть отчёты и факты, свежесть и PIT-качество.",
     understand: [
+      "Сколько компаний с данными / без данных",
       "Почему дата публикации важнее «месяца отчётного периода»",
       "Что такое known_at и Point-in-Time",
-      "Чем IFRS отличается от РСБУ (RAS) и почему метрики не всегда сопоставимы",
-      "Почему рекомендация дивиденда ≠ утверждение",
-      "Как as-of explorer показывает, что было известно на дату",
+      "Как открыть карточку компании",
       "Почему пустые таблицы при недоступных лентах — честное NOT_READY",
     ],
     metrics: [
@@ -2590,7 +2695,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "source_provenance",
     ],
     interpret: [
-      "Сначала смотрите PIT-карточку и статус качества (GOOD / PARTIAL / NOT_READY).",
+      "Сначала смотрите покрытие и статус данных по компаниям.",
       "Не трактуйте фундаментальные цифры как investment advice.",
       "ML readiness описывает кандидатов признаков и блокеры — без запуска обучения.",
     ],

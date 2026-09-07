@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   getAnalyticsOverview,
   getFeatureRuns,
@@ -77,7 +78,7 @@ export function AnalyticsPage() {
     <section>
       <PageHeader
         title={labels.nav.analytics}
-        description="Версионируемые производные признаки из рыночных данных"
+        description="Технический исследовательский раздел. Здесь рассчитанные показатели рынка, которые Kraken использует как входы для моделей."
         helpPageId="analytics"
         actions={
           <>
@@ -90,6 +91,11 @@ export function AnalyticsPage() {
           </>
         }
       />
+      <p className="page-purpose">
+        Обычному инвестору сюда заходить не обязательно — для работы с портфелем достаточно Кандидата и
+        Инвестиционного решения. Раздел доступен из{" "}
+        <Link to="/research/advanced">Расширенной аналитики</Link>.
+      </p>
 
       <div className="card-grid">
         <MetricCard

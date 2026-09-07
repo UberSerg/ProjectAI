@@ -32,12 +32,43 @@ describe("help registry", () => {
       "shadow",
       "research_lab",
       "research_compare",
+      "research_hub",
+      "research_advanced",
+      "bonds",
+      "bond_detail",
+      "portfolio_hub",
+      "portfolio_candidate",
+      "prediction_calibration",
+      "fundamentals",
+      "allocation",
+      "investment_decision",
+      "portfolio_risk",
     ]) {
-      expect(getPageHelp(id)?.title).toBeTruthy();
+      expect(getPageHelp(id)?.title, id).toBeTruthy();
     }
     expect(getMetricHelp("research_lab")?.title).toMatch(/Лаборатория/);
     expect(getMetricHelp("observed_holdout")?.title).toMatch(/holdout/i);
     expect(getMetricHelp("development_oos")?.title).toMatch(/OOS|Development/i);
+  });
+
+  it.each([
+    "research_hub",
+    "research_advanced",
+    "bonds",
+    "bond_detail",
+    "portfolio_hub",
+    "portfolio_candidate",
+    "prediction_calibration",
+    "fundamentals",
+    "allocation",
+    "investment_decision",
+    "portfolio_risk",
+    "shadow",
+    "simulator",
+    "overview",
+    "market",
+  ])("requires page help id %s", (id) => {
+    expect(getPageHelp(id)?.title).toBeTruthy();
   });
 
   it("defines simulator help metrics", () => {
@@ -117,7 +148,7 @@ describe("help registry", () => {
     }
     expect(getMetricHelp("known_at")?.summary).toMatch(/известна рынку/);
     expect(getMetricHelp("dividend_recommendation")?.details).toMatch(/approval/i);
-    expect(getPageHelp("fundamentals")?.title).toMatch(/Фундаментал/);
+    expect(getPageHelp("fundamentals")?.title).toMatch(/Компании/);
   });
 });
 

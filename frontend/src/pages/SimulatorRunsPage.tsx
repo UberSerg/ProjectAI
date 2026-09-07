@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { listSimulatorRuns, type SimulationRunSummary } from "../api/simulator";
 import { PageHeader, PageState, StatusBadge } from "../components/Ui";
@@ -13,6 +13,7 @@ function SegmentBadge({ segment }: { segment?: string | null }) {
 }
 
 export function SimulatorRunsPage() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<SimulationRunSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +39,9 @@ export function SimulatorRunsPage() {
           description="Исторические прогоны Historical Simulator V0"
           helpPageId="simulator"
         />
+        <p className="page-purpose">
+          Раздел проверяет идеи на прошлом рынке. Пустой список — ещё нет сохранённых прогонов.
+        </p>
         <PageState kind="empty">Пока нет сохранённых прогонов симулятора.</PageState>
       </section>
     );
@@ -55,6 +59,10 @@ export function SimulatorRunsPage() {
           </Link>
         }
       />
+      <p className="page-purpose">
+        Откройте прогон, чтобы увидеть NAV, просадку и инспектор дня. Клик по строке ведёт на карточку
+        симуляции.
+      </p>
 
       <div className="table-wrap">
         <table>
@@ -70,20 +78,41 @@ export function SimulatorRunsPage() {
               <th className="numeric">Доходность</th>
               <th className="numeric">Max DD</th>
               <th>Статус</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {runs.map((run) => {
               const m = run.metrics ?? {};
+              const path = `/simulator/${run.id}`;
               return (
-                <tr key={run.id} className="clickable">
+                <tr
+                  key={run.id}
+                  className="clickable"
+                  tabIndex={0}
+                  role="link"
+                  aria-label={`Открыть симуляцию ${run.id}`}
+                  onClick={() => navigate(path)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(path);
+                    }
+                  }}
+                >
                   <td>
-                    <Link to={`/simulator/${run.id}`} className="sim-run-link">
+                    <Link
+                      to={path}
+                      className="sim-run-link"
+                      onClick={(event) => event.stopPropagation()}
+                    >
                       <SegmentBadge segment={run.segment} />
                     </Link>
                   </td>
                   <td>
-                    <Link to={`/simulator/${run.id}`}>{formatDateRange(run.date_from, run.date_to)}</Link>
+                    <Link to={path} onClick={(event) => event.stopPropagation()}>
+                      {formatDateRange(run.date_from, run.date_to)}
+                    </Link>
                   </td>
                   <td>{policyShort(run.spec?.policy_name)}</td>
                   <td>
@@ -102,6 +131,15 @@ export function SimulatorRunsPage() {
                   <td className="numeric">{formatPercent(m.max_drawdown)}</td>
                   <td>
                     <StatusBadge status={run.engineering_status ?? run.status} />
+                  </td>
+                  <td>
+                    <Link
+                      className="inline-link"
+                      to={path}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Открыть
+                    </Link>
                   </td>
                 </tr>
               );

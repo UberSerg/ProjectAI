@@ -20,7 +20,7 @@ const links = [
   {
     to: "/allocation",
     title: "Распределение капитала",
-    text: "Как считается research-allocation до risk gate.",
+    text: "Подробный deep-link: research-allocation. В основной навигации не показан — смотрите через решение / кандидат.",
   },
   {
     to: "/bonds",
@@ -38,10 +38,14 @@ export function PortfolioPage() {
   return (
     <section>
       <PageHeader
-        title="Портфель"
-        description="Исследовательский контур: решение → риск → кандидат. Без брокера и без реальных денег."
-        helpPageId="allocation"
+        title="Обзор портфеля (хаб)"
+        description="Служебный хаб по deep-link. В основной навигации его нет — главный путь инвестора: кандидат портфеля."
+        helpPageId="portfolio_hub"
       />
+      <p className="page-purpose">
+        Распределение капитала концептуально живёт внутри инвестиционного решения и кандидата; отдельный
+        экран /allocation сохранён для подробного разбора.
+      </p>
 
       <HeroCard
         eyebrow="Куда смотреть"
@@ -64,6 +68,7 @@ export function PortfolioPage() {
 
       <ExplanationCard title="Как читать этот раздел" level={1}>
         <ol className="plain-list">
+          <li>Откройте «Кандидат портфеля» — увидите конкретный состав.</li>
           <li>Откройте «Инвестиционное решение» — увидите доли капитала.</li>
           <li>Проверьте «Проверку риска» — что блокирует или предупреждает.</li>
           <li>При сомнении по облигациям зайдите в «Облигации» и «Качество прогнозов».</li>

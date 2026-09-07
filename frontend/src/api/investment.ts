@@ -94,6 +94,22 @@ export const getInvestmentReadiness = (signal?: AbortSignal) =>
 export const getBonds = (signal?: AbortSignal) =>
   apiRequest<{ items: BondInstrument[] }>("/fixed-income/instruments", { signal });
 
+export interface BondCashflowRow {
+  cashflow_date?: string | null;
+  cashflow_type?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  source?: string | null;
+}
+
+export interface BondDetail extends BondInstrument {
+  cashflows: BondCashflowRow[];
+  why_kraken_ru: string;
+}
+
+export const getBondDetail = (symbol: string, signal?: AbortSignal) =>
+  apiRequest<BondDetail>(`/fixed-income/instruments/${encodeURIComponent(symbol)}`, { signal });
+
 export const getFixedIncomeRisk = (signal?: AbortSignal) =>
   apiRequest<{
     as_of: string;
