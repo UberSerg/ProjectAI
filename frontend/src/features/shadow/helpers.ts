@@ -436,7 +436,12 @@ export function readinessHeadline(ops?: ShadowDailyOperations | null): {
     return { ready: false, code: null, short: "Статус готовности ещё не загружен" };
   }
   const ready = Boolean(ops.ready_for_next_session);
-  const code = ops.status_code ?? ops.blocker_code ?? null;
+  const code =
+    ops.next_session_preparation_status ??
+    ops.pipeline?.next_session_preparation_status ??
+    ops.status_code ??
+    ops.blocker_code ??
+    null;
   return {
     ready,
     code,
@@ -447,4 +452,145 @@ export function readinessHeadline(ops?: ShadowDailyOperations | null): {
 export function shortHash(value?: string | null, n = 8): string {
   if (!value) return "—";
   return value.length <= n ? value : value.slice(0, n);
+}
+
+/** Product stage buckets for next-session prep (mega task §37). */
+export type NextSessionStage = "WAITING_EOD" | "PROCESSING" | "READY" | "BLOCKED";
+
+export type StatusTone = "success" | "warning" | "error" | "running" | "info" | "neutral";
+
+export function currentSessionCode(ops?: ShadowDailyOperations | null): string | null {
+  return ops?.current_session_status ?? ops?.pipeline?.current_session_status ?? null;
+}
+
+export function nextSessionPrepCode(ops?: ShadowDailyOperations | null): string | null {
+  return (
+    ops?.next_session_preparation_status ??
+    ops?.pipeline?.next_session_preparation_status ??
+    ops?.status_code ??
+    null
+  );
+}
+
+export function isMidSessionActivation(ops?: ShadowDailyOperations | null): boolean {
+  if (ops?.mid_session_activation ?? ops?.pipeline?.mid_session_activation) return true;
+  const code = (currentSessionCode(ops) ?? "").toUpperCase();
+  return (
+    code === "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN" || code === "FILLS_BLOCKED_ORDER_AFTER_OPEN"
+  );
+}
+
+export function automationWarningText(ops?: ShadowDailyOperations | null): string | null {
+  const warning =
+    ops?.automation?.warning ?? ops?.pipeline?.automation_warning ?? null;
+  if (typeof warning === "string" && warning.trim()) return warning.trim();
+  return null;
+}
+
+export function mapNextSessionStage(prepCode?: string | null): NextSessionStage {
+  const code = (prepCode ?? "").toUpperCase();
+  if (
+    code === "READY_FOR_NEXT_SESSION" ||
+    code === "READY_NO_REBALANCE" ||
+    code === "PENDING_ORDERS_AWAITING_OPEN"
+  ) {
+    return "READY";
+  }
+  if (code === "WAITING_FOR_MARKET_COMPLETE") return "WAITING_EOD";
+  if (
+    code === "WAITING_FOR_ANALYTICS" ||
+    code === "WAITING_FOR_TECHNICAL" ||
+    code === "WAITING_FOR_RELATIONS" ||
+    code === "WAITING_FOR_FORWARD" ||
+    code === "WAITING_FOR_SHADOW_PLAN" ||
+    code === "CYCLE_RUNNING" ||
+    code === "ORDER_PLAN_PENDING"
+  ) {
+    return "PROCESSING";
+  }
+  return "BLOCKED";
+}
+
+export function nextSessionStageTone(stage: NextSessionStage): StatusTone {
+  switch (stage) {
+    case "READY":
+      return "success";
+    case "WAITING_EOD":
+    case "PROCESSING":
+      return "running";
+    case "BLOCKED":
+      return "error";
+    default:
+      return "warning";
+  }
+}
+
+export function todaySessionHeadline(ops?: ShadowDailyOperations | null): {
+  code: string | null;
+  title: string;
+  messageRu: string | null;
+  midSession: boolean;
+} {
+  const code = currentSessionCode(ops);
+  const midSession = isMidSessionActivation(ops);
+  const summary = ops?.today_summary ?? ops?.pipeline?.today_summary;
+  const messageRu = summary?.message_ru ?? null;
+  if (midSession) {
+    return {
+      code: code ?? "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN",
+      title: "Первая сделка — на следующем открытии",
+      messageRu:
+        messageRu ??
+        "Эксперимент запущен сегодня после открытия рынка. Kraken не использует уже известную цену открытия задним числом.",
+      midSession: true,
+    };
+  }
+  const upper = (code ?? "").toUpperCase();
+  let title = "Сегодня";
+  if (upper === "NO_ACTIVITY") title = "Сегодня сделок не требовалось";
+  else if (upper === "PENDING_ORDERS_AWAITING_OPEN") title = "Ждём открытия рынка";
+  else if (upper === "SESSION_ACTIVE") title = "Сессия активна";
+  else if (upper === "FILLS_BLOCKED_ORDER_AFTER_OPEN") {
+    title = "Первая сделка — на следующем открытии";
+  } else if (summary?.message_ru) title = summary.message_ru;
+  else if (code) title = code;
+  return { code, title, messageRu, midSession };
+}
+
+export function pipelineWatermarks(ops?: ShadowDailyOperations | null): Array<{
+  key: string;
+  label: string;
+  value: string | null;
+}> {
+  const wm = ops?.pipeline?.watermarks;
+  const flat = ops?.watermarks;
+  const pick = (short: string, long: string): string | null => {
+    const fromPipe = wm?.[short];
+    if (fromPipe != null && fromPipe !== "") return String(fromPipe);
+    const fromFlat = flat?.[long] ?? flat?.[short];
+    if (fromFlat != null && fromFlat !== "") return String(fromFlat);
+    return null;
+  };
+  return [
+    { key: "market", label: "Рынок", value: pick("market", "raw_market_latest_date") },
+    { key: "analytics", label: "Analytics", value: pick("analytics", "analytics_v2_latest_date") },
+    { key: "forward", label: "Forward", value: pick("forward", "forward_latest_as_of") },
+    { key: "plan", label: "План", value: pick("shadow_plan", "shadow_plan_latest_as_of") },
+  ];
+}
+
+/** MOEX equities open ~07:00 UTC (10:00 MSK) — display helper only. */
+export function sessionOpenIsoForDate(isoDate?: string | null): string | null {
+  if (!isoDate) return null;
+  const day = isoDate.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  return `${day}T07:00:00+00:00`;
+}
+
+export function earliestActivationIso(ops?: ShadowDailyOperations | null): string | null {
+  const times = (ops?.portfolios ?? [])
+    .map((p) => p.activated_at)
+    .filter((v): v is string => Boolean(v));
+  if (!times.length) return null;
+  return times.slice().sort()[0] ?? null;
 }

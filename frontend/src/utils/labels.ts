@@ -143,20 +143,45 @@ const SHADOW_SKIP_REASON: Record<string, string> = {
   REBALANCE_SELL: "Продажа по плану",
 };
 
-/** Daily readiness / EOD status codes. */
+/** Daily readiness / EOD status codes (backend next-session + current-session). */
 const SHADOW_READINESS_STATUS: Record<string, string> = {
   READY_FOR_NEXT_SESSION: "Готов к следующей сессии",
+  READY_NO_REBALANCE: "Готово; ребаланс не требуется",
   WAITING_FOR_MARKET_COMPLETE: "Ждём завершённый рыночный день",
   WAITING_FOR_ANALYTICS: "Ждём аналитику",
   WAITING_FOR_TECHNICAL: "Ждём технические признаки",
+  WAITING_FOR_RELATIONS: "Ждём актуальный Relations snapshot",
   WAITING_FOR_FORWARD: "Ждём Forward-прогноз",
+  WAITING_FOR_SHADOW_PLAN: "Ждём план ордеров Shadow",
   CYCLE_RUNNING: "Идёт ежедневный исследовательский цикл",
   CYCLE_STALE: "Ежедневный цикл устарел — требуется внимание",
+  AUTOMATION_DISABLED: "Автоматизация выключена",
   PENDING_ORDERS_AWAITING_OPEN: "Ордера ждут открытия сессии",
   ORDER_PLAN_PENDING: "Ожидается план ордеров",
   BLOCKED_CONSISTENCY: "Заблокировано проверкой согласованности",
   NO_SHADOW_PORTFOLIOS: "Shadow-портфели не инициализированы",
+  NO_ACTIVITY: "Сегодня нет активных ордеров",
+  MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN: "Первая сделка — на следующем открытии",
+  SESSION_ACTIVE: "Сессия активна",
+  FILLS_BLOCKED_ORDER_AFTER_OPEN: "Сегодняшний OPEN не используется",
   UNKNOWN: "Статус неизвестен",
+};
+
+/** Product stage buckets for next-session prep (§37). */
+const NEXT_SESSION_STAGE: Record<string, string> = {
+  WAITING_EOD: "Ждём закрытия рынка",
+  PROCESSING: "Готовим решение на завтра",
+  READY: "Готово к следующему открытию",
+  BLOCKED: "Требует внимания",
+};
+
+/** Human current-session headlines (§35). */
+const CURRENT_SESSION_HUMAN: Record<string, string> = {
+  NO_ACTIVITY: "Сегодня сделок не требовалось",
+  PENDING_ORDERS_AWAITING_OPEN: "Ждём открытия рынка",
+  MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN: "Первая сделка — на следующем открытии",
+  SESSION_ACTIVE: "Сегодняшние сделки исполнены / в работе",
+  FILLS_BLOCKED_ORDER_AFTER_OPEN: "Первая сделка — на следующем открытии",
 };
 
 const QUOTE_FRESHNESS: Record<string, string> = {
@@ -254,6 +279,10 @@ export const labels = {
   },
   shadowReadinessStatus: (value?: string | null) =>
     lookup(SHADOW_READINESS_STATUS, value?.toUpperCase()),
+  nextSessionStage: (value?: string | null) =>
+    lookup(NEXT_SESSION_STAGE, value?.toUpperCase()),
+  currentSessionHuman: (value?: string | null) =>
+    lookup(CURRENT_SESSION_HUMAN, value?.toUpperCase()),
   quoteFreshness: (value?: string | null) => lookup(QUOTE_FRESHNESS, value?.toUpperCase()),
   marketSession: (value?: string | null) => lookup(MARKET_SESSION, value?.toUpperCase()),
   dataFreshness: (last?: string | null): string => {
