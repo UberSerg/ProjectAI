@@ -5,6 +5,7 @@ import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { reportClientError } from "./api/system";
 import "./styles.css";
+import "./design-system.css";
 
 function installGlobalErrorHandlers() {
   window.addEventListener("error", (event) => {

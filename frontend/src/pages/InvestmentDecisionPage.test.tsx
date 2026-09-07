@@ -102,8 +102,8 @@ describe("InvestmentDecisionPage", () => {
         </HelpProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Инвестиционное решение Kraken")).toBeInTheDocument();
-    expect(await screen.findByText(/исследовательское распределение/i)).toBeInTheDocument();
+    expect(await screen.findByText("Что делать с капиталом?")).toBeInTheDocument();
+    expect(await screen.findByText(/Сначала ответ Kraken/i)).toBeInTheDocument();
     expect(await screen.findByText("Оправдал ли результат риск?")).toBeInTheDocument();
   });
 });

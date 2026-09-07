@@ -182,8 +182,8 @@ export function ResearchLabPage() {
   return (
     <section className="research-lab">
       <PageHeader
-        title={labels.nav.lab}
-        description="Исследовательский кокпит: исторические эксперименты, диагностика моделей, проспективное A/B и живой Shadow."
+        title={labels.nav.researchLab}
+        description="Экспертный раздел: исторические эксперименты, диагностика моделей, проспективное A/B и Shadow. Не главный экран инвестора."
         helpPageId="research_lab"
         actions={
           <Link to="/shadow" className="secondary button-link">

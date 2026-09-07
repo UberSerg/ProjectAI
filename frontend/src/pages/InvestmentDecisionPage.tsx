@@ -73,11 +73,57 @@ export function InvestmentDecisionPage() {
   return (
     <div className="allocation-page">
       <PageHeader
-        title="Инвестиционное решение Kraken"
-        description="Почему Kraken выбрал бы такую структуру капитала: возможность, риск и объяснение."
+        title="Что делать с капиталом?"
+        description="Сначала ответ Kraken, затем объяснение и риски. Research-only: без брокера и реальных денег."
         helpPageId="investment_decision"
       />
       {error ? <div className="banner banner-warning">{error}</div> : null}
+
+      <div className="ds-card ds-card-hero">
+        <div className="ds-card-title">Решение</div>
+        <div className="ds-card-headline">
+          {decision
+            ? "Исследовательское распределение капитала"
+            : "Рассчитайте решение, чтобы увидеть доли"}
+        </div>
+        {decision ? (
+          <>
+            <div className="allocation-bars">
+              <div className="allocation-row">
+                <span>Акции</span>
+                <div className="allocation-track">
+                  <div
+                    className="allocation-fill"
+                    style={{ width: `${(decision.equity_weight ?? 0) * 100}%` }}
+                  />
+                </div>
+                <strong>{pct(decision.equity_weight)}</strong>
+              </div>
+              <div className="allocation-row">
+                <span>Облигации</span>
+                <div className="allocation-track">
+                  <div
+                    className="allocation-fill fi"
+                    style={{ width: `${(decision.fixed_income_weight ?? 0) * 100}%` }}
+                  />
+                </div>
+                <strong>{pct(decision.fixed_income_weight)}</strong>
+              </div>
+              <div className="allocation-row">
+                <span>Деньги</span>
+                <div className="allocation-track">
+                  <div
+                    className="allocation-fill cash"
+                    style={{ width: `${(decision.cash_weight ?? 0) * 100}%` }}
+                  />
+                </div>
+                <strong>{pct(decision.cash_weight)}</strong>
+              </div>
+            </div>
+            <p className="muted">{decision.explanations?.[0]}</p>
+          </>
+        ) : null}
+      </div>
 
       <div className="card">
         <h3>Контекст</h3>
@@ -134,6 +180,44 @@ export function InvestmentDecisionPage() {
           Прогноз ≠ решение. Confidence не выдумывается. Высокая доходность облигации может отражать
           высокий риск.
         </p>
+      </div>
+
+      <h2>Почему</h2>
+      <div className="card-grid">
+        <article className="ds-card ds-card-explanation">
+          <div className="level-chip">Opportunity</div>
+          <h3>Возможность</h3>
+          <p className="ds-card-body">
+            Акции: excess {rate(equity?.expected_excess_return)}. Облигации:{" "}
+            {fi?.expected_yield == null ? "—" : rate(fi.expected_yield)}. Cash: ставка ЦБ как
+            альтернатива.
+          </p>
+        </article>
+        <article className="ds-card ds-card-explanation">
+          <div className="level-chip">Confidence</div>
+          <h3>Доверие</h3>
+          <p className="ds-card-body">
+            {cal?.uncertainty_note ?? "Калибровка ещё не даёт уверенного сигнала."}
+          </p>
+        </article>
+        <article className="ds-card ds-card-risk">
+          <div className="level-chip">Risk</div>
+          <h3>Риски</h3>
+          <p className="ds-card-body">
+            {(decision?.warnings ?? []).slice(0, 2).join(" ") ||
+              "Смотрите проверку риска перед кандидатом портфеля."}
+          </p>
+        </article>
+        <article className="ds-card ds-card-quality">
+          <div className="level-chip">Alternative</div>
+          <h3>Что может изменить решение</h3>
+          <ul className="plain-list">
+            <li>улучшение confidence модели;</li>
+            <li>изменение ключевой ставки ЦБ;</li>
+            <li>новые данные по кредиту и ликвидности;</li>
+            <li>другой research-профиль риска.</li>
+          </ul>
+        </article>
       </div>
 
       <div className="card-grid">

@@ -59,7 +59,7 @@ describe("PortfolioRiskPage", () => {
         </HelpProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Проверка риска портфеля Kraken")).toBeInTheDocument();
+    expect(await screen.findByText("Проверка риска")).toBeInTheDocument();
     expect(await screen.findByText(/Портфель только research/)).toBeInTheDocument();
   });
 });

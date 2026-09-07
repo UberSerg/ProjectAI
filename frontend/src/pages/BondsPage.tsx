@@ -118,10 +118,42 @@ export function BondsPage() {
     <div className="bonds-page">
       <PageHeader
         title="Облигации"
-        description="Купоны, учёт потоков и риск-фильтры. Уметь посчитать потоки ≠ считать бумагу безопасной."
+        description="Главный вопрос: подходит ли бумага? Уметь посчитать купоны ≠ считать её безопасной."
         helpPageId="investment"
       />
       {error ? <div className="banner banner-warning">{error}</div> : null}
+
+      <div className="bond-fit-grid">
+        <div className="ds-card ds-card-hero">
+          <div className="ds-card-title">Подходит ли облигация?</div>
+          <div className="ds-card-headline">
+            {sample
+              ? `${sample.symbol}: смотрите риск и eligibility, а не только доходность`
+              : "Выберите бумагу в таблице ниже"}
+          </div>
+          <p className="muted" style={{ margin: 0 }}>
+            Высокая доходность часто означает более высокий риск. Если кредитное качество неизвестно —
+            бумага не считается защитным активом.
+          </p>
+        </div>
+        <div className="ds-card ds-card-risk">
+          <h3>Блок риска</h3>
+          <p>
+            <strong>
+              {(sample?.investment_eligibility ?? "RESEARCH_ONLY") === "REAL_PORTFOLIO_CANDIDATE"
+                ? "Может рассматриваться как research-кандидат"
+                : "Не используется как защитный актив"}
+            </strong>
+          </p>
+          <p className="muted">
+            Причина:{" "}
+            {(sample?.credit_status ?? sample?.credit_quality_status) === "UNKNOWN" ||
+            (sample?.credit_status ?? sample?.credit_quality_status) === "NOT_RATED"
+              ? "кредитное качество неизвестно"
+              : sample?.warnings?.[0] ?? "проверьте credit / liquidity / eligibility в таблице"}
+          </p>
+        </div>
+      </div>
 
       <div className="card-grid">
         <MetricCard

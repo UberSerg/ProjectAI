@@ -71,7 +71,7 @@ describe("CalibrationPage", () => {
         </HelpProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Качество прогнозов Kraken")).toBeInTheDocument();
+    expect(await screen.findByText("Качество прогнозов")).toBeInTheDocument();
     expect(screen.getByText(/Модель прогнозирования доходности/)).toBeInTheDocument();
     expect(screen.getByText(/Модель ранжирования/)).toBeInTheDocument();
   });

@@ -10,31 +10,32 @@ interface NavItem {
   soon?: boolean;
 }
 
-const primary: NavItem[] = [
-  { to: "/", label: labels.nav.overview, end: true },
-  { to: "/market", label: labels.nav.market },
-];
+const overview: NavItem[] = [{ to: "/", label: labels.nav.overview, end: true }];
 
-const analytics: NavItem[] = [
-  { to: "/analytics", label: labels.nav.analytics },
-  { to: "/relations", label: labels.nav.relations },
-  { to: "/technical", label: labels.nav.technical },
-  { to: "/fundamentals", label: labels.nav.fundamentals },
-  { to: "/bonds", label: labels.nav.bonds },
-  { to: "/allocation", label: labels.nav.allocation },
+const portfolio: NavItem[] = [
+  { to: "/portfolio", label: labels.nav.portfolioHub },
   { to: "/investment-decision", label: labels.nav.investmentDecision },
-  { to: "/calibration", label: labels.nav.calibration },
   { to: "/portfolio-risk", label: labels.nav.portfolioRisk },
-  { to: "/recommendations", label: labels.nav.recommendations, soon: true },
-  { to: "/models", label: labels.nav.models, soon: true },
-  { to: "/decision-memory", label: labels.nav.decisionMemory, soon: true },
+  { to: "/allocation", label: labels.nav.allocation },
 ];
 
-const trading: NavItem[] = [
-  { to: "/research", label: labels.nav.lab },
-  { to: "/simulator", label: labels.nav.simulations },
+const market: NavItem[] = [
+  { to: "/market", label: labels.nav.quotes },
+  { to: "/fundamentals", label: labels.nav.fundamentalsShort },
+  { to: "/bonds", label: labels.nav.bonds },
+];
+
+const research: NavItem[] = [
+  { to: "/calibration", label: labels.nav.calibration },
+  { to: "/simulator", label: labels.nav.historicalSimulations },
   { to: "/shadow", label: labels.nav.liveExperiment },
-  { to: "/portfolio", label: labels.nav.portfolio, soon: true },
+  { to: "/analytics", label: labels.nav.analytics },
+  { to: "/technical", label: labels.nav.technical },
+  { to: "/relations", label: labels.nav.relations },
+  { to: "/research", label: labels.nav.researchLab },
+  { to: "/models", label: labels.nav.models, soon: true },
+  { to: "/recommendations", label: labels.nav.recommendations, soon: true },
+  { to: "/decision-memory", label: labels.nav.decisionMemory, soon: true },
 ];
 
 const system: NavItem[] = [
@@ -68,13 +69,17 @@ export function AppShell() {
         <div className="layout">
           <aside className="sidebar">
             <div className="brand">
-              <span className="brand-mark">PA</span>
-              <span className="brand-name">ProjectAI</span>
+              <span className="brand-mark">K</span>
+              <div className="brand-copy">
+                <span className="brand-name">Kraken</span>
+                <span className="brand-tag">инвестиционный помощник</span>
+              </div>
             </div>
             <nav className="sidebar-nav">
-              <NavGroup items={primary} />
-              <NavGroup title={labels.nav.analytics} items={analytics} />
-              <NavGroup title={labels.nav.trading} items={trading} />
+              <NavGroup items={overview} />
+              <NavGroup title={labels.nav.portfolioGroup} items={portfolio} />
+              <NavGroup title={labels.nav.marketGroup} items={market} />
+              <NavGroup title={labels.nav.researchGroup} items={research} />
               <NavGroup title={labels.nav.systemGroup} items={system} />
             </nav>
           </aside>

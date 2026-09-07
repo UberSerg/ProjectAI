@@ -125,7 +125,7 @@ describe("ResearchLabPage", () => {
     ] as never);
 
     renderLab();
-    expect(await screen.findByText("Лаборатория")).toBeInTheDocument();
+    expect(await screen.findByText("Лаборатория исследований")).toBeInTheDocument();
     expect(screen.getByTestId("research-not-live")).toBeInTheDocument();
     expect(screen.getByTestId("research-cockpit-cards")).toBeInTheDocument();
     expect(screen.getByText("Диагностика моделей")).toBeInTheDocument();
