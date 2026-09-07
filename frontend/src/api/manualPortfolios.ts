@@ -196,3 +196,53 @@ export function getPrimaryCompareCandidate(signal?: AbortSignal): Promise<Manual
 export function getPrimaryRebalance(signal?: AbortSignal): Promise<ManualRebalancePlan> {
   return apiRequest("/manual-portfolios/primary/rebalance", { signal });
 }
+
+export interface PortfolioCashflowHorizon {
+  days: number;
+  gross: number;
+  coupon: number;
+  amortization: number;
+  redemption: number;
+  event_count: number;
+}
+
+export interface PortfolioCashflowEvent {
+  instrument_id: number;
+  symbol: string;
+  event_date: string;
+  event_type: string;
+  amount_per_unit: number | null;
+  units: number;
+  gross_amount: number | null;
+  currency: string | null;
+  informational: boolean;
+}
+
+export interface PortfolioCashflows {
+  as_of: string;
+  portfolio_id: number;
+  horizons: Record<string, PortfolioCashflowHorizon>;
+  events: PortfolioCashflowEvent[];
+  next_payment: PortfolioCashflowEvent | null;
+  positions: Array<{
+    instrument_id: number;
+    symbol: string;
+    units: number;
+    bond_type: string | null;
+    maturity_date: string | null;
+    cashflow_count: number;
+    next_payment: PortfolioCashflowEvent | null;
+    enrichment_pending: boolean;
+    missing_terms: boolean;
+  }>;
+  analysis: {
+    maturity_ladder: Record<string, number>;
+    gov_vs_corp: { government: number; corporate_or_other: number };
+    bond_position_count: number;
+  };
+  note?: string;
+}
+
+export function getPrimaryCashflows(signal?: AbortSignal): Promise<PortfolioCashflows> {
+  return apiRequest("/manual-portfolios/primary/cashflows", { signal });
+}

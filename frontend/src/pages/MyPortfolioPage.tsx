@@ -11,12 +11,14 @@ import {
   addPrimaryPosition,
   deletePrimaryPosition,
   getPrimaryAnalysis,
+  getPrimaryCashflows,
   getPrimaryCompareCandidate,
   getPrimaryRebalance,
   updatePrimaryCash,
   type ManualCompareCandidate,
   type ManualPortfolioAnalysis,
   type ManualRebalancePlan,
+  type PortfolioCashflows,
 } from "../api/manualPortfolios";
 import {
   AllocationBars,
@@ -43,7 +45,7 @@ import {
 } from "../features/manualPortfolio/labels";
 import { MetricHelp } from "../help";
 
-type Tab = "holdings" | "analysis" | "compare" | "rebalance";
+type Tab = "holdings" | "analysis" | "payments" | "compare" | "rebalance";
 
 function unrealizedPnl(analysis: ManualPortfolioAnalysis): number | null {
   const byId = new Map(analysis.portfolio.positions.map((p) => [p.id, p]));
@@ -230,6 +232,7 @@ export function MyPortfolioPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [cashDraft, setCashDraft] = useState("");
   const [cashBusy, setCashBusy] = useState(false);
+  const [cashflows, setCashflows] = useState<PortfolioCashflows | null>(null);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await getPrimaryAnalysis(signal);
@@ -278,6 +281,19 @@ export function MyPortfolioPage() {
     const controller = new AbortController();
     getPrimaryRebalance(controller.signal)
       .then(setRebalance)
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setError(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
+  }, [tab, analysis]);
+
+  useEffect(() => {
+    if (tab !== "payments" || !analysis) return;
+    const controller = new AbortController();
+    getPrimaryCashflows(controller.signal)
+      .then(setCashflows)
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
           setError(errorMessage(reason));
@@ -420,6 +436,7 @@ export function MyPortfolioPage() {
           [
             ["holdings", "Состав"],
             ["analysis", "Анализ"],
+            ["payments", "Выплаты"],
             ["compare", "Сравнение с Kraken"],
             ["rebalance", "Ребаланс"],
           ] as const
@@ -593,6 +610,105 @@ export function MyPortfolioPage() {
               <MetricHelp metricId="indicative_price" />
             </p>
           </DataQualityCard>
+        </div>
+      ) : null}
+
+      {tab === "payments" ? (
+        <div data-testid="tab-payments-panel" style={{ marginTop: "0.75rem" }}>
+          {!cashflows ? (
+            <PageState kind="loading" title="Загрузка выплат…" />
+          ) : (
+            <>
+              <p className="muted">
+                Gross до налогов и комиссий. Оферты — только информационно.{" "}
+                <MetricHelp metricId="portfolio_cashflows" />
+              </p>
+              <div className="card-grid">
+                <MetricCard
+                  label="30 дней"
+                  value={moneyRub(cashflows.horizons["30d"]?.gross ?? 0)}
+                  helpId="portfolio_cashflows"
+                />
+                <MetricCard label="90 дней" value={moneyRub(cashflows.horizons["90d"]?.gross ?? 0)} />
+                <MetricCard label="12 месяцев" value={moneyRub(cashflows.horizons["12m"]?.gross ?? 0)} />
+              </div>
+              <article className="panel" style={{ marginTop: "1rem" }}>
+                <h2>Облигации: ближайшая выплата</h2>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Тикер</th>
+                        <th>Дата</th>
+                        <th>Тип</th>
+                        <th>Сумма</th>
+                        <th>Статус данных</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashflows.positions.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="muted">
+                            Нет облигационных позиций
+                          </td>
+                        </tr>
+                      ) : (
+                        cashflows.positions.map((p) => (
+                          <tr key={p.instrument_id}>
+                            <td className="mono">{p.symbol}</td>
+                            <td>{p.next_payment?.event_date ?? "—"}</td>
+                            <td>{p.next_payment?.event_type ?? "—"}</td>
+                            <td>
+                              {p.next_payment?.gross_amount != null
+                                ? moneyRub(p.next_payment.gross_amount)
+                                : "—"}
+                            </td>
+                            <td>
+                              {p.enrichment_pending ? (
+                                <StatusBadge status="warning" label="Обогащение…" />
+                              ) : p.missing_terms ? (
+                                <StatusBadge status="warning" label="Нет terms" />
+                              ) : (
+                                <StatusBadge status="ok" label="OK" />
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+              <article className="panel" style={{ marginTop: "1rem" }}>
+                <h2>Календарь выплат</h2>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Дата</th>
+                        <th>Тикер</th>
+                        <th>Тип</th>
+                        <th>Gross</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashflows.events
+                        .filter((e) => !e.informational)
+                        .slice(0, 40)
+                        .map((e, idx) => (
+                          <tr key={`${e.symbol}-${e.event_date}-${e.event_type}-${idx}`}>
+                            <td>{e.event_date}</td>
+                            <td className="mono">{e.symbol}</td>
+                            <td>{e.event_type}</td>
+                            <td>{e.gross_amount != null ? moneyRub(e.gross_amount) : "—"}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </>
+          )}
         </div>
       ) : null}
 

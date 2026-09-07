@@ -94,6 +94,9 @@ export const getInvestmentReadiness = (signal?: AbortSignal) =>
 export const getBonds = (signal?: AbortSignal) =>
   apiRequest<{ items: BondInstrument[] }>("/fixed-income/instruments", { signal });
 
+export const getFixedIncomeCoverage = (signal?: AbortSignal) =>
+  apiRequest<Record<string, unknown>>("/fixed-income/coverage", { signal });
+
 export interface BondCashflowRow {
   cashflow_date?: string | null;
   cashflow_type?: string | null;

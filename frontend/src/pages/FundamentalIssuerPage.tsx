@@ -437,6 +437,10 @@ export function FundamentalIssuerPage() {
             {dividendsMeta.note}
           </p>
         ) : null}
+        <p className="muted" data-testid="dividends-readiness">
+          Dividend Coverage V2: без принятого публичного источника ingest выключен (MOEX ISS
+          dividends REJECTED). <MetricHelp metricId="dividend_coverage_v2" />
+        </p>
         <DividendTimeline rows={dividends} />
         {dividends.map((d, idx) => (
           <ProvenanceDetails key={`div-prov-${String(d.id ?? idx)}`} data={provenanceOf(d)} />

@@ -25,6 +25,24 @@ export function getSystemInfo(signal?: AbortSignal): Promise<SystemInfo> {
   return apiRequest("/system/info", { signal });
 }
 
+export interface SystemDataCoverage {
+  master: Record<string, unknown> | null;
+  fixed_income: Record<string, unknown>;
+  dividends: Record<string, unknown>;
+  total_return: Record<string, unknown>;
+  prediction_universe: { code: string; count: number };
+  fi_strategy_universe: { code: string; count: number };
+  processes: {
+    fi_enrichment_enabled: boolean;
+    dividend_sync_enabled: boolean;
+    moex_instrument_master_sync_enabled: boolean;
+  };
+}
+
+export function getSystemDataCoverage(signal?: AbortSignal): Promise<SystemDataCoverage> {
+  return apiRequest("/system/data-coverage", { signal });
+}
+
 export interface TechEvent {
   id: string;
   timestamp: string | null;

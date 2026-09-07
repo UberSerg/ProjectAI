@@ -8,6 +8,7 @@ import {
   type BondDetail,
 } from "../api/investment";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
+import { MetricHelp } from "../help";
 
 function fmtMoney(value: number | string | null | undefined): string {
   if (value == null || value === "") return "—";
@@ -134,6 +135,20 @@ export function BondDetailPage() {
         ) : accounting ? (
           <p className="muted">{accounting.note ?? accounting.status}</p>
         ) : null}
+      </div>
+
+      <div className="card" data-testid="bond-data-quality">
+        <h2>Качество данных</h2>
+        <p>
+          <MetricHelp metricId="bond_known_at_quality" />
+        </p>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          known_at quality:{" "}
+          <strong>{bond.data_quality?.known_at_quality ?? "CURRENT_STATE_ONLY"}</strong>. Расписание
+          купонов с MOEX bondization отражает текущее состояние рынка — без исторической
+          реконструкции «что было известно в момент t». Не использовать как PIT-архив для
+          walk-forward.
+        </p>
       </div>
 
       <div className="card">
