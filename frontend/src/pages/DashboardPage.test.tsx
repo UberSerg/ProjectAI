@@ -71,6 +71,54 @@ describe("DashboardPage", () => {
       calibration: { uncertainty_note: "Мало проверенных прогнозов" },
       bond_safety_reminder: "Высокая доходность может отражать риск",
     } as never);
+    vi.mocked(investmentApi.previewPortfolioCandidate).mockResolvedValue({
+      candidate_id: "pc_test",
+      version: "PORTFOLIO_CANDIDATE_V1",
+      as_of: "2026-09-05",
+      generated_at: "2026-09-07T00:00:00Z",
+      capital: "100000",
+      currency: "RUB",
+      status: "READY_FOR_RESEARCH",
+      readiness: {
+        mode_ru: "Исследовательский режим",
+        ready_for_real_money: false,
+        banner_ru: "Не готов для реальных денег",
+        reasons_ru: ["Equity confidence: Недостаточно данных"],
+      },
+      allocation: {
+        equity: { target_weight: 0.25, actual_weight: 0.24, target_rub: "25000", actual_rub: "24000" },
+        fixed_income: {
+          target_weight: 0.65,
+          actual_weight: 0.63,
+          target_rub: "65000",
+          actual_rub: "63000",
+        },
+        cash: { target_weight: 0.1, actual_weight: 0.13, target_rub: "10000", actual_rub: "13000" },
+      },
+      positions: [],
+      cash: {
+        strategic_target_rub: "10000",
+        strategic_target_weight: 0.1,
+        lot_remainder_rub: "3000",
+        total_cash_rub: "13000",
+      },
+      rejected_candidates: [],
+      warnings: ["Equity confidence неизвестна"],
+      reasons_ru: ["Тестовое объяснение"],
+      money: {
+        starting_capital: "100000",
+        invested: "87000",
+        fees: "40",
+        strategic_cash: "10000",
+        lot_remainder: "3000",
+        ending_preview_cash: "13000",
+      },
+      benchmark: { cbr_hurdle_annual: 0.18 },
+      decision_quality: {
+        equity_confidence_label_ru: "Недостаточно данных",
+        equity_confidence_reason_ru: "Мало данных",
+      },
+    } as never);
   });
 
   it("renders russian overview metrics and real DB statuses", async () => {

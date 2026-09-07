@@ -4,8 +4,10 @@ import { errorMessage } from "../api/client";
 import {
   decideInvestment,
   getHurdle,
+  previewPortfolioCandidate,
   type HurdleQuote,
   type InvestmentDecisionResponse,
+  type PortfolioCandidate,
 } from "../api/investment";
 import { getMarketSummary, type MarketSummary } from "../api/market";
 import { getSystemHealth, type HealthResponse } from "../api/system";
@@ -40,6 +42,7 @@ interface DashboardData {
   hurdle: HurdleQuote | null;
   decision: InvestmentDecisionResponse | null;
   decisionError: string | null;
+  candidate: PortfolioCandidate | null;
 }
 
 function pct(weight: number | undefined | null): string {
@@ -66,8 +69,9 @@ export function DashboardPage() {
         { profile_id: "BALANCED_ALLOCATION_V0", capital: 100000 },
         controller.signal,
       ).catch((reason: unknown) => ({ __error: errorMessage(reason) })),
+      previewPortfolioCandidate({ capital: 100000 }, controller.signal).catch(() => null),
     ])
-      .then(([health, market, workflows, hurdle, decisionOrError]) => {
+      .then(([health, market, workflows, hurdle, decisionOrError, candidate]) => {
         const decisionError =
           decisionOrError && typeof decisionOrError === "object" && "__error" in decisionOrError
             ? String((decisionOrError as { __error: string }).__error)
@@ -75,7 +79,15 @@ export function DashboardPage() {
         const decision = decisionError
           ? null
           : (decisionOrError as InvestmentDecisionResponse);
-        setData({ health, market, workflows, hurdle, decision, decisionError });
+        setData({
+          health,
+          market,
+          workflows,
+          hurdle,
+          decision,
+          decisionError,
+          candidate: candidate as PortfolioCandidate | null,
+        });
       })
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -102,6 +114,7 @@ export function DashboardPage() {
             hurdle: null,
             decision: null,
             decisionError: null,
+            candidate: null,
           },
     );
   }, []);
@@ -160,6 +173,9 @@ export function DashboardPage() {
             <button type="button" className="why-toggle" onClick={() => setWhyOpen((v) => !v)}>
               {whyOpen ? "Скрыть «Почему?»" : "Почему?"}
             </button>
+            <Link className="why-toggle" to="/portfolio/candidate">
+              Открыть портфель
+            </Link>
             <Link className="why-toggle" to="/investment-decision">
               Открыть решение
             </Link>
@@ -214,6 +230,29 @@ export function DashboardPage() {
           </div>
         </div>
       </HeroCard>
+
+      {data.candidate ? (
+        <div className="ds-card ds-card-hero">
+          <div className="ds-card-title">Кандидат портфеля</div>
+          <div className="ds-card-headline">
+            {data.candidate.as_of ?? "сейчас"} · {data.candidate.status}
+          </div>
+          <AllocationBars
+            equity={data.candidate.allocation.equity.target_weight}
+            fixedIncome={data.candidate.allocation.fixed_income.target_weight}
+            cash={data.candidate.allocation.cash.target_weight}
+          />
+          <p className="muted">
+            {(data.candidate.warnings || []).slice(0, 2).join(" ") ||
+              data.candidate.readiness.banner_ru}
+          </p>
+          <div className="page-actions" style={{ marginTop: "0.75rem" }}>
+            <Link className="why-toggle" to="/portfolio/candidate">
+              Открыть портфель
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="card-grid">
         <RiskCard title="Риски прямо сейчас">

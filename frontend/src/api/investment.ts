@@ -509,3 +509,173 @@ export const assessPortfolioRisk = (
     },
     signal,
   });
+
+export interface PortfolioCandidate {
+  candidate_id: string;
+  version: string;
+  as_of: string | null;
+  generated_at: string;
+  capital: string;
+  currency: string;
+  status: string;
+  title_ru?: string;
+  subtitle_ru?: string;
+  source?: string;
+  persisted?: boolean;
+  readiness: {
+    mode_ru: string;
+    ready_for_real_money: boolean;
+    banner_ru: string;
+    reasons_ru: string[];
+  };
+  allocation: {
+    equity: {
+      target_weight: number;
+      actual_weight: number;
+      target_rub: string;
+      actual_rub: string;
+    };
+    fixed_income: {
+      target_weight: number;
+      actual_weight: number;
+      target_rub: string;
+      actual_rub: string;
+    };
+    cash: {
+      target_weight: number;
+      actual_weight: number;
+      target_rub: string;
+      actual_rub: string;
+      adjusted_target_weight_after_gate?: number;
+    };
+    adjusted_after_gate?: {
+      equity_weight: number;
+      fixed_income_weight: number;
+      cash_weight: number;
+    };
+  };
+  positions: Array<{
+    symbol: string;
+    display_name: string;
+    sleeve: string;
+    asset_class: string;
+    lots: number;
+    units: number;
+    reference_price: string;
+    estimated_notional: string;
+    estimated_fees: string;
+    target_weight: number;
+    actual_weight: number;
+    risk_status: string;
+    executable: boolean;
+    reason_ru: string;
+    warnings_ru: string[];
+    credit_status?: string | null;
+    liquidity_status?: string | null;
+    confidence_label_ru?: string | null;
+  }>;
+  cash: {
+    strategic_target_rub: string;
+    strategic_target_weight: number;
+    lot_remainder_rub: string;
+    total_cash_rub: string;
+    note_ru?: string;
+  };
+  rejected_candidates: Array<{
+    symbol: string;
+    display_name: string;
+    sleeve: string;
+    opportunity_hint?: string | null;
+    risk_status: string;
+    reason_ru: string;
+  }>;
+  warnings: string[];
+  reasons_ru: string[];
+  money: {
+    starting_capital: string;
+    invested: string;
+    fees: string;
+    strategic_cash: string;
+    lot_remainder: string;
+    ending_preview_cash: string;
+    tax_note_ru?: string;
+    broker_note_ru?: string;
+  };
+  benchmark: {
+    cbr_hurdle_annual: number | null;
+    hurdle_1y?: number | null;
+    note_ru?: string;
+  };
+  decision_quality: {
+    equity_confidence_level?: string | null;
+    equity_confidence_label_ru: string;
+    equity_confidence_reason_ru: string;
+    calibration_status?: string | null;
+    sample_size?: number | null;
+    gate_status?: string;
+  };
+  provenance?: Record<string, unknown>;
+  freshness?: {
+    market_as_of?: string | null;
+    generated_at?: string;
+    stale?: boolean;
+    stale_note_ru?: string | null;
+  };
+  level_explanations?: {
+    level_1_ru: string;
+    level_2_ru: string;
+    level_3?: Record<string, unknown>;
+  };
+  diff?: {
+    has_previous: boolean;
+    summary_ru: string;
+    changes: Array<{ text_ru: string; kind?: string }>;
+  };
+  empty_states?: Record<string, string>;
+  disclaimers_ru?: string[];
+  risk_assessment_summary?: string | null;
+}
+
+export const getCurrentPortfolioCandidate = (
+  params?: { capital?: number; profile_id?: string },
+  signal?: AbortSignal,
+) => {
+  const q = new URLSearchParams();
+  if (params?.capital != null) q.set("capital", String(params.capital));
+  if (params?.profile_id) q.set("profile_id", params.profile_id);
+  const suffix = q.toString() ? `?${q}` : "";
+  return apiRequest<PortfolioCandidate>(`/portfolio/candidate/current${suffix}`, { signal });
+};
+
+export const previewPortfolioCandidate = (
+  body?: {
+    capital?: number;
+    profile_id?: string;
+    equity_expected_excess_return?: number | null;
+  },
+  signal?: AbortSignal,
+) =>
+  apiRequest<PortfolioCandidate>("/portfolio/candidate/preview", {
+    method: "POST",
+    body: {
+      capital: body?.capital ?? 100000,
+      profile_id: body?.profile_id ?? "BALANCED_ALLOCATION_V0",
+      equity_expected_excess_return: body?.equity_expected_excess_return ?? 0,
+    },
+    signal,
+  });
+
+export const createPortfolioCandidateSnapshot = (
+  body?: { capital?: number; profile_id?: string },
+  signal?: AbortSignal,
+) =>
+  apiRequest<PortfolioCandidate>("/portfolio/candidate/snapshots", {
+    method: "POST",
+    body: {
+      capital: body?.capital ?? 100000,
+      profile_id: body?.profile_id ?? "BALANCED_ALLOCATION_V0",
+      equity_expected_excess_return: 0,
+    },
+    signal,
+  });
+
