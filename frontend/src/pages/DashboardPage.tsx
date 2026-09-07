@@ -10,6 +10,7 @@ import {
   type PortfolioCandidate,
 } from "../api/investment";
 import { getMarketSummary, type MarketSummary } from "../api/market";
+import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import {
@@ -25,8 +26,9 @@ import {
   StatusBadge,
   WarningCard,
 } from "../components/Ui";
+import { pickPortfolioA } from "../features/shadow/helpers";
 import { isWorkflowActive, usePolling } from "../hooks/usePolling";
-import { formatDate, formatDuration, formatNumber } from "../utils/format";
+import { formatDate, formatDuration, formatMoney, formatNumber, formatRelativeTime } from "../utils/format";
 import {
   DASHBOARD_SERVICES,
   overviewHealthBadgeStatus,
@@ -48,6 +50,60 @@ interface DashboardData {
 function pct(weight: number | undefined | null): string {
   if (weight == null) return "—";
   return `${(weight * 100).toFixed(0)}%`;
+}
+
+function VirtualPortfolioCard() {
+  const [live, setLive] = useState<ShadowLiveResponse | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getShadowLive(controller.signal)
+      .then((resp) => {
+        setLive(resp);
+        setErr(null);
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setErr(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  const primary = live ? pickPortfolioA(live.portfolios) ?? live.portfolios[0] : null;
+  const nav = primary?.live_nav ?? primary?.live?.nav ?? primary?.nav ?? primary?.cash;
+  const pnl =
+    nav != null && primary?.initial_capital != null
+      ? nav - primary.initial_capital
+      : primary?.live?.unrealized_pnl;
+  const positions = primary?.live?.positions?.length ?? primary?.position_count ?? 0;
+  const quoteAge = live?.last_intraday_refresh?.at ?? null;
+
+  return (
+    <article className="panel shadow-live-card" data-testid="dashboard-virtual-portfolio">
+      <h2 style={{ marginTop: 0 }}>Виртуальный портфель</h2>
+      {err ? (
+        <p className="muted">Живая оценка временно недоступна.</p>
+      ) : !live ? (
+        <p className="muted">Загрузка…</p>
+      ) : !primary ? (
+        <p className="muted">Shadow ещё не инициализирован.</p>
+      ) : (
+        <>
+          <p style={{ margin: "0.25rem 0" }}>
+            NAV {formatMoney(nav)}
+            {pnl == null ? "" : ` · P&L ${formatMoney(pnl)}`}
+            {` · позиций ${positions}`}
+          </p>
+          <p className="muted">Котировки: {formatRelativeTime(quoteAge)}</p>
+        </>
+      )}
+      <p style={{ marginBottom: 0 }}>
+        <Link to="/shadow">Открыть живой эксперимент →</Link>
+      </p>
+    </article>
+  );
 }
 
 export function DashboardPage() {
@@ -254,6 +310,8 @@ export function DashboardPage() {
           </div>
         </div>
       ) : null}
+
+      <VirtualPortfolioCard />
 
       <div className="card-grid">
         <RiskCard title="Риски прямо сейчас">

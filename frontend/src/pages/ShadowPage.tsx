@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
@@ -8,6 +8,7 @@ import {
   type ForwardBatchSummary,
   type ForwardPredictionItem,
 } from "../api/forward";
+import { getIntradayStatus, type IntradayMarketStatus } from "../api/intraday";
 import {
   getResearchCycleStatus,
   type ResearchCycleOperationalStatus,
@@ -15,14 +16,18 @@ import {
 import {
   getShadowDecisions,
   getShadowFills,
+  getShadowLive,
   getShadowNav,
   getShadowOrders,
   getShadowOverview,
   type ShadowDecision,
   type ShadowFill,
+  type ShadowLivePosition,
+  type ShadowLiveResponse,
   type ShadowNavPoint,
   type ShadowOrder,
   type ShadowOverview,
+  type ShadowPendingOrderReason,
   type ShadowPortfolioSummary,
 } from "../api/shadow";
 import { MetricCard, PageHeader, PageState } from "../components/Ui";
@@ -38,9 +43,13 @@ import {
   PendingZeroState,
 } from "../features/shadow/components";
 import {
+  deriveLiveExperimentStatus,
   experimentAgeDays,
   experimentAgeLabel,
   experimentMaturity,
+  isCalmMarketClosedStatus,
+  liveExperimentStatusLabel,
+  liveExperimentStatusTone,
   orderActionLabel,
   pickPortfolioA,
   pickPortfolioB,
@@ -50,15 +59,21 @@ import {
   shadowStatusLabel,
   shadowStatusTone,
   shortHash,
+  type LiveExperimentUiStatus,
 } from "../features/shadow/helpers";
 import { MetricHelp } from "../help";
+import { usePolling } from "../hooks/usePolling";
 import {
   formatDate,
   formatDateTime,
   formatMoney,
   formatPercent,
+  formatPrice,
+  formatRelativeTime,
 } from "../utils/format";
 import { labels } from "../utils/labels";
+
+const LIVE_POLL_MS = 45_000;
 
 interface PortfolioBundle {
   summary: ShadowPortfolioSummary;
@@ -88,15 +103,29 @@ function StatusChip({ status }: { status?: string | null }) {
   );
 }
 
+function LiveStatusChip({ status }: { status: LiveExperimentUiStatus }) {
+  return (
+    <span
+      className={`badge badge-${liveExperimentStatusTone(status)}`}
+      data-testid="shadow-live-status"
+    >
+      {liveExperimentStatusLabel(status)}
+    </span>
+  );
+}
+
 function PortfolioCard({
   bundle,
   letter,
+  liveSummary,
 }: {
   bundle: PortfolioBundle;
   letter: "A" | "B";
+  liveSummary?: ShadowPortfolioSummary | null;
 }) {
-  const p = bundle.summary;
+  const p = liveSummary ?? bundle.summary;
   const isB = letter === "B";
+  const liveNav = p.live_nav ?? p.live?.nav;
   return (
     <article className="shadow-portfolio-card panel">
       <header className="shadow-portfolio-card-head">
@@ -109,20 +138,22 @@ function PortfolioCard({
       </header>
       <dl className="sim-dl">
         <div>
-          <dt>NAV</dt>
-          <dd>{formatMoney(p.nav ?? p.cash)}</dd>
+          <dt>
+            NAV <MetricHelp metricId="live_portfolio_nav" />
+          </dt>
+          <dd>{formatMoney(liveNav ?? p.nav ?? p.cash)}</dd>
         </div>
         <div>
           <dt>Cash</dt>
-          <dd>{formatMoney(p.cash)}</dd>
+          <dd>{formatMoney(p.live?.cash ?? p.cash)}</dd>
         </div>
         <div>
           <dt>Рыночная стоимость</dt>
-          <dd>{formatMoney(p.market_value ?? 0)}</dd>
+          <dd>{formatMoney(p.live_market_value ?? p.live?.market_value ?? p.market_value ?? 0)}</dd>
         </div>
         <div>
           <dt>Позиции</dt>
-          <dd>{p.position_count ?? 0}</dd>
+          <dd>{p.live?.positions?.length ?? p.position_count ?? 0}</dd>
         </div>
         <div>
           <dt>Ожидающие ордера</dt>
@@ -174,20 +205,132 @@ function PortfolioCard({
   );
 }
 
+function LivePortfolioTable({
+  positions,
+  quoteFallbackAt,
+}: {
+  positions: ShadowLivePosition[];
+  quoteFallbackAt?: string | null;
+}) {
+  if (!positions.length) {
+    return <p className="muted">Открытых позиций сейчас нет.</p>;
+  }
+  return (
+    <div className="table-wrap">
+      <table data-testid="shadow-live-positions">
+        <thead>
+          <tr>
+            <th>Тикер</th>
+            <th className="numeric">Кол-во</th>
+            <th className="numeric">Вход</th>
+            <th className="numeric">
+              Оценка <MetricHelp metricId="live_mark" />
+            </th>
+            <th className="numeric">Изменение</th>
+            <th className="numeric">P&amp;L</th>
+            <th className="numeric">Стоимость</th>
+            <th>Время котировки</th>
+            <th>
+              Свежесть <MetricHelp metricId="quote_freshness" />
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map((row) => {
+            const stale = (row.freshness ?? "").toUpperCase() === "STALE";
+            const quoteAt = row.quote_time ?? row.observed_at ?? quoteFallbackAt;
+            return (
+              <tr key={`${row.instrument_id}-${row.ticker}`}>
+                <td>{row.ticker || "—"}</td>
+                <td className="numeric">{formatPrice(row.quantity)}</td>
+                <td className="numeric">{formatPrice(row.entry_price)}</td>
+                <td className="numeric">{formatPrice(row.mark_price)}</td>
+                <td className="numeric">
+                  {row.change_pct == null ? "—" : formatPercent(row.change_pct)}
+                </td>
+                <td className="numeric">
+                  {row.unrealized_pnl == null ? "—" : formatMoney(row.unrealized_pnl)}
+                </td>
+                <td className="numeric">{formatMoney(row.market_value)}</td>
+                <td>{quoteAt ? formatRelativeTime(quoteAt) : "—"}</td>
+                <td>
+                  {stale ? (
+                    <span className="shadow-badge shadow-badge-stale" data-testid="stale-badge">
+                      Устарела
+                    </span>
+                  ) : (
+                    labels.quoteFreshness(row.freshness)
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PendingReasonsList({ reasons }: { reasons: ShadowPendingOrderReason[] }) {
+  if (!reasons.length) {
+    return <p className="muted">Нет ожидающих ордеров с причиной ожидания.</p>;
+  }
+  return (
+    <ul className="plain-list" data-testid="shadow-pending-reasons">
+      {reasons.map((r) => (
+        <li key={r.order_id}>
+          <strong>{r.ticker}</strong>: {labels.shadowPendingReason(r.reason)}
+          {r.session_date ? (
+            <span className="muted"> · сессия {formatDate(r.session_date)}</span>
+          ) : null}
+          {r.delayed_observation ? (
+            <span className="muted">
+              {" "}
+              · <MetricHelp metricId="delayed_observation" /> позднее наблюдение
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ShadowPage() {
   const [overview, setOverview] = useState<ShadowOverview | null>(null);
+  const [live, setLive] = useState<ShadowLiveResponse | null>(null);
+  const [intradayStatus, setIntradayStatus] = useState<IntradayMarketStatus | null>(null);
   const [bundles, setBundles] = useState<PortfolioBundle[] | null>(null);
   const [forward, setForward] = useState<ForwardBatchDetail | null>(null);
   const [forwardList, setForwardList] = useState<ForwardBatchSummary[]>([]);
   const [cycleStatus, setCycleStatus] = useState<ResearchCycleOperationalStatus | null>(null);
   const [cycleError, setCycleError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [lastUiUpdateAt, setLastUiUpdateAt] = useState<string | null>(null);
   const [showAllPreds, setShowAllPreds] = useState(false);
+  const [showResearchDetails, setShowResearchDetails] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<{
     order: ShadowOrder;
     portfolioName: string;
     riskName: string;
   } | null>(null);
+
+  const refreshLive = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const [liveResp, intraday] = await Promise.all([
+        getShadowLive(signal),
+        getIntradayStatus(signal).catch(() => null),
+      ]);
+      setLive(liveResp);
+      if (intraday) setIntradayStatus(intraday);
+      setLiveError(null);
+      setLastUiUpdateAt(new Date().toISOString());
+    } catch (reason: unknown) {
+      if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+        setLiveError(errorMessage(reason));
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -201,6 +344,7 @@ export function ShadowPage() {
         }
         const loaded = await Promise.all(ov.portfolios.map((p) => loadBundle(p, controller.signal)));
         setBundles(loaded);
+        await refreshLive(controller.signal);
         try {
           const latest = await getLatestForwardBatch(controller.signal);
           setForward(latest);
@@ -228,7 +372,9 @@ export function ShadowPage() {
       }
     })();
     return () => controller.abort();
-  }, []);
+  }, [refreshLive]);
+
+  usePolling(() => refreshLive(), LIVE_POLL_MS, Boolean(overview && bundles && bundles.length > 0));
 
   const portfolioA = useMemo(
     () => (bundles ? pickPortfolioA(bundles.map((b) => b.summary)) : undefined),
@@ -240,15 +386,33 @@ export function ShadowPage() {
   );
   const bundleA = bundles?.find((b) => b.summary.id === portfolioA?.id);
   const bundleB = bundles?.find((b) => b.summary.id === portfolioB?.id);
-  const primary = bundleA ?? bundles?.[0];
+  const primaryBundle = bundleA ?? bundles?.[0];
+  const liveById = useMemo(() => {
+    const m = new Map<string, ShadowPortfolioSummary>();
+    for (const p of live?.portfolios ?? []) m.set(String(p.id), p);
+    return m;
+  }, [live]);
+  const primaryLive =
+    (primaryBundle ? liveById.get(String(primaryBundle.summary.id)) : undefined) ??
+    live?.portfolios?.[0] ??
+    primaryBundle?.summary ??
+    null;
+
   const ageDays = experimentAgeDays(overview?.activated_at);
   const maturity = experimentMaturity(ageDays);
 
+  const uiStatus = deriveLiveExperimentStatus({
+    live,
+    primary: primaryLive,
+    hasForward: Boolean(forward),
+    loadError: Boolean(liveError && !live),
+  });
+
   const selectedTickers = useMemo(() => {
     const set = new Set<string>();
-    for (const o of primary?.orders ?? []) set.add(o.ticker);
+    for (const o of primaryBundle?.orders ?? []) set.add(o.ticker);
     return set;
-  }, [primary]);
+  }, [primaryBundle]);
 
   const rankedPreds = useMemo(() => {
     const preds = [...(forward?.predictions ?? [])];
@@ -259,18 +423,18 @@ export function ShadowPage() {
   const visiblePreds = showAllPreds ? rankedPreds : rankedPreds.slice(0, 10);
   const targetByTicker = useMemo(() => {
     const m = new Map<string, number>();
-    for (const o of primary?.orders ?? []) {
+    for (const o of primaryBundle?.orders ?? []) {
       if (o.target_weight != null) m.set(o.ticker, o.target_weight);
     }
     return m;
-  }, [primary]);
+  }, [primaryBundle]);
   const nameByTicker = useMemo(() => {
     const m = new Map<string, string>();
-    for (const o of primary?.orders ?? []) {
+    for (const o of primaryBundle?.orders ?? []) {
       if (o.display_name) m.set(o.ticker, o.display_name);
     }
     return m;
-  }, [primary]);
+  }, [primaryBundle]);
 
   if (error) return <PageState kind="error">{error}</PageState>;
   if (!overview || bundles == null) {
@@ -278,10 +442,10 @@ export function ShadowPage() {
   }
   if (!bundles.length) {
     return (
-      <section>
+      <section className="shadow-page page-layout-wide" data-layout="wide">
         <PageHeader
-          title={labels.nav.liveExperiment}
-          description="Живой эксперимент: решения фиксируются только после появления новых данных, без пересчёта прошлого."
+          title="Живой эксперимент"
+          description="проверяет решения на новых данных без реальных денег"
           helpPageId="shadow"
         />
         <p className="page-purpose">
@@ -294,20 +458,34 @@ export function ShadowPage() {
     );
   }
 
-  const status = primary?.summary.status;
+  const status = primaryLive?.status ?? primaryBundle?.summary.status;
   const pendingTotal = bundles.reduce((s, b) => s + b.summary.pending_orders, 0);
   const fillsTotal = bundles.reduce((s, b) => s + b.summary.fills, 0);
   const latestMarket =
-    primary?.summary.last_processed_market_date ??
+    primaryLive?.last_processed_market_date ??
+    primaryBundle?.summary.last_processed_market_date ??
     forward?.batch.as_of_date ??
     null;
   const hasNavHistory = bundles.some((b) => b.nav.length > 0);
+  const lastDecision = primaryBundle?.decisions?.[0];
+  const lastRefreshAt =
+    live?.last_intraday_refresh?.at ??
+    overview.intraday?.last_refresh?.at ??
+    intradayStatus?.last_refresh?.at ??
+    null;
+  const livePositions = primaryLive?.live?.positions ?? [];
+  const pendingReasons = primaryLive?.pending_order_reasons ?? [];
+  const calmClosed = isCalmMarketClosedStatus(uiStatus);
+  const liveNav = primaryLive?.live_nav ?? primaryLive?.live?.nav;
+  const initialCapital = primaryLive?.initial_capital ?? primaryBundle?.summary.initial_capital;
+  const displayPnl =
+    liveNav != null && initialCapital != null ? liveNav - initialCapital : primaryLive?.live?.unrealized_pnl;
 
   return (
-    <section className="shadow-page">
+    <section className="shadow-page page-layout-wide" data-layout="wide">
       <PageHeader
-        title={labels.nav.liveExperiment}
-        description="Живой эксперимент: проспективное наблюдение за решениями на данных после запуска. Не historical backtest и не реальные деньги."
+        title="Живой эксперимент"
+        description="проверяет решения на новых данных без реальных денег"
         helpPageId="shadow"
         actions={
           <Link to="/simulator" className="secondary button-link">
@@ -315,26 +493,151 @@ export function ShadowPage() {
           </Link>
         }
       />
-      <p className="page-purpose">
-        Если позиций 0 — это часто нормальный старт: ордера ждут будущего OPEN или ещё не сформированы.
-        Не путайте пустую экспозицию с «сломанным» портфелем.
-      </p>
 
-      <div className="shadow-header-meta">
-        <StatusChip status={status} />
-        <span className="sim-meta-chip">
-          Запуск: {formatDateTime(overview.activated_at)}
-        </span>
-        <span className="sim-meta-chip">
-          Возраст: {experimentAgeLabel(ageDays)} <MetricHelp metricId="experiment_age" />
-        </span>
-        <span className="sim-meta-chip">
-          Последний сигнал: {formatDate(forward?.batch.as_of_date)}{" "}
-          <MetricHelp metricId="signal_as_of" />
-        </span>
-        <span className="sim-meta-chip">
-          Рыночные данные: {formatDate(latestMarket)} <MetricHelp metricId="market_watermark" />
-        </span>
+      <div className="shadow-hero panel" data-testid="shadow-hero">
+        <div className="shadow-hero-main">
+          <LiveStatusChip status={uiStatus} />
+          <p className="shadow-hero-copy">
+            {uiStatus === "updates_disabled"
+              ? "Внутридневные обновления выключены. Эксперимент жив, но живые котировки и исполнение на OPEN по этому контуру сейчас не опрашиваются."
+              : uiStatus === "waiting_session"
+                ? "Рынок закрыт или сессия ещё не началась — это обычная пауза, не ошибка. Ордера ждут допустимый OPEN."
+                : uiStatus === "waiting_open_price"
+                  ? "Сессия есть, но официальная цена открытия ещё не опубликована."
+                  : uiStatus === "waiting_forward"
+                    ? "Ждём новый Forward-сигнал или ещё нет завершённого прогноза."
+                    : uiStatus === "positions_open"
+                      ? "Есть открытые виртуальные позиции; оценка обновляется по живым котировкам."
+                      : "Есть проблема со статусом эксперимента — проверьте операционный контур."}
+          </p>
+        </div>
+        <div className="shadow-hero-meta">
+          <span className="sim-meta-chip">
+            Обновлено UI: {formatRelativeTime(lastUiUpdateAt)}
+          </span>
+          <span className="sim-meta-chip">
+            Котировки: {formatRelativeTime(lastRefreshAt)}{" "}
+            <MetricHelp metricId="intraday_market" />
+          </span>
+          <span className="sim-meta-chip">
+            Запуск: {formatDateTime(overview.activated_at)}
+          </span>
+          <span className="sim-meta-chip">
+            Возраст: {experimentAgeLabel(ageDays)} <MetricHelp metricId="experiment_age" />
+          </span>
+        </div>
+        {calmClosed ? (
+          <p className="shadow-calm-note muted" data-testid="shadow-market-closed-calm">
+            Когда биржа закрыта, страница остаётся спокойной: нет красной аварии, только ожидание
+            следующей сессии.
+          </p>
+        ) : null}
+        {liveError ? (
+          <p className="banner banner-warning" data-testid="shadow-live-error">
+            Живую оценку временно не удалось обновить: {liveError}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="shadow-primary-grid">
+        <div className="panel" data-testid="shadow-decision-block">
+          <h2 className="sim-section-title">Решение</h2>
+          <dl className="sim-dl">
+            <div>
+              <dt>Последний Forward</dt>
+              <dd>
+                {forward
+                  ? `${formatDate(forward.batch.as_of_date)} · ${formatDateTime(forward.batch.generated_at)}`
+                  : "Нет завершённого Forward"}
+              </dd>
+            </div>
+            <div>
+              <dt>Последнее решение</dt>
+              <dd>
+                {lastDecision
+                  ? `${lastDecision.iso_week} · ${formatDateTime(lastDecision.decision_at)}`
+                  : "Пока нет решений"}
+              </dd>
+            </div>
+            <div>
+              <dt>Инструментов в сигнале</dt>
+              <dd>{forward?.batch.eligible_count ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Операционный статус</dt>
+              <dd>
+                <StatusChip status={status} />
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="panel" data-testid="shadow-execution-block">
+          <h2 className="sim-section-title">
+            Исполнение <MetricHelp metricId="shadow_execution" />
+          </h2>
+          <dl className="sim-dl">
+            <div>
+              <dt>
+                Сессия <MetricHelp metricId="market_session" />
+              </dt>
+              <dd>
+                {labels.marketSession(
+                  pendingReasons.find((r) => r.market_status)?.market_status ??
+                    (uiStatus === "waiting_session" ? "CLOSED" : null),
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>
+                OPEN <MetricHelp metricId="session_open" />
+              </dt>
+              <dd>
+                {pendingReasons.find((r) => r.open_price != null)?.open_price != null
+                  ? formatPrice(pendingReasons.find((r) => r.open_price != null)?.open_price)
+                  : uiStatus === "waiting_open_price"
+                    ? "ещё не доступен"
+                    : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Последняя проверка котировок</dt>
+              <dd>{formatRelativeTime(lastRefreshAt)}</dd>
+            </div>
+            <div>
+              <dt>Политика</dt>
+              <dd>
+                <code>{live?.open_execution_policy ?? overview.intraday?.policy ?? "—"}</code>
+              </dd>
+            </div>
+          </dl>
+          <h3 className="shadow-subheading">Почему ордера ждут</h3>
+          <PendingReasonsList reasons={pendingReasons} />
+        </div>
+      </div>
+
+      <div className="panel" data-testid="shadow-live-portfolio-block">
+        <h2 className="sim-section-title">
+          Портфель сейчас <MetricHelp metricId="live_portfolio_nav" />
+        </h2>
+        <div className="card-grid sim-metrics-grid">
+          <MetricCard label="NAV сейчас" value={formatMoney(liveNav ?? primaryLive?.nav)} helpId="live_portfolio_nav" />
+          <MetricCard
+            label="P&L с запуска"
+            value={displayPnl == null ? "—" : formatMoney(displayPnl)}
+          />
+          <MetricCard label="Позиций" value={livePositions.length || (primaryLive?.position_count ?? 0)} />
+          <MetricCard
+            label="Покрытие котировок"
+            value={
+              primaryLive?.live?.quote_coverage == null
+                ? "—"
+                : formatPercent(primaryLive.live.quote_coverage)
+            }
+            helpId="quote_freshness"
+          />
+        </div>
+        <LivePortfolioTable positions={livePositions} quoteFallbackAt={lastRefreshAt} />
       </div>
 
       <ResearchCycleOpsStrip status={cycleStatus} error={cycleError} />
@@ -356,10 +659,6 @@ export function ShadowPage() {
           helpId="forward_signal"
         />
         <MetricCard label="Последняя рыночная дата" value={formatDate(latestMarket)} helpId="market_watermark" />
-        <MetricCard
-          label="Инструментов в сигнале"
-          value={forward?.batch.eligible_count ?? "—"}
-        />
         <MetricCard label="Ожидающих ордеров" value={pendingTotal} helpId="pending_order" />
         <MetricCard label="Исполненных сделок" value={fillsTotal} />
         <MetricCard
@@ -374,7 +673,7 @@ export function ShadowPage() {
 
       {fillsTotal === 0 ? <PendingZeroState pendingCount={pendingTotal} /> : null}
 
-      {bundles.every((b) => (b.summary.position_count ?? 0) === 0) ? (
+      {bundles.every((b) => (b.summary.position_count ?? 0) === 0) && livePositions.length === 0 ? (
         <div className="shadow-zero panel" data-testid="shadow-zero-positions">
           <h2 className="sim-section-title">Позиций пока нет</h2>
           <p>
@@ -397,353 +696,398 @@ export function ShadowPage() {
       ) : null}
 
       <div className="panel">
-        <h2 className="sim-section-title">
-          Последний прогноз модели <MetricHelp metricId="forward_signal" />
-        </h2>
-        {forward ? (
-          <>
-            <dl className="sim-dl">
-              <div>
-                <dt>Дата рыночных данных</dt>
-                <dd>{formatDate(forward.batch.as_of_date)}</dd>
+        <div className="shadow-details-toggle">
+          <h2 className="sim-section-title" style={{ margin: 0 }}>
+            Исследовательские детали
+          </h2>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setShowResearchDetails((v) => !v)}
+          >
+            {showResearchDetails ? "Скрыть" : "Показать"}
+          </button>
+        </div>
+        {!showResearchDetails ? (
+          <p className="muted">
+            Прогноз модели, сравнение A/B, ордера, NAV-история и fills — вторичный слой; откройте при
+            разборе research.
+          </p>
+        ) : null}
+      </div>
+
+      {showResearchDetails ? (
+        <>
+          <div className="panel">
+            <h2 className="sim-section-title">
+              Последний прогноз модели <MetricHelp metricId="forward_signal" />
+            </h2>
+            {forward ? (
+              <>
+                <dl className="sim-dl">
+                  <div>
+                    <dt>Дата рыночных данных</dt>
+                    <dd>{formatDate(forward.batch.as_of_date)}</dd>
+                  </div>
+                  <div>
+                    <dt>Прогноз сформирован</dt>
+                    <dd>{formatDateTime(forward.batch.generated_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>Модель</dt>
+                    <dd>
+                      Prediction Candidate V0{" "}
+                      <code title={forward.batch.candidate_config_hash}>
+                        {shortHash(forward.batch.candidate_config_hash)}
+                      </code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Инструментов</dt>
+                    <dd>{forward.batch.eligible_count}</dd>
+                  </div>
+                  <div>
+                    <dt>PIT</dt>
+                    <dd>{forward.batch.pit_status}</dd>
+                  </div>
+                  <div>
+                    <dt>Prediction hash</dt>
+                    <dd>
+                      <code title={forward.batch.prediction_hash ?? undefined}>
+                        {shortHash(forward.batch.prediction_hash)}
+                      </code>
+                    </dd>
+                  </div>
+                </dl>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Rank</th>
+                        <th>Ticker</th>
+                        <th>Name</th>
+                        <th className="numeric">Predicted Return 20d</th>
+                        <th>Selected</th>
+                        <th className="numeric">Target weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visiblePreds.map((pred: ForwardPredictionItem) => {
+                        const selected = selectedTickers.has(pred.ticker);
+                        return (
+                          <tr key={`${pred.instrument_id}-${pred.rank}`}>
+                            <td>{pred.rank ?? "—"}</td>
+                            <td>{pred.ticker}</td>
+                            <td>{nameByTicker.get(pred.ticker) ?? "—"}</td>
+                            <td className="numeric">{formatSignedPrediction(pred.predicted_return_20d)}</td>
+                            <td>
+                              {selected ? <span className="shadow-badge">Ордер создан</span> : "—"}
+                            </td>
+                            <td className="numeric">
+                              {selected && targetByTicker.has(pred.ticker)
+                                ? formatPercent(targetByTicker.get(pred.ticker))
+                                : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {rankedPreds.length > 10 ? (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setShowAllPreds((v) => !v)}
+                  >
+                    {showAllPreds ? "Показать Top 10" : `Показать все ${rankedPreds.length}`}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <PageState kind="empty">Нет завершённого Forward Signal batch.</PageState>
+            )}
+          </div>
+
+          <div className="panel">
+            <h2 className="sim-section-title">Сравнение портфелей</h2>
+            <div className="shadow-compare-grid">
+              {bundleA ? (
+                <PortfolioCard
+                  bundle={bundleA}
+                  letter="A"
+                  liveSummary={liveById.get(String(bundleA.summary.id))}
+                />
+              ) : null}
+              {bundleB ? (
+                <PortfolioCard
+                  bundle={bundleB}
+                  letter="B"
+                  liveSummary={liveById.get(String(bundleB.summary.id))}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <div className="panel">
+            <h2 className="sim-section-title">
+              Ожидающие ордера <MetricHelp metricId="pending_order" />
+            </h2>
+            {primaryBundle && primaryBundle.orders.filter((o) => o.status === "PENDING").length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Action</th>
+                      <th className="numeric">Prediction</th>
+                      <th>Rank</th>
+                      <th className="numeric">Target weight</th>
+                      <th>Created</th>
+                      <th>Earliest execution</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {primaryBundle.orders
+                      .filter((o) => o.status === "PENDING")
+                      .map((order) => (
+                        <tr
+                          key={order.id}
+                          className="clickable"
+                          onClick={() =>
+                            setSelectedOrder({
+                              order,
+                              portfolioName: primaryBundle.summary.policy_name,
+                              riskName: primaryBundle.summary.risk_name,
+                            })
+                          }
+                        >
+                          <td>{order.ticker}</td>
+                          <td>{orderActionLabel(order.side, order.status)}</td>
+                          <td className="numeric">{formatSignedPrediction(order.predicted_return_20d)}</td>
+                          <td>
+                            {order.rank != null && order.eligible_count != null
+                              ? `${order.rank} / ${order.eligible_count}`
+                              : (order.rank ?? "—")}
+                          </td>
+                          <td className="numeric">{formatPercent(order.target_weight)}</td>
+                          <td>{formatDateTime(order.decision_at)}</td>
+                          <td>{formatDate(order.min_execution_date)}</td>
+                          <td>{order.status}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <dt>Прогноз сформирован</dt>
-                <dd>{formatDateTime(forward.batch.generated_at)}</dd>
+            ) : (
+              <p className="muted">Нет ожидающих ордеров.</p>
+            )}
+            {selectedOrder ? (
+              <DecisionExplanationPanel
+                title="Почему принято это решение?"
+                context={contextFromShadowOrder(selectedOrder.order, {
+                  policyName: selectedOrder.portfolioName,
+                  riskPolicyName: selectedOrder.riskName,
+                  predictionCandidate: "prediction_ml_candidate/v0",
+                  candidateConfigHash: forward?.batch.candidate_config_hash,
+                  predictionHash: forward?.batch.prediction_hash,
+                })}
+                onClose={() => setSelectedOrder(null)}
+              />
+            ) : null}
+          </div>
+
+          {hasNavHistory ? (
+            <div className="panel">
+              <h2 className="sim-section-title">История NAV</h2>
+              <p className="muted">Появится график A / B / IMOEX, когда будут реальные NAV-точки.</p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Дата</th>
+                      <th>Портфель</th>
+                      <th className="numeric">NAV</th>
+                      <th className="numeric">Cash</th>
+                      <th className="numeric">DD</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bundles.flatMap((b) =>
+                      b.nav.map((n) => (
+                        <tr key={`${b.summary.id}-${n.as_of_date}`}>
+                          <td>{formatDate(n.as_of_date)}</td>
+                          <td>{portfolioHumanName(b.summary.name)}</td>
+                          <td className="numeric">{formatMoney(n.nav)}</td>
+                          <td className="numeric">{formatMoney(n.cash)}</td>
+                          <td className="numeric">{formatPercent(n.drawdown)}</td>
+                        </tr>
+                      )),
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <dt>Модель</dt>
-                <dd>
-                  Prediction Candidate V0{" "}
-                  <code title={forward.batch.candidate_config_hash}>
-                    {shortHash(forward.batch.candidate_config_hash)}
-                  </code>
-                </dd>
-              </div>
-              <div>
-                <dt>Инструментов</dt>
-                <dd>{forward.batch.eligible_count}</dd>
-              </div>
-              <div>
-                <dt>PIT</dt>
-                <dd>{forward.batch.pit_status}</dd>
-              </div>
-              <div>
-                <dt>Prediction hash</dt>
-                <dd>
-                  <code title={forward.batch.prediction_hash ?? undefined}>
-                    {shortHash(forward.batch.prediction_hash)}
-                  </code>
-                </dd>
-              </div>
-            </dl>
+            </div>
+          ) : (
+            <EmptyNavHistory />
+          )}
+
+          <div className="panel">
+            <h2 className="sim-section-title">Недельные решения</h2>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Rank</th>
-                    <th>Ticker</th>
-                    <th>Name</th>
-                    <th className="numeric">Predicted Return 20d</th>
+                    <th>ISO week</th>
+                    <th>Forward batch</th>
+                    <th>Decision date</th>
                     <th>Selected</th>
-                    <th className="numeric">Target weight</th>
+                    <th>Policy</th>
+                    <th>Risk state</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visiblePreds.map((pred: ForwardPredictionItem) => {
-                    const selected = selectedTickers.has(pred.ticker);
-                    return (
-                      <tr key={`${pred.instrument_id}-${pred.rank}`}>
-                        <td>{pred.rank ?? "—"}</td>
-                        <td>{pred.ticker}</td>
-                        <td>{nameByTicker.get(pred.ticker) ?? "—"}</td>
-                        <td className="numeric">{formatSignedPrediction(pred.predicted_return_20d)}</td>
-                        <td>
-                          {selected ? <span className="shadow-badge">Ордер создан</span> : "—"}
-                        </td>
-                        <td className="numeric">
-                          {selected && targetByTicker.has(pred.ticker)
-                            ? formatPercent(targetByTicker.get(pred.ticker))
-                            : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {(primaryBundle?.decisions ?? []).map((d) => (
+                    <tr key={d.id}>
+                      <td>{d.iso_week}</td>
+                      <td>{d.forward_batch_id}</td>
+                      <td>{formatDateTime(d.decision_at)}</td>
+                      <td>{Array.isArray(d.targets) ? d.targets.length : "—"}</td>
+                      <td>{d.policy_name ?? "—"}</td>
+                      <td>{riskModeLabel(d.risk_mode)}</td>
+                    </tr>
+                  ))}
+                  {!primaryBundle?.decisions.length ? (
+                    <tr>
+                      <td colSpan={6}>Пока нет решений</td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
-            {rankedPreds.length > 10 ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setShowAllPreds((v) => !v)}
-              >
-                {showAllPreds ? "Показать Top 10" : `Показать все ${rankedPreds.length}`}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <PageState kind="empty">Нет завершённого Forward Signal batch.</PageState>
-        )}
-      </div>
+          </div>
 
-      <div className="panel">
-        <h2 className="sim-section-title">Сравнение портфелей</h2>
-        <div className="shadow-compare-grid">
-          {bundleA ? <PortfolioCard bundle={bundleA} letter="A" /> : null}
-          {bundleB ? <PortfolioCard bundle={bundleB} letter="B" /> : null}
-        </div>
-      </div>
-
-      <div className="panel">
-        <h2 className="sim-section-title">
-          Ожидающие ордера <MetricHelp metricId="pending_order" />
-        </h2>
-        {primary && primary.orders.filter((o) => o.status === "PENDING").length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ticker</th>
-                  <th>Action</th>
-                  <th className="numeric">Prediction</th>
-                  <th>Rank</th>
-                  <th className="numeric">Target weight</th>
-                  <th>Created</th>
-                  <th>Earliest execution</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {primary.orders
-                  .filter((o) => o.status === "PENDING")
-                  .map((order) => (
-                    <tr
-                      key={order.id}
-                      className="clickable"
-                      onClick={() =>
-                        setSelectedOrder({
-                          order,
-                          portfolioName: primary.summary.policy_name,
-                          riskName: primary.summary.risk_name,
-                        })
-                      }
-                    >
-                      <td>{order.ticker}</td>
-                      <td>{orderActionLabel(order.side, order.status)}</td>
-                      <td className="numeric">{formatSignedPrediction(order.predicted_return_20d)}</td>
+          <div className="panel">
+            <h2 className="sim-section-title">История Forward Signal</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Batch</th>
+                    <th>as_of</th>
+                    <th>generated_at</th>
+                    <th>eligible</th>
+                    <th>hash</th>
+                    <th>status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {forwardList.map((b) => (
+                    <tr key={b.id}>
+                      <td>{b.id}</td>
+                      <td>{formatDate(b.as_of_date)}</td>
+                      <td>{formatDateTime(b.generated_at)}</td>
+                      <td>{b.eligible_count}</td>
                       <td>
-                        {order.rank != null && order.eligible_count != null
-                          ? `${order.rank} / ${order.eligible_count}`
-                          : (order.rank ?? "—")}
+                        <code title={b.prediction_hash ?? undefined}>{shortHash(b.prediction_hash)}</code>
                       </td>
-                      <td className="numeric">{formatPercent(order.target_weight)}</td>
-                      <td>{formatDateTime(order.decision_at)}</td>
-                      <td>{formatDate(order.min_execution_date)}</td>
-                      <td>{order.status}</td>
+                      <td>{b.status}</td>
                     </tr>
                   ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="muted">Нет ожидающих ордеров.</p>
-        )}
-        {selectedOrder ? (
-          <DecisionExplanationPanel
-            title="Почему принято это решение?"
-            context={contextFromShadowOrder(selectedOrder.order, {
-              policyName: selectedOrder.portfolioName,
-              riskPolicyName: selectedOrder.riskName,
-              predictionCandidate: "prediction_ml_candidate/v0",
-              candidateConfigHash: forward?.batch.candidate_config_hash,
-              predictionHash: forward?.batch.prediction_hash,
-            })}
-            onClose={() => setSelectedOrder(null)}
-          />
-        ) : null}
-      </div>
-
-      {hasNavHistory ? (
-        <div className="panel">
-          <h2 className="sim-section-title">История NAV</h2>
-          <p className="muted">Появится график A / B / IMOEX, когда будут реальные NAV-точки.</p>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Дата</th>
-                  <th>Портфель</th>
-                  <th className="numeric">NAV</th>
-                  <th className="numeric">Cash</th>
-                  <th className="numeric">DD</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bundles.flatMap((b) =>
-                  b.nav.map((n) => (
-                    <tr key={`${b.summary.id}-${n.as_of_date}`}>
-                      <td>{formatDate(n.as_of_date)}</td>
-                      <td>{portfolioHumanName(b.summary.name)}</td>
-                      <td className="numeric">{formatMoney(n.nav)}</td>
-                      <td className="numeric">{formatMoney(n.cash)}</td>
-                      <td className="numeric">{formatPercent(n.drawdown)}</td>
+                  {!forwardList.length ? (
+                    <tr>
+                      <td colSpan={6}>Нет batch</td>
                     </tr>
-                  )),
-                )}
-              </tbody>
-            </table>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      ) : (
-        <EmptyNavHistory />
-      )}
 
-      <div className="panel">
-        <h2 className="sim-section-title">Недельные решения</h2>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ISO week</th>
-                <th>Forward batch</th>
-                <th>Decision date</th>
-                <th>Selected</th>
-                <th>Policy</th>
-                <th>Risk state</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(primary?.decisions ?? []).map((d) => (
-                <tr key={d.id}>
-                  <td>{d.iso_week}</td>
-                  <td>{d.forward_batch_id}</td>
-                  <td>{formatDateTime(d.decision_at)}</td>
-                  <td>{Array.isArray(d.targets) ? d.targets.length : "—"}</td>
-                  <td>{d.policy_name ?? "—"}</td>
-                  <td>{riskModeLabel(d.risk_mode)}</td>
-                </tr>
-              ))}
-              {!primary?.decisions.length ? (
-                <tr>
-                  <td colSpan={6}>Пока нет решений</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="panel">
-        <h2 className="sim-section-title">История Forward Signal</h2>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Batch</th>
-                <th>as_of</th>
-                <th>generated_at</th>
-                <th>eligible</th>
-                <th>hash</th>
-                <th>status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {forwardList.map((b) => (
-                <tr key={b.id}>
-                  <td>{b.id}</td>
-                  <td>{formatDate(b.as_of_date)}</td>
-                  <td>{formatDateTime(b.generated_at)}</td>
-                  <td>{b.eligible_count}</td>
-                  <td>
-                    <code title={b.prediction_hash ?? undefined}>{shortHash(b.prediction_hash)}</code>
-                  </td>
-                  <td>{b.status}</td>
-                </tr>
-              ))}
-              {!forwardList.length ? (
-                <tr>
-                  <td colSpan={6}>Нет batch</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="panel">
-        <h2 className="sim-section-title">Исполнения (fills)</h2>
-        {fillsTotal === 0 ? (
-          <p className="muted">Исполнений пока нет — это ожидаемо до первого будущего OPEN.</p>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Ticker</th>
-                  <th>Side</th>
-                  <th className="numeric">Qty</th>
-                  <th className="numeric">OPEN</th>
-                  <th className="numeric">Fill</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bundles.flatMap((b) =>
-                  b.fills.map((f) => (
-                    <tr key={`${b.summary.id}-${f.id}`}>
-                      <td>{formatDate(f.execution_date)}</td>
-                      <td>{f.ticker}</td>
-                      <td>{f.side}</td>
-                      <td className="numeric">{f.quantity}</td>
-                      <td className="numeric">{f.raw_open}</td>
-                      <td className="numeric">{f.fill_price}</td>
+          <div className="panel">
+            <h2 className="sim-section-title">Исполнения (fills)</h2>
+            {fillsTotal === 0 ? (
+              <p className="muted">Исполнений пока нет — это ожидаемо до первого будущего OPEN.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Ticker</th>
+                      <th>Side</th>
+                      <th className="numeric">Qty</th>
+                      <th className="numeric">OPEN</th>
+                      <th className="numeric">Fill</th>
                     </tr>
-                  )),
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {bundles.flatMap((b) =>
+                      b.fills.map((f) => (
+                        <tr key={`${b.summary.id}-${f.id}`}>
+                          <td>{formatDate(f.execution_date)}</td>
+                          <td>{f.ticker}</td>
+                          <td>{f.side}</td>
+                          <td className="numeric">{f.quantity}</td>
+                          <td className="numeric">{f.raw_open}</td>
+                          <td className="numeric">{f.fill_price}</td>
+                        </tr>
+                      )),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="panel">
-        <h2 className="sim-section-title">Технический статус</h2>
-        <dl className="sim-dl">
-          <div>
-            <dt>Experiment group</dt>
-            <dd>
-              <code>{overview.experiment_group ?? "—"}</code>
-            </dd>
+          <div className="panel">
+            <h2 className="sim-section-title">Технический статус</h2>
+            <dl className="sim-dl">
+              <div>
+                <dt>Experiment group</dt>
+                <dd>
+                  <code>{overview.experiment_group ?? "—"}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Автоматическое ежедневное обновление</dt>
+                <dd>
+                  {cycleStatus
+                    ? formatAutomaticSchedule(cycleStatus.automatic_schedule, cycleStatus.schedule)
+                    : overview.automatic_schedule === "not_configured"
+                      ? "не настроено"
+                      : (overview.automatic_schedule ?? "не настроено")}
+                </dd>
+              </div>
+              <div>
+                <dt>Intraday</dt>
+                <dd>
+                  {live?.intraday_enabled || overview.intraday?.enabled
+                    ? `включено · refresh ${intradayStatus?.refresh_minutes ?? overview.intraday?.refresh_minutes ?? "—"} мин`
+                    : "выключено"}
+                </dd>
+              </div>
+              <div>
+                <dt>Зрелость эксперимента</dt>
+                <dd>
+                  {maturity.label}
+                  <br />
+                  <span className="muted">{maturity.hint}</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Доходность / Sharpe</dt>
+                <dd>Недостаточно данных</dd>
+              </div>
+            </dl>
+            <p className="muted">
+              Операторские команды (Forward run / Shadow advance) остаются в CLI. На дашборде — только
+              чтение.
+            </p>
           </div>
-          <div>
-            <dt>Автоматическое ежедневное обновление</dt>
-            <dd>
-              {cycleStatus
-                ? formatAutomaticSchedule(cycleStatus.automatic_schedule, cycleStatus.schedule)
-                : overview.automatic_schedule === "not_configured"
-                  ? "не настроено"
-                  : (overview.automatic_schedule ?? "не настроено")}
-            </dd>
-          </div>
-          <div>
-            <dt>Зрелость эксперимента</dt>
-            <dd>
-              {maturity.label}
-              <br />
-              <span className="muted">{maturity.hint}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Доходность / Sharpe</dt>
-            <dd>Недостаточно данных</dd>
-          </div>
-        </dl>
-        <p className="muted">
-          Операторские команды (Forward run / Shadow advance) остаются в CLI. На дашборде — только
-          чтение.
-        </p>
-      </div>
+        </>
+      ) : null}
     </section>
   );
 }

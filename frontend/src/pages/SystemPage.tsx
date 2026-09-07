@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../api/client";
+import { getIntradayStatus, type IntradayMarketStatus } from "../api/intraday";
 import {
   getDiagnosticsText,
   getSystemHealth,
@@ -10,12 +11,61 @@ import {
   type TechEvent,
 } from "../api/system";
 import { PageHeader, PageState, ServiceDot, StatusBadge } from "../components/Ui";
-import { formatDateTime } from "../utils/format";
+import { formatDateTime, formatRelativeTime } from "../utils/format";
 import { overviewHealthBadgeStatus, resolveServiceStatus, SYSTEM_SERVICES } from "../utils/health";
 import { labels } from "../utils/labels";
 
 type Tab = "overview" | "diagnostics";
 type LevelFilter = "ALL" | "ERROR" | "WARNING" | "INFO";
+
+function IntradayQuotesStatusCard() {
+  const [status, setStatus] = useState<IntradayMarketStatus | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getIntradayStatus(controller.signal)
+      .then((resp) => {
+        setStatus(resp);
+        setErr(null);
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setErr(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <article className="panel shadow-quotes-card" data-testid="system-intraday-quotes">
+      <h2>Рыночные котировки</h2>
+      {err ? (
+        <p className="muted">Статус временно недоступен.</p>
+      ) : !status ? (
+        <p className="muted">Загрузка…</p>
+      ) : (
+        <>
+          <div className="key-value">
+            <span>Внутридневной контур</span>
+            <strong>{status.enabled ? "включён" : "выключен"}</strong>
+          </div>
+          <div className="key-value">
+            <span>Последнее обновление</span>
+            <strong>{formatRelativeTime(status.last_refresh?.at)}</strong>
+          </div>
+          <div className="key-value">
+            <span>Интервал</span>
+            <strong>{status.refresh_minutes} мин</strong>
+          </div>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Котировки эфемерные (Redis), в дневные свечи не пишутся.
+          </p>
+        </>
+      )}
+    </article>
+  );
+}
 
 export function SystemPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -134,6 +184,7 @@ export function SystemPage() {
 
       {tab === "overview" ? (
         <div className="dashboard-grid">
+          <IntradayQuotesStatusCard />
           <article className="panel">
             <h2>Приложение</h2>
             <div className="key-value">

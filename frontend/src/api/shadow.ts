@@ -1,6 +1,47 @@
 /** Shadow Portfolio / Live Research API client. */
 
 import { apiRequest } from "./client";
+import type { IntradayLastRefresh } from "./intraday";
+
+export interface ShadowLivePosition {
+  instrument_id: number;
+  ticker: string;
+  quantity: number;
+  mark_price?: number | null;
+  mark_source?: string | null;
+  market_value?: number | null;
+  freshness?: string | null;
+  /** Optional fields if backend enrichment adds them later. */
+  entry_price?: number | null;
+  change_pct?: number | null;
+  unrealized_pnl?: number | null;
+  quote_time?: string | null;
+  observed_at?: string | null;
+}
+
+export interface ShadowLiveSnapshot {
+  cash: number;
+  market_value: number;
+  nav: number;
+  unrealized_pnl?: number | null;
+  quote_coverage?: number | null;
+  warnings?: string[];
+  positions: ShadowLivePosition[];
+}
+
+export interface ShadowPendingOrderReason {
+  order_id: number;
+  ticker: string;
+  side: string;
+  min_execution_date: string;
+  created_at?: string | null;
+  reason: string;
+  session_date?: string | null;
+  delayed_observation?: boolean;
+  open_price?: number | null;
+  quote_freshness?: string | null;
+  market_status?: string | null;
+}
 
 export interface ShadowPortfolioSummary {
   id: string;
@@ -33,6 +74,22 @@ export interface ShadowPortfolioSummary {
   dd_risk_off_gross?: number | null;
   dd_normal_gross?: number | null;
   kind?: string;
+  /** Live / intraday enrichment from overview or /live. */
+  intraday_enabled?: boolean;
+  open_execution_policy?: string | null;
+  last_intraday_refresh?: IntradayLastRefresh | null;
+  live?: ShadowLiveSnapshot | null;
+  live_nav?: number | null;
+  live_market_value?: number | null;
+  pending_order_reasons?: ShadowPendingOrderReason[];
+  pending_execution?: boolean;
+}
+
+export interface ShadowOverviewIntraday {
+  enabled: boolean;
+  policy?: string | null;
+  last_refresh?: IntradayLastRefresh | null;
+  refresh_minutes?: number | null;
 }
 
 export interface ShadowOverview {
@@ -40,6 +97,15 @@ export interface ShadowOverview {
   experiment_group?: string | null;
   activated_at?: string | null;
   automatic_schedule?: string | null;
+  portfolios: ShadowPortfolioSummary[];
+  intraday?: ShadowOverviewIntraday | null;
+}
+
+export interface ShadowLiveResponse {
+  kind: string;
+  intraday_enabled: boolean;
+  open_execution_policy?: string | null;
+  last_intraday_refresh?: IntradayLastRefresh | null;
   portfolios: ShadowPortfolioSummary[];
 }
 
@@ -108,6 +174,10 @@ export interface ShadowDecision {
 
 export function getShadowOverview(signal?: AbortSignal): Promise<ShadowOverview> {
   return apiRequest("/shadow/overview", { signal });
+}
+
+export function getShadowLive(signal?: AbortSignal): Promise<ShadowLiveResponse> {
+  return apiRequest("/shadow/live", { signal });
 }
 
 export function listShadowPortfolios(signal?: AbortSignal): Promise<ShadowPortfolioSummary[]> {

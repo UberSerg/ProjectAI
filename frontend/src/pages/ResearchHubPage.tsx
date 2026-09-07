@@ -1,5 +1,12 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
 import { PageHeader } from "../components/Ui";
+import {
+  deriveLiveExperimentStatus,
+  liveExperimentStatusLabel,
+  pickPortfolioA,
+} from "../features/shadow/helpers";
 import { labels } from "../utils/labels";
 
 const groups = [
@@ -19,6 +26,7 @@ const groups = [
         what: "Живое наблюдение решений после запуска эксперимента, без пересчёта прошлого.",
         why: "Проверяет, как пайплайн ведёт себя на новых данных.",
         forUser: "Обычно достаточно заглянуть иногда; не главный экран инвестора.",
+        liveKey: "shadow" as const,
       },
     ],
   },
@@ -55,7 +63,29 @@ const groups = [
   },
 ];
 
+function useShadowLiveStatus(): string | null {
+  const [live, setLive] = useState<ShadowLiveResponse | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    getShadowLive(controller.signal)
+      .then(setLive)
+      .catch(() => setLive(null));
+    return () => controller.abort();
+  }, []);
+  if (!live) return null;
+  const primary = pickPortfolioA(live.portfolios) ?? live.portfolios[0];
+  if (!primary) return "ещё не инициализирован";
+  const status = deriveLiveExperimentStatus({
+    live,
+    primary,
+    hasForward: true,
+  });
+  return liveExperimentStatusLabel(status);
+}
+
 export function ResearchHubPage() {
+  const shadowStatus = useShadowLiveStatus();
+
   return (
     <section className="research-hub-page" data-testid="research-hub-page">
       <PageHeader
@@ -74,6 +104,11 @@ export function ResearchHubPage() {
             {group.cards.map((card) => (
               <Link key={card.to} to={card.to} className="hub-link research-hub-card">
                 <strong>{card.title}</strong>
+                {"liveKey" in card && card.liveKey === "shadow" && shadowStatus ? (
+                  <span className="muted" data-testid="research-hub-shadow-status">
+                    Сейчас: {shadowStatus}
+                  </span>
+                ) : null}
                 <span>
                   <em>Что это:</em> {card.what}
                 </span>

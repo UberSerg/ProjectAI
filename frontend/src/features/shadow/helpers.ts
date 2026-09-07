@@ -1,6 +1,115 @@
 /** Human labels and stage mapping for Shadow Live Research dashboard. */
 
-import type { ShadowPortfolioSummary } from "../../api/shadow";
+import type {
+  ShadowLiveResponse,
+  ShadowPendingOrderReason,
+  ShadowPortfolioSummary,
+} from "../../api/shadow";
+
+/** Hero-level live experiment status (display mapping only). */
+export type LiveExperimentUiStatus =
+  | "positions_open"
+  | "waiting_session"
+  | "waiting_open_price"
+  | "waiting_forward"
+  | "updates_disabled"
+  | "error";
+
+export function liveExperimentStatusLabel(status: LiveExperimentUiStatus): string {
+  switch (status) {
+    case "positions_open":
+      return "Позиции открыты";
+    case "waiting_session":
+      return "Ожидаем торговую сессию";
+    case "waiting_open_price":
+      return "Ожидаем цену открытия";
+    case "waiting_forward":
+      return "Ожидаем Forward-сигнал";
+    case "updates_disabled":
+      return "Живые обновления выключены";
+    case "error":
+      return "Ошибка эксперимента";
+    default:
+      return "Неизвестно";
+  }
+}
+
+export function liveExperimentStatusTone(
+  status: LiveExperimentUiStatus,
+): "success" | "warning" | "error" | "running" | "info" | "neutral" {
+  switch (status) {
+    case "positions_open":
+      return "success";
+    case "waiting_session":
+    case "waiting_open_price":
+    case "waiting_forward":
+      return "running";
+    case "updates_disabled":
+      return "neutral";
+    case "error":
+      return "error";
+    default:
+      return "info";
+  }
+}
+
+function pendingReasonsOf(portfolio?: ShadowPortfolioSummary | null): ShadowPendingOrderReason[] {
+  return portfolio?.pending_order_reasons ?? [];
+}
+
+/**
+ * Map API facts → hero status. No trading logic — only presentation priority.
+ */
+export function deriveLiveExperimentStatus(input: {
+  live?: ShadowLiveResponse | null;
+  primary?: ShadowPortfolioSummary | null;
+  hasForward?: boolean;
+  loadError?: boolean;
+}): LiveExperimentUiStatus {
+  if (input.loadError) return "error";
+  const primary = input.primary;
+  const st = (primary?.status ?? "").toUpperCase();
+  if (st === "ERROR" || st === "BLOCKED") return "error";
+
+  const intradayEnabled =
+    input.live?.intraday_enabled ??
+    primary?.intraday_enabled ??
+    false;
+  if (!intradayEnabled) return "updates_disabled";
+
+  if (st === "WAITING_FOR_SIGNAL" || st === "INITIALIZED" || input.hasForward === false) {
+    return "waiting_forward";
+  }
+
+  const reasons = pendingReasonsOf(primary).map((r) => (r.reason ?? "").toUpperCase());
+  if (reasons.some((r) => r === "OPEN_PRICE_NOT_AVAILABLE")) return "waiting_open_price";
+
+  const livePositions = primary?.live?.positions?.length ?? 0;
+  const posCount = primary?.position_count ?? livePositions;
+  if (posCount > 0 || livePositions > 0) return "positions_open";
+
+  if (
+    reasons.some((r) =>
+      [
+        "NEXT_SESSION_NOT_STARTED",
+        "WAITING_NEXT_SESSION",
+        "MARKET_CLOSED",
+        "NON_TRADING_DAY",
+        "MIN_EXECUTION_DATE_NOT_REACHED",
+      ].includes(r),
+    ) ||
+    st === "WAITING_FOR_FUTURE_MARKET_OPEN"
+  ) {
+    return "waiting_session";
+  }
+
+  if ((primary?.pending_orders ?? 0) > 0) return "waiting_session";
+  return "waiting_forward";
+}
+
+export function isCalmMarketClosedStatus(status: LiveExperimentUiStatus): boolean {
+  return status === "waiting_session" || status === "updates_disabled";
+}
 
 export const PORTFOLIO_HUMAN_NAMES: Record<string, string> = {
   SHADOW_HYSTERESIS_V1: "Рейтинговый портфель",
