@@ -74,11 +74,17 @@ def _portfolio_status(session, portfolio_id: int | None = None) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Shadow Portfolio V0 (forward-only)")
+    parser = argparse.ArgumentParser(description="Shadow Portfolio (forward-only)")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    init_p = sub.add_parser("init", help="Initialize both Shadow portfolios from latest Forward batch")
+    init_p = sub.add_parser("init", help="Initialize Shadow portfolios from latest Forward batch")
     init_p.add_argument("--batch-id", type=int, default=None)
-    sub.add_parser("advance", help="Advance all Shadow portfolios")
+    init_p.add_argument(
+        "--group",
+        choices=("operational", "realism-v2", "model-ab", "all"),
+        default="operational",
+        help="Which experiment configs to initialize (default: operational V1 only)",
+    )
+    sub.add_parser("advance", help="Advance all operational Shadow portfolios (V1+V2)")
     adv = sub.add_parser("advance-one", help="Advance one portfolio by id")
     adv.add_argument("portfolio_id", type=int)
     st = sub.add_parser("status", help="Inspect Shadow portfolio status")
@@ -87,7 +93,27 @@ def main(argv: list[str] | None = None) -> int:
 
     with core_session() as session:
         if args.cmd == "init":
-            results = initialize_shadow_portfolios(session, first_batch_id=args.batch_id)
+            from app.modules.shadow.config import (
+                model_ab_shadow_configs,
+                operational_shadow_configs,
+                realism_v2_shadow_configs,
+            )
+
+            if args.group == "operational":
+                configs = list(operational_shadow_configs())
+            elif args.group == "realism-v2":
+                configs = list(realism_v2_shadow_configs())
+            elif args.group == "model-ab":
+                configs = list(model_ab_shadow_configs())
+            else:
+                configs = (
+                    list(operational_shadow_configs())
+                    + list(realism_v2_shadow_configs())
+                    + list(model_ab_shadow_configs())
+                )
+            results = initialize_shadow_portfolios(
+                session, first_batch_id=args.batch_id, configs=configs
+            )
             session.commit()
             payload = [
                 {"portfolio_id": r.portfolio_id, "name": r.name, "status": r.status, **r.summary}
