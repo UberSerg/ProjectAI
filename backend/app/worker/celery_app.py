@@ -44,6 +44,14 @@ def create_celery_app() -> Celery:
                 hour=settings.daily_research_cycle_hour,
             ),
         }
+    if settings.intraday_market_enabled:
+        # Every N minutes during the UTC day; task no-ops cheaply if disabled at runtime.
+        beat_schedule["intraday-market-refresh"] = {
+            "task": "projectai.refresh_intraday_market",
+            "schedule": crontab(
+                minute=f"*/{max(1, int(settings.intraday_refresh_minutes))}",
+            ),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],
