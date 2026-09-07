@@ -59,6 +59,11 @@ def create_celery_app() -> Celery:
                 minute=f"*/{max(1, int(settings.intraday_refresh_minutes))}",
             ),
         }
+    if settings.moex_instrument_master_sync_enabled:
+        beat_schedule["moex-instrument-master-sync"] = {
+            "task": "projectai.sync_moex_instrument_master_scheduled",
+            "schedule": crontab(**_parse_cron(settings.moex_instrument_master_sync_cron)),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],

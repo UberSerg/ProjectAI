@@ -447,3 +447,21 @@ def refresh_intraday_market() -> dict:
             "error": result.error,
             "reasons": result.reasons[:50],
         }
+
+
+@celery_app.task(name="projectai.sync_moex_instrument_master")
+def sync_moex_instrument_master() -> dict:
+    """MOEX Instrument Master catalog sync (Redis-locked). Never mutates Dataset."""
+    from app.modules.market.application.instrument_master_sync import run_instrument_master_sync
+
+    with core_session() as session:
+        return run_instrument_master_sync(session, acquire_lock=True)
+
+@celery_app.task(name="projectai.sync_moex_instrument_master_scheduled")
+def sync_moex_instrument_master_scheduled() -> dict:
+    """Beat entrypoint — only registered when MOEX_INSTRUMENT_MASTER_SYNC_ENABLED=true."""
+    from app.core.config import get_settings
+
+    if not get_settings().moex_instrument_master_sync_enabled:
+        return {"status": "DISABLED"}
+    return sync_moex_instrument_master()

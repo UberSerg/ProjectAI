@@ -54,6 +54,17 @@ async def lifespan(_app: FastAPI):
             logger.info("startup_research_catchup", extra={"catchup": catchup})
     except Exception as exc:  # noqa: BLE001 — broker/DB must not block boot
         logger.warning("startup_research_catchup_failed", extra={"error": str(exc)})
+    # Instrument Master stale catch-up (non-blocking schedule only).
+    try:
+        with core_session() as session:
+            from app.modules.market.application.instrument_master_sync import (
+                maybe_startup_instrument_master_catchup,
+            )
+
+            master_catchup = maybe_startup_instrument_master_catchup(session)
+            logger.info("startup_instrument_master_catchup", extra={"catchup": master_catchup})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("startup_instrument_master_catchup_failed", extra={"error": str(exc)})
     yield
     logger.info("service_stopping", extra={"component": "backend"})
 

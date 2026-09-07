@@ -5,8 +5,10 @@ from fastapi import APIRouter
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.fundamentals import router as fundamentals_router
 from app.api.v1.intraday_market import router as intraday_market_router
+from app.api.v1.instruments import router as instruments_router
 from app.api.v1.investment import router as investment_router
 from app.api.v1.learning import router as learning_router
+from app.api.v1.manual_portfolios import router as manual_portfolios_router
 from app.api.v1.market import router as market_router
 from app.api.v1.market import workflows_router
 from app.api.v1.market_history import router as market_history_router
@@ -23,6 +25,10 @@ from app.api.v1.technical import router as technical_router
 api_router = APIRouter()
 api_router.include_router(system_router, prefix="/system", tags=["system"])
 api_router.include_router(market_router, prefix="/market", tags=["market"])
+api_router.include_router(instruments_router, prefix="/instruments", tags=["instruments"])
+api_router.include_router(
+    manual_portfolios_router, prefix="/manual-portfolios", tags=["manual-portfolios"]
+)
 api_router.include_router(intraday_market_router, prefix="/market", tags=["intraday-market"])
 api_router.include_router(
     market_history_router, prefix="/market-history/external", tags=["market-history"]
