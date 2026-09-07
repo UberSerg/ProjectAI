@@ -11,6 +11,14 @@ from sqlalchemy.orm import Session
 
 from app.domain.ports.execution import OrderIntent
 from app.domain.ports.intraday_market import IntradayQuote
+from app.modules.shadow.application.lot_aware import (
+    EXECUTION_VERSION_LOT_AWARE_V2,
+    apply_lot_aware_fill_to_portfolio,
+    is_lot_aware_spec,
+    position_qty as _position_qty,
+    positions_dict as _positions_dict,
+    set_fractional_position,
+)
 from app.modules.shadow.domain.open_execution import (
     EXECUTION_PRICE_TYPE,
     POLICY_NAME,
@@ -26,24 +34,20 @@ from app.modules.shadow.infrastructure.models import (
 from app.modules.simulator.application.execution import HistoricalNextOpenAdapter
 
 
-def _positions_dict(portfolio: ShadowPortfolio) -> dict[str, dict[str, Any]]:
-    raw = portfolio.positions or {}
-    return {str(k): dict(v) for k, v in raw.items()}
-
-
 def _set_position(portfolio: ShadowPortfolio, instrument_id: int, ticker: str, qty: float) -> None:
-    pos = _positions_dict(portfolio)
-    key = str(instrument_id)
-    if abs(qty) < 1e-12:
-        pos.pop(key, None)
-    else:
-        pos[key] = {"instrument_id": instrument_id, "ticker": ticker, "quantity": float(qty)}
-    portfolio.positions = pos
+    set_fractional_position(portfolio, instrument_id, ticker, qty)
 
 
-def _position_qty(portfolio: ShadowPortfolio, instrument_id: int) -> float:
-    row = _positions_dict(portfolio).get(str(instrument_id))
-    return float(row["quantity"]) if row else 0.0
+def _order_lot_size(order: ShadowOrder) -> int | None:
+    meta = getattr(order, "metadata_", None) or {}
+    raw = meta.get("lot_size") if isinstance(meta, dict) else None
+    if raw in (None, ""):
+        return None
+    try:
+        lot = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return lot if lot > 0 else None
 
 
 @dataclass(slots=True, frozen=True)
@@ -241,9 +245,50 @@ def fill_pending_orders_with_session_open(
                     )
                 )
                 continue
-            portfolio.cash = float(portfolio.cash) - cost
-            new_qty = _position_qty(portfolio, int(order.instrument_id)) + fill.quantity
-            _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
+            new_cash = float(portfolio.cash) - cost
+            if new_cash < -1e-9:
+                result.skipped += 1
+                result.reasons.append(
+                    PendingOrderReason(
+                        order_id=int(order.id),
+                        portfolio_id=int(order.portfolio_id),
+                        ticker=order.ticker,
+                        reason="INSUFFICIENT_CASH",
+                        session_date=session_date.isoformat(),
+                    )
+                )
+                continue
+            portfolio.cash = new_cash
+            lot_aware = is_lot_aware_spec(spec)
+            lot_size = _order_lot_size(order)
+            if lot_aware:
+                if lot_size is None:
+                    result.skipped += 1
+                    result.reasons.append(
+                        PendingOrderReason(
+                            order_id=int(order.id),
+                            portfolio_id=int(order.portfolio_id),
+                            ticker=order.ticker,
+                            reason="UNKNOWN_LOT_SIZE",
+                            session_date=session_date.isoformat(),
+                        )
+                    )
+                    # rollback cash
+                    portfolio.cash = float(portfolio.cash) + cost
+                    continue
+                apply_lot_aware_fill_to_portfolio(
+                    portfolio,
+                    instrument_id=int(order.instrument_id),
+                    ticker=order.ticker,
+                    side="BUY",
+                    quantity=float(fill.quantity),
+                    fill_price=float(fill.fill_price),
+                    commission=float(fill.commission),
+                    lot_size=lot_size,
+                )
+            else:
+                new_qty = _position_qty(portfolio, int(order.instrument_id)) + fill.quantity
+                _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
         else:
             sell_qty = min(fill.quantity, _position_qty(portfolio, int(order.instrument_id)))
             if sell_qty <= 0:
@@ -262,8 +307,38 @@ def fill_pending_orders_with_session_open(
                 continue
             proceeds = sell_qty * fill.fill_price - fill.commission
             portfolio.cash = float(portfolio.cash) + proceeds
-            new_qty = _position_qty(portfolio, int(order.instrument_id)) - sell_qty
-            _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
+            lot_aware = is_lot_aware_spec(spec)
+            lot_size = _order_lot_size(order)
+            if lot_aware:
+                if lot_size is None:
+                    pos_row = _positions_dict(portfolio).get(str(order.instrument_id)) or {}
+                    lot_size = int(pos_row.get("lot_size") or 0) or None
+                if lot_size is None:
+                    portfolio.cash = float(portfolio.cash) - proceeds
+                    result.skipped += 1
+                    result.reasons.append(
+                        PendingOrderReason(
+                            order_id=int(order.id),
+                            portfolio_id=int(order.portfolio_id),
+                            ticker=order.ticker,
+                            reason="UNKNOWN_LOT_SIZE",
+                            session_date=session_date.isoformat(),
+                        )
+                    )
+                    continue
+                apply_lot_aware_fill_to_portfolio(
+                    portfolio,
+                    instrument_id=int(order.instrument_id),
+                    ticker=order.ticker,
+                    side="SELL",
+                    quantity=float(sell_qty),
+                    fill_price=float(fill.fill_price),
+                    commission=float(fill.commission),
+                    lot_size=lot_size,
+                )
+            else:
+                new_qty = _position_qty(portfolio, int(order.instrument_id)) - sell_qty
+                _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
             fill = fill.__class__(
                 **{
                     **fill.__dict__,
@@ -284,6 +359,12 @@ def fill_pending_orders_with_session_open(
             "session_date": session_date.isoformat(),
             "raw_open_source": "intraday_quote.open",
         }
+        if is_lot_aware_spec(spec):
+            metadata["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
+            ls = _order_lot_size(order)
+            if ls:
+                metadata["lot_size"] = ls
+                metadata["lots"] = int(float(fill.quantity) / ls)
         session.add(
             ShadowFill(
                 portfolio_id=portfolio.id,

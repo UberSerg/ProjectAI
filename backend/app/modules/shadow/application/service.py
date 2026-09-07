@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
@@ -12,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.domain.ports.execution import OrderIntent
 from app.domain.ports.portfolio import PortfolioPolicyInput, PredictionSignal
-from app.infrastructure.market.models import Candle
+from app.infrastructure.market.models import Candle, Instrument
+from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.market.application.mechanical_adjustment import load_mechanical_actions
 from app.modules.prediction.infrastructure.forward_models import (
     ForwardPrediction,
@@ -24,12 +26,22 @@ from app.modules.shadow.application.execution_eligibility import (
     iso_week_key,
     min_execution_market_date,
 )
+from app.modules.shadow.application.lot_aware import (
+    EXECUTION_VERSION_LOT_AWARE_V2,
+    apply_lot_aware_fill_to_portfolio,
+    is_lot_aware_spec,
+    position_qty as _lot_position_qty,
+    positions_dict as _lot_positions_dict,
+    set_fractional_position,
+)
 from app.modules.shadow.config import (
-    EXPERIMENT_GROUP,
     SHADOW_KIND,
     ShadowSpecConfig,
+    operational_experiment_groups,
     operational_shadow_configs,
 )
+from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
+from app.modules.investment.domain.fixed_income import TransactionCostProfile
 from app.modules.shadow.infrastructure.models import (
     ShadowDecision,
     ShadowFill,
@@ -83,27 +95,32 @@ def open_changed_after_fill(*, recorded_raw_open: float, current_raw_open: float
 
 
 def _positions_dict(portfolio: ShadowPortfolio) -> dict[str, dict[str, Any]]:
-    raw = portfolio.positions or {}
-    return {str(k): dict(v) for k, v in raw.items()}
+    return _lot_positions_dict(portfolio)
 
 
 def _set_position(portfolio: ShadowPortfolio, instrument_id: int, ticker: str, qty: float) -> None:
-    pos = _positions_dict(portfolio)
-    key = str(instrument_id)
-    if abs(qty) < 1e-12:
-        pos.pop(key, None)
-    else:
-        pos[key] = {"instrument_id": instrument_id, "ticker": ticker, "quantity": float(qty)}
-    portfolio.positions = pos
+    set_fractional_position(portfolio, instrument_id, ticker, qty)
 
 
 def _position_qty(portfolio: ShadowPortfolio, instrument_id: int) -> float:
-    row = _positions_dict(portfolio).get(str(instrument_id))
-    return float(row["quantity"]) if row else 0.0
+    return _lot_position_qty(portfolio, instrument_id)
 
 
 def _held_ids(portfolio: ShadowPortfolio) -> set[int]:
     return {int(k) for k, v in _positions_dict(portfolio).items() if abs(float(v.get("quantity") or 0)) > 1e-12}
+
+
+def _order_lot_size(order: ShadowOrder) -> int | None:
+    meta = getattr(order, "metadata_", None) or {}
+    raw = meta.get("lot_size") if isinstance(meta, dict) else None
+    if raw in (None, ""):
+        return None
+    try:
+        lot = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return lot if lot > 0 else None
+
 
 
 def upsert_spec(session: Session, cfg: ShadowSpecConfig) -> ShadowPortfolioSpec:
@@ -409,6 +426,60 @@ def _build_decision_and_orders(
     min_exec = min_execution_market_date(decision_at)
     eligible_count = int(policy_out.metadata.get("eligible_n") or len(signals))
 
+    if is_lot_aware_spec(spec):
+        _persist_lot_aware_orders(
+            session,
+            portfolio=portfolio,
+            spec=spec,
+            decision=decision,
+            batch=batch,
+            target_by_id=target_by_id,
+            all_ids=all_ids,
+            nav=nav,
+            min_delta=min_delta,
+            min_exec=min_exec,
+            eligible_count=eligible_count,
+            decision_at=decision_at,
+        )
+    else:
+        _persist_fractional_orders(
+            session,
+            portfolio=portfolio,
+            spec=spec,
+            decision=decision,
+            batch=batch,
+            target_by_id=target_by_id,
+            all_ids=all_ids,
+            nav=nav,
+            min_delta=min_delta,
+            min_exec=min_exec,
+            eligible_count=eligible_count,
+            decision_at=decision_at,
+        )
+
+    session.flush()
+    portfolio.last_decision_iso_week = week
+    portfolio.last_decision_id = decision.id
+    portfolio.last_processed_prediction_batch_id = batch.id
+    return decision
+
+
+def _persist_fractional_orders(
+    session: Session,
+    *,
+    portfolio: ShadowPortfolio,
+    spec: ShadowPortfolioSpec,
+    decision: ShadowDecision,
+    batch: ForwardPredictionBatch,
+    target_by_id: dict[int, dict[str, Any]],
+    all_ids: set[int],
+    nav: float,
+    min_delta: float,
+    min_exec: date,
+    eligible_count: int,
+    decision_at: datetime,
+) -> None:
+    """V1 fractional path — unchanged semantics."""
     for iid in sorted(all_ids):
         ticker = (
             target_by_id[iid]["ticker"]
@@ -416,7 +487,6 @@ def _build_decision_and_orders(
             else str(_positions_dict(portfolio).get(str(iid), {}).get("ticker") or iid)
         )
         target_w = float(target_by_id[iid]["target_weight"]) if iid in target_by_id else 0.0
-        # Prefer mark using signal as_of close for sizing (known at decision); if missing, use cash NAV only
         px = None
         o, c = _candle_open_close(session, iid, batch.as_of_date)
         px = c or o
@@ -428,10 +498,8 @@ def _build_decision_and_orders(
         if abs(delta_value) < 1.0:
             continue
         if min_delta > 0 and abs(target_w - current_w) < min_delta - 1e-15:
-            # suppress tiny rebalance
             continue
         if px is None or px <= 0:
-            # cannot size; if exit needed, leave for later when price arrives? For V0 skip
             if target_w <= 0 and current_qty > 0:
                 qty = current_qty
                 side = "SELL"
@@ -490,11 +558,179 @@ def _build_decision_and_orders(
             )
         )
 
-    session.flush()
-    portfolio.last_decision_iso_week = week
-    portfolio.last_decision_id = decision.id
-    portfolio.last_processed_prediction_batch_id = batch.id
-    return decision
+
+def _persist_lot_aware_orders(
+    session: Session,
+    *,
+    portfolio: ShadowPortfolio,
+    spec: ShadowPortfolioSpec,
+    decision: ShadowDecision,
+    batch: ForwardPredictionBatch,
+    target_by_id: dict[int, dict[str, Any]],
+    all_ids: set[int],
+    nav: float,
+    min_delta: float,
+    min_exec: date,
+    eligible_count: int,
+    decision_at: datetime,
+) -> None:
+    """V2 lot-aware path — LOTSIZE + cash-safe OrderPlan."""
+    instruments_orm: list[Instrument] = []
+    if all_ids:
+        instruments_orm = list(
+            session.scalars(select(Instrument).where(Instrument.id.in_(sorted(all_ids))))
+        )
+    lot_res = resolve_equity_lot_sizes(session, instruments_orm, fetch_missing=True)
+    plan_inputs: list[PlanInstrument] = []
+    for iid in sorted(all_ids):
+        ticker = (
+            target_by_id[iid]["ticker"]
+            if iid in target_by_id
+            else str(_positions_dict(portfolio).get(str(iid), {}).get("ticker") or iid)
+        )
+        target_w = float(target_by_id[iid]["target_weight"]) if iid in target_by_id else 0.0
+        o, c = _candle_open_close(session, iid, batch.as_of_date)
+        px = c or o
+        current_qty = _position_qty(portfolio, iid)
+        current_value = current_qty * px if px and px > 0 else 0.0
+        current_w = (current_value / nav) if nav > 0 else 0.0
+        if (
+            min_delta > 0
+            and abs(target_w - current_w) < min_delta - 1e-15
+            and not (target_w <= 0 and current_qty > 0)
+        ):
+            continue
+        resolved = lot_res.get(iid)
+        lot_size = resolved.lot_size if resolved is not None else None
+        rank = (target_by_id.get(iid) or {}).get("rank")
+        plan_inputs.append(
+            PlanInstrument(
+                instrument_id=iid,
+                ticker=ticker,
+                target_weight=Decimal(str(target_w)),
+                current_units=Decimal(str(current_qty)),
+                price=Decimal(str(px)) if px and px > 0 else None,
+                lot_size=lot_size,
+                rank=int(rank) if rank is not None else None,
+            )
+        )
+
+    payload = spec.payload or {}
+    strategic = float(payload.get("strategic_cash_reserve") or 0.0)
+    costs = TransactionCostProfile(
+        broker_bps=Decimal(str(spec.commission_bps)),
+        slippage_bps=Decimal(str(spec.slippage_bps)),
+    )
+    plan = build_lot_order_plan(
+        plan_inputs,
+        cash=Decimal(str(portfolio.cash)),
+        nav=Decimal(str(nav)),
+        costs=costs,
+        strategic_cash_reserve=Decimal(str(strategic)),
+    )
+    meta = dict(decision.metadata_ or {})
+    meta["order_plan"] = {
+        "projected_cash": float(plan.projected_cash),
+        "fees_total": float(plan.fees_total),
+        "rounding_remainder": float(plan.rounding_remainder),
+        "starting_cash": float(plan.starting_cash),
+        "strategic_cash_reserve": float(plan.strategic_cash_reserve),
+        "sell_proceeds": float(plan.sell_proceeds),
+        "buy_notional": float(plan.buy_notional),
+        "rows": [
+            {
+                "instrument_id": r.instrument_id,
+                "ticker": r.ticker,
+                "action": r.action,
+                "lots_delta": r.lots_delta,
+                "units_delta": float(r.units_delta),
+                "target_weight": float(r.target_weight),
+                "current_weight": float(r.current_weight),
+                "estimated_notional": float(r.estimated_notional),
+                "estimated_fee": float(r.estimated_fee),
+                "lot_size": r.lot_size,
+                "reason": r.reason,
+                "rank": r.rank,
+            }
+            for r in plan.rows
+        ],
+        "skipped": [
+            {
+                "instrument_id": r.instrument_id,
+                "ticker": r.ticker,
+                "action": r.action,
+                "reason": r.reason,
+                "lot_size": r.lot_size,
+                "rank": r.rank,
+            }
+            for r in plan.skipped
+        ],
+        "orders": [
+            {
+                "instrument_id": r.instrument_id,
+                "ticker": r.ticker,
+                "action": r.action,
+                "lots_delta": r.lots_delta,
+                "units_delta": float(r.units_delta),
+                "lot_size": r.lot_size,
+                "reason": r.reason,
+            }
+            for r in plan.executable
+        ],
+    }
+    meta["skipped"] = meta["order_plan"]["skipped"]
+    meta["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
+    decision.metadata_ = meta
+
+    for row in plan.executable:
+        action = (target_by_id.get(row.instrument_id) or {}).get("action")
+        if row.action == "SELL" and row.target_weight <= 0:
+            reason = "EXIT_BELOW_TOP35"
+        elif row.action == "BUY" and _position_qty(portfolio, row.instrument_id) <= 1e-12:
+            reason = str(action or "ENTER_TOP20")
+        else:
+            reason = (
+                "REBALANCE_WEIGHT_DELTA"
+                if action == "HOLD_WITHIN_EXIT_BAND"
+                else str(action or row.action)
+            )
+        session.add(
+            ShadowOrder(
+                portfolio_id=portfolio.id,
+                decision_id=decision.id,
+                instrument_id=row.instrument_id,
+                ticker=row.ticker,
+                side=row.action,
+                target_weight=float(row.target_weight),
+                target_notional=float(row.estimated_notional),
+                quantity=float(row.units_delta),
+                reason=reason,
+                status="PENDING",
+                predicted_return_20d=(target_by_id.get(row.instrument_id) or {}).get(
+                    "predicted_return_20d"
+                ),
+                rank=row.rank,
+                eligible_count=eligible_count,
+                decision_at=decision_at,
+                min_execution_date=min_exec,
+                metadata_={
+                    "forward_batch_id": batch.id,
+                    "signal_as_of": batch.as_of_date.isoformat(),
+                    "signal_generated_at": ensure_aware_utc(
+                        batch.generated_at or decision_at
+                    ).isoformat(),
+                    "policy": spec.policy_name,
+                    "risk_mode": portfolio.risk_mode,
+                    "kind": SHADOW_KIND,
+                    "execution_version": EXECUTION_VERSION_LOT_AWARE_V2,
+                    "lots": int(row.lots_delta),
+                    "lot_size": int(row.lot_size) if row.lot_size else None,
+                    "units": float(row.units_delta),
+                    "plan_reason": row.reason,
+                    "estimated_fee": float(row.estimated_fee),
+                },
+            )
+        )
 
 
 def _scan_late_input_corrections(session: Session, portfolio: ShadowPortfolio) -> int:
@@ -564,15 +800,34 @@ def _fill_pending_orders(
         )
         if fill is None:
             continue
+        lot_aware = is_lot_aware_spec(spec)
+        lot_size = _order_lot_size(order)
         # Apply cash / positions
         if order.side == "BUY":
             cost = fill.notional + fill.commission
             if cost > float(portfolio.cash) + 1e-6:
                 # insufficient cash — skip fill, leave pending
                 continue
-            portfolio.cash = float(portfolio.cash) - cost
-            new_qty = _position_qty(portfolio, int(order.instrument_id)) + fill.quantity
-            _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
+            new_cash = float(portfolio.cash) - cost
+            if new_cash < -1e-9:
+                continue
+            portfolio.cash = new_cash
+            if lot_aware:
+                if lot_size is None:
+                    continue
+                apply_lot_aware_fill_to_portfolio(
+                    portfolio,
+                    instrument_id=int(order.instrument_id),
+                    ticker=order.ticker,
+                    side="BUY",
+                    quantity=float(fill.quantity),
+                    fill_price=float(fill.fill_price),
+                    commission=float(fill.commission),
+                    lot_size=lot_size,
+                )
+            else:
+                new_qty = _position_qty(portfolio, int(order.instrument_id)) + fill.quantity
+                _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
         else:
             sell_qty = min(fill.quantity, _position_qty(portfolio, int(order.instrument_id)))
             if sell_qty <= 0:
@@ -581,8 +836,26 @@ def _fill_pending_orders(
                 continue
             proceeds = sell_qty * fill.fill_price - fill.commission
             portfolio.cash = float(portfolio.cash) + proceeds
-            new_qty = _position_qty(portfolio, int(order.instrument_id)) - sell_qty
-            _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
+            if lot_aware:
+                if lot_size is None:
+                    # fall back: require lot from position
+                    pos_row = _positions_dict(portfolio).get(str(order.instrument_id)) or {}
+                    lot_size = int(pos_row.get("lot_size") or 0) or None
+                if lot_size is None:
+                    continue
+                apply_lot_aware_fill_to_portfolio(
+                    portfolio,
+                    instrument_id=int(order.instrument_id),
+                    ticker=order.ticker,
+                    side="SELL",
+                    quantity=float(sell_qty),
+                    fill_price=float(fill.fill_price),
+                    commission=float(fill.commission),
+                    lot_size=lot_size,
+                )
+            else:
+                new_qty = _position_qty(portfolio, int(order.instrument_id)) - sell_qty
+                _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
             fill = fill.__class__(
                 **{
                     **fill.__dict__,
@@ -595,6 +868,12 @@ def _fill_pending_orders(
         existing_fill = session.scalar(select(ShadowFill).where(ShadowFill.order_id == order.id))
         if existing_fill is not None:
             continue
+        fill_meta: dict[str, Any] = {"kind": SHADOW_KIND, "raw_open_source": "market.candles"}
+        if lot_aware:
+            fill_meta["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
+            if lot_size is not None:
+                fill_meta["lot_size"] = lot_size
+                fill_meta["lots"] = int(float(fill.quantity) / lot_size)
         session.add(
             ShadowFill(
                 portfolio_id=portfolio.id,
@@ -611,7 +890,7 @@ def _fill_pending_orders(
                 execution_date=market_date,
                 decision_at=order.decision_at,
                 filled_at=now,
-                metadata_={"kind": SHADOW_KIND, "raw_open_source": "market.candles"},
+                metadata_=fill_meta,
             )
         )
         order.status = "FILLED"
@@ -916,10 +1195,10 @@ def advance_all_shadow_portfolios(
 ) -> list[AdvanceResult]:
     """Advance Shadow portfolios of the given experiment groups.
 
-    Defaults to the operational SHADOW_FORWARD_V0 group only, so research experiments
-    added later can never make the operational daily Shadow stage fail.
+    Defaults to operational Shadow groups (V1 forward + Realism V2) so research
+    experiments (e.g. Model A/B) never make the operational daily Shadow stage fail.
     """
-    groups = list(experiment_groups) if experiment_groups is not None else [EXPERIMENT_GROUP]
+    groups = list(experiment_groups) if experiment_groups is not None else list(operational_experiment_groups())
     rows = list(
         session.scalars(
             select(ShadowPortfolio)
