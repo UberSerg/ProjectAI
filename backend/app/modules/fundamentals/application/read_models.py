@@ -231,7 +231,7 @@ def dividends_payload(
     issuer_id: int | None = None,
 ) -> dict[str, Any]:
     if not fundamentals_schema_ready(session):
-        return _not_ready({"state": None, "events": []})
+        return _not_ready({"state": None, "events": [], "history": []})
     effective_as_of = as_of or date.today()
     events = pit.load_visible_dividend_events(
         session, effective_as_of, instrument_id=instrument_id, issuer_id=issuer_id
@@ -243,6 +243,22 @@ def dividends_payload(
         session, effective_as_of, instrument_id=instrument_id, issuer_id=issuer_id
     )
     stored = int(session.execute(select(func.count()).select_from(DividendEvent)).scalar_one())
+    history = [
+        {
+            "instrument_id": ev.instrument_id,
+            "issuer_id": ev.issuer_id,
+            "known_at": ev.known_at.isoformat() if ev.known_at else None,
+            "ex_date": ev.ex_date.isoformat() if ev.ex_date else None,
+            "record_date": ev.record_date.isoformat() if ev.record_date else None,
+            "payment_date": ev.payment_date.isoformat() if ev.payment_date else None,
+            "amount_per_share": ev.amount_per_share,
+            "currency": ev.currency,
+            "status": str(ev.status),
+            "version": ev.version,
+            "source": ev.source,
+        }
+        for ev in events
+    ]
     return {
         "status": "OK" if state.is_known else ReadinessStatus.NOT_READY.value,
         "as_of": effective_as_of.isoformat(),
@@ -250,8 +266,17 @@ def dividends_payload(
         "issuer_id": issuer_id,
         "events_stored_total": stored,
         "events_visible": len(events),
+        "history": history,
         "state": _dividend_state_dict(state),
         "upcoming": _dividend_state_dict(upcoming) if upcoming is not None else None,
+        "total_return_foundation": {
+            "mode": "TOTAL_RETURN_GROSS_V1",
+            "available": stored > 0,
+            "note": (
+                "Gross total-return helpers exist in fundamentals.domain.total_return; "
+                "empty dividend_events → coverage NOT_READY."
+            ),
+        },
         "note": (
             "Empty because both MOEX ISS dividend endpoints were rejected by the source "
             "audit. Dividends are not credited to any portfolio."
