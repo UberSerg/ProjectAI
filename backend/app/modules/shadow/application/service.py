@@ -15,6 +15,7 @@ from app.domain.ports.execution import OrderIntent
 from app.domain.ports.portfolio import PortfolioPolicyInput, PredictionSignal
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
+from app.modules.investment.domain.fixed_income import TransactionCostProfile
 from app.modules.market.application.mechanical_adjustment import load_mechanical_actions
 from app.modules.prediction.infrastructure.forward_models import (
     ForwardPrediction,
@@ -30,9 +31,13 @@ from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
     is_lot_aware_spec,
-    position_qty as _lot_position_qty,
-    positions_dict as _lot_positions_dict,
     set_fractional_position,
+)
+from app.modules.shadow.application.lot_aware import (
+    position_qty as _lot_position_qty,
+)
+from app.modules.shadow.application.lot_aware import (
+    positions_dict as _lot_positions_dict,
 )
 from app.modules.shadow.config import (
     SHADOW_KIND,
@@ -41,7 +46,6 @@ from app.modules.shadow.config import (
     operational_shadow_configs,
 )
 from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
-from app.modules.investment.domain.fixed_income import TransactionCostProfile
 from app.modules.shadow.infrastructure.models import (
     ShadowDecision,
     ShadowFill,

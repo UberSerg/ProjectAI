@@ -15,9 +15,13 @@ from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
     is_lot_aware_spec,
-    position_qty as _position_qty,
-    positions_dict as _positions_dict,
     set_fractional_position,
+)
+from app.modules.shadow.application.lot_aware import (
+    position_qty as _position_qty,
+)
+from app.modules.shadow.application.lot_aware import (
+    positions_dict as _positions_dict,
 )
 from app.modules.shadow.domain.open_execution import (
     EXECUTION_PRICE_TYPE,
