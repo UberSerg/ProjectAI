@@ -124,6 +124,10 @@ const SHADOW_PENDING_REASON: Record<string, string> = {
   NON_TRADING_DAY: "Неторговый день",
   NO_TRADES: "Сделок по инструменту ещё не было",
   MIN_EXECUTION_DATE_NOT_REACHED: "Ещё рано для исполнения (min execution date)",
+  INSUFFICIENT_CASH: "Недостаточно денег в виртуальном портфеле",
+  ALREADY_FILLED: "Уже исполнен",
+  NO_POSITION_TO_SELL: "Нет позиции для продажи",
+  FILLED: "Исполнен",
 };
 
 const QUOTE_FRESHNESS: Record<string, string> = {

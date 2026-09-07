@@ -316,6 +316,12 @@ def fill_pending_orders_with_session_open(
             )
             if remaining is None:
                 portfolio.status = "DECISION_READY"
+            elif _position_qty(portfolio, int(order.instrument_id)) > 0 or any(
+                abs(float(v.get("quantity") or 0)) > 1e-12
+                for v in _positions_dict(portfolio).values()
+            ):
+                # Positions already opened; remaining PENDING may be cash-constrained.
+                portfolio.status = "ACTIVE"
         portfolio.updated_at = clock
         result.filled += 1
         result.reasons.append(

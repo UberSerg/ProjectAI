@@ -49,7 +49,13 @@ def _position_count(positions: Any) -> int:
     return len(positions)
 
 
-def _pending_reason_for_order(order: ShadowOrder, quote: Any) -> dict[str, Any]:
+def _pending_reason_for_order(
+    order: ShadowOrder,
+    quote: Any,
+    *,
+    cash: float | None = None,
+    commission_bps: float = 0.0,
+) -> dict[str, Any]:
     base = {
         "order_id": int(order.id),
         "ticker": order.ticker,
@@ -71,9 +77,22 @@ def _pending_reason_for_order(order: ShadowOrder, quote: Any) -> dict[str, Any]:
         quote_freshness=quote.freshness,
         observed_at=quote.observed_at,
     )
+    reason = elig.reason if not elig.eligible else "ELIGIBLE"
+    if (
+        elig.eligible
+        and order.side == "BUY"
+        and cash is not None
+        and quote.open_price is not None
+        and float(order.quantity) > 0
+    ):
+        raw = float(quote.open_price)
+        notional = float(order.quantity) * raw
+        commission = notional * (float(commission_bps) / 10_000.0)
+        if notional + commission > float(cash) + 1e-6:
+            reason = "INSUFFICIENT_CASH"
     return {
         **base,
-        "reason": elig.reason if not elig.eligible else "ELIGIBLE",
+        "reason": reason,
         "session_date": session_date.isoformat(),
         "delayed_observation": elig.delayed_observation,
         "open_price": quote.open_price,
@@ -144,7 +163,12 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         cost_basis_nav=cost_basis_nav,
     )
     pending_reasons = [
-        _pending_reason_for_order(o, quotes_by_instrument.get(int(o.instrument_id)))
+        _pending_reason_for_order(
+            o,
+            quotes_by_instrument.get(int(o.instrument_id)),
+            cash=float(portfolio.cash),
+            commission_bps=float(spec.commission_bps) if spec is not None else 0.0,
+        )
         for o in pending_orders
     ]
     return {
