@@ -192,6 +192,49 @@ def _has_active_shadow(session: Session) -> bool:
     return row is not None
 
 
+def _earliest_pending_min_execution(
+    session: Session,
+    *,
+    portfolio_ids: list[int] | None = None,
+) -> Any:
+    """Earliest PENDING order min_execution_date (optional portfolio filter)."""
+    stmt = select(func.min(ShadowOrder.min_execution_date)).where(ShadowOrder.status == "PENDING")
+    if portfolio_ids:
+        stmt = stmt.where(ShadowOrder.portfolio_id.in_(portfolio_ids))
+    return session.scalar(stmt)
+
+
+def _resolve_next_execution_session(
+    session: Session,
+    *,
+    readiness: Any,
+    mid_session_activation: bool,
+    portfolios: list[tuple[ShadowPortfolio, ShadowPortfolioSpec]],
+) -> str | None:
+    """Prefer pending-order eligibility over naive EOD+1 (mid-session bootstrap)."""
+    if mid_session_activation:
+        from app.modules.shadow.domain.open_execution import (
+            ensure_aware_utc,
+            session_open_time_utc,
+        )
+
+        clock = ensure_aware_utc(datetime.now(UTC))
+        open_at = session_open_time_utc(clock.date())
+        mid_ids = [
+            p.id
+            for p, _s in portfolios
+            if ensure_aware_utc(p.activated_at) >= open_at
+            and ensure_aware_utc(p.activated_at).date() == clock.date()
+        ]
+        mid_next = _earliest_pending_min_execution(session, portfolio_ids=mid_ids or None)
+        if mid_next is not None:
+            return mid_next.isoformat() if hasattr(mid_next, "isoformat") else str(mid_next)
+    pending_next = _earliest_pending_min_execution(session)
+    if pending_next is not None:
+        return pending_next.isoformat() if hasattr(pending_next, "isoformat") else str(pending_next)
+    return next_session_date_from_eod(readiness.latest_complete_eod_date)
+
+
 def build_daily_operations_status(session: Session) -> dict[str, Any]:
     settings = get_settings()
     readiness = evaluate_eod_readiness(session)
@@ -275,7 +318,12 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
         "order_plan_status": order_plan_status,
         "pending_orders": pending_n,
         "ready_for_next_session": ready_for_next,
-        "next_execution_session": next_session_date_from_eod(readiness.latest_complete_eod_date),
+        "next_execution_session": _resolve_next_execution_session(
+            session,
+            readiness=readiness,
+            mid_session_activation=bool(pipeline.mid_session_activation),
+            portfolios=specs,
+        ),
         "status_code": status_code,
         "blocker_code": blocker,
         "eod_readiness": readiness.to_dict(),

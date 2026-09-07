@@ -66,6 +66,12 @@ Stage codes: `SUCCESS` | `ALREADY_CURRENT` | `WAITING_INPUT` | `FAILED` | `DISAB
 
 Catch-up builds the decision for completed EOD T; it never backfills fills for orders created after an already-known OPEN.
 
+## Worker / image drift
+
+`backend`, `worker`, and `scheduler` share the same Dockerfile. If worker is an older image (e.g. missing `catboost`), Daily Research Cycle fails at import and Analytics never catches up — even with `RESEARCH_LIVE_MODE=true`. After dependency changes: `docker compose build backend worker scheduler && docker compose up -d backend worker scheduler`.
+
+Live proof (2026-09-07): after enabling live mode + rebuilding worker, catch-up workflow **1129** reached `IN_SYNC` in ~47s (market/analytics/forward/plan → 2026-09-04). Mid-session V2 orders stayed on `min_execution_date=2026-09-08`.
+
 ## API
 
 `GET /api/v1/shadow/daily-operations` includes:

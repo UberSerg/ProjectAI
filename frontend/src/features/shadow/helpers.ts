@@ -587,10 +587,32 @@ export function sessionOpenIsoForDate(isoDate?: string | null): string | null {
   return `${day}T07:00:00+00:00`;
 }
 
+/** Calendar date in Europe/Moscow for an ISO clock (YYYY-MM-DD). */
+export function mskTradingDateFromClock(isoClock?: string | null): string | null {
+  if (!isoClock) return null;
+  const d = new Date(isoClock);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 export function earliestActivationIso(ops?: ShadowDailyOperations | null): string | null {
   const times = (ops?.portfolios ?? [])
     .map((p) => p.activated_at)
     .filter((v): v is string => Boolean(v));
   if (!times.length) return null;
   return times.slice().sort()[0] ?? null;
+}
+
+/** Latest activation — correct for mid-session bootstrap cards (V2 after V1). */
+export function latestActivationIso(ops?: ShadowDailyOperations | null): string | null {
+  const times = (ops?.portfolios ?? [])
+    .map((p) => p.activated_at)
+    .filter((v): v is string => Boolean(v));
+  if (!times.length) return null;
+  return times.slice().sort().at(-1) ?? null;
 }

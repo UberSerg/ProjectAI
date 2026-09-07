@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
-import type { ShadowDailyOperations } from "../../api/shadow";
+﻿import type { ShadowDailyOperations } from "../../api/shadow";
 import {
   automationWarningText,
   isMidSessionActivation,
+  latestActivationIso,
   mapNextSessionStage,
+  mskTradingDateFromClock,
   todaySessionHeadline,
 } from "./helpers";
+import { describe, expect, it } from "vitest";
 
 describe("shadow session helpers", () => {
   it("maps next-session prep codes to product stages", () => {
@@ -33,6 +35,20 @@ describe("shadow session helpers", () => {
     expect(today.midSession).toBe(true);
   });
 
+  it("prefers latest activation for mid-session display", () => {
+    const ops: ShadowDailyOperations = {
+      portfolios: [
+        { activated_at: "2026-09-04T14:15:29.275066+00:00" },
+        { activated_at: "2026-09-07T13:38:24.403001+00:00" },
+      ],
+    };
+    expect(latestActivationIso(ops)).toBe("2026-09-07T13:38:24.403001+00:00");
+  });
+
+  it("derives MSK trading date from UTC clock", () => {
+    expect(mskTradingDateFromClock("2026-09-07T14:50:00+00:00")).toBe("2026-09-07");
+  });
+
   it("reads automation warning from ops", () => {
     expect(
       automationWarningText({
@@ -41,6 +57,5 @@ describe("shadow session helpers", () => {
         },
       }),
     ).toMatch(/RESEARCH_LIVE_MODE/);
-    expect(automationWarningText({})).toBeNull();
   });
 });

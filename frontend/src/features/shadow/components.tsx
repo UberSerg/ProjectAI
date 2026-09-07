@@ -23,7 +23,9 @@ import {
   earliestActivationIso,
   formatLotsUnits,
   isMidSessionActivation,
+  latestActivationIso,
   mapNextSessionStage,
+  mskTradingDateFromClock,
   nextSessionPrepCode,
   nextSessionStageTone,
   operationalStages,
@@ -531,11 +533,15 @@ export function TodaySessionPanel({
   const marks =
     (primary?.live?.positions ?? []).filter((p) => p.mark_price != null).length;
   const sessionLabel = marketSession ? labels.marketSession(marketSession) : "—";
-  const activationAt =
-    earliestActivationIso(ops) ?? primary?.activated_at ?? null;
-  const todayOpen = sessionOpenIsoForDate(
-    activationAt?.slice(0, 10) ?? ops?.latest_complete_eod_date ?? null,
-  );
+  const activationAt = mid
+    ? (latestActivationIso(ops) ?? primary?.activated_at ?? null)
+    : (earliestActivationIso(ops) ?? primary?.activated_at ?? null);
+  const todayMsk =
+    mskTradingDateFromClock(ops?.pipeline?.as_of_clock ?? null) ??
+    activationAt?.slice(0, 10) ??
+    ops?.latest_complete_eod_date ??
+    null;
+  const todayOpen = sessionOpenIsoForDate(todayMsk);
   const nextEligible = ops?.next_execution_session ?? null;
   const pending = ops?.pending_orders ?? primary?.pending_orders ?? 0;
 
