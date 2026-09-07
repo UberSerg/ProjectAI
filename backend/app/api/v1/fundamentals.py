@@ -153,10 +153,36 @@ def fundamentals_dividends(
 @router.get("/total-return/coverage")
 def fundamentals_total_return_coverage() -> dict[str, Any]:
     """Gross total-return foundation coverage (honest NOT_READY without dividend feed)."""
-    from app.modules.fundamentals.application.total_return import dividend_coverage_payload
+    from app.modules.fundamentals.application.dividend_provider import dividend_coverage_v2
 
     with core_session() as session:
-        return dividend_coverage_payload(session)
+        return dividend_coverage_v2(session)
+
+
+@router.get("/total-return/readiness")
+def fundamentals_total_return_readiness(
+    write_artifact: bool = False,
+) -> dict[str, Any]:
+    from app.modules.fundamentals.application.dividend_provider import (
+        total_return_readiness_report,
+        write_total_return_readiness_artifact,
+    )
+
+    with core_session() as session:
+        report = total_return_readiness_report(session)
+        if write_artifact:
+            path = write_total_return_readiness_artifact(session)
+            report["artifact_path"] = str(path)
+        return report
+
+
+@router.get("/dividends/coverage")
+def fundamentals_dividends_coverage() -> dict[str, Any]:
+    """Dividend Coverage V2 — NOT_READY with provider reasons when no accepted source."""
+    from app.modules.fundamentals.application.dividend_provider import dividend_coverage_v2
+
+    with core_session() as session:
+        return dividend_coverage_v2(session)
 
 
 @router.get("/events")
