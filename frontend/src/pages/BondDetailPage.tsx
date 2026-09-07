@@ -37,7 +37,14 @@ export function BondDetailPage() {
       .then((detail) => {
         setBond(detail);
         if (detail.support_status === "SUPPORTED") {
-          return getBondAccountingPreview(detail.symbol, 1, controller.signal).then(setAccounting);
+          return getBondAccountingPreview(detail.symbol, 1, controller.signal)
+            .then(setAccounting)
+            .catch((reason: unknown) => {
+              if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+                // Keep bond detail even if accounting preview fails.
+                setAccounting(null);
+              }
+            });
         }
         setAccounting(null);
         return undefined;
@@ -48,7 +55,9 @@ export function BondDetailPage() {
           setBond(null);
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
   }, [secid]);
 
