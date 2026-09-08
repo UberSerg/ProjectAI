@@ -44,6 +44,10 @@ import {
   subtypeLabel,
 } from "../features/manualPortfolio/labels";
 import { MetricHelp } from "../help";
+import {
+  getPortfolioFundamentalCoverage,
+  type PortfolioFundamentalCoverage,
+} from "../api/fundamentals";
 
 type Tab = "holdings" | "analysis" | "payments" | "compare" | "rebalance";
 
@@ -233,6 +237,7 @@ export function MyPortfolioPage() {
   const [cashDraft, setCashDraft] = useState("");
   const [cashBusy, setCashBusy] = useState(false);
   const [cashflows, setCashflows] = useState<PortfolioCashflows | null>(null);
+  const [fundCoverage, setFundCoverage] = useState<PortfolioFundamentalCoverage | null>(null);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await getPrimaryAnalysis(signal);
@@ -262,6 +267,19 @@ export function MyPortfolioPage() {
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, [reload]);
+
+  useEffect(() => {
+    if (tab !== "analysis") return;
+    const controller = new AbortController();
+    getPortfolioFundamentalCoverage(controller.signal)
+      .then((payload) => setFundCoverage(payload))
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setFundCoverage(null);
+        }
+      });
+    return () => controller.abort();
+  }, [tab]);
 
   useEffect(() => {
     if (tab !== "compare" || !analysis) return;
@@ -673,6 +691,74 @@ export function MyPortfolioPage() {
               )}
             </article>
           ) : null}
+
+          <article
+            className="panel"
+            style={{ marginTop: "1rem" }}
+            data-testid="portfolio-fundamental-coverage"
+          >
+            <h2>
+              Фундаментальное покрытие (RAS / FNS){" "}
+              <MetricHelp metricId="fundamental_data" />
+            </h2>
+            <p className="muted">
+              Read-only coverage research cohort. Sync только через{" "}
+              <code>sync_fundamentals_fns</code> / Celery — не при рендере страницы.{" "}
+              <MetricHelp metricId="fns_gir_bo" />
+            </p>
+            {!fundCoverage ? (
+              <p className="muted">Загрузка coverage…</p>
+            ) : (
+              <>
+                <div className="card-grid">
+                  <MetricCard
+                    label="Industrial с отчётами"
+                    value={String(fundCoverage.industrial_with_reports ?? "—")}
+                    helpId="financial_report"
+                  />
+                  <MetricCard
+                    label="Industrial mapped"
+                    value={String(fundCoverage.industrial_mapped ?? "—")}
+                  />
+                  <MetricCard
+                    label="Банки / FI unsupported"
+                    value={String(fundCoverage.bank_unsupported ?? "—")}
+                    helpId="RAS"
+                  />
+                  <MetricCard label="UNMAPPED" value={String(fundCoverage.unmapped ?? "—")} />
+                </div>
+                {fundCoverage.note ? <p className="muted">{fundCoverage.note}</p> : null}
+                <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>SECID</th>
+                        <th>Статус</th>
+                        <th>Отчёты</th>
+                        <th>Период</th>
+                        <th>known_at</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(fundCoverage.rows ?? []).slice(0, 20).map((row) => (
+                        <tr key={`${row.secid}-${row.issuer_id}`}>
+                          <td className="mono">{row.secid ?? "—"}</td>
+                          <td>{row.support_status ?? "—"}</td>
+                          <td>{row.reports ?? 0}</td>
+                          <td>{row.latest_period_end ?? "—"}</td>
+                          <td>{row.latest_known_at ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="muted">
+                  Полный список:{" "}
+                  <Link to="/fundamentals">Компании / фундаментал</Link>.
+                </p>
+              </>
+            )}
+          </article>
 
           <DataQualityCard title="Качество котировок">
             <p style={{ margin: 0 }}>
