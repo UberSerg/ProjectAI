@@ -19,6 +19,14 @@ No local PostgreSQL, Redis, Node, or Python install is required for running the 
 
 ## Quick start
 
+**Recommended (Windows):** start Docker Desktop, then double-click **`start-kraken.cmd`**.
+
+Also available: `stop-kraken.cmd`, `status-kraken.cmd`, `restart-kraken.cmd`.
+
+Details: [`docs/operations/local-startup.md`](docs/operations/local-startup.md).
+
+Manual / first clone:
+
 ```bash
 git clone https://github.com/UberSerg/ProjectAI
 cd ProjectAI
@@ -30,7 +38,7 @@ PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up -d --build
+.\start-kraken.ps1 -Build
 ```
 
 ## URLs
