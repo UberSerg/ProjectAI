@@ -26,9 +26,10 @@ def test_credit_no_rating_unknown() -> None:
         stored_credit_status="UNKNOWN",
         raw_fields={},
         as_of=date(2026, 9, 5),
+        provider_ready=False,
     )
-    assert cal.credit_status is CreditStatus.UNKNOWN
-    assert "CREDIT_UNKNOWN" in cal.risk_flags
+    assert cal.credit_status is CreditStatus.SOURCE_NOT_READY
+    assert "SOURCE_NOT_READY" in cal.risk_flags
     assert "CORPORATE_WITHOUT_RATING" in cal.risk_flags
 
 
@@ -41,7 +42,7 @@ def test_credit_rating_available() -> None:
         raw_fields={"RATING": "A-", "RATINGAGENCY": "ACRA", "RATINGDATE": "2026-01-15"},
         as_of=date(2026, 9, 5),
     )
-    assert cal.credit_status is CreditStatus.AVAILABLE
+    assert cal.credit_status is CreditStatus.CURRENT_RATING_AVAILABLE
     assert cal.rating_value == "A-"
     assert cal.agency == "ACRA"
 
@@ -69,7 +70,9 @@ def test_credit_not_rated() -> None:
         raw_fields={},
         as_of=date(2026, 9, 5),
     )
-    assert cal.credit_status is CreditStatus.NOT_RATED
+    assert cal.credit_status is CreditStatus.NO_RATING_FOUND
+    assert cal.availability_status is not None
+    assert cal.availability_status.value == "NO_RATING_FOUND"
 
 
 def test_liquidity_recent_trade_good() -> None:
@@ -163,7 +166,7 @@ def test_eligibility_credit_good_liquidity_bad() -> None:
         liquidity=liq,
         bond_type="Corporate",
     )
-    assert credit.credit_status is CreditStatus.AVAILABLE
+    assert credit.credit_status is CreditStatus.CURRENT_RATING_AVAILABLE
     assert liq.liquidity_status is LiquidityStatus.LOW
     assert el.status is EligibilityStatus.RESEARCH_ONLY
     assert el.eligible is False
@@ -175,9 +178,11 @@ def test_eligibility_all_checks_pass() -> None:
         issuer_id=1,
         bond_type="Government",
         stored_credit_status="UNKNOWN",
-        raw_fields={"RATING": "AAA", "RATINGAGENCY": "ACRA", "RATINGDATE": "2026-08-01"},
+        raw_fields={},
         as_of=date(2026, 9, 5),
+        subtype="ofz_gov",
     )
+    assert credit.credit_status is CreditStatus.GOVERNMENT_RUSSIAN_FEDERAL
     liq = assess_liquidity(
         instrument_id=1,
         as_of=date(2026, 9, 5),

@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     dividend_sync_enabled: bool = Field(default=False, alias="DIVIDEND_SYNC_ENABLED")
     dividend_sync_cron: str = Field(default="30 4 * * 1-5", alias="DIVIDEND_SYNC_CRON")
 
+    # Credit rating sync — off by default; provider remains NOT_READY without commercial access.
+    credit_sync_enabled: bool = Field(default=False, alias="CREDIT_SYNC_ENABLED")
+    credit_sync_cron: str = Field(default="45 4 * * 1-5", alias="CREDIT_SYNC_CRON")
+
     @model_validator(mode="after")
     def _apply_research_live_mode(self) -> Self:
         """RESEARCH_LIVE_MODE is a convenience profile; explicit false flags stay off only when live=false."""

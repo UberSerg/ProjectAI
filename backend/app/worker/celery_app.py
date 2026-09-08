@@ -74,6 +74,11 @@ def create_celery_app() -> Celery:
             "task": "projectai.sync_dividend_history",
             "schedule": crontab(**_parse_cron(settings.dividend_sync_cron)),
         }
+    if settings.credit_sync_enabled:
+        beat_schedule["credit-ratings-sync"] = {
+            "task": "projectai.sync_credit_ratings",
+            "schedule": crontab(**_parse_cron(settings.credit_sync_cron)),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],
