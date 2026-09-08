@@ -329,6 +329,14 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
         100.0 * (total_positions - unsupported) / total_positions if total_positions else 100.0
     )
 
+    from app.modules.investment.application.portfolio_credit_service import (
+        build_portfolio_credit_intelligence,
+    )
+
+    credit_intelligence = build_portfolio_credit_intelligence(
+        session, positions=rows_out, nav=nav
+    )
+
     return {
         "portfolio": portfolio_to_dict(portfolio),
         "cash_rub": float(cash),
@@ -343,6 +351,7 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
         "unsupported_count": unsupported,
         "advisory": True,
         "note": "Risk findings are advisory; not a BLOCKED gate",
+        "credit_intelligence": credit_intelligence,
     }
 
 
