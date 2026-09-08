@@ -109,9 +109,25 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Validate Compose
         run: |
           cp .env.example .env
           docker compose config --quiet
+      - name: Compose up wait health
+        run: |
+          set -euo pipefail
+          docker compose up -d --build --wait --wait-timeout 300
+          docker compose ps
+          curl -fsS http://localhost:8000/api/v1/system/health/ready
+          curl -fsS -o /dev/null -w "%{http_code}\n" http://localhost:5173 | grep -E '200|304'
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps -a || true
+          docker compose logs --tail 80 postgres-core postgres-memory redis backend worker scheduler frontend || true
+      - name: Compose stop (preserve volumes)
+        if: always()
+        run: docker compose stop

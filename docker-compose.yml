@@ -87,12 +87,12 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # Process liveness only — readiness/system health are separate diagnostic endpoints
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/system/health/live >/dev/null"]
+      # Readiness: core DB + memory DB + Redis (not optional external providers)
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/system/health/ready >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 20
-      start_period: 40s
+      start_period: 45s
     restart: unless-stopped
 
   worker:
@@ -121,13 +121,15 @@ services:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        # Wait until migrations + readiness succeed before workers hit schema
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping | grep -q pong"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 30s
+      # Broker/process ping only — idle worker with no tasks is still healthy
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping | grep -qi pong"]
+      interval: 20s
+      timeout: 15s
+      retries: 15
+      start_period: 45s
     restart: unless-stopped
 
   scheduler:
@@ -149,10 +151,17 @@ services:
       - projectai_raw_data:/data/raw
       - projectai_models_data:/data/models
     depends_on:
+      postgres-core:
+        condition: service_healthy
+      postgres-memory:
+        condition: service_healthy
       redis:
+        condition: service_healthy
+      backend:
         condition: service_healthy
       worker:
         condition: service_started
+    # Beat has no reliable idle health signal; container running + restart policy
     restart: unless-stopped
 
   frontend:
