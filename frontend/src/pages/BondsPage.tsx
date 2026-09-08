@@ -1,469 +1,260 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  getBondAccountingPreview,
-  getBonds,
-  getFixedIncomeRisk,
-  getHurdle,
-  getInvestmentReadiness,
-  previewAllocation,
-  type AccountingPreview,
-  type BondInstrument,
-  type HurdleQuote,
-  type ReadinessCheck,
+  getBondsCatalog,
+  type BondCatalogItem,
+  type BondsCatalogResponse,
 } from "../api/investment";
 import { errorMessage } from "../api/client";
 import { MetricCard, PageHeader, PageState, StatusBadge } from "../components/Ui";
 import { MetricHelp } from "../help";
 
-const readinessLabels: Record<string, string> = {
-  CBR_HURDLE_READY: "Порог ключевой ставки ЦБ РФ",
-  FIXED_INCOME_DATA_READY: "Данные облигаций",
-  BOND_TERMS_READY: "Условия облигаций",
-  COUPON_CASHFLOWS_READY: "График купонов",
-  REDEMPTION_READY: "Погашение",
-  AMORTIZATION_PARTIAL: "Амортизация (частично)",
-  OFFER_POLICY_NOT_READY: "Политика оферт",
-  CREDIT_QUALITY_NOT_READY: "Кредитное качество (foundation)",
-  LIQUIDITY_FOUNDATION_READY: "Ликвидность (foundation)",
-  BOND_HISTORICAL_TOTAL_RETURN: "Исторический total return облигаций",
-  BOND_CASHFLOWS_READY: "Денежные потоки облигаций",
-  REALISTIC_LOTS_READY: "Реалистичные целые лоты",
-  TRANSACTION_COSTS_READY: "Профиль торговых издержек",
-  ASSET_ALLOCATION_RESEARCH_READY: "Research asset allocation",
-  TAX_MODEL_NOT_READY: "Налоги (ещё не моделируются)",
-  DIVIDEND_TOTAL_RETURN_NOT_READY: "Total return по дивидендам",
-  REAL_MONEY_NOT_READY: "Реальные деньги",
-};
-
-function fmtMoney(value: number | string | null | undefined): string {
-  if (value == null || value === "") return "—";
-  const n = Number(value);
-  if (Number.isNaN(n)) return "—";
-  return `${n.toFixed(2)} ₽`;
+function badgeTone(state: string): "ok" | "warning" | "info" | "danger" {
+  if (state === "ready") return "ok";
+  if (state === "source_not_ready") return "warning";
+  if (state === "missing") return "info";
+  return "info";
 }
 
 export function BondsPage() {
   const navigate = useNavigate();
-  const [hurdle, setHurdle] = useState<HurdleQuote | null>(null);
-  const [checks, setChecks] = useState<ReadinessCheck[]>([]);
-  const [bonds, setBonds] = useState<BondInstrument[]>([]);
-  const [riskSummary, setRiskSummary] = useState<Awaited<
-    ReturnType<typeof getFixedIncomeRisk>
-  > | null>(null);
-  const [capital, setCapital] = useState(100000);
-  const [price, setPrice] = useState(980);
-  const [lotSize, setLotSize] = useState(1);
-  const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewAllocation>> | null>(null);
-  const [selected, setSelected] = useState<BondInstrument | null>(null);
-  const [accounting, setAccounting] = useState<AccountingPreview | null>(null);
+  const [catalog, setCatalog] = useState<BondsCatalogResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filterCredit, setFilterCredit] = useState("");
-  const [filterLiquidity, setFilterLiquidity] = useState("");
-  const [filterEligibility, setFilterEligibility] = useState("");
-
-  const openBond = (symbol: string) => navigate(`/bonds/${encodeURIComponent(symbol)}`);
+  const [page, setPage] = useState(1);
+  const [q, setQ] = useState("");
+  const [qDraft, setQDraft] = useState("");
+  const [subtype, setSubtype] = useState("");
+  const [valuationOnly, setValuationOnly] = useState(false);
+  const [cashflowOnly, setCashflowOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(true);
+  const pageSize = 25;
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([
-      getHurdle(controller.signal),
-      getInvestmentReadiness(controller.signal),
-      getBonds(controller.signal),
-      getFixedIncomeRisk(controller.signal),
-    ])
-      .then(([h, r, b, risk]) => {
-        setHurdle(h);
-        setChecks(r.checks);
-        setBonds(b.items);
-        setRiskSummary(risk);
-      })
+    setLoading(true);
+    getBondsCatalog(
+      {
+        page,
+        page_size: pageSize,
+        q: q || undefined,
+        subtype: subtype || undefined,
+        active: activeOnly ? true : undefined,
+        valuation_available: valuationOnly ? true : undefined,
+        cashflow_available: cashflowOnly ? true : undefined,
+      },
+      controller.signal,
+    )
+      .then(setCatalog)
       .catch((reason: unknown) => setError(errorMessage(reason)))
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [page, q, subtype, valuationOnly, cashflowOnly, activeOnly]);
 
-  useEffect(() => {
-    if (!selected || selected.support_status !== "SUPPORTED") {
-      setAccounting(null);
-      return;
-    }
-    const controller = new AbortController();
-    getBondAccountingPreview(selected.symbol, 1, controller.signal)
-      .then(setAccounting)
-      .catch((reason: unknown) => setError(errorMessage(reason)));
-    return () => controller.abort();
-  }, [selected]);
+  const openBond = (symbol: string) => navigate(`/bonds/${encodeURIComponent(symbol)}`);
 
-  const filtered = useMemo(() => {
-    return bonds.filter((bond) => {
-      if (filterCredit && (bond.credit_status ?? bond.credit_quality_status) !== filterCredit) {
-        return false;
-      }
-      if (filterLiquidity && (bond.liquidity_status ?? "UNKNOWN") !== filterLiquidity) {
-        return false;
-      }
-      if (
-        filterEligibility &&
-        (bond.investment_eligibility ?? "RESEARCH_ONLY") !== filterEligibility
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [bonds, filterCredit, filterLiquidity, filterEligibility]);
+  if (loading && !catalog) return <PageState kind="loading" title="Загрузка каталога облигаций…" />;
+  if (error && !catalog) return <PageState kind="error">{error}</PageState>;
+  if (!catalog) return <PageState kind="empty" title="Каталог пуст" />;
 
-  if (loading) return <PageState kind="loading" title="Загрузка инвестиционного контура…" />;
-
-  const sample = bonds[0];
+  const summary = catalog.summary;
+  const totalPages = Math.max(1, Math.ceil(catalog.total / catalog.page_size));
 
   return (
-    <div className="bonds-page">
+    <div data-testid="bonds-catalog-v2">
       <PageHeader
         title="Облигации"
-        description="Главный вопрос: подходит ли бумага? Уметь посчитать купоны ≠ считать её безопасной."
+        subtitle="Каталог Instrument Master с обогащением FI (цена / выплаты / кредит)"
         helpPageId="bonds"
       />
-      <p className="page-purpose">
-        Раздел показывает, какие облигации Kraken видит в контуре: доходность, срок, кредит, ликвидность
-        и eligibility. Откройте карточку бумаги для drill-down — список сам по себе не инвестиционный совет.
-        Каталог расширяется через async enrichment; Candidate FI pool закреплён в{" "}
-        <MetricHelp metricId="research_fi_v1" />.
-      </p>
-      {error ? <div className="banner banner-warning">{error}</div> : null}
 
-      <div className="bond-fit-grid">
-        <div className="ds-card ds-card-hero">
-          <div className="ds-card-title">Подходит ли облигация?</div>
-          <div className="ds-card-headline">
-            {sample
-              ? `${sample.symbol}: смотрите риск и eligibility, а не только доходность`
-              : "Выберите бумагу в таблице ниже"}
-          </div>
-          <p className="muted" style={{ margin: 0 }}>
-            Высокая доходность часто означает более высокий риск. Если кредитное качество неизвестно —
-            бумага не считается защитным активом.
-          </p>
-        </div>
-        <div className="ds-card ds-card-risk">
-          <h3>Блок риска</h3>
-          <p>
-            <strong>
-              {(sample?.investment_eligibility ?? "RESEARCH_ONLY") === "REAL_PORTFOLIO_CANDIDATE"
-                ? "Может рассматриваться как research-кандидат"
-                : "Не используется как защитный актив"}
-            </strong>
-          </p>
-          <p className="muted">
-            Причина:{" "}
-            {(sample?.credit_status ?? sample?.credit_quality_status) === "UNKNOWN" ||
-            (sample?.credit_status ?? sample?.credit_quality_status) === "NOT_RATED"
-              ? "кредитное качество неизвестно"
-              : sample?.warnings?.[0] ?? "проверьте credit / liquidity / eligibility в таблице"}
-          </p>
-        </div>
+      <div className="card-grid" data-testid="bonds-summary-cards">
+        <MetricCard label="Активные" value={summary.active} helpId="research_universe" />
+        <MetricCard label="С оценкой" value={summary.valuation_ready} helpId="bond_dirty_value" />
+        <MetricCard label="С выплатами" value={summary.cashflow_ready} helpId="portfolio_cashflows" />
+        <MetricCard label="С кредитом" value={summary.credit_ready} helpId="credit_data_coverage" />
+        <MetricCard label="ОФЗ / госдолг" value={summary.ofz} helpId="government_debt" />
+        <MetricCard label="Корпоративные" value={summary.corporate} helpId="credit_rating" />
       </div>
 
-      <div className="card-grid">
-        <MetricCard
-          label="Ключевая ставка ЦБ РФ"
-          value={hurdle?.annual_rate == null ? "Нет данных" : `${(hurdle.annual_rate * 100).toFixed(2)}%`}
-          hint="Это порог сравнения, а не безрисковая депозитная ставка."
-          helpId="cbr_hurdle"
-        />
-        <MetricCard label="Дата ставки" value={hurdle?.as_of ?? "—"} helpId="known_at_quality" />
-        <MetricCard
-          label="Порог 1 год"
-          value={hurdle?.hurdle_1y == null ? "—" : `${(hurdle.hurdle_1y * 100).toFixed(2)}%`}
-          helpId="cbr_hurdle"
-        />
-        <MetricCard label="Облигаций в контуре" value={bonds.length} helpId="investment_eligibility" />
-        <MetricCard
-          label="SUPPORTED"
-          value={bonds.filter((b) => b.support_status === "SUPPORTED").length}
-          helpId="bond_supported"
-        />
-        <MetricCard
-          label="Credit UNKNOWN"
-          value={String(riskSummary?.credit_coverage?.UNKNOWN ?? "—")}
-          helpId="credit_quality"
-        />
-      </div>
-
-      <div className="card-grid">
-        <div className="card">
-          <h3>
-            Кредитное качество <MetricHelp metricId="credit_quality" />
-          </h3>
-          <p>Рейтинг: {sample?.credit_status === "AVAILABLE" ? "есть observed" : "Нет данных"}</p>
-          <p>Источник: — (агентские ленты требуют доступ)</p>
-          <p>
-            Статус: <StatusBadge status={(sample?.credit_status ?? "unknown").toLowerCase()} />
-          </p>
-          <p className="muted">
-            Высокая доходность может отражать риск дефолта. Отсутствие рейтинга не означает
-            безопасность. <MetricHelp metricId="unknown_rating" />
-          </p>
-        </div>
-        <div className="card">
-          <h3>
-            Ликвидность <MetricHelp metricId="liquidity_risk" />
-          </h3>
-          <p>Объём торгов: {riskSummary?.items?.[0] ? "см. статусы по инструментам" : "Нет данных"}</p>
-          <p>Последняя сделка: по snapshot / candles, если есть</p>
-          <p>
-            Статус:{" "}
-            <StatusBadge status={(sample?.liquidity_status ?? "unknown").toLowerCase()} />
-          </p>
-          <p className="muted">Риск ликвидности — сложность быстро купить/продать по ожидаемой цене.</p>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3>Готовность fixed income</h3>
-        <ul className="plain-list">
-          {checks.map((check) => (
-            <li key={check.code}>
-              {readinessLabels[check.code] ?? check.code}:{" "}
-              <StatusBadge status={check.status.toLowerCase()} />
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="card">
-        <h3>Калькулятор портфеля 100 000 ₽</h3>
-        <p className="muted">Исследовательский preview: целые лоты, комиссии и остаток денег.</p>
-        <div className="investment-calculator">
+      <article className="panel" style={{ marginTop: "1rem" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+            alignItems: "flex-end",
+            marginBottom: "1rem",
+          }}
+        >
           <label>
-            Капитал, ₽{" "}
-            <input type="number" value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
-          </label>
-          <label>
-            Цена, ₽ <input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
-          </label>
-          <label>
-            Размер лота{" "}
-            <input type="number" value={lotSize} onChange={(e) => setLotSize(Number(e.target.value))} />
+            Поиск
+            <input
+              data-testid="bonds-search"
+              value={qDraft}
+              onChange={(e) => setQDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setPage(1);
+                  setQ(qDraft.trim());
+                }
+              }}
+              placeholder="SECID, название, эмитент"
+            />
           </label>
           <button
             type="button"
-            onClick={() =>
-              previewAllocation({
-                capital,
-                cost_bps: 5,
-                candidates: [
-                  {
-                    symbol: "BOND",
-                    sleeve: "FIXED_INCOME",
-                    price,
-                    lot_size: lotSize,
-                    target_weight: 1,
-                  },
-                ],
-              })
-                .then(setPreview)
-                .catch((reason: unknown) => setError(errorMessage(reason)))
-            }
+            onClick={() => {
+              setPage(1);
+              setQ(qDraft.trim());
+            }}
           >
-            Рассчитать
+            Найти
+          </button>
+          <label>
+            Тип
+            <select
+              data-testid="bonds-subtype-filter"
+              value={subtype}
+              onChange={(e) => {
+                setPage(1);
+                setSubtype(e.target.value);
+              }}
+            >
+              <option value="">Все</option>
+              <option value="ofz_gov">ОФЗ / госдолг</option>
+              <option value="corporate_bond">Корпоративные</option>
+              <option value="municipal_bond">Муниципальные</option>
+            </select>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={activeOnly}
+              onChange={(e) => {
+                setPage(1);
+                setActiveOnly(e.target.checked);
+              }}
+            />{" "}
+            Только активные
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={valuationOnly}
+              onChange={(e) => {
+                setPage(1);
+                setValuationOnly(e.target.checked);
+              }}
+            />{" "}
+            С оценкой
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={cashflowOnly}
+              onChange={(e) => {
+                setPage(1);
+                setCashflowOnly(e.target.checked);
+              }}
+            />{" "}
+            С выплатами
+          </label>
+          <MetricHelp metricId="credit_data_coverage" />
+        </div>
+
+        {error ? <p className="muted">{error}</p> : null}
+
+        <div className="table-wrap">
+          <table data-testid="bonds-catalog-table">
+            <thead>
+              <tr>
+                <th>SECID</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Статусы</th>
+                <th>Цена %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {catalog.items.map((bond: BondCatalogItem) => (
+                <tr
+                  key={bond.instrument_id}
+                  data-testid={`bond-row-${bond.symbol}`}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => openBond(bond.symbol)}
+                >
+                  <td>
+                    <strong>{bond.symbol}</strong>
+                    {bond.master_only ? (
+                      <div className="muted" style={{ fontSize: "0.8rem" }}>
+                        только master
+                      </div>
+                    ) : null}
+                  </td>
+                  <td>{bond.name || "—"}</td>
+                  <td>
+                    {bond.is_government_debt
+                      ? "Госдолг"
+                      : bond.bond_type || bond.instrument_subtype || "—"}
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                      {(bond.badges || []).map((b) => (
+                        <StatusBadge
+                          key={b.id}
+                          status={badgeTone(b.state)}
+                          label={b.label}
+                        />
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    {bond.clean_price_percent != null
+                      ? bond.clean_price_percent.toFixed(2)
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+              {catalog.items.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    Нет облигаций по текущим фильтрам
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <div
+          data-testid="bonds-pagination"
+          style={{
+            display: "flex",
+            gap: "1rem",
+            alignItems: "center",
+            marginTop: "1rem",
+          }}
+        >
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            Назад
+          </button>
+          <span>
+            Стр. {page} / {totalPages} · всего {catalog.total}
+          </span>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Вперёд
           </button>
         </div>
-        {preview ? (
-          <>
-            <div className="metric-grid">
-              <MetricCard label="Лотов" value={preview.positions[0]?.lots ?? 0} />
-              <MetricCard label="Комиссии" value={`${Number(preview.fees).toFixed(2)} ₽`} />
-              <MetricCard label="Остаток" value={`${Number(preview.cash_remainder).toFixed(2)} ₽`} />
-            </div>
-            {(preview as { warnings?: string[] }).warnings?.length ? (
-              <div className="banner banner-warning">
-                <strong>Предупреждения</strong>
-                <ul className="plain-list">
-                  {(preview as { warnings?: string[] }).warnings!.map((w) => (
-                    <li key={w}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
-      <div className="card">
-        <h3>Research Lab: фильтры качества</h3>
-        <div className="investment-calculator">
-          <label>
-            Credit quality{" "}
-            <select value={filterCredit} onChange={(e) => setFilterCredit(e.target.value)}>
-              <option value="">Все</option>
-              <option value="UNKNOWN">UNKNOWN</option>
-              <option value="AVAILABLE">AVAILABLE</option>
-              <option value="NOT_RATED">NOT_RATED</option>
-              <option value="STALE">STALE</option>
-            </select>
-          </label>
-          <label>
-            Liquidity{" "}
-            <select value={filterLiquidity} onChange={(e) => setFilterLiquidity(e.target.value)}>
-              <option value="">Все</option>
-              <option value="GOOD">GOOD</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="LOW">LOW</option>
-              <option value="UNKNOWN">UNKNOWN</option>
-            </select>
-          </label>
-          <label>
-            Investment eligibility{" "}
-            <select value={filterEligibility} onChange={(e) => setFilterEligibility(e.target.value)}>
-              <option value="">Все</option>
-              <option value="RESEARCH_ONLY">RESEARCH_ONLY</option>
-              <option value="REAL_PORTFOLIO_CANDIDATE">REAL_PORTFOLIO_CANDIDATE</option>
-              <option value="BLOCKED">BLOCKED</option>
-            </select>
-          </label>
-        </div>
-        <p className="muted">Фильтры research-only — без оптимизации и автовыбора победителя.</p>
-      </div>
-
-      <div className="card">
-        <h3>Инструменты fixed income</h3>
-        <p className="muted">
-          Корректный расчёт купонов не равен безопасности эмитента. Accounting YES ≠ Investment YES.
-        </p>
-        {filtered.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Тикер</th>
-                  <th>Тип</th>
-                  <th>Цена %</th>
-                  <th>НКД</th>
-                  <th>Покупка (оценка)</th>
-                  <th>Ближ. купон</th>
-                  <th>Купон, ₽</th>
-                  <th>Погашение</th>
-                  <th>YTM</th>
-                  <th>Поддержка</th>
-                  <th>Accounting</th>
-                  <th>Credit</th>
-                  <th>Liquidity</th>
-                  <th>Eligibility</th>
-                  <th>Данные</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((bond) => (
-                  <tr
-                    key={bond.instrument_id}
-                    className={`clickable${selected?.instrument_id === bond.instrument_id ? " selected" : ""}`}
-                    tabIndex={0}
-                    role="link"
-                    aria-label={`Открыть ${bond.symbol}`}
-                    onClick={() => openBond(bond.symbol)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openBond(bond.symbol);
-                      }
-                    }}
-                  >
-                    <td>
-                      <Link
-                        className="ticker-link"
-                        to={`/bonds/${encodeURIComponent(bond.symbol)}`}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {bond.symbol}
-                      </Link>
-                    </td>
-                    <td>{bond.bond_type}</td>
-                    <td>{bond.clean_price_percent ?? "—"}</td>
-                    <td>{bond.nkd ?? "—"}</td>
-                    <td title="Чистая цена + НКД на 1 бумагу">{fmtMoney(bond.dirty_estimate)}</td>
-                    <td>{bond.next_coupon_date ?? "—"}</td>
-                    <td>{bond.next_coupon_amount ?? "—"}</td>
-                    <td>{bond.maturity_date ?? "—"}</td>
-                    <td title={bond.ytm_note ?? undefined}>{bond.ytm ?? "—"}</td>
-                    <td>
-                      <StatusBadge status={bond.support_status.toLowerCase()} />
-                    </td>
-                    <td>{bond.accounting_quality ?? "—"}</td>
-                    <td>{bond.credit_status ?? bond.credit_quality_status}</td>
-                    <td>{bond.liquidity_status ?? "UNKNOWN"}</td>
-                    <td>{bond.investment_eligibility ?? "RESEARCH_ONLY"}</td>
-                    <td title={bond.data_quality?.source}>
-                      {bond.data_quality?.known_at_quality ?? "—"}
-                    </td>
-                    <td>
-                      <Link
-                        className="inline-link"
-                        to={`/bonds/${encodeURIComponent(bond.symbol)}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelected(bond);
-                        }}
-                      >
-                        Открыть
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="muted">Нет инструментов под выбранные фильтры / данные ещё не загружены.</p>
-        )}
-      </div>
-
-      {selected ? (
-        <div className="card">
-          <h3>
-            Детали: {selected.symbol}{" "}
-            <span className="muted">({selected.currency_display ?? selected.currency})</span>
-          </h3>
-          <p>
-            <strong>Почему Kraken пока не может использовать эту облигацию:</strong>{" "}
-            {selected.support_status === "SUPPORTED"
-              ? "Может использовать для учёта денежных потоков (не для реального портфеля без credit gate)."
-              : selected.why_not_supported ?? "Недостаточно данных"}
-          </p>
-          <p className="muted">{selected.credit_safety_note}</p>
-          {selected.currency_raw ? (
-            <p className="muted">Сырое значение MOEX FACEUNIT: {selected.currency_raw}</p>
-          ) : null}
-          {accounting?.status === "READY" ? (
-            <div className="metric-grid">
-              <MetricCard label="Чистая сумма" value={fmtMoney(accounting.clean_total)} helpId="dirty_price" />
-              <MetricCard label="НКД" value={fmtMoney(accounting.nkd_total)} helpId="nkd" />
-              <MetricCard
-                label="Грязная покупка"
-                value={fmtMoney(accounting.dirty_purchase)}
-                helpId="dirty_price"
-              />
-              <MetricCard label="Комиссия" value={fmtMoney(accounting.fees)} helpId="transaction_costs" />
-              <MetricCard
-                label="Купоны (всего)"
-                value={fmtMoney(accounting.coupon_total)}
-                helpId="bond_coupon_schedule"
-              />
-              <MetricCard label="Погашение" value={fmtMoney(accounting.redemption_total)} helpId="bond_redemption" />
-              <MetricCard
-                label="Total return до налогов"
-                value={fmtMoney(accounting.total_return_before_tax)}
-                helpId="tax_not_modeled"
-              />
-              <MetricCard label="YTM (MOEX)" value={accounting.ytm_value ?? "—"} helpId="bond_ytm" />
-            </div>
-          ) : accounting ? (
-            <p className="muted">{accounting.note ?? accounting.status}</p>
-          ) : null}
-        </div>
-      ) : null}
+      </article>
     </div>
   );
 }

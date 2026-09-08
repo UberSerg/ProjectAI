@@ -32,6 +32,8 @@ export interface InstrumentCapabilities {
   can_fixed_income_analyze: boolean;
   can_rebalance: boolean;
   can_cashflow_project: boolean;
+  can_issuer_credit?: boolean;
+  can_issue_credit?: boolean;
   reasons: Record<string, string>;
 }
 
@@ -43,6 +45,8 @@ export interface InstrumentCoverage {
   fixed_income: boolean;
   rebalance: boolean;
   cashflow: boolean;
+  issuer_credit?: boolean;
+  issue_credit?: boolean;
 }
 
 export interface CatalogInstrumentSource {

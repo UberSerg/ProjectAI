@@ -82,6 +82,27 @@ const analysisFilled = {
     },
   ],
   quality: "PARTIAL",
+  credit_intelligence: {
+    government_weight: 0.2,
+    corporate_weight: 0.1,
+    rated_corporate_weight: 0,
+    unrated_corporate_weight: 0.1,
+    credit_data_unavailable_weight: 0.1,
+    bond_weight: 0.3,
+    top_issuers: [
+      {
+        issuer_key: "gov",
+        issuer_title: "Минфин РФ",
+        market_value: 8000,
+        weight: 0.2,
+        availability_status: "GOVERNMENT_RUSSIAN_FEDERAL",
+        rating_raw: null,
+        agency_code: null,
+      },
+    ],
+    provider_verdict: "NOT_READY",
+    advisory: true,
+  },
 };
 
 const compareSample = {
@@ -294,10 +315,26 @@ describe("MyPortfolioPage", () => {
     expect(screen.getByText("SELL")).toBeInTheDocument();
   });
 
+  it("shows portfolio credit intelligence on analysis tab", async () => {
+    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
+    renderPage();
+    await screen.findByTestId("my-portfolio-hero");
+    fireEvent.click(screen.getByTestId("tab-analysis"));
+    expect(await screen.findByTestId("portfolio-credit-intelligence")).toBeInTheDocument();
+    expect(screen.getByText(/Кредитный риск облигаций/i)).toBeInTheDocument();
+    expect(screen.getByText(/Минфин РФ/i)).toBeInTheDocument();
+  });
+
   it("has page help for manual portfolio", () => {
     expect(getPageHelp("manual_portfolio")?.title).toMatch(/Мой портфель/);
     expect(getPageHelp("manual_portfolio")?.metrics).toEqual(
-      expect.arrayContaining(["manual_portfolio", "rebalance", "bond_dirty_value"]),
+      expect.arrayContaining([
+        "manual_portfolio",
+        "rebalance",
+        "bond_dirty_value",
+        "credit_data_coverage",
+        "government_debt",
+      ]),
     );
   });
 });

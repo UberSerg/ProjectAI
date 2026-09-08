@@ -16,6 +16,25 @@ describe("help registry", () => {
     expect(getMetricHelp("return_20d")?.title).toContain("20");
   });
 
+  it("defines credit intelligence help metrics", () => {
+    for (const id of [
+      "credit_rating",
+      "issuer_rating",
+      "issue_rating",
+      "unrated",
+      "government_debt",
+      "credit_data_coverage",
+      "research_universe",
+    ]) {
+      expect(getMetricHelp(id)?.title, id).toBeTruthy();
+    }
+    expect(getMetricHelp("unrated")?.summary).toMatch(/SOURCE_NOT_READY/);
+    expect(getMetricHelp("government_debt")?.summary).toMatch(/GOVERNMENT|госдолг|ОФЗ/i);
+    expect(getPageHelp("bonds")?.metrics).toEqual(
+      expect.arrayContaining(["government_debt", "credit_data_coverage", "research_universe"]),
+    );
+  });
+
   it("defines relations term and page help for existing pages", () => {
     expect(getMetricHelp("relations_term")?.title).toMatch(/Связи/);
     for (const id of [
