@@ -1450,10 +1450,28 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     id: "RAS",
     kind: "term",
     title: "РСБУ (RAS)",
-    summary: "Российские стандарты бухгалтерского учёта.",
+    summary: "Российские стандарты бухгалтерского учёта. В Kraken V1 — industrial reports из FNS GIR BO.",
     details:
-      "Russian Accounting Standards. Метрики могут отличаться по методике от IFRS; прямое сравнение без оговорок некорректно.",
-    relatedIds: ["IFRS", "financial_report"],
+      "Источник: bo.nalog.gov.ru `/nbo/organizations/{id}/bfo/`. RAS ≠ IFRS. Банки/FI = NOT_SUPPORTED_BY_FNS_RAS_V1. known_at из datePresent/actualBfoDate; period_end ≠ known_at; missing ≠ 0.",
+    relatedIds: ["IFRS", "financial_report", "known_at", "fns_gir_bo"],
+  },
+  fns_gir_bo: {
+    id: "fns_gir_bo",
+    kind: "term",
+    title: "FNS GIR BO",
+    summary: "Бесплатный публичный JSON реестр бухотчётности ФНС для industrial RAS.",
+    details:
+      "Sync: projectai.sync_fundamentals_fns (флаг FNS_FUNDAMENTALS_SYNC_ENABLED). Не запускается при рендере страницы. Ошибки → DEGRADED coverage, health OK.",
+    relatedIds: ["RAS", "known_at", "system_data_coverage"],
+  },
+  dataset_v3_gate: {
+    id: "dataset_v3_gate",
+    kind: "term",
+    title: "Dataset V3 readiness gate",
+    summary: "Измерение готовности к Dataset V3: NOT_READY | READY_FOR_DATASET_DESIGN | READY_FOR_BUILD.",
+    details:
+      "Fundamentals alone ≠ READY_FOR_BUILD. Нужен дивидендный PIT-фид для TR labels. Gate не создаёт DatasetSpec и не обучает модели.",
+    relatedIds: ["financial_report", "total_return_dividends", "system_data_coverage"],
   },
   revenue: {
     id: "revenue",
@@ -3276,6 +3294,8 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "restatement",
       "IFRS",
       "RAS",
+      "fns_gir_bo",
+      "dataset_v3_gate",
       "revenue",
       "net_income",
       "EBITDA",

@@ -73,14 +73,29 @@ SOURCE_FINDINGS: tuple[SourceFinding, ...] = (
         decision="Not used.",
     ),
     SourceFinding(
+        source="FNS GIR BO (bo.nalog.gov.ru)",
+        purpose="FINANCIAL_REPORTS_RAS",
+        endpoint="/nbo/organizations/{id}/bfo/",
+        observed=(
+            "Public JSON with balance / financialResult / capitalChange / fundsMovement; "
+            "PIT anchors actualBfoDate and correction.datePresent; industrial only; "
+            "online depth ~2021–2025; banks/isCb not supported in RAS V1."
+        ),
+        verdict=SourceVerdict.ACCEPTED.value,
+        decision=(
+            "Used by FnsGirBoProvider → financial_reports/facts with known_at from "
+            "datePresent/actualBfoDate (DATE_ONLY). RAS ≠ IFRS. Missing lines stay null."
+        ),
+    ),
+    SourceFinding(
         source="e-disclosure.ru",
         purpose="FINANCIAL_REPORTS_AND_DISCLOSURE",
         endpoint="https://www.e-disclosure.ru/",
-        observed="HTTP 403 for automated access.",
+        observed="HTTP 403 for automated access (bot gateway). Spike 2026-09-08.",
         verdict=SourceVerdict.REJECTED.value,
         decision=(
-            "Not automated. The block is not bypassed and the site is not scraped; "
-            "a lawful API or licensed feed is required."
+            "Not automated. CAPTCHA/auth bypass is forbidden; dividend spike remains "
+            "PARTIAL_RESEARCH_ONLY until a lawful public parser path exists."
         ),
     ),
     SourceFinding(
@@ -98,25 +113,25 @@ SOURCE_FINDINGS: tuple[SourceFinding, ...] = (
         ),
     ),
     SourceFinding(
-        source="—",
+        source="FNS GIR BO",
         purpose="FINANCIAL_REPORTS",
-        endpoint="—",
-        observed="No free source with a provable per-report publication date was found.",
-        verdict=SourceVerdict.DEFERRED.value,
-        decision=(
-            "fundamentals.financial_reports stays empty. Report ingestion records a "
-            "DEFERRED run instead of inventing periods or publication dates."
-        ),
+        endpoint="/nbo/organizations/{id}/bfo/",
+        observed="Accepted for industrial RAS with publication-time PIT semantics.",
+        verdict=SourceVerdict.ACCEPTED.value,
+        decision="Ingest via sync_fundamentals_fns when FNS_FUNDAMENTALS_SYNC_ENABLED.",
     ),
     SourceFinding(
         source="—",
         purpose="DIVIDENDS",
         endpoint="—",
-        observed="No accepted dividend feed with announcement dates.",
+        observed=(
+            "No accepted dividend feed with announcement dates. "
+            "e-disclosure spike = PARTIAL_RESEARCH_ONLY (HTTP 403)."
+        ),
         verdict=SourceVerdict.DEFERRED.value,
         decision=(
-            "fundamentals.dividend_events stays empty. Dividends are not credited to any "
-            "portfolio and raw dividend price gaps in market.candles are left untouched."
+            "fundamentals.dividend_events stays empty until READY_FOR_PRODUCTION_V1. "
+            "Dividends are not credited; raw dividend price gaps in market.candles untouched."
         ),
     ),
 )

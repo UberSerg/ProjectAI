@@ -79,6 +79,15 @@ def create_celery_app() -> Celery:
             "task": "projectai.sync_credit_ratings",
             "schedule": crontab(**_parse_cron(settings.credit_sync_cron)),
         }
+    if getattr(settings, "fns_fundamentals_sync_enabled", False):
+        beat_schedule["fns-fundamentals-sync"] = {
+            "task": "projectai.sync_fundamentals_fns",
+            "schedule": crontab(
+                **_parse_cron(
+                    getattr(settings, "fns_fundamentals_sync_cron", "20 5 * * 1-5")
+                )
+            ),
+        }
     app.conf.update(
         task_serializer="json",
         accept_content=["json"],

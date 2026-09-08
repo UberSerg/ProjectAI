@@ -324,6 +324,54 @@ export function getIssuerAsOf(
   return apiRequest(`/fundamentals/issuers/${issuerId}/as-of${queryString({ date })}`, { signal });
 }
 
+export interface FundamentalSnapshot {
+  status?: string | null;
+  as_of?: string | null;
+  issuer_id?: number | null;
+  badge?: string | null;
+  message?: string | null;
+  reporting_standard?: string | null;
+  visible_reports?: number | null;
+  report?: {
+    report_id?: number | null;
+    period_end?: string | null;
+    period_type?: string | null;
+    known_at?: string | null;
+    published_at_known?: boolean | null;
+    source?: string | null;
+    report_version?: number | null;
+    unit_scale?: string | null;
+  } | null;
+  facts?: Array<{
+    metric_code?: string;
+    value?: number | null;
+    unit_scale?: string | null;
+    currency?: string | null;
+    missing?: boolean;
+  }> | null;
+  derived?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+export function getIssuerSnapshot(
+  issuerId: string | number,
+  asOf?: string,
+  signal?: AbortSignal,
+): Promise<FundamentalSnapshot> {
+  return apiRequest(
+    `/fundamentals/issuers/${issuerId}/snapshot${queryString({ as_of: asOf })}`,
+    { signal },
+  );
+}
+
+export function getFnsCoverage(signal?: AbortSignal): Promise<Record<string, unknown>> {
+  return apiRequest("/fundamentals/fns/coverage", { signal });
+}
+
+export function getDatasetV3Gate(signal?: AbortSignal): Promise<Record<string, unknown>> {
+  return apiRequest("/fundamentals/dataset-v3-gate", { signal });
+}
+
 export function getFundamentalsCoverage(signal?: AbortSignal): Promise<FundamentalsCoverageYear[]> {
   return apiRequest("/fundamentals/coverage", { signal }).then((payload) => {
     const items = asArray<FundamentalsCoverageYear>(payload, ["items", "years", "rows", "data"]);

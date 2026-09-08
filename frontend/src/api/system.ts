@@ -30,12 +30,23 @@ export interface SystemDataCoverage {
   fixed_income: Record<string, unknown>;
   dividends: Record<string, unknown>;
   total_return: Record<string, unknown>;
+  credit?: Record<string, unknown>;
+  fundamentals?: Record<string, unknown>;
+  dataset_v3_gate?: {
+    gate?: string;
+    candidate_start_date?: string | null;
+    dataset_spec_mutated?: boolean;
+  };
   prediction_universe: { code: string; count: number };
   fi_strategy_universe: { code: string; count: number };
   processes: {
     fi_enrichment_enabled: boolean;
     dividend_sync_enabled: boolean;
+    credit_sync_enabled?: boolean;
+    fns_fundamentals_sync_enabled?: boolean;
     moex_instrument_master_sync_enabled: boolean;
+    fi_enrichment_pending?: number;
+    fi_enrichment_jobs?: Record<string, unknown>;
   };
 }
 
