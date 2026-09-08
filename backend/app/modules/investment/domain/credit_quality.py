@@ -8,20 +8,7 @@ V1 adds CreditAvailabilityStatus via credit_intelligence:
 SOURCE_NOT_READY ≠ NO_RATING_FOUND; OFZ → GOVERNMENT_RUSSIAN_FEDERAL (not fake AAA).
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from datetime import date, datetime
-from enum import StrEnum
-
-from app.modules.investment.domain.credit_intelligence import (
-    CreditAvailabilityStatus,
-    assess_credit_availability,
-    is_russian_federal_government_bond,
-)
-
-
-class CreditStatus(StrEnum):
+from __future__ import annotationsfrom dataclasses import dataclassfrom datetime import date, datetimefrom enum import StrEnumfrom app.modules.investment.domain.credit_intelligence import (    CreditAvailabilityStatus,    assess_credit_availability,    is_russian_federal_government_bond,)class CreditStatus(StrEnum):
     """Legacy + V1 availability statuses (string-compatible with assessments)."""
 
     UNKNOWN = "UNKNOWN"

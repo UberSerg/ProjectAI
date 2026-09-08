@@ -64,7 +64,7 @@ export function BondsPage() {
     <div data-testid="bonds-catalog-v2">
       <PageHeader
         title="Облигации"
-        subtitle="Каталог Instrument Master с обогащением FI (цена / выплаты / кредит)"
+        description="Каталог Instrument Master с обогащением FI (цена / выплаты / кредит)"
         helpPageId="bonds"
       />
 

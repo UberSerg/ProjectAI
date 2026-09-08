@@ -16,10 +16,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.market.models import Instrument
 from app.modules.investment.application.credit_rating_provider import resolve_instrument_credit
 from app.modules.investment.domain.cashflows import reason_code_ru
-from app.modules.investment.domain.credit_intelligence import (
-    CreditAvailabilityStatus,
-    is_russian_federal_government_bond,
-)
+from app.modules.investment.domain.credit_intelligence import CreditAvailabilityStatus
 from app.modules.investment.domain.currency import display_currency_ru
 from app.modules.investment.infrastructure.models import BondCashflow, BondMarketSnapshot, BondTerm
 from app.modules.market.application.instrument_classification import (

@@ -276,7 +276,7 @@ def resolve_instrument_credit(
         "action_date": assessment.action_date.isoformat() if assessment.action_date else None,
         "known_at": (
             assessment.known_at.isoformat()
-            if isinstance(assessment.known_at, (date, datetime))
+            if isinstance(assessment.known_at, date | datetime)
             else None
         ),
         "source": assessment.source,
