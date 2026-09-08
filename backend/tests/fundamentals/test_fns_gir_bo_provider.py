@@ -6,12 +6,11 @@ from datetime import date, datetime
 
 import pytest
 
+from app.modules.fundamentals.application.coverage_service import derive_defensible_metrics
 from app.modules.fundamentals.application.dataset_v3_gate import (
     GATE_READY_FOR_BUILD,
     GATE_READY_FOR_DATASET_DESIGN,
-    build_dataset_v3_readiness_gate,
 )
-from app.modules.fundamentals.application.coverage_service import derive_defensible_metrics
 from app.modules.fundamentals.infrastructure.fns_gir_bo_provider import (
     BANK_FI_SECIDS,
     FNS_MAP_EXACT,
