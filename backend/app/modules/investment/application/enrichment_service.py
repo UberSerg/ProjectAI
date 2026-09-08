@@ -86,14 +86,24 @@ def enqueue_enrichment(
         session.flush()
         return job
 
-    # Re-queue failed / stale; never demote priority; bump to PENDING if done.
+    # Re-queue failed / stale; never demote priority.
+    # NO_DATA stays terminal until next_retry_at (long backoff) or explicit force.
     if pri < int(existing.priority):
         existing.priority = pri
+    if existing.status == EnrichmentStatus.NO_DATA.value:
+        retry_at = existing.next_retry_at
+        if retry_at is not None and retry_at <= now:
+            existing.status = EnrichmentStatus.PENDING.value
+            existing.next_retry_at = None
+            existing.last_error = None
+        # else: keep NO_DATA — do not thrash MOEX on empty instruments
+        existing.updated_at = now
+        session.flush()
+        return existing
     if existing.status in {
         EnrichmentStatus.SUCCESS.value,
         EnrichmentStatus.PARTIAL.value,
         EnrichmentStatus.FAILED.value,
-        EnrichmentStatus.NO_DATA.value,
     }:
         existing.status = EnrichmentStatus.PENDING.value
         existing.next_retry_at = None
@@ -556,13 +566,24 @@ def run_fi_enrichment_batch(session: Session, *, acquire_lock: bool = True) -> d
                         session, instrument, client=client, kinds=kinds
                     )
                     status = result.get("status") or EnrichmentStatus.SUCCESS.value
+                    note = result.get("note")
                     for job in job_list:
                         job.status = status
-                        job.last_error = result.get("note") if status != EnrichmentStatus.SUCCESS.value else None
                         if status == EnrichmentStatus.SUCCESS.value:
+                            job.last_error = None
                             job.last_success_at = now
+                            job.next_retry_at = None
                         elif status == EnrichmentStatus.PARTIAL.value:
+                            job.last_error = note
                             job.last_success_at = now
+                            job.next_retry_at = None
+                        elif status == EnrichmentStatus.NO_DATA.value:
+                            # Long backoff / terminal until instrument changes or retry window.
+                            reason = note or "no_data"
+                            job.last_error = f"NO_DATA:{reason}"
+                            job.next_retry_at = now + timedelta(days=7)
+                        else:
+                            job.last_error = (note or status)[:500] if note else status
                         job.updated_at = now
                         processed += 1
                         if status == EnrichmentStatus.SUCCESS.value:
@@ -663,8 +684,16 @@ def fi_coverage_report(session: Session) -> dict[str, Any]:
         },
         "enrichment_jobs": job_counts,
         "pending_jobs": pending,
+        "success_jobs": int(job_counts.get(EnrichmentStatus.SUCCESS.value, 0)),
+        "no_data_jobs": int(job_counts.get(EnrichmentStatus.NO_DATA.value, 0)),
+        "failed_jobs": int(job_counts.get(EnrichmentStatus.FAILED.value, 0)),
+        "partial_jobs": int(job_counts.get(EnrichmentStatus.PARTIAL.value, 0)),
         "fi_enrichment_enabled": bool(get_settings().fi_enrichment_enabled),
         "known_at_quality": MOEX_BONDIZATION_KNOWN_AT_QUALITY.value,
+        "catch_up_v3": {
+            "no_data_backoff_days": 7,
+            "note": "NO_DATA jobs stay terminal until next_retry_at; not auto-grown into research_fi_v1",
+        },
     }
 
 
