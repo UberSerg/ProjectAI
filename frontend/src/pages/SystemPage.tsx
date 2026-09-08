@@ -73,6 +73,20 @@ function DataCoverageCard() {
             <strong>{coverage.fi_strategy_universe.count}</strong>
           </div>
           <div className="key-value">
+            <span>Fundamentals (RAS / FNS)</span>
+            <strong>
+              {String(
+                (coverage.fundamentals as { industrial_with_reports?: number } | undefined)
+                  ?.industrial_with_reports ?? "—",
+              )}{" "}
+              industrial with reports
+            </strong>
+          </div>
+          <div className="key-value">
+            <span>Dataset V3 gate</span>
+            <strong>{String(coverage.dataset_v3_gate?.gate ?? "NOT_READY")}</strong>
+          </div>
+          <div className="key-value">
             <span>Dividends</span>
             <strong>{String((coverage.dividends as { verdict?: string }).verdict ?? "NOT_READY")}</strong>
           </div>
@@ -88,7 +102,8 @@ function DataCoverageCard() {
           </div>
           <p className="muted" style={{ marginBottom: 0 }}>
             Processes: FI enrichment {processes?.fi_enrichment_enabled ? "ON" : "OFF"} · dividend sync{" "}
-            {processes?.dividend_sync_enabled ? "ON" : "OFF"} · master{" "}
+            {processes?.dividend_sync_enabled ? "ON" : "OFF"} · FNS fundamentals{" "}
+            {processes?.fns_fundamentals_sync_enabled ? "ON" : "OFF"} · master{" "}
             {processes?.moex_instrument_master_sync_enabled ? "ON" : "OFF"}
           </p>
         </>

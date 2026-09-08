@@ -226,3 +226,42 @@ def fundamentals_event_feature_preview(
         payload = result.to_dict()
         payload["rows"] = payload["rows"][:limit]
         return payload
+
+
+@router.get("/fns/coverage")
+def fundamentals_fns_coverage() -> dict[str, Any]:
+    from app.modules.fundamentals.application.coverage_service import FundamentalCoverageService
+
+    with core_session() as session:
+        return FundamentalCoverageService(session).cohort_table()
+
+
+@router.get("/fns/portfolio-coverage")
+def fundamentals_portfolio_coverage() -> dict[str, Any]:
+    from app.modules.fundamentals.application.coverage_service import (
+        portfolio_equity_fundamental_coverage,
+    )
+
+    with core_session() as session:
+        return portfolio_equity_fundamental_coverage(session)
+
+
+@router.get("/issuers/{issuer_id}/snapshot")
+def fundamentals_issuer_snapshot(
+    issuer_id: int,
+    as_of: Annotated[date | None, Query()] = None,
+) -> dict[str, Any]:
+    from app.modules.fundamentals.application.coverage_service import FundamentalSnapshotService
+
+    with core_session() as session:
+        return FundamentalSnapshotService(session).latest_as_of(issuer_id, as_of)
+
+
+@router.get("/dataset-v3-gate")
+def fundamentals_dataset_v3_gate() -> dict[str, Any]:
+    from app.modules.fundamentals.application.dataset_v3_gate import (
+        build_dataset_v3_readiness_gate,
+    )
+
+    with core_session() as session:
+        return build_dataset_v3_readiness_gate(session)

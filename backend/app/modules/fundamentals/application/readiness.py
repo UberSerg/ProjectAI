@@ -91,7 +91,7 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
     blockers: list[str] = []
     if facts["financial_reports"] == 0:
         blockers.append(
-            "no financial reports: no accepted provider (e-disclosure 403, ISS has no report table)"
+            "no financial reports: run sync_fundamentals_fns (FNS GIR BO industrial RAS)"
         )
     if facts["dividend_events"] == 0:
         blockers.append("no dividend events: both ISS dividend endpoints rejected by audit")
@@ -151,8 +151,13 @@ def build_readiness_report(session: Session) -> dict[str, Any]:
         ],
         "dataset_spec_mutated": False,
         "human_summary": (
-            "Идентичность эмитентов и SPLIT-события есть; отчёты и дивиденды без "
-            "доверенного PIT-источника — Dataset V3 / Candidate V2 не готовы."
+            "Issuer identity + SPLIT events + industrial RAS (FNS) when synced; "
+            "dividends still without accepted PIT provider — Dataset V3 not READY_FOR_BUILD."
+            if facts["financial_reports"] > 0
+            else (
+                "Идентичность эмитентов и SPLIT-события есть; отчёты и дивиденды без "
+                "доверенного PIT-источника — Dataset V3 / Candidate V2 не готовы."
+            )
         ),
         "note": (
             "Readiness measurement only. No DatasetSpec is created or changed, Dataset V2 / "

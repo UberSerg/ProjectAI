@@ -19,6 +19,7 @@ SOURCE_AUDIT_KIND = "FUNDAMENTAL_SOURCE_AUDIT_V1"
 # Provider / source codes written into `source` columns.
 SOURCE_MOEX_ISS = "MOEX_ISS"
 SOURCE_MARKET_CORPORATE_ACTIONS = "MARKET_CORPORATE_ACTIONS"
+SOURCE_FNS_GIR_BO = "FNS_GIR_BO"
 
 # Feature set identities. Nothing is materialised into a shared feature table in V1;
 # these codes name the in-memory contracts so a later stage can pin them.
