@@ -181,11 +181,15 @@ def system_data_coverage() -> dict[str, Any]:
         fi = fi_coverage_report(session)
         div = dividend_coverage_v2(session)
         tr = total_return_readiness_report(session)
+        from app.modules.investment.application.credit_rating_provider import credit_coverage_v1
+
+        credit = credit_coverage_v1(session)
         return {
             "master": master,
             "fixed_income": fi,
             "dividends": div,
             "total_return": tr,
+            "credit": credit,
             "prediction_universe": {
                 "code": RESEARCH_EQUITY_V1,
                 "count": len(research_member_ids(session)),
@@ -197,8 +201,11 @@ def system_data_coverage() -> dict[str, Any]:
             "processes": {
                 "fi_enrichment_enabled": bool(settings.fi_enrichment_enabled),
                 "dividend_sync_enabled": bool(settings.dividend_sync_enabled),
+                "credit_sync_enabled": bool(settings.credit_sync_enabled),
                 "moex_instrument_master_sync_enabled": bool(
                     settings.moex_instrument_master_sync_enabled
                 ),
+                "fi_enrichment_pending": int(fi.get("pending_jobs") or 0),
+                "fi_enrichment_jobs": fi.get("enrichment_jobs") or {},
             },
         }

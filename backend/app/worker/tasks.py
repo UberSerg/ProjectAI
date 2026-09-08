@@ -502,3 +502,14 @@ def sync_dividend_history() -> dict:
         "ingested": 0,
         "note": "No accepted dividend provider; nothing ingested.",
     }
+
+
+@celery_app.task(name="projectai.sync_credit_ratings")
+def sync_credit_ratings() -> dict:
+    """Credit rating sync — gated by CREDIT_SYNC_ENABLED; no-ops while NOT_READY."""
+    from app.modules.investment.application.credit_rating_provider import sync_credit_ratings_noop
+
+    with core_session() as session:
+        result = sync_credit_ratings_noop(session)
+        session.commit()
+        return result

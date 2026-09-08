@@ -85,3 +85,75 @@ class BondMarketSnapshot(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     observed_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CreditAgency(Base):
+    __tablename__ = "credit_agencies"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_investment_credit_agencies_code"),
+        {"schema": "investment"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    country: Mapped[str | None] = mapped_column(Text)
+    scale_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CreditRatingObservation(Base):
+    """Append-only agency rating observations (ISSUER|ISSUE). Never invent rows."""
+
+    __tablename__ = "credit_rating_observations"
+    __table_args__ = {"schema": "investment"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    subject_type: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_key: Mapped[str] = mapped_column(Text, nullable=False)
+    instrument_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("market.instruments.id", ondelete="SET NULL")
+    )
+    issuer_id: Mapped[int | None] = mapped_column(BigInteger)
+    agency_code: Mapped[str] = mapped_column(Text, nullable=False)
+    rating_raw: Mapped[str | None] = mapped_column(Text)
+    scale: Mapped[str | None] = mapped_column(Text)
+    outlook: Mapped[str | None] = mapped_column(Text)
+    action_type: Mapped[str | None] = mapped_column(Text)
+    action_date: Mapped[date | None] = mapped_column(Date)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    known_at: Mapped[date | None] = mapped_column(Date)
+    known_at_quality: Mapped[str] = mapped_column(Text, nullable=False, default="UNKNOWN")
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_record_id: Mapped[str | None] = mapped_column(Text)
+    mapping_quality: Mapped[str] = mapped_column(Text, nullable=False, default="UNMAPPED")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="UNKNOWN")
+    availability_status: Mapped[str] = mapped_column(Text, nullable=False, default="SOURCE_NOT_READY")
+    raw_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CreditSyncJob(Base):
+    __tablename__ = "credit_sync_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_type",
+            "subject_key",
+            "agency_code",
+            name="uq_credit_sync_jobs_subject_agency",
+        ),
+        {"schema": "investment"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    subject_type: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_key: Mapped[str] = mapped_column(Text, nullable=False)
+    agency_code: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="PENDING")
+    attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

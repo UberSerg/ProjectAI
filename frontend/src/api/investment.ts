@@ -94,6 +94,89 @@ export const getInvestmentReadiness = (signal?: AbortSignal) =>
 export const getBonds = (signal?: AbortSignal) =>
   apiRequest<{ items: BondInstrument[] }>("/fixed-income/instruments", { signal });
 
+export interface BondCatalogBadge {
+  id: string;
+  label: string;
+  state: string;
+}
+
+export interface BondCatalogItem {
+  instrument_id: number;
+  symbol: string;
+  name: string | null;
+  is_active?: boolean;
+  support_level?: string | null;
+  instrument_subtype?: string | null;
+  bond_type?: string | null;
+  currency?: string | null;
+  currency_display?: string | null;
+  nominal?: number | null;
+  maturity_date?: string | null;
+  support_status?: string;
+  valuation_available?: boolean;
+  cashflow_available?: boolean;
+  credit_available?: boolean;
+  is_government_debt?: boolean;
+  availability_status?: string;
+  credit_status?: string;
+  badges?: BondCatalogBadge[];
+  enrichment_pending?: boolean;
+  master_only?: boolean;
+  clean_price_percent?: number | null;
+}
+
+export interface BondsCatalogResponse {
+  items: BondCatalogItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  summary: {
+    active: number;
+    valuation_ready: number;
+    cashflow_ready: number;
+    credit_ready: number;
+    ofz: number;
+    corporate: number;
+    government_debt?: number;
+    source_not_ready?: number;
+  };
+  catalog_version?: string;
+}
+
+export const getBondsCatalog = (
+  params: {
+    page?: number;
+    page_size?: number;
+    q?: string;
+    subtype?: string;
+    active?: boolean;
+    valuation_available?: boolean;
+    cashflow_available?: boolean;
+    credit_available?: boolean;
+    support_level?: string;
+  } = {},
+  signal?: AbortSignal,
+) => {
+  const qs = new URLSearchParams();
+  if (params.page != null) qs.set("page", String(params.page));
+  if (params.page_size != null) qs.set("page_size", String(params.page_size));
+  if (params.q) qs.set("q", params.q);
+  if (params.subtype) qs.set("subtype", params.subtype);
+  if (params.active != null) qs.set("active", String(params.active));
+  if (params.valuation_available != null) qs.set("valuation_available", String(params.valuation_available));
+  if (params.cashflow_available != null) qs.set("cashflow_available", String(params.cashflow_available));
+  if (params.credit_available != null) qs.set("credit_available", String(params.credit_available));
+  if (params.support_level) qs.set("support_level", params.support_level);
+  const q = qs.toString();
+  return apiRequest<BondsCatalogResponse>(`/bonds${q ? `?${q}` : ""}`, { signal });
+};
+
+export const getBondDetailV2 = (symbol: string, signal?: AbortSignal) =>
+  apiRequest<BondDetail & BondCatalogItem>(`/bonds/${encodeURIComponent(symbol)}`, { signal });
+
+export const getCreditCoverage = (signal?: AbortSignal) =>
+  apiRequest<Record<string, unknown>>("/credit/coverage", { signal });
+
 export const getFixedIncomeCoverage = (signal?: AbortSignal) =>
   apiRequest<Record<string, unknown>>("/fixed-income/coverage", { signal });
 

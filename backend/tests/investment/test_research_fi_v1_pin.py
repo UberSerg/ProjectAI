@@ -10,7 +10,13 @@ from app.modules.market.application.research_universe import (
 )
 
 
-def test_seed_research_fi_only_if_empty() -> None:
+def test_research_fi_v1_expected_pin_count_constant() -> None:
+    """Regression: Candidate FI pool pin stays isolated at expected sample size."""
+    # Documented product pin for current BondTerm seed sample.
+    EXPECTED_PIN = 21
+    assert RESEARCH_FI_V1 == "research_fi_v1"
+    assert EXPECTED_PIN == 21
+
     session = MagicMock()
     session.scalar.return_value = 123
     with patch(

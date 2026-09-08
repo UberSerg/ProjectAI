@@ -122,6 +122,7 @@ def assess_instrument(
         stored_credit_status=term.credit_quality_status,
         raw_fields=term.raw_fields or {},
         as_of=as_of,
+        provider_ready=False,
     )
     liquidity = _liquidity_for_instrument(session, instrument_id=instrument_id, as_of=as_of)
     eligibility = assess_investment_eligibility(
@@ -190,6 +191,7 @@ def list_bond_risk_assessments(
             stored_credit_status=term.credit_quality_status,
             raw_fields=term.raw_fields or {},
             as_of=as_of,
+            provider_ready=False,
         )
         liquidity = _liquidity_for_instrument(session, instrument_id=instrument.id, as_of=as_of)
         eligibility = assess_investment_eligibility(
@@ -242,24 +244,43 @@ def aggregate_fixed_income_risk(session: Session) -> dict[str, Any]:
 
     # Opportunity / allocation aggregates use the pinned strategy universe.
     report = list_bond_risk_assessments(session, universe_code=RESEARCH_FI_V1)
-    unknown_credit = report["credit_coverage"].get("UNKNOWN", 0) + report["credit_coverage"].get(
-        "NOT_RATED", 0
+    unknown_credit = (
+        report["credit_coverage"].get("UNKNOWN", 0)
+        + report["credit_coverage"].get("NOT_RATED", 0)
+        + report["credit_coverage"].get("NO_RATING_FOUND", 0)
+        + report["credit_coverage"].get("SOURCE_NOT_READY", 0)
     )
+    source_not_ready = report["credit_coverage"].get("SOURCE_NOT_READY", 0)
+    government = report["credit_coverage"].get("GOVERNMENT_RUSSIAN_FEDERAL", 0)
     low_liq = report["liquidity_coverage"].get("LOW", 0)
     warnings = []
-    if unknown_credit:
+    if source_not_ready:
+        warnings.append(
+            f"{source_not_ready} облигаций: источник рейтингов недоступен (SOURCE_NOT_READY), "
+            "это не «рейтинг не найден»."
+        )
+    elif unknown_credit:
         warnings.append(
             f"{unknown_credit} облигаций с неизвестным / отсутствующим кредитным качеством."
+        )
+    if government:
+        warnings.append(
+            f"{government} ОФЗ/госдолг — категория GOVERNMENT_RUSSIAN_FEDERAL, не корпоративный рейтинг."
         )
     if low_liq:
         warnings.append(f"{low_liq} инструментов с низкой ликвидностью требуют проверки.")
     return {
         **report,
         "summary_ru": (
-            "Облигационная часть доступна для research, "
-            "но часть инструментов имеет неизвестное кредитное качество."
-            if unknown_credit
-            else "Кредитное покрытие ограничено; рейтинги агентств не подключены без доступа."
+            "Источник кредитных рейтингов не готов (требуется коммерческий доступ). "
+            "ОФЗ классифицируются как госдолг РФ, без выдуманного AAA."
+            if source_not_ready
+            else (
+                "Облигационная часть доступна для research, "
+                "но часть инструментов имеет неизвестное кредитное качество."
+                if unknown_credit
+                else "Кредитное покрытие ограничено; рейтинги агентств не подключены без доступа."
+            )
         ),
         "allocation_warnings": warnings,
     }
@@ -333,6 +354,8 @@ def _liquidity_for_instrument(
 def _credit_payload(credit: CreditQualityAssessment) -> dict[str, Any]:
     payload = asdict(credit)
     payload["credit_status"] = credit.credit_status.value
+    if credit.availability_status is not None:
+        payload["availability_status"] = credit.availability_status.value
     if isinstance(credit.rating_known_at, datetime):
         payload["rating_known_at"] = credit.rating_known_at.isoformat()
     elif isinstance(credit.rating_known_at, date):

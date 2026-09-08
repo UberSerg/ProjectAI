@@ -603,6 +603,77 @@ export function MyPortfolioPage() {
             )}
           </RiskCard>
 
+          {analysis.credit_intelligence ? (
+            <article
+              className="panel"
+              style={{ marginTop: "1rem" }}
+              data-testid="portfolio-credit-intelligence"
+            >
+              <h2>
+                Кредитный риск облигаций{" "}
+                <MetricHelp metricId="credit_data_coverage" />
+              </h2>
+              <p className="muted">
+                Весовое покрытие (не счётчик бумаг). Источник рейтингов:{" "}
+                {analysis.credit_intelligence.provider_verdict || "NOT_READY"}. Без авто-сделок по
+                рейтингам.{" "}
+                <MetricHelp metricId="government_debt" />
+              </p>
+              <div className="card-grid">
+                <MetricCard
+                  label="Госдолг (вес)"
+                  value={pctWeight(analysis.credit_intelligence.government_weight)}
+                  helpId="government_debt"
+                />
+                <MetricCard
+                  label="Корпоративные"
+                  value={pctWeight(analysis.credit_intelligence.corporate_weight)}
+                  helpId="credit_rating"
+                />
+                <MetricCard
+                  label="С рейтингом"
+                  value={pctWeight(analysis.credit_intelligence.rated_corporate_weight)}
+                  helpId="issuer_rating"
+                />
+                <MetricCard
+                  label="Без данных (SOURCE_NOT_READY)"
+                  value={pctWeight(analysis.credit_intelligence.credit_data_unavailable_weight)}
+                  helpId="unrated"
+                />
+              </div>
+              {(analysis.credit_intelligence.top_issuers || []).length > 0 ? (
+                <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Эмитент</th>
+                        <th>Статус</th>
+                        <th>Рейтинг</th>
+                        <th>Вес</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analysis.credit_intelligence.top_issuers.map((row) => (
+                        <tr key={row.issuer_key}>
+                          <td>{row.issuer_title}</td>
+                          <td>{row.availability_status || "—"}</td>
+                          <td>
+                            {row.rating_raw
+                              ? `${row.rating_raw}${row.agency_code ? ` (${row.agency_code})` : ""}`
+                              : "—"}
+                          </td>
+                          <td>{pctWeight(row.weight)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="muted">Нет облигационных позиций для кредитного разреза.</p>
+              )}
+            </article>
+          ) : null}
+
           <DataQualityCard title="Качество котировок">
             <p style={{ margin: 0 }}>
               Сводка: <StatusBadge status={analysis.quality === "LIVE" ? "ok" : "warning"} label={qualityLabel(analysis.quality)} />

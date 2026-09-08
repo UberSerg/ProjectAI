@@ -32,6 +32,8 @@ class InstrumentCapabilities:
     can_fixed_income_analyze: bool
     can_rebalance: bool
     can_cashflow_project: bool
+    can_issuer_credit: bool
+    can_issue_credit: bool
     reasons: dict[str, str]
 
     def to_dict(self) -> dict[str, Any]:
@@ -144,6 +146,39 @@ def resolve_instrument_capabilities(
     if not can_cashflow_project:
         reasons["can_cashflow_project"] = "no_bond_cashflows"
 
+    # Credit capabilities — honest: government debt category OR stored CURRENT rating.
+    can_issuer_credit = False
+    can_issue_credit = False
+    if is_bond:
+        from app.modules.investment.application.credit_rating_provider import (
+            resolve_instrument_credit,
+        )
+        from app.modules.investment.domain.credit_intelligence import CreditAvailabilityStatus
+
+        credit = resolve_instrument_credit(
+            session,
+            instrument_id=iid,
+            symbol=str(instrument.symbol),
+            bond_type=bond_term.bond_type if bond_term else None,
+            subtype=subtype,
+        )
+        avail = credit.get("availability_status")
+        if avail == CreditAvailabilityStatus.GOVERNMENT_RUSSIAN_FEDERAL.value:
+            can_issuer_credit = True  # sovereign category known
+            reasons["can_issuer_credit"] = "government_russian_federal"
+        elif avail == CreditAvailabilityStatus.CURRENT_RATING_AVAILABLE.value:
+            can_issuer_credit = True
+            can_issue_credit = True
+        elif avail == CreditAvailabilityStatus.SOURCE_NOT_READY.value:
+            reasons["can_issuer_credit"] = "credit_source_not_ready"
+            reasons["can_issue_credit"] = "credit_source_not_ready"
+        else:
+            reasons["can_issuer_credit"] = "no_issuer_rating"
+            reasons["can_issue_credit"] = "no_issue_rating"
+    else:
+        reasons["can_issuer_credit"] = "not_bond"
+        reasons["can_issue_credit"] = "not_bond"
+
     return InstrumentCapabilities(
         can_live_quote=can_live_quote,
         can_portfolio_value=can_portfolio_value,
@@ -152,6 +187,8 @@ def resolve_instrument_capabilities(
         can_fixed_income_analyze=can_fixed_income_analyze,
         can_rebalance=can_rebalance,
         can_cashflow_project=can_cashflow_project,
+        can_issuer_credit=can_issuer_credit,
+        can_issue_credit=can_issue_credit,
         reasons=reasons,
     )
 
@@ -165,4 +202,6 @@ def coverage_matrix(capabilities: InstrumentCapabilities) -> dict[str, bool]:
         "fixed_income": capabilities.can_fixed_income_analyze,
         "rebalance": capabilities.can_rebalance,
         "cashflow": capabilities.can_cashflow_project,
+        "issuer_credit": capabilities.can_issuer_credit,
+        "issue_credit": capabilities.can_issue_credit,
     }

@@ -47,8 +47,28 @@ def assess_investment_eligibility(
         reasons.append("accounting_not_supported")
         flags.append(RiskFlag.ACCOUNTING_UNSUPPORTED.value)
 
-    credit_ok = credit.credit_status is CreditStatus.AVAILABLE
-    if credit.credit_status in {CreditStatus.UNKNOWN, CreditStatus.NOT_RATED}:
+    # Government debt is a category, not a CRA rating — accounting may be OK for research.
+    is_gov = credit.credit_status is CreditStatus.GOVERNMENT_RUSSIAN_FEDERAL
+    credit_ok = is_gov or credit.credit_status in {
+        CreditStatus.AVAILABLE,
+        CreditStatus.CURRENT_RATING_AVAILABLE,
+    }
+    if is_gov:
+        reasons.append("government_debt_category")
+        warnings.append(
+            "ОФЗ / госдолг РФ — категория суверенного долга, не корпоративный рейтинг агентства."
+        )
+    elif credit.credit_status is CreditStatus.SOURCE_NOT_READY:
+        reasons.append("credit_source_not_ready")
+        warnings.append(
+            "Источник кредитных рейтингов недоступен (требуется коммерческий доступ) — "
+            "это не то же самое, что «рейтинг не найден»."
+        )
+    elif credit.credit_status in {
+        CreditStatus.UNKNOWN,
+        CreditStatus.NOT_RATED,
+        CreditStatus.NO_RATING_FOUND,
+    }:
         reasons.append("credit_unknown_or_not_rated")
         warnings.append(
             "Кредитное качество неизвестно — высокая доходность может отражать высокий риск."
@@ -59,8 +79,11 @@ def assess_investment_eligibility(
     elif credit.credit_status is CreditStatus.CONFLICT:
         reasons.append("credit_rating_conflict")
         warnings.append("Конфликт рейтингов агентств — без mapping не сравниваем.")
+    elif credit.credit_status is CreditStatus.MAPPING_FAILED:
+        reasons.append("credit_mapping_failed")
+        warnings.append("Не удалось сопоставить рейтинг с инструментом.")
 
-    if bond_type == "Corporate" and not credit_ok:
+    if bond_type == "Corporate" and not credit_ok and not is_gov:
         warnings.append(
             "Корпоративная облигация без подтверждённого рейтинга не годится для silent real portfolio."
         )

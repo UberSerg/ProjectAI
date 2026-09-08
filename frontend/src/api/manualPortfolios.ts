@@ -68,6 +68,28 @@ export interface ManualPortfolioAnalysis {
   unsupported_count: number;
   advisory: boolean;
   note: string;
+  credit_intelligence?: {
+    government_weight: number;
+    corporate_weight: number;
+    rated_corporate_weight: number;
+    unrated_corporate_weight: number;
+    credit_data_unavailable_weight: number;
+    no_rating_found_weight?: number;
+    bond_weight: number;
+    top_issuers: Array<{
+      issuer_key: string;
+      issuer_title: string;
+      market_value: number;
+      weight: number;
+      availability_status?: string;
+      rating_raw?: string | null;
+      agency_code?: string | null;
+      symbols?: string[];
+    }>;
+    provider_verdict?: string;
+    notes?: string[];
+    advisory?: boolean;
+  };
 }
 
 export interface ManualCompareRow {

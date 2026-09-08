@@ -112,11 +112,87 @@ def fixed_income_instruments(
     return {"items": items, "count": len(items)}
 
 
+@router.get("/bonds")
+def bonds_catalog(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    q: Annotated[str | None, Query()] = None,
+    subtype: Annotated[str | None, Query()] = None,
+    active: Annotated[bool | None, Query()] = None,
+    valuation_available: Annotated[bool | None, Query()] = None,
+    cashflow_available: Annotated[bool | None, Query()] = None,
+    credit_available: Annotated[bool | None, Query()] = None,
+    support_level: Annotated[str | None, Query()] = None,
+) -> dict[str, Any]:
+    """Bonds Catalog V2 — Instrument Master bonds with LEFT JOIN enrichment."""
+    from app.modules.investment.application.bonds_catalog import bonds_catalog_v2
+
+    with core_session() as session:
+        return bonds_catalog_v2(
+            session,
+            page=page,
+            page_size=page_size,
+            q=q,
+            subtype=subtype,
+            active=active,
+            valuation_available=valuation_available,
+            cashflow_available=cashflow_available,
+            credit_available=credit_available,
+            support_level=support_level,
+        )
+
+
+@router.get("/bonds/{symbol}")
+def bond_detail_v2(symbol: str) -> dict[str, Any]:
+    """Bond detail — 200 for master-only bonds (terms optional)."""
+    from app.modules.investment.application.bonds_catalog import (
+        ensure_fi_enrichment_for_bond,
+        get_bond_detail_v2,
+    )
+
+    with core_session() as session:
+        detail = get_bond_detail_v2(session, symbol.upper())
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Bond not found")
+        if detail.get("master_only") or detail.get("enrichment_pending"):
+            enq = ensure_fi_enrichment_for_bond(session, symbol.upper())
+            detail["enrichment_enqueue"] = enq
+            session.commit()
+        return detail
+
+
+@router.post("/bonds/{symbol}/enrich")
+def bond_enrich_once(symbol: str) -> dict[str, Any]:
+    """Enqueue FI enrichment once for a master bond (dedupe)."""
+    from app.modules.investment.application.bonds_catalog import ensure_fi_enrichment_for_bond
+
+    with core_session() as session:
+        result = ensure_fi_enrichment_for_bond(session, symbol.upper())
+        if result.get("status") == "NOT_FOUND":
+            raise HTTPException(status_code=404, detail="Bond not found")
+        session.commit()
+        return result
+
+
+@router.get("/credit/coverage")
+def credit_coverage() -> dict[str, Any]:
+    """Credit Intelligence V1 coverage / readiness (honest NOT_READY)."""
+    from app.modules.investment.application.credit_rating_provider import credit_coverage_v1
+
+    with core_session() as session:
+        return credit_coverage_v1(session)
+
+
 @router.get("/fixed-income/instruments/{symbol}")
 def fixed_income_instrument_detail(symbol: str) -> dict[str, Any]:
     """Read-only bond detail for investor drill-down."""
+    from app.modules.investment.application.bonds_catalog import get_bond_detail_v2
+
     with core_session() as session:
-        detail = get_bond_detail(session, symbol.upper())
+        detail = get_bond_detail_v2(session, symbol.upper())
+        if detail is None:
+            # Fallback to legacy detail path
+            detail = get_bond_detail(session, symbol.upper())
     if detail is None:
         raise HTTPException(status_code=404, detail="Bond not found")
     return detail
