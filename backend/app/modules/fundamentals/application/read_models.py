@@ -84,8 +84,31 @@ def source_audit_payload(session: Session) -> dict[str, Any]:
 
 def coverage_payload(session: Session) -> dict[str, Any]:
     if not fundamentals_schema_ready(session):
-        return _not_ready({"coverage": {}})
-    return {"status": "OK", "version": FUNDAMENTALS_VERSION, "coverage": coverage(session)}
+        return _not_ready({"coverage": {}, "years": []})
+    year_rows = session.execute(
+        select(
+            func.extract("year", FinancialReport.period_end).label("year"),
+            func.count(func.distinct(FinancialReport.issuer_id)),
+        )
+        .where(FinancialReport.status != "REJECTED")
+        .group_by(func.extract("year", FinancialReport.period_end))
+        .order_by(func.extract("year", FinancialReport.period_end))
+    ).all()
+    years = [
+        {
+            "year": int(year),
+            "issuers_with_fundamentals": int(count),
+            "issuers": int(count),
+        }
+        for year, count in year_rows
+        if year is not None
+    ]
+    return {
+        "status": "OK",
+        "version": FUNDAMENTALS_VERSION,
+        "coverage": coverage(session),
+        "years": years,
+    }
 
 
 def readiness_payload(session: Session) -> dict[str, Any]:
@@ -126,21 +149,90 @@ def issuers_payload(session: Session, *, limit: int = 200, offset: int = 0) -> d
             .group_by(SecurityIssuerMapping.issuer_id)
         ).all()
     )
-    return {
-        "status": "OK",
-        "total": total,
-        "issuers": [
+    report_counts = dict(
+        session.execute(
+            select(FinancialReport.issuer_id, func.count())
+            .where(FinancialReport.status != "REJECTED")
+            .group_by(FinancialReport.issuer_id)
+        ).all()
+    )
+    # Latest known report per issuer (for companies list coverage badges).
+    latest_by_issuer: dict[int, FinancialReport] = {}
+    latest_rows = session.scalars(
+        select(FinancialReport)
+        .where(FinancialReport.status != "REJECTED")
+        .order_by(
+            FinancialReport.issuer_id,
+            desc(FinancialReport.period_end),
+            desc(FinancialReport.known_at),
+            desc(FinancialReport.report_version),
+        )
+    ).all()
+    for report in latest_rows:
+        latest_by_issuer.setdefault(report.issuer_id, report)
+
+    securities_by_issuer: dict[int, list[dict[str, Any]]] = {}
+    for iid, secid, isin in session.execute(
+        select(
+            SecurityIssuerMapping.issuer_id,
+            SecurityIssuerMapping.external_secid,
+            SecurityIssuerMapping.isin,
+        ).where(SecurityIssuerMapping.issuer_id.is_not(None))
+    ).all():
+        if iid is None:
+            continue
+        securities_by_issuer.setdefault(int(iid), []).append(
+            {"secid": secid, "ticker": secid, "isin": isin}
+        )
+
+    issuers_out: list[dict[str, Any]] = []
+    for row in rows:
+        latest = latest_by_issuer.get(row.id)
+        reports_n = int(report_counts.get(row.id, 0))
+        latest_payload = None
+        if latest is not None:
+            facts = {f.metric_code: f.value for f in pit.load_facts(session, latest.id)}
+            latest_payload = {
+                "id": latest.id,
+                "reporting_standard": latest.reporting_standard,
+                "period_type": latest.period_type,
+                "period_end": latest.period_end.isoformat(),
+                "period_label": latest.period_end.isoformat(),
+                "known_at": latest.known_at.isoformat(),
+                "publication_date": (
+                    latest.published_at.date().isoformat() if latest.published_at else None
+                ),
+                "published_at": latest.published_at.isoformat() if latest.published_at else None,
+                "version": latest.report_version,
+                "status": latest.status,
+                "source": {"provider": latest.source},
+                "revenue": facts.get("REVENUE"),
+                "net_income": facts.get("NET_INCOME"),
+                "ebitda": facts.get("EBITDA") or facts.get("OPERATING_INCOME"),
+                "cash_flow": facts.get("OPERATING_CASH_FLOW"),
+            }
+        issuers_out.append(
             {
                 "id": row.id,
                 "moex_emitent_id": row.moex_emitent_id,
                 "title": row.title,
+                "name": row.title,
                 "title_en": row.title_en,
                 "inn": row.inn,
                 "okpo": row.okpo,
                 "instrument_count": int(mapping_counts.get(row.id, 0)),
+                "securities": securities_by_issuer.get(row.id, []),
+                "mapped_securities": securities_by_issuer.get(row.id, []),
+                "reports_count": reports_n,
+                "latest_report": latest_payload,
+                "reporting_standard": latest.reporting_standard if latest else None,
+                "status": "OK" if reports_n > 0 else "NONE",
             }
-            for row in rows
-        ],
+        )
+    return {
+        "status": "OK",
+        "total": total,
+        "issuers": issuers_out,
     }
 
 
@@ -181,6 +273,7 @@ def reports_payload(
     effective_as_of = as_of or date.today()
     state = pit.get_fundamentals_as_of(session, issuer_id, effective_as_of)
     latest = state.latest_report
+    visible = pit.load_visible_reports(session, issuer_id, effective_as_of)
     total = int(
         session.execute(
             select(func.count())
@@ -188,12 +281,46 @@ def reports_payload(
             .where(FinancialReport.issuer_id == issuer_id)
         ).scalar_one()
     )
+    reports: list[dict[str, Any]] = []
+    for ref in sorted(
+        visible,
+        key=lambda r: (r.period_end, r.known_at, r.report_version),
+        reverse=True,
+    ):
+        if ref.report_id is None:
+            continue
+        facts = {f.metric_code: f.value for f in pit.load_facts(session, ref.report_id)}
+        reports.append(
+            {
+                "id": ref.report_id,
+                "report_id": ref.report_id,
+                "reporting_standard": str(ref.reporting_standard),
+                "standard": str(ref.reporting_standard),
+                "period_type": str(ref.period_type),
+                "period_start": ref.period_start.isoformat() if ref.period_start else None,
+                "period_end": ref.period_end.isoformat(),
+                "period_label": ref.period_end.isoformat(),
+                "known_at": ref.known_at.isoformat(),
+                "publication_date": ref.known_at.isoformat(),
+                "version": ref.report_version,
+                "report_version": ref.report_version,
+                "is_restatement": ref.is_restatement,
+                "status": "ACTIVE",
+                "source": {"provider": ref.source},
+                "provenance": {"provider": ref.source},
+                "revenue": facts.get("REVENUE"),
+                "net_income": facts.get("NET_INCOME"),
+                "ebitda": facts.get("EBITDA") or facts.get("OPERATING_INCOME"),
+                "cash_flow": facts.get("OPERATING_CASH_FLOW"),
+            }
+        )
     return {
         "status": "OK" if latest is not None else ReadinessStatus.NOT_READY.value,
         "issuer_id": issuer_id,
         "as_of": effective_as_of.isoformat(),
         "reports_stored": total,
         "reports_visible": state.visible_reports,
+        "reports": reports,
         "latest_report": (
             {
                 "report_id": latest.report_id,
