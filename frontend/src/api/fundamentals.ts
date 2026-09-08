@@ -267,7 +267,7 @@ export function getIssuerReports(
   signal?: AbortSignal,
 ): Promise<FundamentalReport[]> {
   return apiRequest(`/fundamentals/issuers/${issuerId}/reports`, { signal }).then((payload) =>
-    asArray<FundamentalReport>(payload),
+    asArray<FundamentalReport>(payload, ["reports", "items", "rows", "data", "history"]),
   );
 }
 
@@ -312,7 +312,7 @@ export function getIssuerEvents(
   signal?: AbortSignal,
 ): Promise<FundamentalEvent[]> {
   return apiRequest(`/fundamentals/issuers/${issuerId}/events`, { signal }).then((payload) =>
-    asArray<FundamentalEvent>(payload),
+    asArray<FundamentalEvent>(payload, ["events", "items", "rows", "data", "history"]),
   );
 }
 
@@ -322,6 +322,84 @@ export function getIssuerAsOf(
   signal?: AbortSignal,
 ): Promise<FundamentalAsOf> {
   return apiRequest(`/fundamentals/issuers/${issuerId}/as-of${queryString({ date })}`, { signal });
+}
+
+export interface FundamentalSnapshot {
+  status?: string | null;
+  as_of?: string | null;
+  issuer_id?: number | null;
+  badge?: string | null;
+  message?: string | null;
+  reporting_standard?: string | null;
+  visible_reports?: number | null;
+  report?: {
+    report_id?: number | null;
+    period_end?: string | null;
+    period_type?: string | null;
+    known_at?: string | null;
+    published_at_known?: boolean | null;
+    source?: string | null;
+    report_version?: number | null;
+    unit_scale?: string | null;
+  } | null;
+  facts?: Array<{
+    metric_code?: string;
+    value?: number | null;
+    unit_scale?: string | null;
+    currency?: string | null;
+    missing?: boolean;
+  }> | null;
+  derived?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+export function getIssuerSnapshot(
+  issuerId: string | number,
+  asOf?: string,
+  signal?: AbortSignal,
+): Promise<FundamentalSnapshot> {
+  return apiRequest(
+    `/fundamentals/issuers/${issuerId}/snapshot${queryString({ as_of: asOf })}`,
+    { signal },
+  );
+}
+
+export function getFnsCoverage(signal?: AbortSignal): Promise<Record<string, unknown>> {
+  return apiRequest("/fundamentals/fns/coverage", { signal });
+}
+
+export interface PortfolioFundamentalCoverageRow {
+  secid?: string | null;
+  issuer_id?: number | null;
+  inn?: string | null;
+  support_status?: string | null;
+  reports?: number | null;
+  latest_period_end?: string | null;
+  latest_known_at?: string | null;
+  bank_control?: boolean | null;
+  fns_mapping?: string | null;
+  moex_mapping?: string | null;
+}
+
+export interface PortfolioFundamentalCoverage {
+  status?: string | null;
+  read_only?: boolean | null;
+  industrial_with_reports?: number | null;
+  industrial_mapped?: number | null;
+  bank_unsupported?: number | null;
+  unmapped?: number | null;
+  note?: string | null;
+  rows?: PortfolioFundamentalCoverageRow[];
+}
+
+export function getPortfolioFundamentalCoverage(
+  signal?: AbortSignal,
+): Promise<PortfolioFundamentalCoverage> {
+  return apiRequest("/fundamentals/fns/portfolio-coverage", { signal });
+}
+
+export function getDatasetV3Gate(signal?: AbortSignal): Promise<Record<string, unknown>> {
+  return apiRequest("/fundamentals/dataset-v3-gate", { signal });
 }
 
 export function getFundamentalsCoverage(signal?: AbortSignal): Promise<FundamentalsCoverageYear[]> {

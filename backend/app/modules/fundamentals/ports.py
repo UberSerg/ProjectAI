@@ -1,10 +1,9 @@
 """Replaceable provider contracts for fundamentals and events.
 
-No implementation exists today for reports or dividends: the live source audit rejected
-every free candidate. The protocols exist so a future adapter plugs in without touching
-the PIT rules, and so the ingest adapters can honestly report DEFERRED meanwhile.
+``FnsGirBoProvider`` implements industrial RAS reports from public FNS GIR BO.
+DividendProvider remains without an accepted production source
+(e-disclosure spike = PARTIAL_RESEARCH_ONLY).
 """
-
 from __future__ import annotations
 
 from collections.abc import Sequence

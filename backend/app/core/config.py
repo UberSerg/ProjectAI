@@ -46,8 +46,16 @@ class Settings(BaseSettings):
     models_data_path: str = Field(default="/data/models", alias="MODELS_DATA_PATH")
     market_update_enabled: bool = Field(default=False, alias="MARKET_UPDATE_ENABLED")
     market_update_cron: str = Field(default="0 18 * * 1-5", alias="MARKET_UPDATE_CRON")
-    # Fundamentals V1 is storage + identity only; no beat schedule is registered.
+    # Fundamentals V1 identity/events update (separate from FNS RAS sync).
     fundamentals_update_enabled: bool = Field(default=False, alias="FUNDAMENTALS_UPDATE_ENABLED")
+    # FNS GIR BO industrial RAS ingest — daily when enabled; DEGRADED on errors.
+    fns_fundamentals_sync_enabled: bool = Field(
+        default=False, alias="FNS_FUNDAMENTALS_SYNC_ENABLED"
+    )
+    fns_fundamentals_sync_cron: str = Field(
+        default="20 5 * * 1-5", alias="FNS_FUNDAMENTALS_SYNC_CRON"
+    )
+    fns_fundamentals_pacing_ms: int = Field(default=350, alias="FNS_FUNDAMENTALS_PACING_MS")
     # Live research profile: when true, enables daily cycle + EOD readiness retry + intraday.
     research_live_mode: bool = Field(default=False, alias="RESEARCH_LIVE_MODE")
     daily_research_cycle_enabled: bool = Field(default=False, alias="DAILY_RESEARCH_CYCLE_ENABLED")

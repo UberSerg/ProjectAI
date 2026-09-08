@@ -171,6 +171,32 @@ vi.mock("../api/instruments", () => ({
   searchCatalogInstruments: vi.fn(),
 }));
 
+vi.mock("../api/fundamentals", async () => {
+  const actual = await vi.importActual<typeof import("../api/fundamentals")>("../api/fundamentals");
+  return {
+    ...actual,
+    getPortfolioFundamentalCoverage: vi.fn().mockResolvedValue({
+      status: "OK",
+      read_only: true,
+      industrial_with_reports: 9,
+      industrial_mapped: 9,
+      bank_unsupported: 5,
+      unmapped: 26,
+      note: "Portfolio shows fundamental coverage read-only.",
+      rows: [
+        {
+          secid: "LKOH",
+          issuer_id: 15,
+          support_status: "INDUSTRIAL_RAS_V1",
+          reports: 5,
+          latest_period_end: "2025-12-31",
+          latest_known_at: "2026-03-20",
+        },
+      ],
+    }),
+  };
+});
+
 import * as instrumentsApi from "../api/instruments";
 import * as portfolioApi from "../api/manualPortfolios";
 
