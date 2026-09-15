@@ -253,7 +253,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("База памяти")).toBeInTheDocument();
     expect(screen.getAllByText("Работает").length).toBeGreaterThanOrEqual(2);
     expect(await screen.findByText(/2 позиций/)).toBeInTheDocument();
-    expect(screen.getAllByText("Открыть состав").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Собрать портфель/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders error state", async () => {
@@ -276,7 +276,7 @@ describe("PortfolioPage", () => {
     );
     expect(screen.getByText(/Обзор портфеля/i)).toBeInTheDocument();
     expect(screen.getAllByText("Мой портфель").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Кандидат портфеля")).toBeInTheDocument();
+    expect(screen.getAllByText("Собрать портфель").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Инвестиционное решение")).toBeInTheDocument();
     expect(screen.getByText("Проверка риска")).toBeInTheDocument();
   });

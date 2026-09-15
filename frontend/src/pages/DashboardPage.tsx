@@ -268,8 +268,8 @@ export function DashboardPage() {
             <button type="button" className="why-toggle" onClick={() => setWhyOpen((v) => !v)}>
               {whyOpen ? "Скрыть «Почему?»" : "Почему?"}
             </button>
-            <Link className="why-toggle" to="/portfolio/candidate">
-              Открыть состав
+            <Link className="why-toggle" to="/portfolio/candidate?capital=100000">
+              Собрать портфель
             </Link>
             <Link className="why-toggle" to="/investment-decision">
               Открыть решение
@@ -328,23 +328,23 @@ export function DashboardPage() {
 
       {data.candidate ? (
         <div className="ds-card ds-card-hero">
-          <div className="ds-card-title">Кандидат портфеля</div>
+          <div className="ds-card-title">Портфель Kraken</div>
           <div className="ds-card-headline">
             {data.candidate.summary?.positions_count ?? data.candidate.positions.length} позиций ·{" "}
             {data.candidate.as_of ?? "сейчас"} · {data.candidate.status}
           </div>
           <AllocationBars
-            equity={data.candidate.allocation.equity.target_weight}
-            fixedIncome={data.candidate.allocation.fixed_income.target_weight}
-            cash={data.candidate.allocation.cash.target_weight}
+            equity={data.candidate.allocation.equity.actual_weight}
+            fixedIncome={data.candidate.allocation.fixed_income.actual_weight}
+            cash={data.candidate.allocation.cash.actual_weight}
           />
           <p className="muted">
             {(data.candidate.warnings || []).slice(0, 2).join(" ") ||
               data.candidate.readiness.banner_ru}
           </p>
           <div className="page-actions" style={{ marginTop: "0.75rem" }}>
-            <Link className="why-toggle" to="/portfolio/candidate">
-              Открыть состав
+            <Link className="why-toggle" to="/portfolio/candidate?capital=100000">
+              Собрать портфель на 100 000 ₽
             </Link>
           </div>
         </div>

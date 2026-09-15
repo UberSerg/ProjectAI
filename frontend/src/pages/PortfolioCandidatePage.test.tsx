@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpProvider } from "../help";
+import { previewPortfolioCandidate } from "../api/investment";
 import { PortfolioCandidatePage } from "./PortfolioCandidatePage";
 
 const sample = {
@@ -158,10 +159,10 @@ vi.mock("../api/investment", () => ({
   createPortfolioCandidateSnapshot: vi.fn(async () => ({ ...sample, persisted: true })),
 }));
 
-describe("PortfolioCandidatePage", () => {
+describe("PortfolioCandidatePage / Portfolio Builder", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("renders concrete ticker composition and rejected block", async () => {
+  it("renders investor-first builder with default 100000 and positions", async () => {
     render(
       <MemoryRouter>
         <HelpProvider>
@@ -169,19 +170,50 @@ describe("PortfolioCandidatePage", () => {
         </HelpProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Кандидат портфеля Kraken")).toBeInTheDocument();
+    expect(await screen.findByText("Портфель Kraken")).toBeInTheDocument();
+    expect(screen.getByLabelText("Сумма для инвестирования")).toHaveValue("100000");
+    expect(screen.getByRole("button", { name: "Рассчитать портфель" })).toBeInTheDocument();
     expect(screen.getByText(/Исследовательский режим/)).toBeInTheDocument();
-    expect(screen.getByText(/2 позиций/)).toBeInTheDocument();
     expect(screen.getByText("Сбербанк")).toBeInTheDocument();
     expect(screen.getByText("SBER")).toBeInTheDocument();
     expect(screen.getByText("ОФЗ 26238")).toBeInTheDocument();
-    expect(screen.getByText("ОФЗ")).toBeInTheDocument();
-    expect(screen.getAllByText("Только исследование").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Кредитное качество не подтверждено")).toBeInTheDocument();
-    expect(screen.getByText("Что Kraken не включил")).toBeInTheDocument();
-    expect(screen.getByText(/Кредитное качество неизвестно/)).toBeInTheDocument();
-    expect(screen.getByText("Позиция SBER добавлена.")).toBeInTheDocument();
-    expect(screen.queryByText("EQUITY_SLEEVE")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Купить/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Деньги (Cash)")).toBeInTheDocument();
+    expect(screen.getByText("Фактическое распределение")).toBeInTheDocument();
+  });
+
+  it("recalculates when user changes capital", async () => {
+    render(
+      <MemoryRouter>
+        <HelpProvider>
+          <PortfolioCandidatePage />
+        </HelpProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Портфель Kraken");
+    const input = screen.getByLabelText("Сумма для инвестирования");
+    fireEvent.change(input, { target: { value: "250000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Рассчитать портфель" }));
+    await waitFor(() => {
+      expect(previewPortfolioCandidate).toHaveBeenCalledWith(
+        { capital: 250000 },
+        expect.anything(),
+      );
+    });
+  });
+
+  it("shows validation error for non-positive capital", async () => {
+    render(
+      <MemoryRouter>
+        <HelpProvider>
+          <PortfolioCandidatePage />
+        </HelpProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Портфель Kraken");
+    fireEvent.change(screen.getByLabelText("Сумма для инвестирования"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Рассчитать портфель" }));
+    expect(await screen.findByText(/больше 0/)).toBeInTheDocument();
   });
 });

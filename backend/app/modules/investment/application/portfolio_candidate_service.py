@@ -38,6 +38,10 @@ from app.modules.investment.domain.portfolio_candidate import (
     parse_as_of,
     utc_now_iso,
 )
+from app.modules.investment.domain.portfolio_capital import (
+    DEFAULT_PORTFOLIO_CAPITAL,
+    validate_portfolio_capital,
+)
 from app.modules.investment.domain.risk_budget import BALANCED_BUDGET
 
 CANDIDATE_VERSION = CONCRETE_CANDIDATE_VERSION
@@ -46,7 +50,7 @@ CANDIDATE_VERSION = CONCRETE_CANDIDATE_VERSION
 def build_portfolio_candidate(
     session: Session,
     *,
-    capital: Decimal = Decimal("100000"),
+    capital: Decimal = DEFAULT_PORTFOLIO_CAPITAL,
     profile_id: str = BALANCED_BUDGET.profile_id,
     equity_expected_excess_return: float | None = 0.0,
     equity_price: Decimal = Decimal("300"),
@@ -60,6 +64,7 @@ def build_portfolio_candidate(
 ) -> dict[str, Any]:
     """Opportunity → Sleeve Allocation → Concrete Selection → Risk Gate → Lots → Candidate."""
     _ = (equity_price, equity_lot_size, bond_price, bond_lot_size)  # legacy API compat
+    capital = validate_portfolio_capital(capital)
     cost = Decimal(str(cost_bps if cost_bps is not None else config.cost_bps))
     stale_days = stale_after_days if stale_after_days is not None else config.stale_after_days
 

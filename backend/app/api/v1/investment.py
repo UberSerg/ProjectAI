@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.infrastructure.db.session import core_session
 from app.modules.investment.application.allocation_service import (
@@ -627,7 +627,14 @@ def _attach_risk_gate(
 
 
 class PortfolioCandidateRequest(BaseModel):
-    capital: Decimal = Field(default=Decimal("100000"), ge=0)
+    """Portfolio Builder / Candidate preview request.
+
+    ``capital`` (and optional alias ``capital_rub``) only rescale lot-aware
+    construction — they do not change prediction or Candidate policy.
+    """
+
+    capital: Decimal = Field(default=Decimal("100000"), gt=0, le=Decimal("100000000"))
+    capital_rub: Decimal | None = Field(default=None, gt=0, le=Decimal("100000000"))
     profile_id: str = "BALANCED_ALLOCATION_V0"
     equity_expected_excess_return: float | None = 0.0
     equity_price: Decimal = Field(default=Decimal("300"), gt=0)
@@ -636,25 +643,48 @@ class PortfolioCandidateRequest(BaseModel):
     bond_lot_size: int = Field(default=1, gt=0)
     cost_bps: Decimal = Field(default=Decimal("5"), ge=0)
 
+    @model_validator(mode="after")
+    def apply_capital_rub_alias(self) -> PortfolioCandidateRequest:
+        if self.capital_rub is not None:
+            self.capital = self.capital_rub
+        return self
+
+
+def _preview_or_snapshot_capital(request: PortfolioCandidateRequest) -> Decimal:
+    from app.modules.investment.domain.portfolio_capital import (
+        PortfolioCapitalError,
+        validate_portfolio_capital,
+    )
+
+    try:
+        return validate_portfolio_capital(request.capital)
+    except PortfolioCapitalError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 
 @router.post("/portfolio/candidate/preview")
 def portfolio_candidate_preview(request: PortfolioCandidateRequest) -> dict[str, Any]:
     from app.modules.investment.application.portfolio_candidate_service import (
         preview_portfolio_candidate,
     )
+    from app.modules.investment.domain.portfolio_capital import PortfolioCapitalError
 
+    capital = _preview_or_snapshot_capital(request)
     with core_session() as session:
-        return preview_portfolio_candidate(
-            session,
-            capital=request.capital,
-            profile_id=request.profile_id,
-            equity_expected_excess_return=request.equity_expected_excess_return,
-            equity_price=request.equity_price,
-            equity_lot_size=request.equity_lot_size,
-            bond_price=request.bond_price,
-            bond_lot_size=request.bond_lot_size,
-            cost_bps=request.cost_bps,
-        )
+        try:
+            return preview_portfolio_candidate(
+                session,
+                capital=capital,
+                profile_id=request.profile_id,
+                equity_expected_excess_return=request.equity_expected_excess_return,
+                equity_price=request.equity_price,
+                equity_lot_size=request.equity_lot_size,
+                bond_price=request.bond_price,
+                bond_lot_size=request.bond_lot_size,
+                cost_bps=request.cost_bps,
+            )
+        except PortfolioCapitalError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/portfolio/candidate/snapshots")
@@ -662,24 +692,30 @@ def portfolio_candidate_create(request: PortfolioCandidateRequest) -> dict[str, 
     from app.modules.investment.application.portfolio_candidate_service import (
         create_portfolio_candidate_snapshot,
     )
+    from app.modules.investment.domain.portfolio_capital import PortfolioCapitalError
 
+    capital = _preview_or_snapshot_capital(request)
     with core_session() as session:
-        return create_portfolio_candidate_snapshot(
-            session,
-            capital=request.capital,
-            profile_id=request.profile_id,
-            equity_expected_excess_return=request.equity_expected_excess_return,
-            equity_price=request.equity_price,
-            equity_lot_size=request.equity_lot_size,
-            bond_price=request.bond_price,
-            bond_lot_size=request.bond_lot_size,
-            cost_bps=request.cost_bps,
-        )
+        try:
+            return create_portfolio_candidate_snapshot(
+                session,
+                capital=capital,
+                profile_id=request.profile_id,
+                equity_expected_excess_return=request.equity_expected_excess_return,
+                equity_price=request.equity_price,
+                equity_lot_size=request.equity_lot_size,
+                bond_price=request.bond_price,
+                bond_lot_size=request.bond_lot_size,
+                cost_bps=request.cost_bps,
+            )
+        except PortfolioCapitalError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/portfolio/candidate/current")
 def portfolio_candidate_current(
-    capital: Annotated[Decimal, Query()] = Decimal("100000"),
+    capital: Annotated[Decimal, Query(gt=0, le=Decimal("100000000"))] = Decimal("100000"),
+    capital_rub: Annotated[Decimal | None, Query(gt=0, le=Decimal("100000000"))] = None,
     profile_id: Annotated[str, Query()] = "BALANCED_ALLOCATION_V0",
 ) -> dict[str, Any]:
     """Latest snapshot if present, otherwise live preview."""
@@ -687,6 +723,16 @@ def portfolio_candidate_current(
         get_latest_candidate_snapshot,
         preview_portfolio_candidate,
     )
+    from app.modules.investment.domain.portfolio_capital import (
+        PortfolioCapitalError,
+        validate_portfolio_capital,
+    )
+
+    resolved = capital_rub if capital_rub is not None else capital
+    try:
+        resolved = validate_portfolio_capital(resolved)
+    except PortfolioCapitalError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     with core_session() as session:
         latest = get_latest_candidate_snapshot(session)
@@ -695,7 +741,7 @@ def portfolio_candidate_current(
             payload["source"] = "snapshot"
             return payload
         preview = preview_portfolio_candidate(
-            session, capital=capital, profile_id=profile_id
+            session, capital=resolved, profile_id=profile_id
         )
         preview["source"] = "live_preview"
         return preview

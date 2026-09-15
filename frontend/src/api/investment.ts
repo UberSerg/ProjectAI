@@ -802,6 +802,7 @@ export const getCurrentPortfolioCandidate = (
 export const previewPortfolioCandidate = (
   body?: {
     capital?: number;
+    capital_rub?: number;
     profile_id?: string;
     equity_expected_excess_return?: number | null;
   },
@@ -810,7 +811,8 @@ export const previewPortfolioCandidate = (
   apiRequest<PortfolioCandidate>("/portfolio/candidate/preview", {
     method: "POST",
     body: {
-      capital: body?.capital ?? 100000,
+      capital: body?.capital_rub ?? body?.capital ?? 100000,
+      capital_rub: body?.capital_rub,
       profile_id: body?.profile_id ?? "BALANCED_ALLOCATION_V0",
       equity_expected_excess_return: body?.equity_expected_excess_return ?? 0,
     },

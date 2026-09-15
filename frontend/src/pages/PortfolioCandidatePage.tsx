@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
   createPortfolioCandidateSnapshot,
@@ -20,6 +20,10 @@ import {
   StatusBadge,
   WarningCard,
 } from "../components/Ui";
+import { MetricHelp } from "../help";
+
+const DEFAULT_CAPITAL = 100_000;
+const MAX_CAPITAL = 100_000_000;
 
 function TruncateReason({ text, limit = 140 }: { text: string; limit?: number }) {
   const [open, setOpen] = useState(false);
@@ -64,6 +68,12 @@ function creditLabel(status: string | null | undefined): string | null {
   if (raw === "UNKNOWN" || raw === "NOT_RATED") {
     return "Кредитное качество не подтверждено";
   }
+  if (raw === "SOURCE_NOT_READY") {
+    return "Кредитные данные недоступны";
+  }
+  if (raw === "GOVERNMENT_RUSSIAN_FEDERAL") {
+    return "Государственный долг";
+  }
   return status;
 }
 
@@ -77,6 +87,14 @@ function riskStatusLabel(status: string): string | undefined {
   return undefined;
 }
 
+function parseCapitalInput(raw: string): number | null {
+  const cleaned = raw.replace(/\s/g, "").replace(",", ".");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
 function copyComposition(candidate: PortfolioCandidate) {
   const lines = [
     "Research Portfolio Candidate",
@@ -84,10 +102,10 @@ function copyComposition(candidate: PortfolioCandidate) {
     `version=${candidate.version}`,
     `as_of=${candidate.as_of ?? ""}`,
     `capital=${candidate.capital}`,
-    "ticker,instrument,type,lots,units,price,amount,sleeve,status,executable",
+    "ticker,instrument,type,lots,units,lot_size,price,amount,sleeve,status,executable",
     ...candidate.positions.map(
       (p) =>
-        `${p.symbol},${p.display_name},${instrumentTypeLabel(p)},${p.lots},${p.units},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status},${p.executable}`,
+        `${p.symbol},${p.display_name},${instrumentTypeLabel(p)},${p.lots},${p.units},${p.lot_size ?? ""},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status},${p.executable}`,
     ),
   ];
   void navigator.clipboard.writeText(lines.join("\n"));
@@ -106,7 +124,9 @@ function PositionDetails({
       <div className="card-grid" style={{ marginBottom: "0.75rem" }}>
         <div>
           <strong>Почему</strong>
-          <p style={{ margin: "0.35rem 0 0" }}>{position.reason_ru || "—"}</p>
+          <p style={{ margin: "0.35rem 0 0" }}>
+            {position.reason_ru || "Выбран текущей инвестиционной политикой Kraken"}
+          </p>
           {position.warnings_ru?.length ? (
             <ul className="plain-list" style={{ marginTop: "0.5rem" }}>
               {position.warnings_ru.map((w) => (
@@ -128,12 +148,13 @@ function PositionDetails({
             </li>
             <li>
               Лоты: {position.lots}
-              {position.lot_size != null ? ` × ${position.lot_size} шт.` : ""} ({position.units} ед.)
+              {position.lot_size != null ? ` × ${position.lot_size} шт.` : " (LOTSIZE неизвестен)"} (
+              {position.units} ед.)
             </li>
           </ul>
         </div>
         <div>
-          <strong>Риск</strong>
+          <strong>Риск и данные</strong>
           <ul className="plain-list" style={{ marginTop: "0.35rem" }}>
             <li>
               Статус:{" "}
@@ -152,11 +173,10 @@ function PositionDetails({
             {position.confidence_label_ru ? (
               <li>Уверенность: {position.confidence_label_ru}</li>
             ) : null}
-            {position.eligibility ? <li>Eligibility: {position.eligibility}</li> : null}
           </ul>
         </div>
         <div>
-          <strong>Provenance</strong>
+          <strong>Детали отбора</strong>
           <ul className="plain-list" style={{ marginTop: "0.35rem" }}>
             {position.selection_rank != null ? (
               <li>Ранг отбора: {position.selection_rank}</li>
@@ -167,13 +187,13 @@ function PositionDetails({
             ) : null}
             {position.maturity_date ? <li>Погашение: {position.maturity_date}</li> : null}
             {position.yield_value != null ? (
-              <li>Доходность: {(position.yield_value <= 1 ? position.yield_value * 100 : position.yield_value).toFixed(2)}%</li>
-            ) : null}
-            {provenance?.equity_policy ? (
-              <li>Equity policy: {String(provenance.equity_policy)}</li>
-            ) : null}
-            {provenance?.fixed_income_policy ? (
-              <li>FI policy: {String(provenance.fixed_income_policy)}</li>
+              <li>
+                Доходность:{" "}
+                {(position.yield_value <= 1 ? position.yield_value * 100 : position.yield_value).toFixed(
+                  2,
+                )}
+                %
+              </li>
             ) : null}
             {provenance?.candidate_version ? (
               <li>Версия: {String(provenance.candidate_version)}</li>
@@ -186,12 +206,21 @@ function PositionDetails({
 }
 
 export function PortfolioCandidatePage() {
-  const [capital, setCapital] = useState(100000);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialFromUrl = parseCapitalInput(searchParams.get("capital") ?? "");
+  const [capitalInput, setCapitalInput] = useState(
+    String(initialFromUrl && initialFromUrl > 0 ? Math.round(initialFromUrl) : DEFAULT_CAPITAL),
+  );
+  const [capital, setCapital] = useState(
+    initialFromUrl && initialFromUrl > 0 ? Math.round(initialFromUrl) : DEFAULT_CAPITAL,
+  );
   const [candidate, setCandidate] = useState<PortfolioCandidate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
 
@@ -213,31 +242,55 @@ export function PortfolioCandidatePage() {
     const controller = new AbortController();
     load(capital, controller.signal);
     return () => controller.abort();
-    // initial mount only — capital changes use explicit «Пересчитать»
+    // initial mount / capital apply only
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [capital]);
+
+  const applyCapital = () => {
+    const parsed = parseCapitalInput(capitalInput);
+    if (parsed == null || parsed <= 0) {
+      setInputError("Введите сумму больше 0 ₽");
+      return;
+    }
+    if (parsed > MAX_CAPITAL) {
+      setInputError(`Максимум ${MAX_CAPITAL.toLocaleString("ru-RU")} ₽`);
+      return;
+    }
+    setInputError(null);
+    const next = Math.round(parsed);
+    setCapitalInput(String(next));
+    setSearchParams(
+      (prev) => {
+        const nextParams = new URLSearchParams(prev);
+        nextParams.set("capital", String(next));
+        return nextParams;
+      },
+      { replace: true },
+    );
+    setCapital(next);
+  };
 
   const alloc = candidate?.allocation;
   const summary = candidate?.summary;
   const exportCsv = useMemo(() => {
     if (!candidate) return "";
     const header =
-      "ticker,instrument,type,lots,units,price,amount,sleeve,status,executable";
+      "ticker,instrument,type,lots,units,lot_size,price,amount,sleeve,status,executable";
     const rows = candidate.positions.map(
       (p) =>
-        `${p.symbol},"${p.display_name}","${instrumentTypeLabel(p)}",${p.lots},${p.units},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status},${p.executable}`,
+        `${p.symbol},"${p.display_name}","${instrumentTypeLabel(p)}",${p.lots},${p.units},${p.lot_size ?? ""},${p.reference_price},${p.estimated_notional},${p.sleeve},${p.risk_status},${p.executable}`,
     );
     return [header, ...rows].join("\n");
   }, [candidate]);
 
   if (loading && !candidate) {
-    return <PageState kind="loading" title="Формируем кандидат портфеля…" />;
+    return <PageState kind="loading" title="Собираем портфель Kraken…" />;
   }
   if (error && !candidate) {
     return (
       <PageState
         kind="error"
-        title="Не удалось сформировать кандидата"
+        title="Не удалось собрать портфель"
         action={
           <button type="button" onClick={() => load()}>
             Повторить
@@ -251,44 +304,62 @@ export function PortfolioCandidatePage() {
   if (!candidate) {
     return (
       <EmptyState
-        title="Кандидата пока нет"
-        reason="Нажмите «Сформировать кандидата портфеля», когда данные будут доступны."
+        title="Портфель пока недоступен"
+        reason="Нажмите «Рассчитать портфель», когда данные Kraken будут готовы."
       />
     );
   }
 
   const positionsCount = summary?.positions_count ?? candidate.positions.length;
-  const researchOnly =
-    summary?.research_only_count ??
-    candidate.positions.filter((p) => p.risk_status.toUpperCase() === "RESEARCH_ONLY").length;
-  const executableCount =
-    summary?.executable_count ?? candidate.positions.filter((p) => p.executable).length;
+  const invested = candidate.money?.invested ?? null;
+  const cashRub = summary?.cash_rub ?? candidate.cash.total_cash_rub;
+  const equityRub = summary?.equity_rub ?? alloc?.equity.actual_rub;
+  const fiRub = summary?.fixed_income_rub ?? alloc?.fixed_income.actual_rub;
+  const equityW = alloc?.equity.actual_weight ?? 0;
+  const fiW = alloc?.fixed_income.actual_weight ?? 0;
+  const cashW = alloc?.cash.actual_weight ?? 0;
+  const allCash = positionsCount === 0;
 
   return (
     <section className="portfolio-candidate-page page-layout-wide" data-layout="wide">
       <PageHeader
-        title="Кандидат портфеля Kraken"
-        description="Исследовательский портфель на основе текущих данных и правил риска. Не инструкция к покупке."
-        helpPageId="portfolio_candidate"
+        title="Портфель Kraken"
+        description="Введите сумму — Kraken соберёт lot-aware исследовательский портфель по текущей политике Candidate. Это не автоматическая сделка."
+        helpPageId="portfolio_builder"
         actions={
-          <>
-            <button type="button" className="why-toggle" onClick={() => load(capital)}>
-              Сформировать кандидата портфеля
-            </button>
-            <button
-              type="button"
-              className="why-toggle"
-              onClick={() =>
-                createPortfolioCandidateSnapshot({ capital })
-                  .then(setCandidate)
-                  .catch((reason: unknown) => setError(errorMessage(reason)))
-              }
-            >
-              Сохранить snapshot
-            </button>
-          </>
+          <Link className="why-toggle" to="/investment-decision">
+            Как принимается решение
+          </Link>
         }
       />
+
+      <div className="ds-card ds-card-hero" style={{ marginBottom: "1rem" }}>
+        <div className="ds-card-title">
+          Сумма для инвестирования <MetricHelp metricId="portfolio_builder_capital" />
+        </div>
+        <div className="investment-calculator" style={{ marginTop: "0.75rem" }}>
+          <label>
+            Капитал, ₽{" "}
+            <input
+              type="text"
+              inputMode="numeric"
+              aria-label="Сумма для инвестирования"
+              value={capitalInput}
+              onChange={(e) => setCapitalInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyCapital();
+              }}
+            />
+          </label>
+          <button type="button" onClick={applyCapital} disabled={loading}>
+            {loading ? "Считаем…" : "Рассчитать портфель"}
+          </button>
+        </div>
+        {inputError ? <p className="banner banner-warning">{inputError}</p> : null}
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Стартовое значение — 100 000 ₽. Сумма меняет число лотов, а не модель Prediction.
+        </p>
+      </div>
 
       {error ? <div className="banner banner-warning">{error}</div> : null}
 
@@ -305,8 +376,8 @@ export function PortfolioCandidatePage() {
       </div>
 
       <HeroCard
-        eyebrow="Конкретный состав"
-        headline={`${positionsCount} позиций · ${money(candidate.capital)} · ${candidate.status}`}
+        eyebrow="Состав на ваш капитал"
+        headline={`${money(candidate.capital)} · ${positionsCount} инструментов · ${candidate.status}`}
         actions={
           <>
             <button type="button" className="why-toggle" onClick={() => setWhyOpen((v) => !v)}>
@@ -326,74 +397,46 @@ export function PortfolioCandidatePage() {
             <a
               className="why-toggle"
               href={`data:text/csv;charset=utf-8,${encodeURIComponent(exportCsv)}`}
-              download={`research-portfolio-candidate-${candidate.candidate_id}.csv`}
+              download={`kraken-portfolio-${candidate.candidate_id}.csv`}
             >
               Экспорт CSV
             </a>
           </>
         }
       >
-        <div className="investment-calculator" style={{ marginBottom: "1rem" }}>
-          <label>
-            Капитал, ₽{" "}
-            <input
-              type="number"
-              value={capital}
-              onChange={(e) => setCapital(Number(e.target.value))}
-            />
-          </label>
-          <button type="button" onClick={() => load(capital)}>
-            Пересчитать лоты
-          </button>
-        </div>
         <p className="muted" style={{ marginTop: 0 }}>
           Данные на {candidate.as_of ?? "—"}. Сформирован {candidate.generated_at}.
           {candidate.freshness?.stale ? ` ${candidate.freshness.stale_note_ru}` : ""}
         </p>
         <div className="card-grid">
+          <MetricCard label="Капитал" value={money(candidate.capital)} helpId="portfolio_builder_capital" />
+          <MetricCard label="Вложено" value={money(invested)} helpId="concrete_portfolio" />
           <MetricCard
-            label="Позиций"
+            label="Деньги (Cash)"
+            value={money(cashRub)}
+            helpId="unallocated_capital"
+            hint={`Целевой Cash ${money(candidate.cash.strategic_target_rub)}; остаток лотов ${money(candidate.cash.lot_remainder_rub)}`}
+          />
+          <MetricCard label="Акции" value={money(equityRub)} helpId="portfolio_composition" />
+          <MetricCard label="Облигации" value={money(fiRub)} helpId="instrument_selection" />
+          <MetricCard
+            label="Инструментов"
             value={String(positionsCount)}
             helpId="concrete_portfolio"
             hint={`Акции ${summary?.equity_positions ?? "—"} · Облигации ${summary?.fixed_income_positions ?? "—"}`}
           />
-          <MetricCard
-            label="Акции"
-            value={money(summary?.equity_rub ?? alloc?.equity.actual_rub)}
-            helpId="portfolio_composition"
-          />
-          <MetricCard
-            label="Облигации"
-            value={money(summary?.fixed_income_rub ?? alloc?.fixed_income.actual_rub)}
-            helpId="instrument_selection"
-          />
-          <MetricCard
-            label="Деньги"
-            value={money(summary?.cash_rub ?? candidate.cash.total_cash_rub)}
-            helpId="unallocated_capital"
-            hint={`Целевой Cash ${money(candidate.cash.strategic_target_rub)}; остаток лотов ${money(candidate.cash.lot_remainder_rub)}`}
-          />
-          <MetricCard
-            label="Только исследование"
-            value={String(researchOnly)}
-            helpId="research_position"
-          />
-          <MetricCard
-            label="Исполняемые (research)"
-            value={String(executableCount)}
-            helpId="executable_position"
-          />
         </div>
+
         {alloc ? (
           <>
-            <AllocationBars
-              equity={alloc.equity.target_weight}
-              fixedIncome={alloc.fixed_income.target_weight}
-              cash={alloc.cash.target_weight}
-            />
+            <h3 style={{ marginBottom: "0.35rem" }}>
+              Фактическое распределение <MetricHelp metricId="portfolio_builder_allocation" />
+            </h3>
+            <AllocationBars equity={equityW} fixedIncome={fiW} cash={cashW} />
             <p className="muted">
-              Фактическое распределение может отличаться, потому что реальные инструменты покупаются
-              целыми лотами.
+              Цель: акции {pct(alloc.equity.target_weight)} · облигации{" "}
+              {pct(alloc.fixed_income.target_weight)} · деньги {pct(alloc.cash.target_weight)}. Факт
+              отличается из‑за целых лотов MOEX.
             </p>
           </>
         ) : null}
@@ -408,7 +451,7 @@ export function PortfolioCandidatePage() {
         </div>
       </HeroCard>
 
-      <h2>Что конкретно входит</h2>
+      <h2>Позиции</h2>
       {candidate.positions.length ? (
         <div className="card">
           <div className="table-wrap">
@@ -418,6 +461,9 @@ export function PortfolioCandidatePage() {
                   <th>Инструмент</th>
                   <th>Тип</th>
                   <th>Лотов</th>
+                  <th>Ед.</th>
+                  <th>LOTSIZE</th>
+                  <th>Цена</th>
                   <th>Сумма</th>
                   <th>Вес</th>
                   <th>Статус</th>
@@ -447,8 +493,14 @@ export function PortfolioCandidatePage() {
                         </td>
                         <td>{instrumentTypeLabel(p)}</td>
                         <td>{p.lots}</td>
+                        <td>{p.units}</td>
+                        <td>{p.lot_size != null ? p.lot_size : "—"}</td>
+                        <td>{money(p.reference_price)}</td>
                         <td>{money(p.estimated_notional)}</td>
-                        <td>{pct(p.actual_weight)}</td>
+                        <td>
+                          {pct(p.actual_weight)}
+                          <div className="muted">цель {pct(p.target_weight)}</div>
+                        </td>
                         <td>
                           <StatusBadge
                             status={p.risk_status}
@@ -459,13 +511,12 @@ export function PortfolioCandidatePage() {
                           ) : null}
                           {credit ? <div className="muted">{credit}</div> : null}
                         </td>
-                        <td style={{ maxWidth: "18rem", whiteSpace: "normal" }}>
-                          <TruncateReason text={p.reason_ru} />
-                          {p.warnings_ru?.length ? (
-                            <div className="muted">
-                              <TruncateReason text={p.warnings_ru[0]} limit={100} />
-                            </div>
-                          ) : null}
+                        <td style={{ maxWidth: "16rem", whiteSpace: "normal" }}>
+                          <TruncateReason
+                            text={
+                              p.reason_ru || "Выбран текущей инвестиционной политикой Kraken"
+                            }
+                          />
                           <div>
                             <button
                               type="button"
@@ -479,7 +530,7 @@ export function PortfolioCandidatePage() {
                       </tr>
                       {open ? (
                         <tr>
-                          <td colSpan={7}>
+                          <td colSpan={10}>
                             <PositionDetails
                               position={p}
                               provenance={candidate.provenance}
@@ -496,26 +547,22 @@ export function PortfolioCandidatePage() {
         </div>
       ) : (
         <EmptyState
-          title="Нет рыночных позиций"
+          title={allCash ? "100% в деньгах" : "Нет рыночных позиций"}
           reason={
             candidate.empty_states?.all_cash_ru ||
-            "Kraken оставил капитал в Cash — это нормальное решение, не ошибка."
+            "Kraken оставил капитал в Cash — это нормальное решение политики, не ошибка экрана."
           }
         />
       )}
 
-      <h2>Почему так</h2>
-      <div className="card-grid">
-        {(candidate.reasons_ru.length ? candidate.reasons_ru : ["Смотрите Risk Gate и confidence."])
-          .slice(0, 5)
-          .map((reason) => (
-            <ExplanationCard key={reason.slice(0, 48)} title="Причина" level={1}>
-              <TruncateReason text={reason} limit={220} />
-            </ExplanationCard>
-          ))}
+      <div className="card" style={{ marginTop: "1rem" }}>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Исследовательский / advisory Candidate Kraken. Broker execution отсутствует. Не является
+          индивидуальной инвестиционной рекомендацией.
+        </p>
       </div>
 
-      <h2>Основные риски</h2>
+      <h2>Риск и качество данных</h2>
       <div className="card-grid">
         <RiskCard title="Предупреждения">
           {candidate.warnings.length ? (
@@ -548,119 +595,138 @@ export function PortfolioCandidatePage() {
         </DataQualityCard>
       </div>
 
-      <h2>Что Kraken не включил</h2>
-      {candidate.rejected_candidates.length ? (
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Инструмент</th>
-                  <th>Возможность</th>
-                  <th>Статус</th>
-                  <th>Причина</th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidate.rejected_candidates.map((r) => (
-                  <tr key={`${r.symbol}-${r.reason_ru}`}>
-                    <td>
-                      <strong>{r.display_name}</strong>
-                      <div className="muted">{r.symbol}</div>
-                    </td>
-                    <td>{r.opportunity_hint ?? "—"}</td>
-                    <td>
-                      <StatusBadge status={r.risk_status} />
-                    </td>
-                    <td style={{ whiteSpace: "normal", maxWidth: "22rem" }}>
-                      <TruncateReason text={r.reason_ru} limit={180} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <EmptyState
-          title="Явных отклонений нет"
-          reason="Либо кандидаты прошли gate как research-only, либо universe пуст."
-        />
-      )}
-
-      <h2>Что изменилось</h2>
-      <div className="card">
-        <p>{candidate.diff?.summary_ru}</p>
-        {candidate.diff?.changes?.length ? (
-          <ul className="plain-list">
-            {candidate.diff.changes.map((c) => (
-              <li key={`${c.kind ?? "chg"}-${c.symbol ?? ""}-${c.text_ru}`}>
-                {c.text_ru}
-              </li>
+      {(candidate.reasons_ru?.length ?? 0) > 0 ? (
+        <>
+          <h2>Почему так</h2>
+          <div className="card-grid">
+            {candidate.reasons_ru.slice(0, 5).map((reason) => (
+              <ExplanationCard key={reason.slice(0, 48)} title="Причина" level={1}>
+                <TruncateReason text={reason} limit={220} />
+              </ExplanationCard>
             ))}
-          </ul>
-        ) : null}
-      </div>
+          </div>
+        </>
+      ) : null}
 
-      <h2>Деньги</h2>
-      <div className="card-grid">
-        <MetricCard label="Инвестировано" value={money(candidate.money.invested)} />
-        <MetricCard
-          label="Акции (вложено)"
-          value={money(candidate.money.equity_invested)}
-          helpId="portfolio_composition"
-        />
-        <MetricCard
-          label="Облигации (вложено)"
-          value={money(candidate.money.fixed_income_invested)}
-          helpId="instrument_selection"
-        />
-        <MetricCard
-          label="Комиссии (до налогов)"
-          value={money(candidate.money.fees)}
-          helpId="lot_rounding"
-          hint={`Акции ${money(candidate.money.equity_fees)}; облигации ${money(candidate.money.fixed_income_fees)}`}
-        />
-        <MetricCard
-          label="Целевой Cash"
-          value={money(candidate.money.strategic_cash)}
-          helpId="strategic_cash"
-        />
-        <MetricCard
-          label="Остаток из-за лотов"
-          value={money(candidate.money.lot_remainder)}
-          helpId="lot_rounding"
-        />
-      </div>
-      <p className="muted">
-        {candidate.money.tax_note_ru} {candidate.money.broker_note_ru}
-      </p>
-
-      <div className="card">
-        <button type="button" className="why-toggle" onClick={() => setTechOpen((v) => !v)}>
-          {techOpen ? "Скрыть technical details" : "Technical details"}
+      <div className="card" style={{ marginTop: "1rem" }}>
+        <button
+          type="button"
+          className="why-toggle"
+          onClick={() => setAdvancedOpen((v) => !v)}
+        >
+          {advancedOpen ? "Скрыть дополнительные детали" : "Дополнительные детали Candidate"}
         </button>
-        <div className="reveal-panel" hidden={!techOpen}>
-          <pre className="tech-block" style={{ whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(
-              {
-                candidate_id: candidate.candidate_id,
-                version: candidate.version,
-                summary: candidate.summary,
-                composition: candidate.composition,
-                provenance: candidate.provenance,
-                level_3: candidate.level_explanations?.level_3,
-                risk_summary: candidate.risk_assessment_summary,
-              },
-              null,
-              2,
-            )}
-          </pre>
+        <div className="reveal-panel" hidden={!advancedOpen}>
+          <h3>Что Kraken не включил</h3>
+          {candidate.rejected_candidates.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Инструмент</th>
+                    <th>Возможность</th>
+                    <th>Статус</th>
+                    <th>Причина</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidate.rejected_candidates.map((r) => (
+                    <tr key={`${r.symbol}-${r.reason_ru}`}>
+                      <td>
+                        <strong>{r.display_name}</strong>
+                        <div className="muted">{r.symbol}</div>
+                      </td>
+                      <td>{r.opportunity_hint ?? "—"}</td>
+                      <td>
+                        <StatusBadge status={r.risk_status} />
+                      </td>
+                      <td style={{ whiteSpace: "normal", maxWidth: "22rem" }}>
+                        <TruncateReason text={r.reason_ru} limit={180} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState
+              title="Явных отклонений нет"
+              reason="Либо кандидаты прошли gate как research-only, либо universe пуст."
+            />
+          )}
+
+          <h3>Что изменилось</h3>
+          <p>{candidate.diff?.summary_ru}</p>
+          {candidate.diff?.changes?.length ? (
+            <ul className="plain-list">
+              {candidate.diff.changes.map((c) => (
+                <li key={`${c.kind ?? "chg"}-${c.symbol ?? ""}-${c.text_ru}`}>
+                  {c.text_ru}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <h3>Деньги (детально)</h3>
+          <div className="card-grid">
+            <MetricCard label="Инвестировано" value={money(candidate.money.invested)} />
+            <MetricCard
+              label="Комиссии (до налогов)"
+              value={money(candidate.money.fees)}
+              helpId="lot_rounding"
+            />
+            <MetricCard
+              label="Целевой Cash"
+              value={money(candidate.money.strategic_cash)}
+              helpId="strategic_cash"
+            />
+            <MetricCard
+              label="Остаток из-за лотов"
+              value={money(candidate.money.lot_remainder)}
+              helpId="lot_rounding"
+            />
+          </div>
           <p className="muted">
-            Candidate ≠ Simulator ≠ Shadow.{" "}
-            <Link to="/investment-decision">Инвестиционное решение</Link> ·{" "}
-            <Link to="/portfolio-risk">Проверка риска</Link>
+            {candidate.money.tax_note_ru} {candidate.money.broker_note_ru}
           </p>
+
+          <div className="page-actions" style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              className="why-toggle"
+              onClick={() =>
+                createPortfolioCandidateSnapshot({ capital })
+                  .then(setCandidate)
+                  .catch((reason: unknown) => setError(errorMessage(reason)))
+              }
+            >
+              Сохранить snapshot
+            </button>
+            <button type="button" className="why-toggle" onClick={() => setTechOpen((v) => !v)}>
+              {techOpen ? "Скрыть technical details" : "Technical details"}
+            </button>
+          </div>
+          <div className="reveal-panel" hidden={!techOpen}>
+            <pre className="tech-block" style={{ whiteSpace: "pre-wrap" }}>
+              {JSON.stringify(
+                {
+                  candidate_id: candidate.candidate_id,
+                  version: candidate.version,
+                  summary: candidate.summary,
+                  composition: candidate.composition,
+                  provenance: candidate.provenance,
+                  level_3: candidate.level_explanations?.level_3,
+                  risk_summary: candidate.risk_assessment_summary,
+                },
+                null,
+                2,
+              )}
+            </pre>
+            <p className="muted">
+              Candidate ≠ Simulator ≠ Shadow.{" "}
+              <Link to="/portfolio-risk">Проверка риска</Link>
+            </p>
+          </div>
         </div>
       </div>
     </section>

@@ -238,7 +238,7 @@ export const labels = {
     portfolio: "Портфель",
     portfolioHub: "Обзор портфеля",
     myPortfolio: "Мой портфель",
-    portfolioCandidate: "Кандидат портфеля",
+    portfolioCandidate: "Собрать портфель",
     portfolioGroup: "Портфель",
     marketGroup: "Рынок",
     researchGroup: "Исследования",
