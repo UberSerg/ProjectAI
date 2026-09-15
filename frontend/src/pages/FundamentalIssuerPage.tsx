@@ -7,6 +7,7 @@ import {
   getIssuerDividends,
   getIssuerEvents,
   getIssuerReports,
+  getIssuerSnapshot,
   issuerDisplayName,
   provenanceOf,
   reportPeriodLabel,
@@ -16,6 +17,7 @@ import {
   type FundamentalEvent,
   type FundamentalIssuer,
   type FundamentalReport,
+  type FundamentalSnapshot,
   type IssuerDividendsPayload,
   type SourceProvenance,
 } from "../api/fundamentals";
@@ -227,6 +229,7 @@ export function FundamentalIssuerPage() {
   const [events, setEvents] = useState<FundamentalEvent[]>([]);
   const [asOfDate, setAsOfDate] = useState("2024-04-01");
   const [asOf, setAsOf] = useState<FundamentalAsOf | null>(null);
+  const [snapshot, setSnapshot] = useState<FundamentalSnapshot | null>(null);
   const [asOfLoading, setAsOfLoading] = useState(false);
   const [asOfError, setAsOfError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -247,13 +250,15 @@ export function FundamentalIssuerPage() {
         status: "NOT_READY",
       } as IssuerDividendsPayload),
       softLoad(getIssuerEvents(issuerId, controller.signal), [] as FundamentalEvent[]),
+      softLoad(getIssuerSnapshot(issuerId, undefined, controller.signal), {} as FundamentalSnapshot),
     ])
-      .then(([iss, reps, divs, evs]) => {
+      .then(([iss, reps, divs, evs, snap]) => {
         setIssuer(iss.value);
         setReports(reps.value);
         setDividendsMeta(divs.value);
         setDividends(divs.value.history ?? []);
         setEvents(evs.value);
+        setSnapshot(snap.value);
         if (iss.error && reps.error && divs.error && evs.error) {
           setError(
             "Данные эмитента недоступны. Пустые таблицы — ожидаемое состояние при отложенных провайдерах.",
@@ -313,8 +318,17 @@ export function FundamentalIssuerPage() {
         <MetricCard label="ИНН" value={issuer?.inn ?? issuer?.emitent_inn ?? "—"} />
         <MetricCard
           label="Стандарт отчётности"
-          value={issuer?.reporting_standard ?? reportStandard(latest)}
-          helpId="IFRS"
+          value={
+            snapshot?.badge === "РСБУ" || reportStandard(latest) === "RAS"
+              ? "РСБУ (RAS)"
+              : issuer?.reporting_standard ?? reportStandard(latest)
+          }
+          helpId="RAS"
+        />
+        <MetricCard
+          label="Дата публикации / known_at"
+          value={formatDate(snapshot?.report?.known_at ?? latest?.known_at)}
+          helpId="publication_date"
         />
         <MetricCard
           label="Возраст отчёта (дни)"
@@ -323,10 +337,52 @@ export function FundamentalIssuerPage() {
         />
         <MetricCard
           label="Последний период"
-          value={reportPeriodLabel(latest)}
+          value={reportPeriodLabel(latest) || snapshot?.report?.period_end || "—"}
           helpId="reporting_period"
         />
       </div>
+
+      {snapshot?.status === "NOT_SUPPORTED_BY_FNS_RAS_V1" ? (
+        <div className="banner banner-warning" data-testid="bank-unsupported" role="status">
+          <strong>Банк / FI — не поддерживается FNS RAS V1</strong>
+          <p>
+            {snapshot.message ??
+              "Контур FNS GIR BO закрывает industrial РСБУ. Банковская отчётность — отдельный контур; industrial metrics здесь не применяются."}
+          </p>
+        </div>
+      ) : null}
+
+      {snapshot?.status === "OK" && snapshot.facts && snapshot.facts.length > 0 ? (
+        <div className="card" data-testid="ras-facts-card">
+          <h3>
+            РСБУ факты <StatusBadge status="ok" /> <MetricHelp metricId="RAS" />
+          </h3>
+          <p className="muted">
+            Источник FNS GIR BO · единицы {snapshot.report?.unit_scale ?? "THOUSANDS"} RUB · missing ≠
+            0
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Метрика</th>
+                  <th>Значение</th>
+                  <th>Валюта</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.facts.map((f) => (
+                  <tr key={f.metric_code}>
+                    <td>{f.metric_code}</td>
+                    <td>{f.value == null ? "—" : formatNumber(f.value)}</td>
+                    <td>{f.currency ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       <div className="card">
         <h3>Привязанные ценные бумаги</h3>

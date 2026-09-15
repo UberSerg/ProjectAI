@@ -184,12 +184,32 @@ def system_data_coverage() -> dict[str, Any]:
         from app.modules.investment.application.credit_rating_provider import credit_coverage_v1
 
         credit = credit_coverage_v1(session)
+        from app.modules.fundamentals.application.coverage_service import FundamentalCoverageService
+        from app.modules.fundamentals.application.dataset_v3_gate import (
+            build_dataset_v3_readiness_gate,
+        )
+
+        fundamentals = FundamentalCoverageService(session).store_summary()
+        fundamentals_cohort = FundamentalCoverageService(session).cohort_table()
+        dataset_v3 = build_dataset_v3_readiness_gate(session)
         return {
             "master": master,
             "fixed_income": fi,
             "dividends": div,
             "total_return": tr,
             "credit": credit,
+            "fundamentals": {
+                **fundamentals,
+                "industrial_with_reports": fundamentals_cohort.get("industrial_with_reports"),
+                "bank_unsupported": fundamentals_cohort.get("bank_unsupported"),
+                "provider": "FNS_GIR_BO",
+                "reporting_standard": "RAS",
+            },
+            "dataset_v3_gate": {
+                "gate": dataset_v3.get("gate"),
+                "candidate_start_date": dataset_v3.get("candidate_start_date"),
+                "dataset_spec_mutated": False,
+            },
             "prediction_universe": {
                 "code": RESEARCH_EQUITY_V1,
                 "count": len(research_member_ids(session)),
@@ -202,6 +222,9 @@ def system_data_coverage() -> dict[str, Any]:
                 "fi_enrichment_enabled": bool(settings.fi_enrichment_enabled),
                 "dividend_sync_enabled": bool(settings.dividend_sync_enabled),
                 "credit_sync_enabled": bool(settings.credit_sync_enabled),
+                "fns_fundamentals_sync_enabled": bool(
+                    getattr(settings, "fns_fundamentals_sync_enabled", False)
+                ),
                 "moex_instrument_master_sync_enabled": bool(
                     settings.moex_instrument_master_sync_enabled
                 ),

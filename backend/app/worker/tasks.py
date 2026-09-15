@@ -340,8 +340,8 @@ def update_fundamental_data() -> dict:
     """Fundamentals V1: issuer identity + corporate event projection only.
 
     No beat schedule is registered for this task. It no-ops unless
-    FUNDAMENTALS_UPDATE_ENABLED is on, and even then it never ingests reports or
-    dividends — no accepted provider exists.
+    FUNDAMENTALS_UPDATE_ENABLED is on. FNS RAS ingest is a separate task
+    (``projectai.sync_fundamentals_fns``).
     """
     from app.modules.fundamentals.application.corporate_events_sync import sync_corporate_events
     from app.modules.fundamentals.application.identity import sync_issuer_identity
@@ -365,6 +365,24 @@ def update_fundamental_data() -> dict:
             "identity": identity.to_dict(),
             "events": events.to_dict(),
         }
+
+
+@celery_app.task(name="projectai.sync_fundamentals_fns")
+def sync_fundamentals_fns_task(symbols: list[str] | None = None) -> dict:
+    """Daily FNS GIR BO industrial RAS sync. DEGRADED on partial errors, not unhealthy."""
+    from app.modules.fundamentals.application.sync_fundamentals_fns import sync_fundamentals_fns
+    from app.modules.fundamentals.config import fns_fundamentals_sync_enabled
+
+    if not fns_fundamentals_sync_enabled() and symbols is None:
+        return {"status": "DISABLED", "reason": "FNS_FUNDAMENTALS_SYNC_ENABLED=false", "health": "OK"}
+
+    with core_session() as session:
+        result = sync_fundamentals_fns(session, symbols=symbols)
+        session.commit()
+        payload = result.to_dict()
+        # Page health stays OK; coverage may be DEGRADED.
+        payload["process_health"] = "OK"
+        return payload
 
 
 @celery_app.task(name="projectai.cleanup_technology_log")
