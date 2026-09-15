@@ -25,6 +25,37 @@ export function getSystemInfo(signal?: AbortSignal): Promise<SystemInfo> {
   return apiRequest("/system/info", { signal });
 }
 
+export interface InvestmentDataReadinessDomain {
+  code: string;
+  title_ru: string;
+  status: "READY" | "PARTIAL" | "NOT_READY" | "UNKNOWN" | string;
+  coverage_ru: string;
+  pit_ru: string;
+  limitation_ru: string;
+  dataset_v3: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface InvestmentDataReadiness {
+  version: string;
+  domains: InvestmentDataReadinessDomain[];
+  dataset_v3: {
+    overall_status: string;
+    fundamentals_gate?: string;
+    blocking_domains: string[];
+    available_domains: string[];
+    partial_domains?: string[];
+    recommended_start_date?: string | null;
+    recommended_start_evidence?: string;
+    reasons_ru?: string[];
+    human_summary_ru?: string;
+    to_become_ready_ru?: string[];
+    dataset_spec_mutated?: boolean;
+  };
+  dataset_v2_unchanged?: boolean;
+  note_ru?: string;
+}
+
 export interface SystemDataCoverage {
   master: Record<string, unknown> | null;
   fixed_income: Record<string, unknown>;
@@ -37,6 +68,7 @@ export interface SystemDataCoverage {
     candidate_start_date?: string | null;
     dataset_spec_mutated?: boolean;
   };
+  investment_data_readiness?: InvestmentDataReadiness;
   prediction_universe: { code: string; count: number };
   fi_strategy_universe: { code: string; count: number };
   processes: {
@@ -52,6 +84,10 @@ export interface SystemDataCoverage {
 
 export function getSystemDataCoverage(signal?: AbortSignal): Promise<SystemDataCoverage> {
   return apiRequest("/system/data-coverage", { signal });
+}
+
+export function getSystemDataReadiness(signal?: AbortSignal): Promise<InvestmentDataReadiness> {
+  return apiRequest("/system/data-readiness", { signal });
 }
 
 export interface TechEvent {

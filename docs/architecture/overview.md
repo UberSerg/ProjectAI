@@ -40,12 +40,18 @@ Market Data V1
   → Analytics Feature Layer V1
   → Relations Engine V1
   → Technical Agent V1
-  → Dataset / PIT Join V0 (accepted; `pit_daily_core` v1 frozen)
+  → Dataset / PIT Join V0–V2 (`pit_daily_core` v1 frozen; v2 research)
+  → Prediction Candidate V0/V1 research (not champion)
+  → Portfolio / Risk / Shadow / Simulator research stack
+  → Fundamentals RAS FNS V1 (industrial; banks unsupported)
+  → Investment Data Readiness V1 (Dataset V3 gate — measurement only)
 ```
 
-Later direction (not implemented): Prediction models → Meta Model → Trading Policy →
-Risk → Order Intent → replaceable Execution Adapter (Simulator / Paper / Broker) →
-outcomes → Learning → Decision Memory.
+Dataset V3 / Total Return / broker execution are **not** READY. See
+[investment-data-readiness-v1.md](./investment-data-readiness-v1.md) and System → Data Coverage.
+
+Target loop (partially scaffolded): Prediction → Meta Model → Trading Policy → Risk →
+Order Intent → replaceable Execution Adapter → Outcomes → Learning → Decision Memory.
 
 ## Health model
 
@@ -69,8 +75,8 @@ Replaceable adapters behind typed contracts in `app/domain/ports`:
 
 - Real broker trading / autonomous live execution
 - Collapsing prediction + policy + risk + execution into one agent
-- Premature Meta Model / Simulator / RL / Fundamentals / Market Regime / Deep History H1+
-  implementation
+- Premature Meta Model / RL / Market Regime / Deep History H1+ beyond current explicit scope
 - Overwriting RAW `market.candles` with adjusted or total-return prices (ADR 0005)
 - Microservices, new databases, or generic ML platforms “just in case”
 - Using LLM as calculator or source of truth for numbers / dates
+- Claiming Dataset V3 READY without dividends / total-return / survivorship evidence

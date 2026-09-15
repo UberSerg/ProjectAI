@@ -25,6 +25,14 @@ import { labels } from "../utils/labels";
 type Tab = "overview" | "diagnostics" | "coverage";
 type LevelFilter = "ALL" | "ERROR" | "WARNING" | "INFO";
 
+function readinessTone(status: string): string {
+  const s = status.toUpperCase();
+  if (s === "READY") return "ready";
+  if (s === "PARTIAL") return "partial";
+  if (s === "NOT_READY") return "not_ready";
+  return "unknown";
+}
+
 function DataCoverageCard() {
   const [coverage, setCoverage] = useState<SystemDataCoverage | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -46,6 +54,8 @@ function DataCoverageCard() {
 
   const fi = coverage?.fixed_income as Record<string, unknown> | undefined;
   const processes = coverage?.processes;
+  const readiness = coverage?.investment_data_readiness;
+  const v3 = readiness?.dataset_v3;
 
   return (
     <article className="panel" data-testid="system-data-coverage">
@@ -53,11 +63,75 @@ function DataCoverageCard() {
         Data Coverage <MetricHelp metricId="system_data_coverage" />
       </h2>
       {err ? (
-        <p className="muted">Coverage временно недоступен.</p>
+        <p className="muted" data-testid="data-coverage-error">
+          Coverage временно недоступен.
+        </p>
       ) : !coverage ? (
         <p className="muted">Загрузка…</p>
       ) : (
         <>
+          <section data-testid="dataset-v3-readiness" style={{ marginBottom: "1.25rem" }}>
+            <h3 style={{ marginTop: 0 }}>Dataset V3</h3>
+            <div className="key-value">
+              <span>Status</span>
+              <strong data-testid="dataset-v3-status">
+                {v3?.overall_status ?? coverage.dataset_v3_gate?.gate ?? "NOT_READY"}
+              </strong>
+            </div>
+            {v3?.recommended_start_date ? (
+              <div className="key-value">
+                <span>Recommended start</span>
+                <strong>{v3.recommended_start_date}</strong>
+              </div>
+            ) : null}
+            {v3?.blocking_domains?.length ? (
+              <p className="muted" data-testid="dataset-v3-blockers">
+                Blocking: {v3.blocking_domains.join("; ")}
+              </p>
+            ) : null}
+            {v3?.available_domains?.length ? (
+              <p className="muted" data-testid="dataset-v3-available">
+                Available: {v3.available_domains.join("; ")}
+              </p>
+            ) : null}
+            {v3?.human_summary_ru ? (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                {v3.human_summary_ru}
+              </p>
+            ) : null}
+          </section>
+
+          {readiness?.domains?.length ? (
+            <div className="table-wrap" style={{ marginBottom: "1rem", overflowX: "auto" }}>
+              <table data-testid="investment-data-readiness-table">
+                <thead>
+                  <tr>
+                    <th>Domain</th>
+                    <th>Status</th>
+                    <th>Coverage</th>
+                    <th>PIT</th>
+                    <th>Limitation</th>
+                    <th>Dataset V3</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readiness.domains.map((row) => (
+                    <tr key={row.code} data-status={row.status}>
+                      <td>{row.title_ru}</td>
+                      <td>
+                        <StatusBadge status={readinessTone(row.status)} label={row.status} />
+                      </td>
+                      <td>{row.coverage_ru}</td>
+                      <td>{row.pit_ru}</td>
+                      <td>{row.limitation_ru}</td>
+                      <td>{row.dataset_v3}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
           <div className="key-value">
             <span>Master sync</span>
             <strong>{String((coverage.master as { status?: string } | null)?.status ?? "—")}</strong>
@@ -106,6 +180,11 @@ function DataCoverageCard() {
             {processes?.fns_fundamentals_sync_enabled ? "ON" : "OFF"} · master{" "}
             {processes?.moex_instrument_master_sync_enabled ? "ON" : "OFF"}
           </p>
+          {readiness?.note_ru ? (
+            <p className="muted" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+              {readiness.note_ru}
+            </p>
+          ) : null}
         </>
       )}
     </article>

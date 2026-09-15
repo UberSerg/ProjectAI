@@ -35,8 +35,49 @@ function mockOverview() {
   vi.mocked(systemApi.getSystemDataCoverage).mockResolvedValue({
     master: { active: 3597, bonds: 3098 },
     fixed_income: { bonds_in_master: 3098, bond_terms: 163, instruments_with_cashflows: 163 },
-    dividends: { status: "NOT_READY", events: 0 },
-    total_return: { status: "NOT_READY" },
+    dividends: { status: "NOT_READY", events: 0, verdict: "NOT_READY" },
+    total_return: { status: "NOT_READY", verdict: "NOT_READY" },
+    dataset_v3_gate: { gate: "READY_FOR_DATASET_DESIGN", candidate_start_date: "2022-03-01" },
+    investment_data_readiness: {
+      version: "INVESTMENT_DATA_READINESS_V1",
+      dataset_v2_unchanged: true,
+      domains: [
+        {
+          code: "market_eod",
+          title_ru: "Market EOD prices",
+          status: "READY",
+          coverage_ru: "1000 candles",
+          pit_ru: "session dates",
+          limitation_ru: "survivorship",
+          dataset_v3: "optional_core",
+        },
+        {
+          code: "dividends",
+          title_ru: "Dividends",
+          status: "NOT_READY",
+          coverage_ru: "0 events",
+          pit_ru: "N/A",
+          limitation_ru: "no production feed",
+          dataset_v3: "blocker",
+        },
+        {
+          code: "credit",
+          title_ru: "Corporate credit ratings",
+          status: "NOT_READY",
+          coverage_ru: "provider NOT_READY",
+          pit_ru: "N/A",
+          limitation_ru: "no public rating provider",
+          dataset_v3: "blocker_optional",
+        },
+      ],
+      dataset_v3: {
+        overall_status: "PARTIAL",
+        blocking_domains: ["Dividends", "Gross Total Return labels", "Survivorship-free universe"],
+        available_domains: ["Market EOD prices"],
+        recommended_start_date: "2022-03-15",
+        human_summary_ru: "Dataset V3 designable; build blocked by dividends/TR/survivorship.",
+      },
+    },
     prediction_universe: { code: "research_equity_v1", count: 40 },
     fi_strategy_universe: { code: "research_fi_v1", count: 21 },
     processes: {
@@ -176,5 +217,40 @@ describe("SystemPage", () => {
 
     expect(await screen.findByText(/Автокопирование недоступно/i)).toBeInTheDocument();
     expect(screen.getByDisplayValue("report body")).toBeInTheDocument();
+  });
+
+  it("shows Dataset V3 readiness and domain table on coverage tab", async () => {
+    mockOverview();
+
+    render(
+      <MemoryRouter>
+        <SystemPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Основная БД");
+    fireEvent.click(screen.getByTestId("tab-coverage"));
+
+    expect(await screen.findByTestId("dataset-v3-status")).toHaveTextContent("PARTIAL");
+    expect(screen.getByTestId("dataset-v3-blockers")).toHaveTextContent(/Dividends/i);
+    expect(screen.getByTestId("investment-data-readiness-table")).toBeInTheDocument();
+    expect(screen.getByText("Market EOD prices")).toBeInTheDocument();
+    expect(screen.getByText("Corporate credit ratings")).toBeInTheDocument();
+  });
+
+  it("shows degraded coverage message when API fails", async () => {
+    mockOverview();
+    vi.mocked(systemApi.getSystemDataCoverage).mockRejectedValue(new Error("down"));
+
+    render(
+      <MemoryRouter>
+        <SystemPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Основная БД");
+    fireEvent.click(screen.getByTestId("tab-coverage"));
+
+    expect(await screen.findByTestId("data-coverage-error")).toHaveTextContent(/недоступен/i);
   });
 });
