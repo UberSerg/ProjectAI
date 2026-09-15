@@ -162,3 +162,66 @@ export function startRelationsBackfill(body: {
 }): Promise<{ workflow_id: number; status: string }> {
   return apiRequest("/relations/backfill", { method: "POST", body: JSON.stringify(body) });
 }
+
+export interface PortfolioRelationCell {
+  symbol_a: string;
+  symbol_b: string;
+  pearson: number | null;
+  spearman?: number | null;
+  status: string;
+  is_valid: boolean;
+  sample_count?: number | null;
+  coverage_ratio?: number | null;
+  as_of_date?: string | null;
+  reason_ru?: string | null;
+  band?: string | null;
+}
+
+export interface PortfolioRelationsMatrix {
+  version: string;
+  metric: {
+    name: string;
+    label_ru?: string;
+    return_feature?: string;
+    return_label_ru?: string;
+    window_observations: number;
+    window_label_ru?: string;
+    note_ru?: string;
+    minimum_coverage_ratio?: number;
+  };
+  relation_set?: { code: string; version: number; id: string };
+  symbols: string[];
+  instruments: Array<{
+    symbol: string;
+    status: string;
+    reason_ru?: string | null;
+    display_name?: string | null;
+  }>;
+  cells: PortfolioRelationCell[];
+  summary: {
+    pair_count: number;
+    available_pair_count: number;
+    unavailable_pair_count: number;
+    strongest_positive?: { symbol_a: string; symbol_b: string; pearson: number } | null;
+    lowest?: { symbol_a: string; symbol_b: string; pearson: number } | null;
+    average_abs_correlation?: number | null;
+    high_positive_pair_count?: number;
+    status: string;
+    status_ru?: string;
+  };
+  as_of_date?: string | null;
+  bands_ux_only?: Record<string, unknown>;
+  limitations_ru?: string[];
+  error?: { code: string; message_ru?: string };
+}
+
+export function getPortfolioRelationsMatrix(
+  body: { symbols: string[]; window?: number },
+  signal?: AbortSignal,
+): Promise<PortfolioRelationsMatrix> {
+  return apiRequest("/relations/portfolio", {
+    method: "POST",
+    body,
+    signal,
+  });
+}

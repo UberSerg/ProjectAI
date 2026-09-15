@@ -1496,3 +1496,42 @@ details.card > summary {
 .investment-calculator label { display: grid; gap: 0.3rem; color: var(--muted); }
 .investment-calculator input { width: 9rem; }
 .bonds-page .card h3 { margin-top: 0; }
+
+.portfolio-corr-wrap { padding: 1rem; }
+.portfolio-corr-scroll { overflow-x: auto; }
+.portfolio-corr-heatmap {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 0.78rem;
+  min-width: 100%;
+}
+.portfolio-corr-heatmap th,
+.portfolio-corr-heatmap td {
+  text-align: center;
+  padding: 0.4rem 0.35rem;
+  min-width: 3.2rem;
+  font-variant-numeric: tabular-nums;
+}
+.portfolio-corr-heatmap thead th,
+.portfolio-corr-heatmap tbody th {
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+.portfolio-corr-heatmap thead th {
+  position: sticky;
+  top: 0;
+}
+.portfolio-corr-heatmap td {
+  border-radius: 4px;
+  cursor: default;
+}
+.portfolio-corr-hover {
+  margin-top: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+

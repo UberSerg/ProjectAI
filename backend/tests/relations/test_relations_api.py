@@ -78,6 +78,45 @@ def test_backfill_rejects_bad_cadence() -> None:
     assert resp.status_code == 400
 
 
+def test_portfolio_matrix_endpoint(monkeypatch) -> None:
+    from app.api.v1 import relations as rel_api
+
+    mock_session = MagicMock()
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_session
+    mock_cm.__exit__.return_value = False
+    monkeypatch.setattr(rel_api, "core_session", lambda: mock_cm)
+
+    payload = {
+        "version": "PORTFOLIO_RELATIONS_VISUALIZATION_V1",
+        "symbols": ["SBER", "GAZP"],
+        "cells": [],
+        "summary": {"available_pair_count": 0, "status": "EMPTY"},
+    }
+
+    def _fake_build(_session, **kwargs):
+        assert kwargs["symbols"] == ["SBER", "GAZP"]
+        assert kwargs["window"] == 60
+        return payload
+
+    monkeypatch.setattr(
+        "app.modules.relations.application.portfolio_relations.build_portfolio_relations_matrix",
+        _fake_build,
+    )
+
+    client = TestClient(app)
+    resp = client.post("/api/v1/relations/portfolio", json={"symbols": ["SBER", "GAZP"]})
+    assert resp.status_code == 200
+    assert resp.json()["version"] == "PORTFOLIO_RELATIONS_VISUALIZATION_V1"
+
+
+def test_portfolio_matrix_rejects_too_many_symbols() -> None:
+    client = TestClient(app)
+    symbols = [f"S{i}" for i in range(13)]
+    resp = client.post("/api/v1/relations/portfolio", json={"symbols": symbols})
+    assert resp.status_code == 422  # Pydantic max_length=12
+
+
 def test_overview_and_snapshots_accept_relation_set_version(monkeypatch) -> None:
     from app.api.v1 import relations as rel_api
 

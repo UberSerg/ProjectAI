@@ -196,6 +196,49 @@ vi.mock("../api/investment", () => ({
   createPortfolioCandidateSnapshot: vi.fn(async () => ({ ...sample, persisted: true })),
 }));
 
+vi.mock("../api/relations", () => ({
+  getPortfolioRelationsMatrix: vi.fn(async () => ({
+    version: "PORTFOLIO_RELATIONS_VISUALIZATION_V1",
+    metric: {
+      name: "pearson",
+      label_ru: "Корреляция доходностей (Pearson)",
+      window_observations: 60,
+      window_label_ru: "окно 60 торговых дней",
+      note_ru: "Историческая корреляция может меняться и не гарантирует будущего поведения.",
+    },
+    symbols: ["SBER", "SU26238RMFS4"],
+    instruments: [
+      { symbol: "SBER", status: "READY" },
+      { symbol: "SU26238RMFS4", status: "INPUT_MISSING", reason_ru: "Нет входа" },
+    ],
+    cells: [
+      { symbol_a: "SBER", symbol_b: "SBER", pearson: 1, status: "DIAGONAL", is_valid: true },
+      {
+        symbol_a: "SU26238RMFS4",
+        symbol_b: "SU26238RMFS4",
+        pearson: null,
+        status: "INPUT_MISSING",
+        is_valid: false,
+      },
+      {
+        symbol_a: "SBER",
+        symbol_b: "SU26238RMFS4",
+        pearson: null,
+        status: "UNSUPPORTED_PAIR",
+        is_valid: false,
+        reason_ru: "Нет Relations-входа",
+      },
+    ],
+    summary: {
+      pair_count: 1,
+      available_pair_count: 0,
+      unavailable_pair_count: 1,
+      status: "EMPTY",
+      status_ru: "Нет доступных pairwise корреляций для текущего состава.",
+    },
+  })),
+}));
+
 describe("PortfolioCandidatePage / Portfolio Builder", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -220,6 +263,7 @@ describe("PortfolioCandidatePage / Portfolio Builder", () => {
     expect(screen.getByText("План Kraken")).toBeInTheDocument();
     expect(screen.getByText("Что получилось")).toBeInTheDocument();
     expect(screen.getByText(/Облигации: 65%/)).toBeInTheDocument();
+    expect(await screen.findByText("Связи внутри портфеля")).toBeInTheDocument();
   });
 
   it("recalculates when user changes capital", async () => {

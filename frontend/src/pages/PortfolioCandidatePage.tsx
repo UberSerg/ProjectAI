@@ -21,6 +21,7 @@ import {
   WarningCard,
 } from "../components/Ui";
 import { MetricHelp } from "../help";
+import { PortfolioRelationsBlock } from "../features/portfolio/PortfolioRelationsHeatmap";
 
 const DEFAULT_CAPITAL = 100_000;
 const MAX_CAPITAL = 100_000_000;
@@ -540,6 +541,14 @@ export function PortfolioCandidatePage() {
             />
           )}
         </section>
+      ) : null}
+
+      {candidate.positions.length ? (
+        <PortfolioRelationsBlock
+          symbols={candidate.positions
+            .map((p) => p.symbol)
+            .filter((s) => s && s.toUpperCase() !== "CASH")}
+        />
       ) : null}
 
       <h2>Позиции</h2>
