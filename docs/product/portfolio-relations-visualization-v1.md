@@ -24,9 +24,11 @@ KPI cards (`6/15`, mean |corr|, LEVEL 1/2) are removed from the primary surface.
 - `pearson: null` for missing — never coerced to 0
 - Cash excluded; ≤12 symbols
 
-## Deterministic summary rules (UX-only)
+## Deterministic summary rules (UX-only / presentation)
 
-Thresholds (not investment policy):
+Thresholds (`PRESENTATION_STRONG_POSITIVE` = 0.70, moderate 0.40, negative −0.40) are
+**presentation-only**. They do **not** affect Candidate, Risk Gate, Allocation, or
+persisted Relations research labels.
 
 | Band | Threshold |
 |------|-----------|
@@ -34,14 +36,22 @@ Thresholds (not investment policy):
 | Moderate positive | ≥ 0.40 and &lt; 0.70 |
 | Meaningful negative | ≤ −0.40 |
 
+**Tight group («группа тесно связанных»)** = strong **clique**, not mere connectivity:
+
+1. size ≥ 3;
+2. every pairwise correlation among members is available;
+3. every pairwise Pearson ≥ 0.70.
+
+A path of strong edges (e.g. A–B=0.80, B–C=0.80, A–C=0.10) is **not** a tight group.
+
 Algorithm:
 
 1. Supported = instruments with Relations input READY.
 2. Available pairs = cells with `status=OK` and non-null pearson.
-3. Build undirected graph of **strong** edges only; take largest connected component.
-4. If component size ≥ 3 → «группа тесно связанных»; other supported with max corr to cluster &lt; 0.70 → «связан слабее».
-5. If largest strong component size = 2 → «тесная пара, не большая группа».
-6. If no strong edges → «выраженной группы не обнаружено» (may mention moderate/negative).
+3. Find largest strong clique among instruments that appear in available pairs.
+4. If clique size ≥ 3 → «группа тесно связанных»; other supported with max corr to clique &lt; 0.70 → «связан слабее».
+5. Else if any strong pair → «тесная пара, но не большая группа» (may note that a strong chain is not a tight group).
+6. Else → «выраженной группы не обнаружено» (may mention moderate/negative).
 7. If no available pairs / &lt;2 supported → insufficient-data copy.
 
 No buy/sell language. No portfolio score.
@@ -51,8 +61,9 @@ No buy/sell language. No portfolio score.
 - Nodes: READY instruments only
 - Edges: available pairs only (missing → no edge; absent edge ≠ 0)
 - Stroke weight/opacity by |correlation|; muted palette
-- Labels on |r| ≥ 0.40
-- Deterministic circular layout (cluster members ordered first)
+- Positive / non-negative edges: **solid**; negative edges: **dashed** (not color-only)
+- Labels on |r| ≥ 0.40 (numeric label keeps the minus sign)
+- Deterministic circular layout (clique members ordered first)
 - No new chart dependency (SVG)
 
 ## Heatmap details

@@ -94,6 +94,7 @@ describe("portfolioRelationsInsight", () => {
     expect(insight.unsupported).toEqual(["RU000A0JR4U9", "SU26207RMFS9"]);
     expect(insight.title_ru).toMatch(/тесно связанных/);
     expect(insight.body_ru).toMatch(/MGNT/);
+    expect(insight.body_ru).toMatch(/каждая пара/);
     expect(insight.bullets_ru.some((b) => b.includes("CBOM"))).toBe(true);
     expect(insight.bullets_ru.join(" ")).not.toMatch(/INPUT_MISSING|Relations universe/);
     expect(insight.pair_availability_ru).toMatch(/6 из 15/);
@@ -101,12 +102,46 @@ describe("portfolioRelationsInsight", () => {
     const graph = buildGraphModel(data);
     expect(graph.nodes).toEqual(["CBOM", "MGNT", "RTKMP", "UPRO"]);
     expect(graph.edges).toHaveLength(6);
-    expect(graph.edges.every((e) => e.pearson !== 0 || e.pearson === 0)).toBe(true);
-    // null pairs not in graph
     expect(graph.edges.every((e) => e.pearson != null)).toBe(true);
     const strong = graph.edges.filter((e) => e.strength === "strong");
     expect(strong.length).toBe(3);
     expect(strong.every((e) => e.pearson >= STRONG_POSITIVE)).toBe(true);
+  });
+
+  it("does not call chain A-B / B-C / weak A-C a tight group (connected ≠ clique)", () => {
+    const data = baseMatrix({
+      symbols: ["A", "B", "C"],
+      instruments: [
+        { symbol: "A", status: "READY" },
+        { symbol: "B", status: "READY" },
+        { symbol: "C", status: "READY" },
+      ],
+      cells: [ok("A", "B", 0.8), ok("B", "C", 0.8), ok("A", "C", 0.1)],
+      summary: { pair_count: 3, available_pair_count: 3, unavailable_pair_count: 0, status: "OK" },
+    });
+    const insight = buildRelationsInsight(data);
+    expect(insight.kind).not.toBe("STRONG_CLUSTER");
+    expect(insight.title_ru).not.toMatch(/группа тесно связанных/);
+    expect(insight.kind).toBe("STRONG_PAIR_ONLY");
+    expect(insight.cluster).toHaveLength(2);
+    expect(insight.bullets_ru.join(" ")).toMatch(/не считается «тесной группой»/);
+  });
+
+  it("regression: live MGNT/UPRO/RTKMP triangle remains a tight strong clique", () => {
+    const data = baseMatrix({
+      symbols: ["MGNT", "UPRO", "RTKMP"],
+      instruments: [
+        { symbol: "MGNT", status: "READY" },
+        { symbol: "UPRO", status: "READY" },
+        { symbol: "RTKMP", status: "READY" },
+      ],
+      cells: [ok("MGNT", "UPRO", 0.74), ok("MGNT", "RTKMP", 0.76), ok("UPRO", "RTKMP", 0.81)],
+      summary: { pair_count: 3, available_pair_count: 3, unavailable_pair_count: 0, status: "OK" },
+    });
+    const insight = buildRelationsInsight(data);
+    expect(insight.kind).toBe("STRONG_CLUSTER");
+    expect(insight.cluster).toEqual(["MGNT", "RTKMP", "UPRO"]);
+    expect(insight.title_ru).toMatch(/группа тесно связанных/);
   });
 
   it("does not coerce null pearson to zero in available pairs", () => {

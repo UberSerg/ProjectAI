@@ -1600,6 +1600,13 @@ details.card > summary {
 .portfolio-rel-swatch.moderate { background: rgba(176, 74, 46, 0.5); }
 .portfolio-rel-swatch.weak { background: rgba(92, 107, 122, 0.35); }
 .portfolio-rel-swatch.negative { background: rgba(58, 90, 128, 0.85); }
+.portfolio-rel-swatch.negative.dashed {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(58, 90, 128, 0.9) 0 4px,
+    transparent 4px 7px
+  );
+}
 .portfolio-rel-swatch.na {
   background: repeating-linear-gradient(135deg, #ececec 0 3px, #f5f5f5 3px 6px);
   height: 0.7rem;

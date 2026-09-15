@@ -7,14 +7,20 @@ type Props = {
   cluster: string[];
 };
 
-function edgeStyle(strength: string): { stroke: string; width: number; opacity: number } {
+function edgeStyle(strength: string): {
+  stroke: string;
+  width: number;
+  opacity: number;
+  dash?: string;
+} {
   switch (strength) {
     case "strong":
       return { stroke: "rgba(176, 74, 46, 0.92)", width: 3.2, opacity: 1 };
     case "moderate":
       return { stroke: "rgba(176, 74, 46, 0.55)", width: 2, opacity: 0.85 };
     case "negative":
-      return { stroke: "rgba(58, 90, 128, 0.85)", width: 2.4, opacity: 0.9 };
+      // Sign is not color-only: dashed stroke + numeric label keeps minus sign.
+      return { stroke: "rgba(58, 90, 128, 0.85)", width: 2.4, opacity: 0.9, dash: "6 4" };
     default:
       return { stroke: "rgba(92, 107, 122, 0.35)", width: 1, opacity: 0.45 };
   }
@@ -97,6 +103,7 @@ export function PortfolioRelationsGraph({ model, cluster }: Props) {
                 stroke={st.stroke}
                 strokeWidth={st.width}
                 strokeLinecap="round"
+                strokeDasharray={st.dash}
               />
               {e.showLabel ? (
                 <text
@@ -154,21 +161,22 @@ export function PortfolioRelationsGraph({ model, cluster }: Props) {
 
       <div className="portfolio-rel-legend" aria-hidden="true">
         <span>
-          <i className="portfolio-rel-swatch strong" /> сильная + (≥0.70)
+          <i className="portfolio-rel-swatch strong" /> сильная + (≥0.70), сплошная
         </span>
         <span>
-          <i className="portfolio-rel-swatch moderate" /> умеренная
+          <i className="portfolio-rel-swatch moderate" /> умеренная, сплошная
         </span>
         <span>
           <i className="portfolio-rel-swatch weak" /> слабая (приглушена)
         </span>
         <span>
-          <i className="portfolio-rel-swatch negative" /> отрицательная
+          <i className="portfolio-rel-swatch negative dashed" /> отрицательная, пунктир
         </span>
       </div>
       <p className="muted portfolio-rel-graph-note">
         Нет линии ≠ корреляция 0: линия рисуется только если пара рассчитана. Слабые связи
-        приглушены, чтобы схема оставалась читаемой.
+        приглушены, чтобы схема оставалась читаемой. Знак связи: сплошная = неотрицательная /
+        положительная зона, пунктир = отрицательная (подпись сохраняет знак, напр. −0.55).
         <span className="sr-only"> Идентификатор схемы {uid}</span>
       </p>
     </div>
