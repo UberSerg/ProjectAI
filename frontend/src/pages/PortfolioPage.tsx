@@ -9,8 +9,8 @@ const links = [
   },
   {
     to: "/portfolio/candidate",
-    title: "Кандидат портфеля",
-    text: "Главный экран Kraken: конкретные тикеры, лоты, суммы, риски и отклонения.",
+    title: "Собрать портфель",
+    text: "Главный сценарий: введите сумму — Kraken покажет lot-aware research-портфель.",
   },
   {
     to: "/investment-decision",
@@ -53,14 +53,15 @@ export function PortfolioPage() {
         helpPageId="portfolio_hub"
       />
       <p className="page-purpose">
-        «Мой портфель» — ваш ручной снимок. «Кандидат» — ответ Kraken. Это разные экраны; брокер не
-        подключается.
+        «Мой портфель» — ваш ручной снимок. «Собрать портфель» — ответ Kraken. Это разные экраны;
+        брокер не подключается.
       </p>
 
       <HeroCard eyebrow="Куда смотреть" headline="Сначала мой портфель или кандидат Kraken">
         <p style={{ margin: 0 }}>
           <Link to="/portfolio/mine">Мой портфель</Link> — что у вас сейчас.{" "}
-          <Link to="/portfolio/candidate">Кандидат</Link> — что предлагает Kraken на капитал research.
+          <Link to="/portfolio/candidate?capital=100000">Собрать портфель</Link> — что предлагает
+          Kraken на ваш капитал.
         </p>
       </HeroCard>
 
@@ -76,7 +77,7 @@ export function PortfolioPage() {
       <ExplanationCard title="Как читать этот раздел" level={1}>
         <ol className="plain-list">
           <li>Откройте «Мой портфель» — ручной состав и оценка.</li>
-          <li>Откройте «Кандидат портфеля» — research-состав Kraken.</li>
+          <li>Откройте «Собрать портфель» — research-состав Kraken на вашу сумму.</li>
           <li>Сравните на вкладке «Сравнение с Kraken» в моём портфеле.</li>
           <li>Проверьте «Инвестиционное решение» и «Проверку риска».</li>
         </ol>

@@ -2021,6 +2021,30 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     details:
       "Не приказ брокеру. Собирает allocation, отбор инструментов, Risk Gate и целые лоты в один экран.",
   },
+  portfolio_builder: {
+    id: "portfolio_builder",
+    kind: "metric",
+    title: "Портфель Kraken",
+    summary: "Сценарий «у меня есть сумма — собери портфель» поверх того же Candidate.",
+    details:
+      "Капитал только пересчитывает целые лоты. Prediction, policy и research universe не меняются. Это research/advisory, не исполнение у брокера.",
+  },
+  portfolio_builder_capital: {
+    id: "portfolio_builder_capital",
+    kind: "metric",
+    title: "Сумма для инвестирования",
+    summary: "Капитал в рублях для lot-aware конструкции портфеля.",
+    details:
+      "Меняет число лотов и остаток Cash. Не переобучает модель и не меняет правила Candidate.",
+  },
+  portfolio_builder_allocation: {
+    id: "portfolio_builder_allocation",
+    kind: "metric",
+    title: "Фактическое распределение",
+    summary: "Доли акций, облигаций и денег после покупки целыми лотами.",
+    details:
+      "Цель задаёт Investment Decision; факт может отличаться из‑за LOTSIZE и цен. Cash включает стратегический резерв и остаток округления лотов.",
+  },
   concrete_portfolio: {
     id: "concrete_portfolio",
     kind: "metric",
@@ -3051,6 +3075,39 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Нет брокера и real money. Нет кнопки «Купить».",
       "Налоги не моделируются.",
       "Equity confidence и corporate credit могут оставаться UNKNOWN.",
+    ],
+  },
+  portfolio_builder: {
+    id: "portfolio_builder",
+    title: "Портфель Kraken — собрать портфель",
+    about:
+      "Инвесторский сценарий: введите сумму в рублях и получите lot-aware research-портфель из существующего Candidate.",
+    understand: [
+      "Как сумма влияет на лоты?",
+      "Меняется ли модель Prediction?",
+      "Что такое фактическое vs целевое распределение?",
+      "Почему остаётся Cash?",
+      "Это приказ брокеру?",
+    ],
+    metrics: [
+      "portfolio_builder",
+      "portfolio_builder_capital",
+      "portfolio_builder_allocation",
+      "portfolio_candidate",
+      "concrete_portfolio",
+      "lot_rounding",
+      "unallocated_capital",
+      "cbr_hurdle",
+    ],
+    interpret: [
+      "Сначала введите капитал и нажмите «Рассчитать портфель».",
+      "Смотрите summary: вложено / cash / акции / облигации.",
+      "Таблица позиций — целые лоты MOEX; LOTSIZE неизвестен остаётся «—».",
+    ],
+    limitations: [
+      "Тот же Candidate policy — отдельной aggressive/moderate стратегии нет.",
+      "Корреляции внутри портфеля в V1 не показаны.",
+      "Нет исполнения у брокера.",
     ],
   },
   portfolio_hub: {

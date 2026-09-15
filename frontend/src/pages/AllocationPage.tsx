@@ -86,7 +86,7 @@ export function AllocationPage() {
       />
       <div className="banner banner-info" role="status" data-testid="allocation-deep-link-banner">
         Этот экран — подробное распределение. Основной путь:{" "}
-        <Link to="/portfolio/candidate">Кандидат портфеля</Link> /{" "}
+        <Link to="/portfolio/candidate">Собрать портфель</Link> /{" "}
         <Link to="/investment-decision">Инвестиционное решение</Link>.
       </div>
       {error ? <div className="banner banner-warning">{error}</div> : null}
