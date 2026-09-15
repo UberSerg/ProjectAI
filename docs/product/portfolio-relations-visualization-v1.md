@@ -1,50 +1,66 @@
-# Portfolio Relations Visualization V1
+# Portfolio Relations Visualization — UX V2
 
-Read-only correlation heatmap for instruments in the current Kraken Portfolio Candidate.
+Presentation layer on top of Portfolio Relations Visualization V1 API.
 
-## What the user sees
+## What changed (UX only)
 
-On **Портфель Kraken**, after composition / Plan vs Actual / «Почему именно такой портфель»:
+On **Портфель Kraken**, block **Связи внутри портфеля** now leads with:
 
-**Связи внутри портфеля** — pairwise **корреляция доходностей** (not causation).
+1. **Human-readable summary** (deterministic, no LLM)
+2. **Network graph** of supported instruments
+3. **Missing-data** list (unsupported FI / no Relations input)
+4. Collapsible **Подробные связи** — triangular heatmap with exact Pearson values
 
-## Source metric (authoritative Relations)
+KPI cards (`6/15`, mean |corr|, LEVEL 1/2) are removed from the primary surface.
 
-- Feature: `log_return_1d` (daily log returns from Analytics / Relations inputs)
-- Method shown: **Pearson** (Spearman also stored on snapshots; UI primary = Pearson)
-- Default window: **60** trading days (existing Relations default; also 20/120 exist)
-- Coverage rule: existing Relations `minimum_coverage_ratio` 0.8
-- EOD / daily cadence — not intraday
-- Calculation: **persisted** `analytics.relation_snapshots` — no recompute on page view
-- PIT: snapshots already carry `as_of_date`; matrix uses **latest** available as_of per pair for the window
+## Data source (unchanged)
 
-## API
+`POST /api/v1/relations/portfolio` + `build_portfolio_relations_matrix`:
 
-`POST /api/v1/relations/portfolio`
+- Pearson on `log_return_1d`
+- Window 60 trading days (default)
+- Coverage ≥ 0.8
+- Latest persisted `as_of` per pair
+- `pearson: null` for missing — never coerced to 0
+- Cash excluded; ≤12 symbols
 
-Body: `{ "symbols": ["SBER", ...], "window": 60 }` (max 12 symbols).
+## Deterministic summary rules (UX-only)
 
-Returns matrix cells, instrument readiness, summary (strongest / lowest / avg |corr|), metric metadata.
+Thresholds (not investment policy):
 
-Cash / sleeve labels are stripped. Unsupported or missing pairs → `pearson: null` (UI **N/A**, never coerced to 0).
+| Band | Threshold |
+|------|-----------|
+| Strong positive | ≥ 0.70 |
+| Moderate positive | ≥ 0.40 and &lt; 0.70 |
+| Meaningful negative | ≤ −0.40 |
 
-## Interpretation (UX-only)
+Algorithm:
 
-Descriptive bands for copy/heatmap (not Candidate Policy):
+1. Supported = instruments with Relations input READY.
+2. Available pairs = cells with `status=OK` and non-null pearson.
+3. Build undirected graph of **strong** edges only; take largest connected component.
+4. If component size ≥ 3 → «группа тесно связанных»; other supported with max corr to cluster &lt; 0.70 → «связан слабее».
+5. If largest strong component size = 2 → «тесная пара, не большая группа».
+6. If no strong edges → «выраженной группы не обнаружено» (may mention moderate/negative).
+7. If no available pairs / &lt;2 supported → insufficient-data copy.
 
-- high positive: ≥ 0.70
-- moderate: 0.40–0.70
-- weak: |r| < 0.40
-- negative: ≤ −0.40
+No buy/sell language. No portfolio score.
 
-Do not treat these as risk gate or rebalance rules.
+## Network graph
 
-## Limitations
+- Nodes: READY instruments only
+- Edges: available pairs only (missing → no edge; absent edge ≠ 0)
+- Stroke weight/opacity by |correlation|; muted palette
+- Labels on |r| ≥ 0.40
+- Deterministic circular layout (cluster members ordered first)
+- No new chart dependency (SVG)
 
-- Fixed Income often missing from Relations universe → N/A cells with reason
-- No diversification score, Markowitz, or network graph in V1
-- Visualization does **not** change Candidate, allocation, Risk Gate, or Prediction
+## Heatmap details
 
-## Correlation ≠ causation
+- Upper triangle only; no diagonal 1.00; each pair once
+- N/A remains N/A
+- Collapsed by default under «Подробные связи»
 
-UI copy states historical co-movement of returns only; it can change and does not guarantee future behaviour.
+## Investment semantics
+
+Unchanged: Candidate, Policy, Risk Gate, Explanation, Prediction, universes, Relations calculation.

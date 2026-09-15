@@ -5,19 +5,21 @@ import {
   type PortfolioRelationCell,
   type PortfolioRelationsMatrix,
 } from "../../api/relations";
-import { EmptyState, ExplanationCard, MetricCard } from "../../components/Ui";
+import { EmptyState } from "../../components/Ui";
 import { MetricHelp } from "../../help";
+import { PortfolioRelationsGraph } from "./PortfolioRelationsGraph";
+import {
+  buildGraphModel,
+  buildRelationsInsight,
+  type RelationsInsight,
+} from "./portfolioRelationsInsight";
 
 function fmtCorr(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "N/A";
   return v.toFixed(2);
 }
 
-/** Diverging muted scale: negative = cool slate-blue, positive = warm terracotta. */
-function cellStyle(pearson: number | null, status: string): CSSProperties {
-  if (status === "DIAGONAL") {
-    return { background: "var(--ds-surface-muted, #e8e6e1)", color: "var(--ds-text-muted, #6b6b6b)" };
-  }
+function cellStyle(pearson: number | null): CSSProperties {
   if (pearson == null) {
     return {
       background: "repeating-linear-gradient(135deg, #ececec 0 6px, #f5f5f5 6px 12px)",
@@ -45,25 +47,159 @@ function buildLookup(cells: PortfolioRelationCell[]): Map<string, PortfolioRelat
   return map;
 }
 
+function readableAvailability(status: string | undefined): string {
+  switch (status) {
+    case "OK":
+      return "есть данные";
+    case "UNSUPPORTED_PAIR":
+    case "INPUT_MISSING":
+      return "нет данных";
+    case "SNAPSHOT_MISSING":
+      return "снимок ещё не рассчитан";
+    case "INSUFFICIENT_DATA":
+      return "недостаточно наблюдений";
+    default:
+      return status ? "недоступно" : "нет данных";
+  }
+}
+
 function tooltipText(cell: PortfolioRelationCell | undefined, metricLabel: string): string {
   if (!cell) return "Нет данных";
-  if (cell.status === "DIAGONAL") return `${cell.symbol_a}: диагональ = 1.00`;
   const lines = [
     `${cell.symbol_a} × ${cell.symbol_b}`,
     `${metricLabel}: ${fmtCorr(cell.pearson)}`,
   ];
   if (cell.sample_count != null) lines.push(`Наблюдений: ${cell.sample_count}`);
   if (cell.as_of_date) lines.push(`As-of: ${cell.as_of_date}`);
-  lines.push(`Статус: ${cell.status}`);
-  if (cell.reason_ru) lines.push(cell.reason_ru);
+  lines.push(`Доступность: ${readableAvailability(cell.status)}`);
+  if (cell.reason_ru && cell.pearson == null) lines.push(cell.reason_ru);
   return lines.join("\n");
+}
+
+function InsightCard({ insight }: { insight: RelationsInsight }) {
+  return (
+    <article className="card portfolio-rel-insight" data-testid="portfolio-relations-insight">
+      <h3 style={{ marginTop: 0 }}>{insight.title_ru}</h3>
+      <p style={{ marginBottom: insight.bullets_ru.length ? "0.65rem" : 0 }}>{insight.body_ru}</p>
+      {insight.bullets_ru.length ? (
+        <ul className="plain-list" style={{ marginBottom: 0 }}>
+          {insight.bullets_ru.map((b) => (
+            <li key={b}>{b}</li>
+          ))}
+        </ul>
+      ) : null}
+      {insight.pair_availability_ru ? (
+        <p className="muted" style={{ marginTop: "0.75rem", marginBottom: 0, fontSize: "0.88rem" }}>
+          {insight.pair_availability_ru}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function TriangularHeatmap({
+  symbols,
+  lookup,
+  metricLabel,
+  windowLabel,
+}: {
+  symbols: string[];
+  lookup: Map<string, PortfolioRelationCell>;
+  metricLabel: string;
+  windowLabel: string;
+}) {
+  const [hover, setHover] = useState<PortfolioRelationCell | null>(null);
+  // Columns = symbols[1..]; rows = symbols[0..n-2] — upper triangle only
+  const cols = symbols.slice(1);
+
+  return (
+    <div className="portfolio-corr-wrap">
+      <p className="muted" style={{ marginTop: 0 }}>
+        Верхний треугольник: каждая пара один раз. Около 0 — слабая линейная связь; высокий
+        положительный — чаще в одном направлении; отрицательный — чаще в разные стороны. Не
+        причинная зависимость. {windowLabel}.
+      </p>
+      <div className="portfolio-rel-heat-legend" aria-hidden="true">
+        <span>
+          <i className="portfolio-rel-swatch strong" /> сильная +
+        </span>
+        <span>
+          <i className="portfolio-rel-swatch moderate" /> умеренная
+        </span>
+        <span>
+          <i className="portfolio-rel-swatch weak" /> слабая / около 0
+        </span>
+        <span>
+          <i className="portfolio-rel-swatch negative" /> отрицательная
+        </span>
+        <span>
+          <i className="portfolio-rel-swatch na" /> N/A — нет данных (≠ 0)
+        </span>
+      </div>
+      <div className="table-wrap portfolio-corr-scroll">
+        <table className="portfolio-corr-heatmap" aria-label="Матрица корреляции доходностей">
+          <thead>
+            <tr>
+              <th scope="col" />
+              {cols.map((s) => (
+                <th key={s} scope="col" title={s}>
+                  {s.length > 12 ? `${s.slice(0, 11)}…` : s}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {symbols.slice(0, -1).map((row, rowIdx) => (
+              <tr key={row}>
+                <th scope="row" title={row}>
+                  {row.length > 12 ? `${row.slice(0, 11)}…` : row}
+                </th>
+                {cols.map((col, colIdx) => {
+                  // Only cells where col is "after" row in symbols order
+                  if (colIdx < rowIdx) {
+                    return <td key={`${row}-${col}`} className="portfolio-corr-empty" />;
+                  }
+                  const cell = lookup.get(cellKey(row, col));
+                  const pearson = cell?.pearson ?? null;
+                  return (
+                    <td
+                      key={`${row}-${col}`}
+                      style={cellStyle(pearson)}
+                      title={tooltipText(cell, metricLabel)}
+                      tabIndex={0}
+                      onMouseEnter={() => cell && setHover(cell)}
+                      onMouseLeave={() => setHover(null)}
+                      onFocus={() => cell && setHover(cell)}
+                      onBlur={() => setHover(null)}
+                      data-status={cell?.status ?? "SNAPSHOT_MISSING"}
+                    >
+                      {fmtCorr(pearson)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {hover ? (
+        <p className="muted portfolio-corr-hover" style={{ marginBottom: 0, whiteSpace: "pre-line" }}>
+          {tooltipText(hover, metricLabel)}
+        </p>
+      ) : (
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Наведите или сфокусируйте клетку: значение, наблюдения, as-of. N/A ≠ 0.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function PortfolioRelationsBlock({ symbols }: { symbols: string[] }) {
   const [data, setData] = useState<PortfolioRelationsMatrix | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hover, setHover] = useState<PortfolioRelationCell | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const symbolKey = symbols.join(",");
 
@@ -89,6 +225,8 @@ export function PortfolioRelationsBlock({ symbols }: { symbols: string[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- symbolKey encodes symbols
   }, [symbolKey]);
 
+  const insight = useMemo(() => (data ? buildRelationsInsight(data) : null), [data]);
+  const graphModel = useMemo(() => (data ? buildGraphModel(data) : null), [data]);
   const lookup = useMemo(() => buildLookup(data?.cells ?? []), [data]);
 
   if (!symbols.length) {
@@ -96,7 +234,7 @@ export function PortfolioRelationsBlock({ symbols }: { symbols: string[] }) {
       <section style={{ marginTop: "1.25rem" }} data-testid="portfolio-relations-block">
         <EmptyState
           title="Нет инструментов для связей"
-          reason="В Candidate нет позиций (кроме Cash) — матрица корреляций пуста."
+          reason="В Candidate нет позиций (кроме Cash) — оценить связи нельзя."
         />
       </section>
     );
@@ -108,7 +246,7 @@ export function PortfolioRelationsBlock({ symbols }: { symbols: string[] }) {
         <h2>
           Связи внутри портфеля <MetricHelp metricId="portfolio_relations_correlation" />
         </h2>
-        <p className="muted">Загружаем корреляции доходностей для позиций Candidate…</p>
+        <p className="muted">Загружаем связи позиций Candidate…</p>
       </section>
     );
   }
@@ -124,146 +262,81 @@ export function PortfolioRelationsBlock({ symbols }: { symbols: string[] }) {
     );
   }
 
-  if (!data) return null;
+  if (!data || !insight || !graphModel) return null;
 
   const metricLabel = data.metric.label_ru || "Корреляция доходностей";
   const windowLabel = data.metric.window_label_ru || `окно ${data.metric.window_observations}`;
-  const unsupported = data.instruments.filter((i) => i.status !== "READY");
-  const empty =
-    data.summary.available_pair_count === 0 &&
-    (data.summary.status === "EMPTY" || data.summary.status === "NO_SYMBOLS");
+  const empty = insight.kind === "INSUFFICIENT_DATA" && insight.available_pairs.length === 0;
 
   return (
     <section style={{ marginTop: "1.25rem" }} data-testid="portfolio-relations-block">
       <h2>
         Связи внутри портфеля <MetricHelp metricId="portfolio_relations_correlation" />
       </h2>
-      <p className="muted" style={{ maxWidth: "52rem" }}>
-        {data.metric.note_ru ||
-          "Чем ближе корреляция к +1, тем чаще активы двигались в одном направлении. Около 0 — слабая историческая связь. Отрицательная — чаще в разные стороны. Историческая корреляция может меняться и не гарантирует будущего поведения."}
-      </p>
-      <p className="muted" style={{ marginTop: "0.35rem" }}>
-        {metricLabel}
-        {data.metric.return_label_ru ? ` · ${data.metric.return_label_ru}` : ""} · {windowLabel}
-        {data.as_of_date ? ` · as-of ${data.as_of_date}` : ""}
-        {data.relation_set
-          ? ` · ${data.relation_set.code} v${data.relation_set.version}`
-          : ""}
+      <p className="muted" style={{ maxWidth: "40rem", marginTop: 0 }}>
+        Показывает, какие позиции исторически двигались вместе. Чем сильнее положительная связь,
+        тем меньше независимой диверсификации даёт пара.
       </p>
 
-      <div className="card-grid" style={{ marginBottom: "1rem" }}>
-        <MetricCard
-          label="Пар с корреляцией"
-          value={`${data.summary.available_pair_count} / ${data.summary.pair_count}`}
-          helpId="portfolio_relations_correlation"
-        />
-        <MetricCard
-          label="Сильнейшая +"
-          value={
-            data.summary.strongest_positive
-              ? `${data.summary.strongest_positive.symbol_a}×${data.summary.strongest_positive.symbol_b} ${fmtCorr(data.summary.strongest_positive.pearson)}`
-              : "—"
-          }
-        />
-        <MetricCard
-          label="Наиболее низкая"
-          value={
-            data.summary.lowest
-              ? `${data.summary.lowest.symbol_a}×${data.summary.lowest.symbol_b} ${fmtCorr(data.summary.lowest.pearson)}`
-              : "—"
-          }
-        />
-        <MetricCard
-          label="Средняя |corr|"
-          value={
-            data.summary.average_abs_correlation != null
-              ? fmtCorr(data.summary.average_abs_correlation)
-              : "—"
-          }
-        />
-      </div>
+      <InsightCard insight={insight} />
 
-      <h3 style={{ marginTop: 0 }}>Что это значит</h3>
-      <div className="card-grid" style={{ marginBottom: "1rem" }}>
-        <ExplanationCard title="Интерпретация" level={1}>
-          {data.summary.status_ru ||
-            "Нет доступных pairwise корреляций для текущего состава."}
-          {data.summary.high_positive_pair_count != null && data.summary.available_pair_count > 0
-            ? ` Пар с высокой положительной корреляцией (≥0.70): ${data.summary.high_positive_pair_count}.`
-            : ""}
-        </ExplanationCard>
-        {unsupported.length ? (
-          <ExplanationCard title="Ограничения данных" level={2}>
-            Для части инструментов история/метрика недоступна (
-            {unsupported.map((u) => u.symbol).join(", ")}). Клетки показаны как N/A — это не
-            нулевая корреляция. Облигации часто отсутствуют в Relations universe.
-          </ExplanationCard>
-        ) : null}
-      </div>
-
-      {empty ? (
+      {!empty ? (
+        <div className="card" style={{ marginTop: "1rem" }} data-testid="portfolio-relations-visual">
+          <h3 style={{ marginTop: 0 }}>Схема связей</h3>
+          <PortfolioRelationsGraph model={graphModel} cluster={insight.cluster} />
+        </div>
+      ) : (
         <EmptyState
           title="Корреляции недоступны"
           reason={
             data.error?.message_ru ||
-            data.summary.status_ru ||
-            "Для текущего Candidate нет persisted pairwise Relations."
+            insight.body_ru ||
+            "Для текущего Candidate нет рассчитанных pairwise Relations."
           }
         />
-      ) : (
-        <div className="card portfolio-corr-wrap">
-          <div className="table-wrap portfolio-corr-scroll">
-            <table className="portfolio-corr-heatmap" aria-label="Матрица корреляции доходностей">
-              <thead>
-                <tr>
-                  <th scope="col" />
-                  {data.symbols.map((s) => (
-                    <th key={s} scope="col" title={s}>
-                      {s}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.symbols.map((row) => (
-                  <tr key={row}>
-                    <th scope="row">{row}</th>
-                    {data.symbols.map((col) => {
-                      const cell = lookup.get(cellKey(row, col));
-                      const pearson =
-                        row === col
-                          ? cell?.pearson ?? (cell?.status === "DIAGONAL" ? 1 : null)
-                          : cell?.pearson ?? null;
-                      const status = cell?.status ?? "SNAPSHOT_MISSING";
-                      return (
-                        <td
-                          key={`${row}-${col}`}
-                          style={cellStyle(pearson, status)}
-                          title={tooltipText(cell, metricLabel)}
-                          onMouseEnter={() => cell && setHover(cell)}
-                          onMouseLeave={() => setHover(null)}
-                          data-status={status}
-                        >
-                          {fmtCorr(pearson)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {hover ? (
-            <p className="muted portfolio-corr-hover" style={{ marginBottom: 0, whiteSpace: "pre-line" }}>
-              {tooltipText(hover, metricLabel)}
-            </p>
-          ) : (
-            <p className="muted" style={{ marginBottom: 0 }}>
-              Наведите на клетку: значение, наблюдения, as-of и статус. N/A ≠ 0.
-            </p>
-          )}
-        </div>
       )}
+
+      {insight.unsupported.length ? (
+        <aside
+          className="card portfolio-rel-missing"
+          style={{ marginTop: "1rem" }}
+          data-testid="portfolio-relations-missing"
+        >
+          <h3 style={{ marginTop: 0 }}>
+            Нет данных для {insight.unsupported.length} из {data.symbols.length} позиций
+          </h3>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Для этих инструментов корреляция пока не рассчитана. Они не участвуют в выводах выше.
+          </p>
+          <ul className="portfolio-rel-missing-list">
+            {insight.unsupported.map((s) => (
+              <li key={s}>
+                <code>{s}</code>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      ) : null}
+
+      <details
+        className="card"
+        style={{ marginTop: "1rem" }}
+        data-testid="portfolio-relations-details"
+        open={detailsOpen}
+        onToggle={(e) => setDetailsOpen((e.target as HTMLDetailsElement).open)}
+      >
+        <summary>Подробные связи</summary>
+        {detailsOpen ? (
+          <div style={{ marginTop: "0.75rem" }}>
+            <TriangularHeatmap
+              symbols={data.symbols}
+              lookup={lookup}
+              metricLabel={metricLabel}
+              windowLabel={windowLabel}
+            />
+          </div>
+        ) : null}
+      </details>
     </section>
   );
 }

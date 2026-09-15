@@ -2058,9 +2058,9 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     kind: "metric",
     title: "Корреляция доходностей",
     summary:
-      "Pearson-корреляция дневных лог-доходностей позиций Candidate (окно Relations, обычно 60 торговых дней).",
+      "Pearson-корреляция дневных лог-доходностей позиций Candidate (окно Relations, обычно 60 торговых дней, EOD).",
     details:
-      "Read-only визуализация persisted Relations. Не причинная зависимость, не economic dependency и не часть Candidate Policy. N/A — нет данных; 0 — реальная слабая связь. Историческая корреляция не гарантирует будущее.",
+      "Read-only поверх persisted Relations. Coverage ≥ 0.8. Показаны as-of последних снимков. Не причинная зависимость и не часть Candidate Policy. N/A — нет данных; 0 — реальная слабая связь. Схема связей и текстовый вывод — presentation layer; точные числа — в «Подробные связи».",
   },
   concrete_portfolio: {
     id: "concrete_portfolio",
