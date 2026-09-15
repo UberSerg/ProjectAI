@@ -132,6 +132,50 @@ function DataCoverageCard() {
             </div>
           ) : null}
 
+          <details data-testid="data-coverage-ml-blockers" style={{ marginBottom: "1rem" }}>
+            <summary>ML reliability — dividends / entitlement / TR / survivorship</summary>
+            <div className="key-value" style={{ marginTop: "0.75rem" }}>
+              <span>Dividends</span>
+              <strong>
+                {String(
+                  (readiness?.domains?.find((d) => d.code === "dividends")?.status ??
+                    (coverage.dividends as { verdict?: string }).verdict) ?? "—",
+                )}
+              </strong>
+            </div>
+            <p className="muted" data-testid="dividends-coverage-detail">
+              {readiness?.domains?.find((d) => d.code === "dividends")?.coverage_ru ??
+                "bounded IR providers only"}
+            </p>
+            <div className="key-value">
+              <span>Entitlement / calendar</span>
+              <strong data-testid="entitlement-status">
+                {String(
+                  (
+                    readiness?.domains?.find((d) => d.code === "dividends")?.evidence as
+                      | { entitlement?: { status?: string } }
+                      | undefined
+                  )?.entitlement?.status ?? "PARTIAL",
+                )}
+              </strong>
+            </div>
+            <div className="key-value">
+              <span>Gross Total Return</span>
+              <strong>
+                {String(readiness?.domains?.find((d) => d.code === "total_return")?.status ?? "—")}
+              </strong>
+            </div>
+            <div className="key-value">
+              <span>Survivorship</span>
+              <strong>
+                {String(readiness?.domains?.find((d) => d.code === "survivorship")?.status ?? "—")}
+              </strong>
+            </div>
+            <p className="muted" style={{ marginBottom: 0 }}>
+              {readiness?.domains?.find((d) => d.code === "survivorship")?.coverage_ru ?? ""}
+            </p>
+          </details>
+
           <div className="key-value">
             <span>Master sync</span>
             <strong>{String((coverage.master as { status?: string } | null)?.status ?? "—")}</strong>
