@@ -117,33 +117,59 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
 
     # --- Dividends ---
     div_n = _safe_scalar(session, "SELECT COUNT(*) FROM fundamentals.dividend_events")
+    from app.modules.fundamentals.application.dividend_provider import get_dividend_provider
+
+    div_ready = get_dividend_provider().readiness()
+    div_status = ReadinessStatus.NOT_READY
+    if div_n > 0:
+        div_status = ReadinessStatus.PARTIAL
+    elif bool(div_ready.get("accepted")):
+        div_status = ReadinessStatus.PARTIAL
     domains.append(
         _domain(
             code="dividends",
             title_ru="Dividends",
-            status=ReadinessStatus.NOT_READY if div_n == 0 else ReadinessStatus.PARTIAL,
-            coverage_ru=f"{div_n} dividend_events",
-            pit_ru="Schema supports known_at; no production public feed",
-            limitation_ru=(
-                "MOEX ISS dividends rejected by audit; e-disclosure spike PARTIAL_RESEARCH_ONLY (403). "
-                "No LLM extraction of amounts/dates."
+            status=div_status,
+            coverage_ru=f"{div_n} dividend_events; provider={div_ready.get('provider')}",
+            pit_ru=(
+                "IR XLS known_at uses approval/board date as APPROXIMATE_PUBLICATION_PROXY; "
+                "not equal to exchange disclosure timestamp"
             ),
-            dataset_v3="blocker",
-            evidence={"dividend_events": div_n, "provider": "NOT_READY"},
+            limitation_ru=(
+                "MOEX ISS dividends REJECTED; e-disclosure 403. "
+                "ISSUER_IR_XLS_V1 bounded (MGNT); not universe-wide. No LLM extraction."
+            ),
+            dataset_v3="blocker" if div_status == ReadinessStatus.NOT_READY else "partial",
+            evidence={
+                "dividend_events": div_n,
+                "provider": div_ready,
+            },
         )
     )
 
     # --- Total return ---
+    tr_status = ReadinessStatus.NOT_READY
+    tr_limit = "Splits mechanical path exists separately; dividends/entitlement incomplete"
+    if div_n > 0:
+        tr_status = ReadinessStatus.PARTIAL
+        tr_limit = (
+            "Bounded gross TR research possible where APPROVED events + estimate_ex_date exist; "
+            "known_at is approximate for IR; Dataset V2 unchanged"
+        )
     domains.append(
         _domain(
             code="total_return",
             title_ru="Gross Total Return labels",
-            status=ReadinessStatus.NOT_READY,
-            coverage_ru="Blocked without dividend lifecycle + entitlement",
-            pit_ru="Would require known_at of dividend events and ex/record convention",
-            limitation_ru="Splits mechanical path exists separately; dividends/entitlement missing",
-            dataset_v3="blocker",
-            evidence={"depends_on": ["dividends", "corporate_actions_splits"]},
+            status=tr_status,
+            coverage_ru=(
+                "Blocked without dividend lifecycle + entitlement"
+                if div_n == 0
+                else f"Research preview eligible where events={div_n}"
+            ),
+            pit_ru="Requires known_at of dividend events and ex/record convention",
+            limitation_ru=tr_limit,
+            dataset_v3="blocker" if tr_status == ReadinessStatus.NOT_READY else "partial",
+            evidence={"depends_on": ["dividends", "corporate_actions_splits"], "dividend_events": div_n},
         )
     )
 
@@ -219,16 +245,33 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
     )
 
     # --- Survivorship ---
+    from app.modules.market.application.historical_universe import (
+        HISTORICAL_EQUITY_UNIVERSE_V1,
+        summarize_historical_universe,
+    )
+
+    try:
+        univ = summarize_historical_universe(session, version=HISTORICAL_EQUITY_UNIVERSE_V1)
+    except Exception as exc:  # noqa: BLE001
+        univ = {"error": str(exc)[:200], "members": 0}
+    univ_n = int(univ.get("members") or univ.get("instrument_count") or 0)
     domains.append(
         _domain(
             code="survivorship",
             title_ru="Survivorship-free universe",
-            status=ReadinessStatus.NOT_READY,
-            coverage_ru="Current research cohort is a frozen living set",
-            pit_ru="N/A",
-            limitation_ru="Not a historical survivorship-free investable universe — Dataset V3 blocker",
-            dataset_v3="blocker",
-            evidence={"note": "architectural"},
+            status=ReadinessStatus.PARTIAL if univ_n > 0 else ReadinessStatus.NOT_READY,
+            coverage_ru=(
+                f"{HISTORICAL_EQUITY_UNIVERSE_V1}: {univ_n} members with candle-derived eligibility"
+                if univ_n
+                else "contract missing / empty"
+            ),
+            pit_ru="universe_as_of(T) excludes securities before eligible_from / after eligible_to",
+            limitation_ru=(
+                "eligible_from/to DERIVED_FROM_FIRST/LAST_CANDLE — not exchange listing registry; "
+                "current frozen research cohort ≠ full survivorship-free MOEX history"
+            ),
+            dataset_v3="partial" if univ_n > 0 else "blocker",
+            evidence=dict(univ) if isinstance(univ, dict) else {"raw": str(univ)},
         )
     )
 
@@ -254,7 +297,17 @@ def _build_dataset_v3_summary(session: Session, domains: list[dict[str, Any]]) -
     blockers = [
         d["title_ru"]
         for d in domains
-        if d["dataset_v3"] == "blocker" and d["status"] in {"NOT_READY", "PARTIAL", "UNKNOWN"}
+        if d["dataset_v3"] in {"blocker", "partial"}
+        and d["code"] in {"dividends", "total_return", "survivorship"}
+        and d["status"] in {"NOT_READY", "PARTIAL", "UNKNOWN"}
+    ]
+    # Also include hard blockers from other domains
+    blockers += [
+        d["title_ru"]
+        for d in domains
+        if d["dataset_v3"] == "blocker"
+        and d["status"] in {"NOT_READY", "PARTIAL", "UNKNOWN"}
+        and d["title_ru"] not in blockers
     ]
     available = [
         d["title_ru"]
@@ -265,9 +318,12 @@ def _build_dataset_v3_summary(session: Session, domains: list[dict[str, Any]]) -
 
     overall = "NOT_READY"
     fund_status = str(fund_gate.get("gate") or "NOT_READY")
+    # Never overall READY while critical PARTIAL domains remain.
     if fund_status == "READY_FOR_BUILD" and not blockers:
         overall = "READY"
     elif fund_status in {"READY_FOR_DATASET_DESIGN", "READY_FOR_BUILD"}:
+        overall = "PARTIAL"
+    if blockers and overall == "READY":
         overall = "PARTIAL"
 
     recommended_start, start_evidence = _recommended_feature_start(session, fund_gate)
