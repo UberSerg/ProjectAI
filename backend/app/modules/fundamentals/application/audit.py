@@ -99,6 +99,26 @@ SOURCE_FINDINGS: tuple[SourceFinding, ...] = (
         ),
     ),
     SourceFinding(
+        source="ISSUER_IR_XLS_V1",
+        purpose="DIVIDENDS",
+        endpoint=(
+            "https://www.magnit.com/files/ru/shareholders-and-investors/"
+            "dividends-dates-0107-rus.xlsx + dividends-history-0107-rus.xlsx"
+        ),
+        observed=(
+            "Public Magnit IR XLSX without auth: board recommendation, shareholder "
+            "approval, record date, period, and amount per share. Join by period "
+            "label. Meeting dates ≠ disclosure publication timestamps."
+        ),
+        verdict="PARTIAL_RESEARCH_PRODUCTION_BOUNDED",
+        decision=(
+            "Used by IssuerIrXlsxDividendProvider for MGNT only. "
+            "known_at = approval/board date with known_at_quality="
+            "APPROXIMATE_PUBLICATION_PROXY. RECOMMENDED (board-only) is not "
+            "TR entitlement. No universe-wide IR scrape."
+        ),
+    ),
+    SourceFinding(
         source="market.corporate_actions",
         purpose="CORPORATE_EVENTS",
         endpoint="internal (MOEX ISS statistics splits feed)",
@@ -125,13 +145,15 @@ SOURCE_FINDINGS: tuple[SourceFinding, ...] = (
         purpose="DIVIDENDS",
         endpoint="—",
         observed=(
-            "No accepted dividend feed with announcement dates. "
-            "e-disclosure spike = PARTIAL_RESEARCH_ONLY (HTTP 403)."
+            "No universe-wide dividend feed with announcement dates. "
+            "MOEX ISS rejected; e-disclosure spike = PARTIAL_RESEARCH_ONLY (HTTP 403). "
+            "Bounded exception: ISSUER_IR_XLS_V1 for MGNT."
         ),
         verdict=SourceVerdict.DEFERRED.value,
         decision=(
-            "fundamentals.dividend_events stays empty until READY_FOR_PRODUCTION_V1. "
-            "Dividends are not credited; raw dividend price gaps in market.candles untouched."
+            "Universe-wide fundamentals.dividend_events stay deferred. "
+            "MGNT may ingest via ISSUER_IR_XLS_V1. Dividends are not credited; "
+            "raw dividend price gaps in market.candles untouched."
         ),
     ),
 )

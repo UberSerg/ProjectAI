@@ -1,7 +1,8 @@
 """Dividend provider port — readiness without inventing data.
 
 MOEX ISS dividend endpoints remain REJECTED (description / candles, not dividend tables).
-No accepted public provider is wired for ingest in this stage.
+Bounded production-capable path: ``ISSUER_IR_XLS_V1`` for configured IR issuers (MGNT).
+Other symbols stay empty / not ready.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from app.modules.fundamentals.domain.total_return import (
     DividendCashPoint,
     compute_gross_total_return,
 )
+from app.modules.fundamentals.domain.types import SOURCE_ISSUER_IR_XLS_V1
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,25 +82,125 @@ class NotReadyDividendProvider:
         }
 
 
+class CompositeDividendProvider:
+    """Try issuer IR XLS for configured SECIDs; empty for everyone else."""
+
+    name = "COMPOSITE_ISSUER_IR_V1"
+
+    def __init__(
+        self,
+        *,
+        ir_provider: Any,
+        fallback: NotReadyDividendProvider | None = None,
+    ) -> None:
+        self._ir = ir_provider
+        self._fallback = fallback or NotReadyDividendProvider(
+            reasons=(
+                "symbol_not_in_issuer_ir_xlsx_catalog",
+                "moex_iss_dividends_rejected",
+            )
+        )
+
+    def fetch_dividends(self, symbol: str) -> Sequence[DividendProviderRecord]:
+        secid = (symbol or "").strip().upper()
+        if not secid or secid not in self._ir.configured_secids():
+            return ()
+        refs = self._ir.fetch_by_secid(secid)
+        out: list[DividendProviderRecord] = []
+        for ref in refs:
+            # Application record requires ex_date; IR V1 leaves ex_date null —
+            # surface via record_date placeholder only when present; do not invent.
+            if ref.ex_date is None and ref.record_date is None:
+                continue
+            out.append(
+                DividendProviderRecord(
+                    symbol=secid,
+                    ex_date=ref.ex_date or ref.record_date,  # type: ignore[arg-type]
+                    amount_per_share=ref.amount_per_share,
+                    currency=ref.currency,
+                    known_at=ref.known_at,
+                    record_date=ref.record_date,
+                    source=ref.source,
+                    external_id=(ref.metadata or {}).get("period_key"),
+                    raw={
+                        "status": str(ref.status),
+                        "board_recommendation_date": (
+                            ref.board_recommendation_date.isoformat()
+                            if ref.board_recommendation_date
+                            else None
+                        ),
+                        "shareholder_approval_date": (
+                            ref.shareholder_approval_date.isoformat()
+                            if ref.shareholder_approval_date
+                            else None
+                        ),
+                        "ex_date_present": ref.ex_date is not None,
+                        "metadata": dict(ref.metadata or {}),
+                    },
+                )
+            )
+        return out
+
+    def readiness(self) -> dict[str, Any]:
+        ir_ready = self._ir.readiness()
+        return {
+            **ir_ready,
+            "provider": self.name,
+            "ir_provider": ir_ready.get("provider") or SOURCE_ISSUER_IR_XLS_V1,
+            "fallback_provider": self._fallback.name,
+            "universe_wide": False,
+        }
+
+
+def build_issuer_ir_dividend_provider(
+    *,
+    issuer_id_by_secid: dict[str, int] | None = None,
+    instrument_id_by_secid: dict[str, int] | None = None,
+    local_files: dict[str, tuple[Any, Any]] | None = None,
+) -> Any:
+    from app.modules.fundamentals.infrastructure.issuer_ir_xlsx_dividend_provider import (
+        IssuerIrXlsxDividendProvider,
+    )
+
+    return IssuerIrXlsxDividendProvider(
+        issuer_id_by_secid=issuer_id_by_secid or {},
+        instrument_id_by_secid=instrument_id_by_secid or {},
+        local_files=local_files or {},
+    )
+
+
 def get_dividend_provider() -> DividendProvider:
-    """Resolve provider from env/repo. Currently always NOT_READY."""
+    """Resolve provider: Composite IR XLS (MGNT) when sync enabled.
+
+    ``DIVIDEND_SYNC_ENABLED=false`` keeps a NOT_READY gate for automated sync
+    workers; readiness notes that IR XLSX is available when sync is on.
+    """
     from app.core.config import get_settings
 
     settings = get_settings()
+    ir = build_issuer_ir_dividend_provider()
     if not settings.dividend_sync_enabled:
         return NotReadyDividendProvider(
             reasons=(
                 "DIVIDEND_SYNC_ENABLED=false",
                 "moex_iss_dividends_rejected",
-                "no_accepted_public_provider_in_env",
+                "issuer_ir_xlsx_v1_available_when_sync_enabled",
             )
         )
-    # Even if flag is on, no accepted implementation exists yet.
-    return NotReadyDividendProvider(
-        reasons=(
-            "DIVIDEND_SYNC_ENABLED=true_but_no_accepted_provider_implementation",
-            "moex_iss_dividends_rejected",
-        )
+    return CompositeDividendProvider(ir_provider=ir)
+
+
+def get_ports_dividend_provider(
+    *,
+    issuer_id_by_secid: dict[str, int] | None = None,
+    instrument_id_by_secid: dict[str, int] | None = None,
+    local_files: dict[str, tuple[Any, Any]] | None = None,
+) -> Any:
+    """Ports.DividendProvider for ingest (issuer-id keyed)."""
+    return build_issuer_ir_dividend_provider(
+        issuer_id_by_secid=issuer_id_by_secid,
+        instrument_id_by_secid=instrument_id_by_secid,
+        local_files=local_files,
     )
 
 
@@ -112,9 +214,8 @@ def dividend_coverage_v2(session: Session) -> dict[str, Any]:
     payload = base.to_dict()
     payload["provider"] = provider_ready
     payload["verdict"] = "NOT_READY" if not provider_ready.get("accepted") else payload.get("quality")
-    payload["ingest_enabled"] = False
+    payload["ingest_enabled"] = bool(provider_ready.get("accepted"))
     payload["dataset_mutation"] = False
-    # Richer readiness fields for System Data Coverage.
     eq_with_candles = int(
         session.scalar(
             select(func.count(func.distinct(Candle.instrument_id)))
@@ -141,7 +242,6 @@ def total_return_readiness_report(session: Session) -> dict[str, Any]:
     provider = get_dividend_provider().readiness()
     events = int(session.scalar(select(func.count()).select_from(DividendEvent)) or 0)
 
-    # Wire domain compute with real events when present (fixture path for tests).
     sample_tr = None
     if events > 0:
         row = session.execute(
@@ -181,6 +281,7 @@ def total_return_readiness_report(session: Session) -> dict[str, Any]:
         "notes": [
             "compute_gross_total_return accepts real DividendEvent rows when present.",
             "Empty store → price-only / NOT_READY coverage; no fabricated dividends.",
+            "ISSUER_IR_XLS_V1 is PARTIAL_RESEARCH_PRODUCTION_BOUNDED (MGNT).",
         ],
     }
 

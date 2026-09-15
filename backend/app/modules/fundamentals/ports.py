@@ -1,8 +1,9 @@
 """Replaceable provider contracts for fundamentals and events.
 
 ``FnsGirBoProvider`` implements industrial RAS reports from public FNS GIR BO.
-DividendProvider remains without an accepted production source
-(e-disclosure spike = PARTIAL_RESEARCH_ONLY).
+``IssuerIrXlsxDividendProvider`` supplies a bounded IR XLSX dividend path
+(MGNT V1, ``PARTIAL_RESEARCH_PRODUCTION_BOUNDED``). Universe-wide dividends
+remain deferred (MOEX ISS rejected; e-disclosure 403).
 """
 from __future__ import annotations
 

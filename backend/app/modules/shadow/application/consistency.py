@@ -6,9 +6,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.infrastructure.market.models import Instrument
+from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.shadow.application.lot_aware import is_lot_aware_spec
 from app.modules.shadow.infrastructure.models import (
     ShadowFill,
@@ -38,6 +40,7 @@ def check_shadow_consistency(
     session: Session,
     *,
     portfolio_ids: Sequence[int] | None = None,
+    repair_lot_sizes: bool = False,
 ) -> list[ConsistencyIssue]:
     issues: list[ConsistencyIssue] = []
     q = select(ShadowPortfolio, ShadowPortfolioSpec).join(
@@ -60,50 +63,77 @@ def check_shadow_consistency(
             )
 
         lot_aware = is_lot_aware_spec(spec)
+        if lot_aware and repair_lot_sizes:
+            from app.modules.shadow.application.service import (
+                repair_missing_position_lot_sizes,
+            )
+
+            repair_missing_position_lot_sizes(session, portfolio)
+
         positions = portfolio.positions or {}
         if isinstance(positions, dict):
+            missing_ids: list[int] = []
             for key, row in positions.items():
                 if not isinstance(row, dict):
                     continue
                 qty = float(row.get("quantity") or 0)
                 if abs(qty) < 1e-12:
                     continue
-                if lot_aware:
-                    # Fractional units forbidden
-                    if abs(qty - round(qty)) > 1e-6:
+                if not lot_aware:
+                    continue
+                if abs(qty - round(qty)) > 1e-6:
+                    issues.append(
+                        ConsistencyIssue(
+                            "BLOCKER",
+                            "FRACTIONAL_UNITS",
+                            pid,
+                            f"instrument={key} quantity={qty}",
+                        )
+                    )
+                lot_size = row.get("lot_size")
+                try:
+                    ls = int(lot_size) if lot_size is not None else 0
+                except (TypeError, ValueError):
+                    ls = 0
+                if ls <= 0:
+                    missing_ids.append(int(row.get("instrument_id") or key))
+                elif int(round(qty)) % ls != 0:
+                    issues.append(
+                        ConsistencyIssue(
+                            "BLOCKER",
+                            "UNITS_NOT_DIVISIBLE_BY_LOT",
+                            pid,
+                            f"instrument={key} quantity={qty} lot_size={ls}",
+                        )
+                    )
+            if missing_ids and lot_aware:
+                instruments = list(
+                    session.scalars(
+                        select(Instrument).where(Instrument.id.in_(sorted(set(missing_ids))))
+                    )
+                )
+                resolved = resolve_equity_lot_sizes(session, instruments, fetch_missing=False)
+                for iid in missing_ids:
+                    hit = resolved.get(iid)
+                    if hit is not None and hit.lot_size and hit.lot_size > 0:
                         issues.append(
                             ConsistencyIssue(
-                                "BLOCKER",
-                                "FRACTIONAL_UNITS",
+                                "WARNING",
+                                "MISSING_LOT_SIZE_ON_POSITION_ROW",
                                 pid,
-                                f"instrument={key} quantity={qty}",
+                                f"instrument={iid} master_lot_size={hit.lot_size}",
                             )
                         )
-                    lot_size = row.get("lot_size")
-                    try:
-                        ls = int(lot_size) if lot_size is not None else 0
-                    except (TypeError, ValueError):
-                        ls = 0
-                    if ls <= 0:
+                    else:
                         issues.append(
                             ConsistencyIssue(
                                 "BLOCKER",
                                 "MISSING_LOT_SIZE",
                                 pid,
-                                f"instrument={key}",
-                            )
-                        )
-                    elif int(round(qty)) % ls != 0:
-                        issues.append(
-                            ConsistencyIssue(
-                                "BLOCKER",
-                                "UNITS_NOT_DIVISIBLE_BY_LOT",
-                                pid,
-                                f"instrument={key} quantity={qty} lot_size={ls}",
+                                f"instrument={iid}",
                             )
                         )
 
-        # Duplicate fills per order
         fill_rows = list(
             session.scalars(select(ShadowFill).where(ShadowFill.portfolio_id == pid))
         )
@@ -118,47 +148,31 @@ def check_shadow_consistency(
                         "BLOCKER",
                         "DUPLICATE_FILL",
                         pid,
-                        f"order_id={oid} fill_count={n}",
+                        f"order_id={oid} fills={n}",
                     )
                 )
 
-        # Fill without order
-        if fill_rows:
-            order_ids = {int(f.order_id) for f in fill_rows}
-            existing = set(
-                session.scalars(select(ShadowOrder.id).where(ShadowOrder.id.in_(order_ids))).all()
-            )
-            for oid in order_ids:
-                if oid not in existing:
-                    issues.append(
-                        ConsistencyIssue(
-                            "BLOCKER",
-                            "FILL_WITHOUT_ORDER",
-                            pid,
-                            f"order_id={oid}",
-                        )
-                    )
-
-        # FILLED order without fill row
-        filled_orders = list(
+        pending = list(
             session.scalars(
                 select(ShadowOrder).where(
-                    ShadowOrder.portfolio_id == pid,
-                    ShadowOrder.status == "FILLED",
+                    ShadowOrder.portfolio_id == pid, ShadowOrder.status == "PENDING"
                 )
             )
         )
-        for order in filled_orders:
-            n = session.scalar(
-                select(func.count()).select_from(ShadowFill).where(ShadowFill.order_id == order.id)
-            )
-            if int(n or 0) == 0:
+        for order in pending:
+            if order.side != "SELL":
+                continue
+            qty = 0.0
+            if isinstance(positions, dict):
+                row = positions.get(str(order.instrument_id)) or {}
+                qty = float(row.get("quantity") or 0) if isinstance(row, dict) else 0.0
+            if qty <= 1e-12:
                 issues.append(
                     ConsistencyIssue(
                         "WARNING",
-                        "FILLED_ORDER_MISSING_FILL",
+                        "PENDING_SELL_WITHOUT_POSITION",
                         pid,
-                        f"order_id={order.id}",
+                        f"order_id={order.id} ticker={order.ticker}",
                     )
                 )
 

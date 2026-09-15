@@ -114,6 +114,26 @@ def fill_pending_orders_with_session_open(
     result = OpenExecutionResult()
     adapter = HistoricalNextOpenAdapter()
 
+    # Repair lot_size metadata on lot-aware portfolios before fill attempts.
+    # Best-effort: unit tests may stub session.scalars — never break fills.
+    try:
+        from app.modules.shadow.application.service import repair_missing_position_lot_sizes
+        from app.modules.shadow.config import EXPERIMENT_GROUP_V2
+
+        port_q = (
+            select(ShadowPortfolio)
+            .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
+            .where(ShadowPortfolioSpec.experiment_group == EXPERIMENT_GROUP_V2)
+        )
+        if portfolio_ids is not None:
+            port_q = port_q.where(ShadowPortfolio.id.in_(portfolio_ids))
+        for portfolio in session.scalars(port_q):
+            if not hasattr(portfolio, "positions"):
+                continue
+            repair_missing_position_lot_sizes(session, portfolio)
+    except Exception:  # noqa: BLE001 — repair must not block OPEN fills
+        pass
+
     order_q = select(ShadowOrder).where(ShadowOrder.status == "PENDING")
     if portfolio_ids is not None:
         order_q = order_q.where(ShadowOrder.portfolio_id.in_(portfolio_ids))

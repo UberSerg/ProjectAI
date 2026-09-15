@@ -71,6 +71,23 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
             "no dividend_events — gross total-return labels blocked "
             "(e-disclosure spike PARTIAL_RESEARCH_ONLY)"
         )
+    else:
+        # Bounded IR XLS (MGNT) is not a universe-wide production PIT feed.
+        ir_only = int(
+            session.execute(
+                select(func.count())
+                .select_from(DividendEvent)
+                .where(DividendEvent.source == "ISSUER_IR_XLS_V1")
+            ).scalar_one()
+            or 0
+        )
+        if ir_only == dividends:
+            blockers.append(
+                "dividend_events are ISSUER_IR_XLS_V1 only (MGNT bounded; "
+                "known_at=APPROXIMATE_PUBLICATION_PROXY) — not READY_FOR_BUILD"
+            )
+        elif dividends < 20:
+            design_notes.append(f"dividend_events={dividends} — coverage still thin")
 
     unmapped = int(cohort.get("unmapped") or 0)
     if unmapped > 0:
@@ -83,16 +100,34 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
     )
     design_notes.append("Banks/FI remain NOT_SUPPORTED_BY_FNS_RAS_V1")
     design_notes.append("Fundamentals alone ≠ Dataset V3 READY_FOR_BUILD")
+    design_notes.append(
+        "Survivorship contract historical_equity_universe_v1 is candle-derived PARTIAL"
+    )
 
-    # Gate logic: build requires reports + dividends + acceptable industrial coverage.
-    if ras_reports > 0 and dividends > 0 and industrial_with >= 5:
+    # Gate logic: build requires broad RAS + non-IR (or mixed) dividend PIT + coverage.
+    production_divs = dividends - (
+        int(
+            session.execute(
+                select(func.count())
+                .select_from(DividendEvent)
+                .where(DividendEvent.source == "ISSUER_IR_XLS_V1")
+            ).scalar_one()
+            or 0
+        )
+        if dividends
+        else 0
+    )
+    if ras_reports > 0 and production_divs > 0 and industrial_with >= 5:
         gate = GATE_READY_FOR_BUILD
     elif ras_reports > 0 and industrial_with >= 1:
         gate = GATE_READY_FOR_DATASET_DESIGN
     else:
         gate = GATE_NOT_READY
 
-    # Hard rule from the mega-task: fundamentals alone never READY_FOR_BUILD.
+    # Hard rule: IR-only dividends never unlock READY_FOR_BUILD.
+    if production_divs == 0 and gate == GATE_READY_FOR_BUILD:
+        gate = GATE_READY_FOR_DATASET_DESIGN
+
     if dividends == 0 and gate == GATE_READY_FOR_BUILD:
         gate = GATE_READY_FOR_DATASET_DESIGN
 

@@ -132,6 +132,7 @@ def run_dividend_ingestion(
                     source=event.source,
                     version=event.version,
                     supersedes_id=event.supersedes_id,
+                    metadata_=dict(getattr(event, "metadata", None) or {}),
                 )
             )
             session.flush()
