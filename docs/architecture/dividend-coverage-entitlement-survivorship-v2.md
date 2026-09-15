@@ -19,7 +19,8 @@
 ### Trading calendar / entitlement
 
 - Bundled RU production day-off calendars (isdayoff.ru bitmasks) for 2021–2026.
-- Quality: `DERIVED_FROM_RU_PRODUCTION_CALENDAR` / entitlement `DERIVED_FROM_OFFICIAL_CALENDAR`.
+- Quality: `DERIVED_FROM_RU_PRODUCTION_CALENDAR` / entitlement `DERIVED_FROM_RU_WORKDAY_CALENDAR`
+  (isdayoff.ru — **not** an official MOEX session calendar).
 - Settlement: T+2 before `2023-07-31`, T+1 on/after (ADR 0014).
 - Not a MOEX session dump — still PARTIAL.
 

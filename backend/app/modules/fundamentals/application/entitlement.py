@@ -60,9 +60,10 @@ def derive_ex_date(
     if record_date is not None and cov.get("quality") == QUALITY_DERIVED_RU:
         year_ok = record_date.year in set(cov.get("years") or [])
         if year_ok and ex is not None:
+            # isdayoff = RU production workday calendar, NOT an official MOEX session dump.
             prov = {
                 **prov,
-                "quality": "DERIVED_FROM_OFFICIAL_CALENDAR",
+                "quality": "DERIVED_FROM_RU_WORKDAY_CALENDAR",
                 "calendar_quality": QUALITY_DERIVED_RU,
                 "calendar_coverage": cov,
                 "settlement_evidence": {
@@ -102,10 +103,10 @@ def entitlement_readiness() -> dict[str, Any]:
             "pre_transition": "T+2",
             "post_transition": "T+1",
         },
-        "quality": "DERIVED_FROM_OFFICIAL_CALENDAR",
+        "quality": "DERIVED_FROM_RU_WORKDAY_CALENDAR",
         "notes": [
             "ex-date = record_date minus N trading days under settlement lag",
-            "Calendar uses RU production holidays (isdayoff), not a MOEX session dump",
+            "Calendar uses RU production holidays (isdayoff.ru) — not an official MOEX session calendar",
             "Ingest leaves ex_date null; this service is research / readiness only unless called",
         ],
     }

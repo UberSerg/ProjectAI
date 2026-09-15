@@ -94,7 +94,21 @@ def test_entitlement_t1_with_calendar() -> None:
     result = derive_ex_date(date(2024, 7, 15))
     assert result.ex_date == date(2024, 7, 12)
     assert result.settlement_cycle == "T+1"
-    assert result.quality == "DERIVED_FROM_OFFICIAL_CALENDAR"
+    assert result.quality == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
+    assert "OFFICIAL" not in result.quality
+
+
+def test_entitlement_quality_never_claims_official_moex_calendar() -> None:
+    """Regression: isdayoff.ru must not be labeled as official MOEX/session calendar."""
+    result = derive_ex_date(date(2024, 7, 15))
+    ready = entitlement_readiness()
+    assert result.quality == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
+    assert ready["quality"] == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
+    assert "OFFICIAL" not in result.quality
+    assert "OFFICIAL" not in str(ready["quality"])
+    assert "moex" not in str(ready.get("calendar", {}).get("source", "")).lower() or "isdayoff" in str(
+        ready.get("calendar", {}).get("source", "")
+    ).lower()
 
 
 def test_entitlement_t2_historical_with_holiday() -> None:
@@ -104,7 +118,7 @@ def test_entitlement_t2_historical_with_holiday() -> None:
     assert result.settlement_cycle == "T+2"
     assert result.ex_date is not None
     assert result.ex_date < date(2023, 5, 10)
-    assert result.quality == "DERIVED_FROM_OFFICIAL_CALENDAR"
+    assert result.quality == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
     ready = entitlement_readiness()
     assert ready["status"] == "PARTIAL"
     assert ready["settlement"]["t1_effective_from"] == "2023-07-31"
