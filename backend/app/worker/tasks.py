@@ -507,19 +507,28 @@ def enrich_fixed_income_instruments_scheduled() -> dict:
 
 @celery_app.task(name="projectai.sync_dividend_history")
 def sync_dividend_history() -> dict:
-    """Dividend sync — no-ops with NOT_READY until an accepted provider exists."""
+    """Dividend sync — bounded IR XLSX catalog (MGNT+LKOH) when enabled."""
     from app.core.config import get_settings
-    from app.modules.fundamentals.application.dividend_provider import get_dividend_provider
+    from app.modules.fundamentals.application.dividend_provider import (
+        get_dividend_provider,
+        sync_issuer_ir_dividends,
+    )
 
     if not get_settings().dividend_sync_enabled:
         return {"status": "DISABLED", "reason": "DIVIDEND_SYNC_ENABLED=false"}
     readiness = get_dividend_provider().readiness()
-    return {
-        "status": "NOT_READY",
-        "provider": readiness,
-        "ingested": 0,
-        "note": "No accepted dividend provider; nothing ingested.",
-    }
+    if not readiness.get("accepted"):
+        return {
+            "status": "NOT_READY",
+            "provider": readiness,
+            "ingested": 0,
+            "note": "No accepted dividend provider; nothing ingested.",
+        }
+    with core_session() as session:
+        result = sync_issuer_ir_dividends(session)
+        session.commit()
+        result["provider"] = readiness
+        return result
 
 
 @celery_app.task(name="projectai.sync_credit_ratings")

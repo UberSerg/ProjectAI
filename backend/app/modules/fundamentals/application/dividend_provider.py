@@ -1,8 +1,8 @@
 """Dividend provider port — readiness without inventing data.
 
 MOEX ISS dividend endpoints remain REJECTED (description / candles, not dividend tables).
-Bounded production-capable path: ``ISSUER_IR_XLS_V1`` for configured IR issuers (MGNT).
-Other symbols stay empty / not ready.
+Bounded production-capable path: ``ISSUER_IR_XLS_V1`` for configured IR issuers
+(MGNT + LKOH catalog). Other symbols stay empty / not ready.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ class NotReadyDividendProvider:
 class CompositeDividendProvider:
     """Try issuer IR XLS for configured SECIDs; empty for everyone else."""
 
-    name = "COMPOSITE_ISSUER_IR_V1"
+    name = "COMPOSITE_ISSUER_IR_V2"
 
     def __init__(
         self,
@@ -304,8 +304,13 @@ def load_dividend_cash_points(
     instrument_id: int,
     start_date: date,
     end_date: date,
+    strict_known_at: bool = False,
 ) -> list[DividendCashPoint]:
-    """Load real DividendEvent rows for total-return computation (empty OK)."""
+    """Load real DividendEvent rows for total-return computation (empty OK).
+
+    When ``strict_known_at`` is True, drop events whose metadata marks approximate /
+    record-date / meeting-date proxies — Dataset V3 gate should prefer this mode.
+    """
     from app.modules.fundamentals.infrastructure.models import DividendEvent
 
     rows = session.scalars(
@@ -313,19 +318,33 @@ def load_dividend_cash_points(
             DividendEvent.instrument_id == instrument_id,
             DividendEvent.ex_date > start_date,
             DividendEvent.ex_date <= end_date,
+            DividendEvent.status == "APPROVED",
         )
     ).all()
-    return [
-        DividendCashPoint(
-            ex_date=r.ex_date,
-            amount_per_share=float(r.amount_per_share) if r.amount_per_share is not None else None,
-            currency=getattr(r, "currency", None),
-            known_at=r.known_at if isinstance(getattr(r, "known_at", None), date) else None,
-            status=getattr(r, "status", None),
+    approx_markers = {
+        "APPROXIMATE_PUBLICATION_PROXY",
+        "MEETING_DATE_PROXY",
+        "RECORD_DATE_PROXY",
+        "UNKNOWN",
+    }
+    out: list[DividendCashPoint] = []
+    for r in rows:
+        if r.ex_date is None:
+            continue
+        meta = dict(getattr(r, "metadata_", None) or {})
+        quality = str(meta.get("known_at_quality") or "")
+        if strict_known_at and quality in approx_markers:
+            continue
+        out.append(
+            DividendCashPoint(
+                ex_date=r.ex_date,
+                amount_per_share=float(r.amount_per_share) if r.amount_per_share is not None else None,
+                currency=getattr(r, "currency", None),
+                known_at=r.known_at if isinstance(getattr(r, "known_at", None), date) else None,
+                status=getattr(r, "status", None),
+            )
         )
-        for r in rows
-        if r.ex_date is not None
-    ]
+    return out
 
 
 def compute_instrument_gross_total_return(
@@ -336,12 +355,14 @@ def compute_instrument_gross_total_return(
     end_date: date,
     start_price: float | None,
     end_price: float | None,
+    strict_known_at: bool = False,
 ) -> dict[str, Any]:
     dividends = load_dividend_cash_points(
         session,
         instrument_id=instrument_id,
         start_date=start_date,
         end_date=end_date,
+        strict_known_at=strict_known_at,
     )
     result = compute_gross_total_return(
         start_date=start_date,
@@ -352,4 +373,147 @@ def compute_instrument_gross_total_return(
     )
     payload = result.to_dict()
     payload["dividends_loaded_from_db"] = len(dividends)
+    payload["strict_known_at"] = strict_known_at
+    return payload
+
+
+def resolve_ir_catalog_bindings(session: Session) -> dict[str, Any]:
+    """Map catalog SECIDs → instrument_id + issuer_id via current MOEX sources + mappings."""
+    from app.infrastructure.market.models import Instrument, InstrumentSource
+    from app.modules.fundamentals.infrastructure.issuer_ir_xlsx_dividend_provider import (
+        DEFAULT_ISSUER_IR_CATALOG,
+    )
+    from app.modules.fundamentals.infrastructure.models import SecurityIssuerMapping
+    from app.modules.market.application.identity import SOURCE_MOEX
+
+    catalog_secids = {s.secid.upper() for s in DEFAULT_ISSUER_IR_CATALOG}
+    instrument_id_by_secid: dict[str, int] = {}
+    issuer_id_by_secid: dict[str, int] = {}
+    unresolved: list[str] = []
+
+    sources = session.scalars(
+        select(InstrumentSource).where(
+            InstrumentSource.source.in_((SOURCE_MOEX, "MOEX_ISS", "MOEX")),
+            InstrumentSource.valid_to.is_(None),
+            InstrumentSource.external_id.in_(sorted(catalog_secids)),
+        )
+    )
+    for src in sources:
+        secid = str(src.external_id or "").upper()
+        if secid not in catalog_secids:
+            continue
+        instrument_id_by_secid[secid] = int(src.instrument_id)
+
+    for secid, iid in list(instrument_id_by_secid.items()):
+        mapping = session.scalar(
+            select(SecurityIssuerMapping).where(
+                SecurityIssuerMapping.instrument_id == iid,
+                SecurityIssuerMapping.mapping_status == "MAPPED",
+                SecurityIssuerMapping.issuer_id.is_not(None),
+            )
+        )
+        if mapping is not None and mapping.issuer_id is not None:
+            issuer_id_by_secid[secid] = int(mapping.issuer_id)
+        else:
+            # Fallback: use instrument_id as synthetic issuer binding only if issuer missing —
+            # DividendEvent.issuer_id is nullable, so leave unset.
+            pass
+
+    for secid in catalog_secids:
+        if secid not in instrument_id_by_secid:
+            # Symbol-level fallback for research cohort without source row.
+            inst = session.scalar(
+                select(Instrument).where(
+                    Instrument.symbol == secid,
+                    Instrument.asset_class == "equity",
+                )
+            )
+            if inst is not None:
+                instrument_id_by_secid[secid] = int(inst.id)
+            else:
+                unresolved.append(secid)
+
+    return {
+        "instrument_id_by_secid": instrument_id_by_secid,
+        "issuer_id_by_secid": issuer_id_by_secid,
+        "unresolved_secids": unresolved,
+        "catalog_secids": sorted(catalog_secids),
+    }
+
+
+def sync_issuer_ir_dividends(session: Session) -> dict[str, Any]:
+    """Resolve catalog bindings and ingest via ports provider (idempotent)."""
+    from app.modules.fundamentals.application.ingest_dividends import (
+        DividendIngestResult,
+        _existing_version,
+    )
+    from app.modules.fundamentals.application.runs import finish_run, start_run
+    from app.modules.fundamentals.config import PROVIDER_DIVIDENDS
+    from app.modules.fundamentals.domain.types import DeferralReason, IngestionStatus
+    from app.modules.fundamentals.infrastructure.issuer_ir_xlsx_dividend_provider import (
+        DEFAULT_ISSUER_IR_CATALOG,
+    )
+    from app.modules.fundamentals.infrastructure.models import DividendEvent
+
+    bindings = resolve_ir_catalog_bindings(session)
+    instrument_map = bindings["instrument_id_by_secid"]
+    issuer_map = bindings["issuer_id_by_secid"]
+    if not instrument_map:
+        return {
+            "status": "NOT_READY",
+            "reason": "no_catalog_instruments_resolved",
+            "bindings": bindings,
+            "ingested": 0,
+        }
+
+    provider = build_issuer_ir_dividend_provider(
+        issuer_id_by_secid=issuer_map,
+        instrument_id_by_secid=instrument_map,
+    )
+    result = DividendIngestResult()
+    run = start_run(session, PROVIDER_DIVIDENDS, requested_range="issuer_ir_xlsx_catalog")
+    result.run_id = run.id
+
+    for secid in sorted(instrument_map):
+        for event in provider.fetch_by_secid(secid):
+            result.events_received += 1
+            if getattr(event, "known_at", None) is None:
+                result.events_skipped += 1
+                result.rejections.append(f"{DeferralReason.MISSING_KNOWN_AT.value}: {secid}")
+                continue
+            if _existing_version(session, event) is not None:
+                result.events_skipped += 1
+                continue
+            session.add(
+                DividendEvent(
+                    issuer_id=event.issuer_id,
+                    instrument_id=event.instrument_id,
+                    announcement_date=event.announcement_date,
+                    known_at=event.known_at,
+                    board_recommendation_date=event.board_recommendation_date,
+                    shareholder_approval_date=event.shareholder_approval_date,
+                    record_date=event.record_date,
+                    ex_date=event.ex_date,
+                    payment_date=event.payment_date,
+                    amount_per_share=event.amount_per_share,
+                    currency=event.currency,
+                    status=event.status.value,
+                    source=event.source,
+                    version=event.version,
+                    supersedes_id=event.supersedes_id,
+                    metadata_=dict(getattr(event, "metadata", None) or {}),
+                )
+            )
+            session.flush()
+            result.events_inserted += 1
+
+    if result.events_inserted:
+        status = IngestionStatus.PARTIAL if result.rejections else IngestionStatus.SUCCESS
+    else:
+        status = IngestionStatus.NO_CHANGES
+    result.status = status.value
+    finish_run(session, run, status=status, summary=result.to_dict())
+    payload = result.to_dict()
+    payload["bindings"] = bindings
+    payload["catalog"] = [s.secid for s in DEFAULT_ISSUER_IR_CATALOG]
     return payload

@@ -24,6 +24,11 @@ SOURCE_ISSUER_IR_XLS_V1 = "ISSUER_IR_XLS_V1"
 
 # known_at quality markers for dividend disclosures (metadata, not inventing clocks).
 KNOWN_AT_QUALITY_APPROXIMATE_PUBLICATION_PROXY = "APPROXIMATE_PUBLICATION_PROXY"
+KNOWN_AT_QUALITY_MEETING_DATE_PROXY = "MEETING_DATE_PROXY"
+KNOWN_AT_QUALITY_RECORD_DATE_PROXY = "RECORD_DATE_PROXY"
+KNOWN_AT_QUALITY_SOURCE_PUBLICATION_DATE = "SOURCE_PUBLICATION_DATE"
+KNOWN_AT_QUALITY_EXACT_PUBLICATION_TIMESTAMP = "EXACT_PUBLICATION_TIMESTAMP"
+KNOWN_AT_QUALITY_UNKNOWN = "UNKNOWN"
 
 # Feature set identities. Nothing is materialised into a shared feature table in V1;
 # these codes name the in-memory contracts so a later stage can pin them.
