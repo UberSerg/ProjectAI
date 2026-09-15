@@ -132,17 +132,18 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
             status=div_status,
             coverage_ru=f"{div_n} dividend_events; provider={div_ready.get('provider')}",
             pit_ru=(
-                "IR XLS known_at uses approval/board date as APPROXIMATE_PUBLICATION_PROXY; "
-                "not equal to exchange disclosure timestamp"
+                "IR XLS known_at quality tracked: APPROXIMATE_PUBLICATION_PROXY / "
+                "MEETING_DATE_PROXY / RECORD_DATE_PROXY — not exact disclosure clocks"
             ),
             limitation_ru=(
                 "MOEX ISS dividends REJECTED; e-disclosure 403. "
-                "ISSUER_IR_XLS_V1 bounded (MGNT); not universe-wide. No LLM extraction."
+                "ISSUER_IR_XLS_V1 bounded (MGNT+LKOH); not universe-wide. No LLM extraction."
             ),
             dataset_v3="blocker" if div_status == ReadinessStatus.NOT_READY else "partial",
             evidence={
                 "dividend_events": div_n,
                 "provider": div_ready,
+                "entitlement": _entitlement_evidence(),
             },
         )
     )
@@ -153,8 +154,8 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
     if div_n > 0:
         tr_status = ReadinessStatus.PARTIAL
         tr_limit = (
-            "Bounded gross TR research possible where APPROVED events + estimate_ex_date exist; "
-            "known_at is approximate for IR; Dataset V2 unchanged"
+            "Gross TR research: APPROVED events + entitlement calendar (PARTIAL); "
+            "strict PIT mode excludes approximate known_at; Dataset V2 unchanged"
         )
     domains.append(
         _domain(
@@ -246,29 +247,32 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
 
     # --- Survivorship ---
     from app.modules.market.application.historical_universe import (
-        HISTORICAL_EQUITY_UNIVERSE_V1,
+        HISTORICAL_EQUITY_UNIVERSE_V2,
         summarize_historical_universe,
     )
 
     try:
-        univ = summarize_historical_universe(session, version=HISTORICAL_EQUITY_UNIVERSE_V1)
+        univ = summarize_historical_universe(session, version=HISTORICAL_EQUITY_UNIVERSE_V2)
     except Exception as exc:  # noqa: BLE001
         univ = {"error": str(exc)[:200], "members": 0}
     univ_n = int(univ.get("members") or univ.get("instrument_count") or 0)
+    auth_n = int(univ.get("authoritative_from_boundaries") or 0)
+    proxy_n = int(univ.get("proxy_from_boundaries") or 0)
     domains.append(
         _domain(
             code="survivorship",
             title_ru="Survivorship-free universe",
             status=ReadinessStatus.PARTIAL if univ_n > 0 else ReadinessStatus.NOT_READY,
             coverage_ru=(
-                f"{HISTORICAL_EQUITY_UNIVERSE_V1}: {univ_n} members with candle-derived eligibility"
+                f"{HISTORICAL_EQUITY_UNIVERSE_V2}: {univ_n} members; "
+                f"authoritative_from={auth_n}, candle_proxy_from={proxy_n}"
                 if univ_n
                 else "contract missing / empty"
             ),
             pit_ru="universe_as_of(T) excludes securities before eligible_from / after eligible_to",
             limitation_ru=(
-                "eligible_from/to DERIVED_FROM_FIRST/LAST_CANDLE — not exchange listing registry; "
-                "current frozen research cohort ≠ full survivorship-free MOEX history"
+                "V2 prefers MOEX board listed_from/history_from in InstrumentSource metadata; "
+                "candle first/last remains explicit fallback. Full delisted cohort still incomplete."
             ),
             dataset_v3="partial" if univ_n > 0 else "blocker",
             evidence=dict(univ) if isinstance(univ, dict) else {"raw": str(univ)},
@@ -441,6 +445,15 @@ def _fundamentals_domain(session: Session) -> dict[str, Any]:
             limitation_ru=str(exc)[:200],
             dataset_v3="unknown",
         )
+
+
+def _entitlement_evidence() -> dict[str, Any]:
+    try:
+        from app.modules.fundamentals.application.entitlement import entitlement_readiness
+
+        return entitlement_readiness()
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "UNKNOWN", "error": str(exc)[:200]}
 
 
 def _safe_scalar(session: Session, sql: str) -> int:

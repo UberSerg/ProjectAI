@@ -24,10 +24,11 @@
 | Industrial RAS fundamentals (FNS GIR BO) | **PARTIAL → READY candidate** | публичный JSON с датами подачи; глубина ~2021–2025; не все blue-chips находятся по INN |
 | Bank / FI fundamentals | **BLOCKED** (отдельная семантика) | SBER в GIR BO search = 0 hits |
 | IFRS structured free feed | **BLOCKED** | в FNS BFO нет; IR = RESEARCH_ONLY |
-| Dividends PIT feed | **BLOCKED** | MOEX «dividends» = false positive; IR/e-disclosure ещё не provider |
+| Dividends PIT feed | **PARTIAL** | Bounded IR XLSX: MGNT + LKOH (`ISSUER_IR_XLS_V1`); known_at proxy qualities; not universe-wide |
 | Credit ratings (ratings.cbr.ru) | **PARTIAL (human) / BLOCKED (machine)** | сайт публичный, JSON API за CSRF+captcha |
-| Gross Total Return | **BLOCKED** | нет accepted dividend events |
-| Dataset V3 (features+labels с TR/deep fundamentals) | **PARTIAL / gated** | RAS features условно с ~2022; TR labels — нет |
+| Gross Total Return | **PARTIAL** | Research helpers + entitlement calendar; strict PIT still weak (proxy known_at) |
+| Survivorship / historical universe | **PARTIAL** | V2 uses MOEX board listed_from/history_from; candle fallback; delisted cohort incomplete |
+| Dataset V3 (features+labels с TR/deep fundamentals) | **PARTIAL / READY_FOR_DATASET_DESIGN** | Not READY_FOR_BUILD; IR-only dividends remain a build blocker |
 
 **Топ бесплатных источников для Kraken сейчас:**
 

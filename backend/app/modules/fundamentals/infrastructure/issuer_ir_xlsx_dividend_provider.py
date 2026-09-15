@@ -1,20 +1,22 @@
-"""Issuer IR XLSX dividend provider (V1) — bounded RESEARCH / PARTIAL production.
+"""Issuer IR XLSX dividend provider (V2) — bounded RESEARCH / PARTIAL production.
 
-Starts with Magnit (MGNT) public IR workbooks:
+Catalog (explicit adapters, not a universal crawler):
 
-- dates: board recommendation, shareholder approval, record (registry) date, period
-- history: period → amount per share
+- Magnit (MGNT): dates + history XLSX join (board / approval / record / amount)
+- Lukoil (LKOH): single declared-dividends XLSX (amount + record; optional AGM date)
 
-``known_at`` uses the shareholder approval date (else board recommendation date)
-as an **approximate publication proxy** — meeting dates are not disclosure
-timestamps. Metadata records ``known_at_quality=APPROXIMATE_PUBLICATION_PROXY``.
+``known_at`` quality is tracked explicitly:
+
+- Magnit approval/board → ``APPROXIMATE_PUBLICATION_PROXY``
+- Lukoil AGM decision date in period text → ``MEETING_DATE_PROXY``
+- Lukoil record date only → ``RECORD_DATE_PROXY`` (conservative late PIT)
 
 Status:
 
-- shareholder approval date present → ``APPROVED``
-- only board recommendation → ``RECOMMENDED`` (not treated as TR entitlement)
+- shareholder approval / declared amount+record → ``APPROVED``
+- only board recommendation → ``RECOMMENDED`` (not TR entitlement)
 
-Never invents zero amounts. Skips APPROVED rows missing amount+record_date.
+Never invents zero amounts. Never copies common→preferred. Skips incomplete rows.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from openpyxl import load_workbook
@@ -43,8 +45,11 @@ MAGNIT_DATES_URL = (
 MAGNIT_HISTORY_URL = (
     "https://www.magnit.com/files/ru/shareholders-and-investors/dividends-history-0107-rus.xlsx"
 )
+LUKOIL_DECLARED_URL = "https://lukoil.ru/FileSystem/9/729054.xlsx"
 
 DEFAULT_TIMEOUT_S = 30.0
+
+WorkbookFormat = Literal["magnit_dates_history", "lukoil_declared_single"]
 
 _MONTHS_RU: dict[str, int] = {
     "января": 1,
@@ -65,6 +70,11 @@ _DATE_RE = re.compile(
     r"(?P<day>\d{1,2})\s+(?P<month>[А-Яа-яЁё]+)\s+(?P<year>\d{4})",
     re.UNICODE,
 )
+_AGM_DOT_DATE_RE = re.compile(r"от\s+(?P<day>\d{2})\.(?P<month>\d{2})\.(?P<year>\d{4})")
+_AMOUNT_SHARE_RE = re.compile(
+    r"(?P<amount>[\d\s]+(?:[.,]\d+)?)\s*(?P<cls>ао|ап|ao|ap)?",
+    re.IGNORECASE | re.UNICODE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +84,9 @@ class IssuerIrXlsxSpec:
     secid: str
     dates_url: str
     history_url: str
+    workbook_format: WorkbookFormat = "magnit_dates_history"
+    share_class: str = "common"  # common | preferred — never auto-copy across classes
+    source_note: str = ""
 
 
 DEFAULT_ISSUER_IR_CATALOG: tuple[IssuerIrXlsxSpec, ...] = (
@@ -81,6 +94,17 @@ DEFAULT_ISSUER_IR_CATALOG: tuple[IssuerIrXlsxSpec, ...] = (
         secid="MGNT",
         dates_url=MAGNIT_DATES_URL,
         history_url=MAGNIT_HISTORY_URL,
+        workbook_format="magnit_dates_history",
+        share_class="common",
+        source_note="Magnit IR dates+history XLSX",
+    ),
+    IssuerIrXlsxSpec(
+        secid="LKOH",
+        dates_url=LUKOIL_DECLARED_URL,
+        history_url=LUKOIL_DECLARED_URL,
+        workbook_format="lukoil_declared_single",
+        share_class="common",
+        source_note="Lukoil IR declared dividends single XLSX (ао only)",
     ),
 )
 
@@ -267,6 +291,8 @@ def rows_to_event_refs(
             "secid": secid,
             "period_raw": row.get("period_raw"),
             "period_key": period_key.label(),
+            "workbook_format": "magnit_dates_history",
+            "share_class": "common",
             "entitlement_eligible": status == DividendStatus.APPROVED,
         }
         events.append(
@@ -289,7 +315,7 @@ def rows_to_event_refs(
 
 @dataclass
 class IssuerIrXlsxDividendProvider:
-    """Ports-compatible dividend provider for a small IR XLSX catalog (MGNT V1)."""
+    """Ports-compatible dividend provider for bounded IR XLSX catalog (MGNT+LKOH)."""
 
     source: str = SOURCE_ISSUER_IR_XLS_V1
     catalog: Sequence[IssuerIrXlsxSpec] = field(default_factory=lambda: DEFAULT_ISSUER_IR_CATALOG)
@@ -314,8 +340,6 @@ class IssuerIrXlsxDividendProvider:
         for secid, iid in self.issuer_id_by_secid.items():
             if int(iid) == int(issuer_id):
                 return self._spec_for_secid(secid)
-        # Single-issuer research default: if exactly one catalog entry and one binding missing,
-        # still allow explicit secid fetch via fetch_by_secid.
         return None
 
     def _download(self, url: str) -> bytes:
@@ -362,7 +386,27 @@ class IssuerIrXlsxDividendProvider:
         history_payload: bytes,
         date_from: date | None = None,
         date_to: date | None = None,
+        workbook_format: WorkbookFormat | None = None,
+        share_class: str = "common",
     ) -> list[DividendEventRef]:
+        fmt = workbook_format or "magnit_dates_history"
+        if fmt == "lukoil_declared_single":
+            from app.modules.fundamentals.infrastructure.lukoil_ir_xlsx import (
+                lukoil_rows_to_event_refs,
+                parse_lukoil_declared_sheet,
+            )
+
+            rows = parse_lukoil_declared_sheet(
+                dates_payload, expected_share_class=share_class
+            )
+            return lukoil_rows_to_event_refs(
+                rows,
+                issuer_id=self.issuer_id_by_secid.get(secid.upper()),
+                instrument_id=self.instrument_id_by_secid.get(secid.upper()),
+                secid=secid.upper(),
+                date_from=date_from,
+                date_to=date_to,
+            )
         dates_rows = parse_dates_sheet(dates_payload)
         history = parse_history_sheet(history_payload)
         joined = join_dividend_rows(dates_rows, history)
@@ -392,6 +436,8 @@ class IssuerIrXlsxDividendProvider:
             history_payload=history_payload,
             date_from=date_from,
             date_to=date_to,
+            workbook_format=spec.workbook_format,
+            share_class=spec.share_class,
         )
 
     def fetch_dividends(
@@ -403,7 +449,6 @@ class IssuerIrXlsxDividendProvider:
     ) -> Sequence[DividendEventRef]:
         spec = self._spec_for_issuer(issuer)
         if spec is None:
-            # Fall back: if catalog is MGNT-only and issuer_id mapped under any key.
             for secid, iid in self.issuer_id_by_secid.items():
                 if int(iid) == int(issuer):
                     return self.fetch_by_secid(secid, date_from=date_from, date_to=date_to)
@@ -417,15 +462,28 @@ class IssuerIrXlsxDividendProvider:
             "accepted": True,
             "verdict": "PARTIAL_RESEARCH_PRODUCTION_BOUNDED",
             "bounded_secids": sorted(self.configured_secids()),
+            "catalog": [
+                {
+                    "secid": s.secid,
+                    "format": s.workbook_format,
+                    "share_class": s.share_class,
+                    "note": s.source_note,
+                    "dates_url": s.dates_url,
+                    "history_url": s.history_url,
+                }
+                for s in self.catalog
+            ],
             "reasons": [
                 "moex_iss_dividends_rejected",
                 "e_disclosure_403_rejected",
-                "issuer_ir_xlsx_v1_magnit_only",
+                "issuer_ir_xlsx_bounded_multi_issuer",
+                "known_at_not_exact_publication_timestamp",
             ],
             "notes": [
-                "Public Magnit IR XLSX without auth; join dates+history by period.",
-                "known_at uses meeting dates as APPROXIMATE_PUBLICATION_PROXY.",
+                "MGNT: dates+history join; known_at=APPROXIMATE_PUBLICATION_PROXY.",
+                "LKOH: declared sheet; known_at=MEETING_DATE_PROXY or RECORD_DATE_PROXY.",
                 "RECOMMENDED (board-only) is not TR entitlement.",
+                "Common/preferred never auto-copied.",
             ],
             "as_of": date.today().isoformat(),
         }

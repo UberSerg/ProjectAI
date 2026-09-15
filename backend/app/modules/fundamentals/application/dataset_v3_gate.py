@@ -83,8 +83,8 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
         )
         if ir_only == dividends:
             blockers.append(
-                "dividend_events are ISSUER_IR_XLS_V1 only (MGNT bounded; "
-                "known_at=APPROXIMATE_PUBLICATION_PROXY) — not READY_FOR_BUILD"
+                "dividend_events are ISSUER_IR_XLS_V1 only (bounded MGNT+LKOH; "
+                "known_at proxy qualities) — not READY_FOR_BUILD"
             )
         elif dividends < 20:
             design_notes.append(f"dividend_events={dividends} — coverage still thin")
@@ -101,7 +101,8 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
     design_notes.append("Banks/FI remain NOT_SUPPORTED_BY_FNS_RAS_V1")
     design_notes.append("Fundamentals alone ≠ Dataset V3 READY_FOR_BUILD")
     design_notes.append(
-        "Survivorship contract historical_equity_universe_v1 is candle-derived PARTIAL"
+        "Survivorship contract historical_equity_universe_v2 prefers MOEX board dates; "
+        "candle bounds remain fallback (PARTIAL)"
     )
 
     # Gate logic: build requires broad RAS + non-IR (or mixed) dividend PIT + coverage.

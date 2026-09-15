@@ -1,6 +1,8 @@
 # Dividend Lifecycle Provider V1 (Issuer IR XLSX)
 
-**Status:** `PARTIAL_RESEARCH_PRODUCTION_BOUNDED` (MGNT only).  
+**Status:** `PARTIAL_RESEARCH_PRODUCTION_BOUNDED` (MGNT + LKOH).  
+See also: `docs/architecture/dividend-coverage-entitlement-survivorship-v2.md`.
+
 **Source code:** `ISSUER_IR_XLS_V1`  
 **Does not change:** Dataset V2, Prediction, Shadow fills, `research_fi_v1`.
 
