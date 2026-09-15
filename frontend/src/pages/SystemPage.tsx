@@ -133,47 +133,70 @@ function DataCoverageCard() {
           ) : null}
 
           <details data-testid="data-coverage-ml-blockers" style={{ marginBottom: "1rem" }}>
-            <summary>ML reliability — dividends / entitlement / TR / survivorship</summary>
-            <div className="key-value" style={{ marginTop: "0.75rem" }}>
-              <span>Dividends</span>
-              <strong>
-                {String(
-                  (readiness?.domains?.find((d) => d.code === "dividends")?.status ??
-                    (coverage.dividends as { verdict?: string }).verdict) ?? "—",
-                )}
-              </strong>
-            </div>
-            <p className="muted" data-testid="dividends-coverage-detail">
-              {readiness?.domains?.find((d) => d.code === "dividends")?.coverage_ru ??
-                "bounded IR providers only"}
-            </p>
-            <div className="key-value">
-              <span>Entitlement / calendar</span>
-              <strong data-testid="entitlement-status">
+            <summary>Надёжность данных для ML</summary>
+            <section style={{ marginTop: "0.75rem" }} data-testid="dividend-pit-block">
+              <h4 style={{ marginBottom: "0.35rem" }}>Дивиденды (PIT)</h4>
+              <p className="muted" data-testid="dividends-coverage-detail">
+                {readiness?.domains?.find((d) => d.code === "dividends")?.coverage_ru ??
+                  "Ограниченные IR-провайдеры"}
+              </p>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                {readiness?.domains?.find((d) => d.code === "dividends")?.limitation_ru ?? ""}
+              </p>
+            </section>
+            <section style={{ marginTop: "0.75rem" }} data-testid="calendar-block">
+              <h4 style={{ marginBottom: "0.35rem" }}>Торговый календарь</h4>
+              <div className="key-value">
+                <span>Статус entitlement</span>
+                <strong data-testid="entitlement-status">
+                  {String(
+                    (
+                      readiness?.domains?.find((d) => d.code === "dividends")?.evidence as
+                        | { entitlement?: { status?: string; quality?: string } }
+                        | undefined
+                    )?.entitlement?.status ?? "PARTIAL",
+                  )}
+                </strong>
+              </div>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Качество:{" "}
                 {String(
                   (
                     readiness?.domains?.find((d) => d.code === "dividends")?.evidence as
-                      | { entitlement?: { status?: string } }
+                      | { entitlement?: { quality?: string } }
                       | undefined
-                  )?.entitlement?.status ?? "PARTIAL",
+                  )?.entitlement?.quality ?? "—",
                 )}
-              </strong>
-            </div>
-            <div className="key-value">
-              <span>Gross Total Return</span>
-              <strong>
-                {String(readiness?.domains?.find((d) => d.code === "total_return")?.status ?? "—")}
-              </strong>
-            </div>
-            <div className="key-value">
-              <span>Survivorship</span>
-              <strong>
-                {String(readiness?.domains?.find((d) => d.code === "survivorship")?.status ?? "—")}
-              </strong>
-            </div>
-            <p className="muted" style={{ marginBottom: 0 }}>
-              {readiness?.domains?.find((d) => d.code === "survivorship")?.coverage_ru ?? ""}
-            </p>
+              </p>
+            </section>
+            <section style={{ marginTop: "0.75rem" }} data-testid="historical-universe-block">
+              <h4 style={{ marginBottom: "0.35rem" }}>Историческая вселенная</h4>
+              <div className="key-value">
+                <span>Survivorship</span>
+                <strong>
+                  {String(readiness?.domains?.find((d) => d.code === "survivorship")?.status ?? "—")}
+                </strong>
+              </div>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                {readiness?.domains?.find((d) => d.code === "survivorship")?.coverage_ru ?? ""}
+              </p>
+            </section>
+            <section style={{ marginTop: "0.75rem" }} data-testid="gross-tr-block">
+              <h4 style={{ marginBottom: "0.35rem" }}>Gross Total Return</h4>
+              <div className="key-value">
+                <span>Статус</span>
+                <strong>
+                  {String(readiness?.domains?.find((d) => d.code === "total_return")?.status ?? "—")}
+                </strong>
+              </div>
+            </section>
+            <section style={{ marginTop: "0.75rem" }} data-testid="dataset-v3-design-block">
+              <h4 style={{ marginBottom: "0.35rem" }}>Dataset V3</h4>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Design: есть контракт. Build:{" "}
+                {v3?.overall_status === "READY" ? "готово" : "ещё не READY_FOR_BUILD"}.
+              </p>
+            </section>
           </details>
 
           <div className="key-value">
