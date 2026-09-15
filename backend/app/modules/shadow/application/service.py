@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.domain.ports.execution import OrderIntent
 from app.domain.ports.portfolio import PortfolioPolicyInput, PredictionSignal
@@ -124,6 +125,88 @@ def _order_lot_size(order: ShadowOrder) -> int | None:
     except (TypeError, ValueError):
         return None
     return lot if lot > 0 else None
+
+
+def _cancel_pending_orders(
+    session: Session,
+    *,
+    portfolio_id: int,
+    reason: str,
+    decision_at: datetime,
+    exclude_decision_id: int | None = None,
+) -> int:
+    """Cancel leftover PENDING orders. Does not mutate fills or historical filled rows."""
+    q = select(ShadowOrder).where(
+        ShadowOrder.portfolio_id == portfolio_id,
+        ShadowOrder.status == "PENDING",
+    )
+    if exclude_decision_id is not None:
+        q = q.where(ShadowOrder.decision_id != exclude_decision_id)
+    rows = list(session.scalars(q))
+    n = 0
+    for order in rows:
+        order.status = "CANCELLED"
+        order.updated_at = decision_at
+        meta = dict(order.metadata_ or {})
+        meta["cancel_reason"] = reason
+        meta["cancelled_at"] = decision_at.isoformat()
+        order.metadata_ = meta
+        n += 1
+    return n
+
+
+def repair_missing_position_lot_sizes(session: Session, portfolio: ShadowPortfolio) -> int:
+    """Backfill lot_size onto lot-aware positions from MOEX LOTSIZE provenance.
+
+    Repairs metadata only — does not change quantities, fills, or cash.
+    """
+    positions = dict(portfolio.positions or {})
+    if not positions:
+        return 0
+    missing_ids: list[int] = []
+    for key, row in positions.items():
+        if not isinstance(row, dict):
+            continue
+        if abs(float(row.get("quantity") or 0)) < 1e-12:
+            continue
+        try:
+            ls = int(row.get("lot_size") or 0)
+        except (TypeError, ValueError):
+            ls = 0
+        if ls <= 0:
+            missing_ids.append(int(row.get("instrument_id") or key))
+    if not missing_ids:
+        return 0
+    instruments = list(
+        session.scalars(select(Instrument).where(Instrument.id.in_(sorted(set(missing_ids)))))
+    )
+    resolved = resolve_equity_lot_sizes(session, instruments, fetch_missing=True)
+    repaired = 0
+    for key, row in list(positions.items()):
+        if not isinstance(row, dict):
+            continue
+        iid = int(row.get("instrument_id") or key)
+        try:
+            ls = int(row.get("lot_size") or 0)
+        except (TypeError, ValueError):
+            ls = 0
+        if ls > 0:
+            continue
+        hit = resolved.get(iid)
+        if hit is None or hit.lot_size is None or hit.lot_size <= 0:
+            continue
+        new_row = dict(row)
+        new_row["lot_size"] = int(hit.lot_size)
+        qty = float(new_row.get("quantity") or 0)
+        new_row["lots"] = int(qty) // int(hit.lot_size) if hit.lot_size else new_row.get("lots")
+        new_row["lot_size_repaired"] = True
+        new_row["lot_size_source"] = hit.source
+        positions[str(key)] = new_row
+        repaired += 1
+    if repaired:
+        portfolio.positions = positions
+        flag_modified(portfolio, "positions")
+    return repaired
 
 
 
@@ -422,6 +505,20 @@ def _build_decision_and_orders(
     )
     session.add(decision)
     session.flush()
+
+    # Supersede leftover PENDING from prior weeks so cash-starved buys cannot
+    # block readiness forever after a new weekly plan is published.
+    cancelled_n = _cancel_pending_orders(
+        session,
+        portfolio_id=int(portfolio.id),
+        reason="SUPERSEDED_BY_NEW_DECISION",
+        decision_at=decision_at,
+        exclude_decision_id=int(decision.id),
+    )
+    if cancelled_n:
+        meta = dict(decision.metadata_ or {})
+        meta["cancelled_pending_orders"] = cancelled_n
+        decision.metadata_ = meta
 
     # Build orders for target set + exits of held non-targets
     target_by_id = {int(t["instrument_id"]): t for t in targets}
