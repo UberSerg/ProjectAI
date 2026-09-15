@@ -80,48 +80,52 @@ def test_multi_issuer_local_catalog() -> None:
     assert provider.readiness()["bounded_secids"] == ["LKOH", "MGNT"]
 
 
-def test_trading_calendar_new_year_holiday() -> None:
+def test_trading_calendar_ru_workday_still_available() -> None:
     cal = get_moex_equity_trading_calendar()
-    assert cal.is_trading_day(date(2024, 1, 3)) is False  # holiday week
-    assert cal.is_trading_day(date(2024, 1, 9)) is True  # Tuesday after holidays
     assert cal.is_trading_day(date(2024, 1, 6)) is False  # Saturday
-    nxt = cal.next_trading_day(date(2024, 1, 1))
-    assert nxt == date(2024, 1, 9)
+    # RU production marks early Jan holidays; MOEX session calendar may differ.
+    assert cal.coverage()["quality"] == "DERIVED_FROM_RU_PRODUCTION_CALENDAR"
 
 
-def test_entitlement_t1_with_calendar() -> None:
+def test_entitlement_t1_with_moex_session_calendar() -> None:
     # record Monday 2024-07-15 → T+1 → Fri 2024-07-12
     result = derive_ex_date(date(2024, 7, 15))
     assert result.ex_date == date(2024, 7, 12)
     assert result.settlement_cycle == "T+1"
-    assert result.quality == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
+    assert result.quality == "DERIVED_FROM_MOEX_ISS_HISTORY_SESSIONS"
+    assert result.last_eligible_trading_date == date(2024, 7, 11)
     assert "OFFICIAL" not in result.quality
 
 
-def test_entitlement_quality_never_claims_official_moex_calendar() -> None:
-    """Regression: isdayoff.ru must not be labeled as official MOEX/session calendar."""
+def test_entitlement_quality_never_claims_official_calendar_label() -> None:
     result = derive_ex_date(date(2024, 7, 15))
     ready = entitlement_readiness()
-    assert result.quality == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
-    assert ready["quality"] == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
     assert "OFFICIAL" not in result.quality
     assert "OFFICIAL" not in str(ready["quality"])
-    assert "moex" not in str(ready.get("calendar", {}).get("source", "")).lower() or "isdayoff" in str(
-        ready.get("calendar", {}).get("source", "")
-    ).lower()
+    assert result.quality == "DERIVED_FROM_MOEX_ISS_HISTORY_SESSIONS"
+    assert "MOEX ISS" in str(ready.get("calendar", {}).get("source", ""))
 
 
-def test_entitlement_t2_historical_with_holiday() -> None:
-    # Before T+1: 2023-05-10 was Wednesday; T+2 → Mon 2023-05-08
-    # 2023-05-01 / 05-08-09 may be holiday-affected — assert lag + quality.
+def test_entitlement_t2_historical() -> None:
     result = derive_ex_date(date(2023, 5, 10))
     assert result.settlement_cycle == "T+2"
     assert result.ex_date is not None
     assert result.ex_date < date(2023, 5, 10)
-    assert result.quality == "DERIVED_FROM_RU_WORKDAY_CALENDAR"
+    assert result.quality == "DERIVED_FROM_MOEX_ISS_HISTORY_SESSIONS"
     ready = entitlement_readiness()
     assert ready["status"] == "PARTIAL"
     assert ready["settlement"]["t1_effective_from"] == "2023-07-31"
+
+
+def test_moex_session_calendar_traded_jan_3_2024() -> None:
+    from app.modules.market.infrastructure.moex_session_calendar import (
+        get_moex_iss_history_session_calendar,
+    )
+
+    cal = get_moex_iss_history_session_calendar()
+    assert cal.is_trading_day(date(2024, 1, 1)) is False
+    assert cal.is_trading_day(date(2024, 1, 3)) is True
+    assert cal.next_trading_day(date(2024, 1, 1)) == date(2024, 1, 3)
 
 
 def test_weekends_only_calendar_quality() -> None:
@@ -129,3 +133,17 @@ def test_weekends_only_calendar_quality() -> None:
     assert cal.coverage()["quality"] == "WEEKENDS_ONLY_APPROXIMATE"
     assert cal.is_trading_day(date(2024, 7, 12)) is True
     assert cal.is_trading_day(date(2024, 7, 13)) is False
+
+
+def test_lifecycle_recommendation_then_approval_revision() -> None:
+    from app.modules.fundamentals.application.dividend_known_at import (
+        synthetic_recommendation_then_approval_revision,
+    )
+    from app.modules.fundamentals.domain.types import DividendStatus
+
+    events = synthetic_recommendation_then_approval_revision()
+    assert events[0].status == DividendStatus.RECOMMENDED
+    assert events[0].amount_per_share == 100.0
+    assert events[1].status == DividendStatus.APPROVED
+    assert events[1].amount_per_share == 80.0
+    assert events[0].known_at < events[1].known_at
