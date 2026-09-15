@@ -464,6 +464,36 @@ def get_snapshot_lags(snapshot_id: int) -> dict[str, Any]:
         }
 
 
+class PortfolioRelationsRequest(BaseModel):
+    symbols: list[str] = Field(default_factory=list, max_length=12)
+    window: int = Field(default=60, ge=1, le=500)
+    relation_set_code: str = "basic_relations"
+    relation_set_version: int | None = None
+
+
+@router.post("/portfolio", response_model=dict)
+def portfolio_relations_matrix(body: PortfolioRelationsRequest) -> dict[str, Any]:
+    """Bounded Candidate pairwise matrix from persisted Relations snapshots (read-only)."""
+    from app.modules.relations.application.portfolio_relations import (
+        MAX_PORTFOLIO_SYMBOLS,
+        build_portfolio_relations_matrix,
+    )
+
+    if len(body.symbols) > MAX_PORTFOLIO_SYMBOLS:
+        raise HTTPException(
+            400,
+            f"Too many symbols: max {MAX_PORTFOLIO_SYMBOLS} for portfolio matrix",
+        )
+    with core_session() as session:
+        return build_portfolio_relations_matrix(
+            session,
+            symbols=body.symbols,
+            window=body.window,
+            relation_set_code=body.relation_set_code,
+            relation_set_version=body.relation_set_version,
+        )
+
+
 @router.get("/pairs/detail", response_model=dict)
 def get_pair_detail(
     input_a_id: UUID,

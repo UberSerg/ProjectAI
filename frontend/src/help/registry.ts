@@ -2053,6 +2053,15 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     details:
       "Цель задаёт Investment Decision; факт может отличаться из‑за LOTSIZE и цен. Cash включает стратегический резерв и остаток округления лотов.",
   },
+  portfolio_relations_correlation: {
+    id: "portfolio_relations_correlation",
+    kind: "metric",
+    title: "Корреляция доходностей",
+    summary:
+      "Pearson-корреляция дневных лог-доходностей позиций Candidate (окно Relations, обычно 60 торговых дней, EOD).",
+    details:
+      "Read-only поверх persisted Relations. Coverage ≥ 0.8. Показаны as-of последних снимков. Не причинная зависимость и не часть Candidate Policy. N/A — нет данных; 0 — реальная слабая связь. Схема связей и текстовый вывод — presentation layer; точные числа — в «Подробные связи».",
+  },
   concrete_portfolio: {
     id: "concrete_portfolio",
     kind: "metric",
@@ -3101,6 +3110,8 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "portfolio_builder",
       "portfolio_builder_capital",
       "portfolio_builder_allocation",
+      "portfolio_allocation_explanation",
+      "portfolio_relations_correlation",
       "portfolio_candidate",
       "concrete_portfolio",
       "lot_rounding",
@@ -3111,6 +3122,7 @@ export const HELP_PAGES: Record<string, PageHelpContent> = {
       "Сначала введите капитал и нажмите «Рассчитать портфель».",
       "Смотрите summary: вложено / cash / акции / облигации.",
       "Таблица позиций — целые лоты MOEX; LOTSIZE неизвестен остаётся «—».",
+      "Блок «Связи внутри портфеля» — корреляция доходностей, не зависимость и не совет.",
     ],
     limitations: [
       "Тот же Candidate policy — отдельной aggressive/moderate стратегии нет.",
