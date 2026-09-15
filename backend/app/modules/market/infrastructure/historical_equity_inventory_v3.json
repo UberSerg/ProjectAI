@@ -1,0 +1,17 @@
+{
+  "version": "historical_equity_inventory_v3",
+  "note": "Bounded seed of historical MOEX equities beyond current research_equity_v1. Provenance: MOEX ISS securities/{SECID}.json boards.",
+  "members": [
+    {
+      "secid": "URKA",
+      "isin": null,
+      "status": "DELISTED",
+      "eligible_from": "2013-03-25",
+      "eligible_to": "2022-12-13",
+      "eligible_from_quality": "MOEX_BOARD_LISTED_FROM",
+      "eligible_to_quality": "MOEX_BOARD_LISTED_TILL",
+      "source": "iss/securities/URKA.json boards TQBR",
+      "in_current_research_cohort": false
+    }
+  ]
+}

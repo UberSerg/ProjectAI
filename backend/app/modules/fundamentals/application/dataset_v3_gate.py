@@ -101,8 +101,13 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
     design_notes.append("Banks/FI remain NOT_SUPPORTED_BY_FNS_RAS_V1")
     design_notes.append("Fundamentals alone ≠ Dataset V3 READY_FOR_BUILD")
     design_notes.append(
-        "Survivorship contract historical_equity_universe_v2 prefers MOEX board dates; "
-        "candle bounds remain fallback (PARTIAL)"
+        "Survivorship contract historical_equity_universe_v3 = research cohort + seeded delisted inventory (PARTIAL)"
+    )
+    design_notes.append(
+        "Dividend known_at still proxy-dominated (exact publication timestamps unavailable from free lawful feeds)"
+    )
+    design_notes.append(
+        "Entitlement calendar: MOEX ISS SBER TQBR TRADEDATE history (observed sessions); RU workday is fallback"
     )
 
     # Gate logic: build requires broad RAS + non-IR (or mixed) dividend PIT + coverage.

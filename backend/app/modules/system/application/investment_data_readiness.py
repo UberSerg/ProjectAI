@@ -117,9 +117,16 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
 
     # --- Dividends ---
     div_n = _safe_scalar(session, "SELECT COUNT(*) FROM fundamentals.dividend_events")
+    from app.modules.fundamentals.application.dividend_known_at import (
+        dividend_known_at_quality_report,
+    )
     from app.modules.fundamentals.application.dividend_provider import get_dividend_provider
 
     div_ready = get_dividend_provider().readiness()
+    try:
+        known_at_report = dividend_known_at_quality_report(session)
+    except Exception as exc:  # noqa: BLE001
+        known_at_report = {"error": str(exc)[:200]}
     div_status = ReadinessStatus.NOT_READY
     if div_n > 0:
         div_status = ReadinessStatus.PARTIAL
@@ -130,19 +137,25 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
             code="dividends",
             title_ru="Dividends",
             status=div_status,
-            coverage_ru=f"{div_n} dividend_events; provider={div_ready.get('provider')}",
+            coverage_ru=(
+                f"{div_n} events; exact={known_at_report.get('exact_publication_datetime', 0)}, "
+                f"official_date={known_at_report.get('official_publication_date', 0)}, "
+                f"meeting_proxy={known_at_report.get('meeting_proxy', 0)}, "
+                f"record_proxy={known_at_report.get('record_date_proxy', 0)}"
+            ),
             pit_ru=(
-                "IR XLS known_at quality tracked: APPROXIMATE_PUBLICATION_PROXY / "
-                "MEETING_DATE_PROXY / RECORD_DATE_PROXY — not exact disclosure clocks"
+                "known_at quality tracked; exact disclosure timestamps still unavailable "
+                "from lawful free sources"
             ),
             limitation_ru=(
-                "MOEX ISS dividends REJECTED; e-disclosure 403. "
-                "ISSUER_IR_XLS_V1 bounded (MGNT+LKOH); not universe-wide. No LLM extraction."
+                "Bounded IR XLSX (MGNT+LKOH). e-disclosure 403. MOEX sitenews cannot filter "
+                "issuer dividend disclosures. No LLM extraction."
             ),
             dataset_v3="blocker" if div_status == ReadinessStatus.NOT_READY else "partial",
             evidence={
                 "dividend_events": div_n,
                 "provider": div_ready,
+                "known_at_quality": known_at_report,
                 "entitlement": _entitlement_evidence(),
             },
         )
@@ -247,15 +260,17 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
 
     # --- Survivorship ---
     from app.modules.market.application.historical_universe import (
-        HISTORICAL_EQUITY_UNIVERSE_V2,
-        summarize_historical_universe,
+        HISTORICAL_EQUITY_UNIVERSE_V3,
+        summarize_historical_universe_v3,
     )
 
     try:
-        univ = summarize_historical_universe(session, version=HISTORICAL_EQUITY_UNIVERSE_V2)
+        univ = summarize_historical_universe_v3(session)
     except Exception as exc:  # noqa: BLE001
         univ = {"error": str(exc)[:200], "members": 0}
-    univ_n = int(univ.get("members") or univ.get("instrument_count") or 0)
+    univ_n = int(univ.get("members") or 0)
+    hist_n = int(univ.get("historical_inventory_members") or 0)
+    delisted_n = int(univ.get("delisted_or_inactive") or 0)
     auth_n = int(univ.get("authoritative_from_boundaries") or 0)
     proxy_n = int(univ.get("proxy_from_boundaries") or 0)
     domains.append(
@@ -264,15 +279,17 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
             title_ru="Survivorship-free universe",
             status=ReadinessStatus.PARTIAL if univ_n > 0 else ReadinessStatus.NOT_READY,
             coverage_ru=(
-                f"{HISTORICAL_EQUITY_UNIVERSE_V2}: {univ_n} members; "
-                f"authoritative_from={auth_n}, candle_proxy_from={proxy_n}"
+                f"{HISTORICAL_EQUITY_UNIVERSE_V3}: {univ_n} members "
+                f"(research={univ.get('research_cohort_members')}, "
+                f"historical_inventory={hist_n}, delisted/inactive={delisted_n}); "
+                f"authoritative_from={auth_n}, proxy_from={proxy_n}"
                 if univ_n
                 else "contract missing / empty"
             ),
-            pit_ru="universe_as_of(T) excludes securities before eligible_from / after eligible_to",
+            pit_ru="universe_as_of_v3(T) by SECID; research cohort ≠ historical inventory",
             limitation_ru=(
-                "V2 prefers MOEX board listed_from/history_from in InstrumentSource metadata; "
-                "candle first/last remains explicit fallback. Full delisted cohort still incomplete."
+                "V3 adds seeded delisted inventory (e.g. URKA) beyond current 40 research names; "
+                "still not a full MOEX survivorship-free dump."
             ),
             dataset_v3="partial" if univ_n > 0 else "blocker",
             evidence=dict(univ) if isinstance(univ, dict) else {"raw": str(univ)},

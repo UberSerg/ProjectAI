@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
@@ -23,6 +24,7 @@ from app.modules.market.application.research_universe import RESEARCH_EQUITY_V1
 
 HISTORICAL_EQUITY_UNIVERSE_V1 = "historical_equity_universe_v1"
 HISTORICAL_EQUITY_UNIVERSE_V2 = "historical_equity_universe_v2"
+HISTORICAL_EQUITY_UNIVERSE_V3 = "historical_equity_universe_v3"
 
 QUALITY_FIRST_CANDLE = "DERIVED_FROM_FIRST_CANDLE"
 QUALITY_LAST_CANDLE = "DERIVED_FROM_LAST_CANDLE"
@@ -335,5 +337,171 @@ def summarize_historical_universe(
             "PARTIAL"
             if version == HISTORICAL_EQUITY_UNIVERSE_V2 and authoritative_from > 0
             else "PARTIAL"
+        ),
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalUniverseMemberV3:
+    """V3 membership keyed by SECID — may exist outside current research cohort / DB."""
+
+    secid: str
+    instrument_id: int | None
+    eligible_from: date
+    eligible_to: date | None
+    eligible_from_quality: str
+    eligible_to_quality: str
+    status: str
+    in_current_research_cohort: bool
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def includes(self, as_of: date) -> bool:
+        if as_of < self.eligible_from:
+            return False
+        if self.eligible_to is not None and as_of > self.eligible_to:
+            return False
+        return True
+
+
+def _load_inventory_v3() -> list[dict[str, Any]]:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "infrastructure"
+        / "historical_equity_inventory_v3.json"
+    )
+    if not path.is_file():
+        return []
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return list(payload.get("members") or [])
+
+
+def build_historical_equity_universe_v3(
+    session: Session,
+    *,
+    use_research_cohort: bool = True,
+) -> list[HistoricalUniverseMemberV3]:
+    """Combine V2 DB-backed cohort with seeded historical/delisted inventory.
+
+    Research cohort ≠ historical market universe. Inventory members may lack
+    local instruments; they still participate in ``universe_as_of_v3``.
+    """
+    from app.modules.market.application.identity import SOURCE_MOEX, resolve_current_source
+
+    v2_rows = build_historical_equity_universe(
+        session,
+        version=HISTORICAL_EQUITY_UNIVERSE_V2,
+        use_research_cohort=use_research_cohort,
+    )
+    instruments = {
+        int(row.id): row
+        for row in session.scalars(
+            select(Instrument).where(
+                Instrument.id.in_([r.instrument_id for r in v2_rows] or [-1])
+            )
+        )
+    }
+    # Map instrument → current SECID where possible
+    secid_by_iid: dict[int, str] = {}
+    for iid in instruments:
+        src = None
+        for source_name in (SOURCE_MOEX, "MOEX_ISS", "MOEX"):
+            try:
+                src = resolve_current_source(session, iid, source=source_name)
+            except Exception:  # noqa: BLE001
+                src = None
+            if src is not None:
+                break
+        if src is not None and src.external_id:
+            secid_by_iid[iid] = str(src.external_id).upper()
+        elif instruments[iid].symbol:
+            secid_by_iid[iid] = str(instruments[iid].symbol).upper()
+
+    research_secids = set(secid_by_iid.values())
+    out: list[HistoricalUniverseMemberV3] = []
+    for row in v2_rows:
+        secid = secid_by_iid.get(row.instrument_id) or f"ID:{row.instrument_id}"
+        out.append(
+            HistoricalUniverseMemberV3(
+                secid=secid,
+                instrument_id=row.instrument_id,
+                eligible_from=row.eligible_from,
+                eligible_to=row.eligible_to,
+                eligible_from_quality=row.eligible_from_quality,
+                eligible_to_quality=row.eligible_to_quality,
+                status="ACTIVE" if row.eligible_to is None else "INACTIVE",
+                in_current_research_cohort=True,
+                provenance={**row.provenance, "layer": "db_v2"},
+            )
+        )
+
+    for item in _load_inventory_v3():
+        secid = str(item.get("secid") or "").upper()
+        if not secid or secid in research_secids:
+            continue
+        # Prefer DB instrument if present (inactive/delisted still in master)
+        inst = session.scalar(
+            select(Instrument).where(
+                Instrument.symbol == secid,
+                Instrument.asset_class == "equity",
+            )
+        )
+        eligible_from = date.fromisoformat(str(item["eligible_from"])[:10])
+        eligible_to_raw = item.get("eligible_to")
+        eligible_to = (
+            None if eligible_to_raw in (None, "") else date.fromisoformat(str(eligible_to_raw)[:10])
+        )
+        out.append(
+            HistoricalUniverseMemberV3(
+                secid=secid,
+                instrument_id=None if inst is None else int(inst.id),
+                eligible_from=eligible_from,
+                eligible_to=eligible_to,
+                eligible_from_quality=str(item.get("eligible_from_quality") or QUALITY_UNKNOWN),
+                eligible_to_quality=str(item.get("eligible_to_quality") or QUALITY_UNKNOWN),
+                status=str(item.get("status") or "HISTORICAL"),
+                in_current_research_cohort=False,
+                provenance={
+                    "layer": "inventory_v3_seed",
+                    "source": item.get("source"),
+                    "note": item.get("note"),
+                },
+            )
+        )
+    return out
+
+
+def universe_as_of_v3(session: Session, as_of: date) -> list[str]:
+    """SECID list eligible on ``as_of`` under historical_equity_universe_v3."""
+    return [m.secid for m in build_historical_equity_universe_v3(session) if m.includes(as_of)]
+
+
+def summarize_historical_universe_v3(session: Session) -> dict[str, Any]:
+    rows = build_historical_equity_universe_v3(session)
+    if not rows:
+        return {"version": HISTORICAL_EQUITY_UNIVERSE_V3, "members": 0}
+    research = [r for r in rows if r.in_current_research_cohort]
+    historical = [r for r in rows if not r.in_current_research_cohort]
+    delisted = [r for r in rows if r.status.upper() in {"DELISTED", "INACTIVE", "HISTORICAL_INACTIVE_BOARD"}]
+    auth_from = sum(
+        1
+        for r in rows
+        if r.eligible_from_quality in {QUALITY_MOEX_LISTED_FROM, QUALITY_MOEX_HISTORY_FROM}
+    )
+    proxy_from = sum(1 for r in rows if r.eligible_from_quality == QUALITY_FIRST_CANDLE)
+    return {
+        "version": HISTORICAL_EQUITY_UNIVERSE_V3,
+        "members": len(rows),
+        "research_cohort_members": len(research),
+        "historical_inventory_members": len(historical),
+        "delisted_or_inactive": len(delisted),
+        "authoritative_from_boundaries": auth_from,
+        "proxy_from_boundaries": proxy_from,
+        "sample_delisted_secids": [r.secid for r in delisted[:10]],
+        "readiness": "PARTIAL" if historical else "PARTIAL",
+        "note": (
+            "V3 = research cohort (V2 evidence) + seeded historical/delisted inventory. "
+            "Not a full MOEX survivorship-free dump."
         ),
     }
