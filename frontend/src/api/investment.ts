@@ -712,7 +712,11 @@ export interface PortfolioCandidate {
     lot_remainder_rub: string;
     total_cash_rub: string;
     note_ru?: string;
+    constraint_unallocated_rub?: string;
+    lot_rounding_rub?: string;
+    explanation_note_ru?: string;
   };
+  portfolio_explanation?: PortfolioAllocationExplanation;
   rejected_candidates: Array<{
     symbol: string;
     display_name: string;
@@ -786,6 +790,51 @@ export interface PortfolioCandidate {
   empty_states?: Record<string, string>;
   disclaimers_ru?: string[];
   risk_assessment_summary?: string | Record<string, unknown> | null;
+}
+
+export interface PortfolioAllocationExplanation {
+  version: string;
+  summary_ru?: string;
+  target_allocation: {
+    equity_weight: number;
+    fixed_income_weight: number;
+    cash_weight: number;
+    equity_rub?: string;
+    fixed_income_rub?: string;
+    cash_rub?: string;
+  };
+  actual_allocation: {
+    equity_weight: number;
+    fixed_income_weight: number;
+    cash_weight: number;
+    equity_rub?: string;
+    fixed_income_rub?: string;
+    cash_rub?: string;
+  };
+  allocation_deltas?: {
+    equity_weight: number;
+    fixed_income_weight: number;
+    cash_weight: number;
+  };
+  cash_breakdown?: {
+    strategic_cash_rub: string;
+    strategic_cash_weight?: number;
+    constraint_unallocated_rub: string;
+    constraint_unallocated_weight?: number;
+    lot_rounding_rub: string;
+    lot_rounding_weight?: number;
+    total_cash_rub: string;
+    note_ru?: string;
+  };
+  constraints?: Record<string, unknown>;
+  messages: Array<{
+    code: string;
+    sleeve?: string | null;
+    title_ru: string;
+    body_ru: string;
+    significance: string;
+    metrics?: Record<string, unknown>;
+  }>;
 }
 
 export const getCurrentPortfolioCandidate = (

@@ -415,7 +415,11 @@ export function PortfolioCandidatePage() {
             label="Деньги (Cash)"
             value={money(cashRub)}
             helpId="unallocated_capital"
-            hint={`Целевой Cash ${money(candidate.cash.strategic_target_rub)}; остаток лотов ${money(candidate.cash.lot_remainder_rub)}`}
+            hint={
+              candidate.cash.constraint_unallocated_rub != null
+                ? `Стратегический ${money(candidate.cash.strategic_target_rub)}; ограничения ${money(candidate.cash.constraint_unallocated_rub)}; лоты ${money(candidate.cash.lot_rounding_rub ?? candidate.cash.lot_remainder_rub)}`
+                : `Целевой Cash ${money(candidate.cash.strategic_target_rub)}; остаток ${money(candidate.cash.lot_remainder_rub)}`
+            }
           />
           <MetricCard label="Акции" value={money(equityRub)} helpId="portfolio_composition" />
           <MetricCard label="Облигации" value={money(fiRub)} helpId="instrument_selection" />
@@ -433,11 +437,6 @@ export function PortfolioCandidatePage() {
               Фактическое распределение <MetricHelp metricId="portfolio_builder_allocation" />
             </h3>
             <AllocationBars equity={equityW} fixedIncome={fiW} cash={cashW} />
-            <p className="muted">
-              Цель: акции {pct(alloc.equity.target_weight)} · облигации{" "}
-              {pct(alloc.fixed_income.target_weight)} · деньги {pct(alloc.cash.target_weight)}. Факт
-              отличается из‑за целых лотов MOEX.
-            </p>
           </>
         ) : null}
 
@@ -450,6 +449,98 @@ export function PortfolioCandidatePage() {
           </ExplanationCard>
         </div>
       </HeroCard>
+
+      {candidate.portfolio_explanation ? (
+        <section style={{ marginTop: "1.25rem" }}>
+          <h2>
+            Почему именно такой портфель{" "}
+            <MetricHelp metricId="portfolio_allocation_explanation" />
+          </h2>
+          <div className="card-grid" style={{ marginBottom: "1rem" }}>
+            <div className="ds-card">
+              <div className="ds-card-title">План Kraken</div>
+              <AllocationBars
+                equity={candidate.portfolio_explanation.target_allocation.equity_weight}
+                fixedIncome={
+                  candidate.portfolio_explanation.target_allocation.fixed_income_weight
+                }
+                cash={candidate.portfolio_explanation.target_allocation.cash_weight}
+              />
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Акции{" "}
+                {pct(candidate.portfolio_explanation.target_allocation.equity_weight)} · Облигации{" "}
+                {pct(candidate.portfolio_explanation.target_allocation.fixed_income_weight)} · Cash{" "}
+                {pct(candidate.portfolio_explanation.target_allocation.cash_weight)}
+              </p>
+            </div>
+            <div className="ds-card">
+              <div className="ds-card-title">Что получилось</div>
+              <AllocationBars
+                equity={candidate.portfolio_explanation.actual_allocation.equity_weight}
+                fixedIncome={
+                  candidate.portfolio_explanation.actual_allocation.fixed_income_weight
+                }
+                cash={candidate.portfolio_explanation.actual_allocation.cash_weight}
+              />
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Акции {pct(candidate.portfolio_explanation.actual_allocation.equity_weight)} ·
+                Облигации{" "}
+                {pct(candidate.portfolio_explanation.actual_allocation.fixed_income_weight)} · Cash{" "}
+                {pct(candidate.portfolio_explanation.actual_allocation.cash_weight)}
+              </p>
+            </div>
+          </div>
+
+          {candidate.portfolio_explanation.cash_breakdown ? (
+            <div className="card-grid" style={{ marginBottom: "1rem" }}>
+              <MetricCard
+                label="Стратегический Cash"
+                value={money(candidate.portfolio_explanation.cash_breakdown.strategic_cash_rub)}
+                helpId="strategic_cash"
+              />
+              <MetricCard
+                label="Не размещено из‑за ограничений"
+                value={money(
+                  candidate.portfolio_explanation.cash_breakdown.constraint_unallocated_rub,
+                )}
+                helpId="portfolio_allocation_explanation"
+              />
+              <MetricCard
+                label="Остаток лотов"
+                value={money(candidate.portfolio_explanation.cash_breakdown.lot_rounding_rub)}
+                helpId="lot_rounding"
+              />
+            </div>
+          ) : null}
+
+          <h3 style={{ marginTop: 0 }}>Почему есть разница</h3>
+          {candidate.portfolio_explanation.messages?.length ? (
+            <div className="card-grid">
+              {candidate.portfolio_explanation.messages
+                .filter((m) => m.significance === "HIGH" || m.significance === "MEDIUM")
+                .concat(
+                  candidate.portfolio_explanation.messages.filter(
+                    (m) => m.significance === "LOW",
+                  ),
+                )
+                .slice(0, 4)
+                .map((m) => (
+                  <ExplanationCard key={m.code} title={m.title_ru} level={1}>
+                    {m.body_ru}
+                  </ExplanationCard>
+                ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Существенных расхождений нет"
+              reason={
+                candidate.portfolio_explanation.summary_ru ||
+                "Фактический состав близок к плану Kraken."
+              }
+            />
+          )}
+        </section>
+      ) : null}
 
       <h2>Позиции</h2>
       {candidate.positions.length ? (

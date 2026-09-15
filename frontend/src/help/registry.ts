@@ -2021,6 +2021,14 @@ export const HELP_METRICS: Record<string, HelpEntry> = {
     details:
       "Не приказ брокеру. Собирает allocation, отбор инструментов, Risk Gate и целые лоты в один экран.",
   },
+  portfolio_allocation_explanation: {
+    id: "portfolio_allocation_explanation",
+    kind: "metric",
+    title: "Почему именно такой портфель",
+    summary: "Сравнение плана Kraken и фактического состава: ограничения, Cash и лоты.",
+    details:
+      "Объясняет, почему target и actual отличаются: мало подходящих облигаций, лимит концентрации, стратегический Cash, округление лотов. Не меняет состав — только объясняет.",
+  },
   portfolio_builder: {
     id: "portfolio_builder",
     kind: "metric",

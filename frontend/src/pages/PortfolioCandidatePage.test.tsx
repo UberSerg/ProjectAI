@@ -152,6 +152,43 @@ const sample = {
     ],
   },
   empty_states: {},
+  portfolio_explanation: {
+    version: "PORTFOLIO_ALLOCATION_EXPLANATION_V1",
+    summary_ru: "Облигации ограничены лимитом концентрации.",
+    target_allocation: {
+      equity_weight: 0.25,
+      fixed_income_weight: 0.65,
+      cash_weight: 0.1,
+    },
+    actual_allocation: {
+      equity_weight: 0.24,
+      fixed_income_weight: 0.63,
+      cash_weight: 0.13,
+    },
+    cash_breakdown: {
+      strategic_cash_rub: "10000",
+      constraint_unallocated_rub: "0",
+      lot_rounding_rub: "2256",
+      total_cash_rub: "12256",
+    },
+    messages: [
+      {
+        code: "FI_CONCENTRATION_LIMIT",
+        sleeve: "FIXED_INCOME",
+        title_ru: "Облигации: 65% → 29.9%",
+        body_ru:
+          "Kraken планировала направить 65% капитала в облигации, но сейчас требованиям стратегии соответствуют 2 выпуска. Лимит концентрации — не более 15% на один инструмент.",
+        significance: "HIGH",
+      },
+      {
+        code: "EQUITY_LOT_ROUNDING",
+        sleeve: "EQUITY_ALPHA",
+        title_ru: "Акции: 25% → 23.2%",
+        body_ru: "Небольшая разница связана с покупкой только целых биржевых лотов.",
+        significance: "LOW",
+      },
+    ],
+  },
 };
 
 vi.mock("../api/investment", () => ({
@@ -179,6 +216,10 @@ describe("PortfolioCandidatePage / Portfolio Builder", () => {
     expect(screen.getByText("ОФЗ 26238")).toBeInTheDocument();
     expect(screen.getByText("Деньги (Cash)")).toBeInTheDocument();
     expect(screen.getByText("Фактическое распределение")).toBeInTheDocument();
+    expect(screen.getByText("Почему именно такой портфель")).toBeInTheDocument();
+    expect(screen.getByText("План Kraken")).toBeInTheDocument();
+    expect(screen.getByText("Что получилось")).toBeInTheDocument();
+    expect(screen.getByText(/Облигации: 65%/)).toBeInTheDocument();
   });
 
   it("recalculates when user changes capital", async () => {
