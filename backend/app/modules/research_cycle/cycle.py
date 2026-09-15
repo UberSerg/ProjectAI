@@ -146,10 +146,12 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
                 )
             )
             if running is not None:
+                lock.release()
                 return {
                     "status": "BLOCKED",
                     "reason": "ALREADY_RUNNING",
                     "workflow_id": running.id,
+                    "message": "Daily Research Cycle already running in DB",
                 }
             workflow = create_workflow(session, CYCLE_WORKFLOW_TYPE, CYCLE_NAME, CYCLE_STEPS)
             session.commit()

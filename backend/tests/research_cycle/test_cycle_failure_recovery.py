@@ -42,6 +42,23 @@ def recovery_harness(core_db: Session):
     """Patched Daily Research Cycle services with deterministic injectable failures."""
     _bind_flush_only(core_db)
 
+    # Stale RUNNING rows from prior runs/locks must not short-circuit to BLOCKED.
+    from sqlalchemy import select
+
+    stale = list(
+        core_db.scalars(
+            select(Workflow).where(
+                Workflow.workflow_type == CYCLE_WORKFLOW_TYPE,
+                Workflow.status == "RUNNING",
+            )
+        )
+    )
+    for wf in stale:
+        wf.status = "FAILED"
+        wf.error = "test_fixture_cleared_stale_running"
+    if stale:
+        core_db.flush()
+
     state: dict = {
         "candle_keys": set(),
         "analytics_keys": set(),
