@@ -192,6 +192,11 @@ def system_data_coverage() -> dict[str, Any]:
         fundamentals = FundamentalCoverageService(session).store_summary()
         fundamentals_cohort = FundamentalCoverageService(session).cohort_table()
         dataset_v3 = build_dataset_v3_readiness_gate(session)
+        from app.modules.system.application.investment_data_readiness import (
+            build_investment_data_readiness,
+        )
+
+        investment_data_readiness = build_investment_data_readiness(session)
         return {
             "master": master,
             "fixed_income": fi,
@@ -210,6 +215,7 @@ def system_data_coverage() -> dict[str, Any]:
                 "candidate_start_date": dataset_v3.get("candidate_start_date"),
                 "dataset_spec_mutated": False,
             },
+            "investment_data_readiness": investment_data_readiness,
             "prediction_universe": {
                 "code": RESEARCH_EQUITY_V1,
                 "count": len(research_member_ids(session)),
@@ -232,3 +238,14 @@ def system_data_coverage() -> dict[str, Any]:
                 "fi_enrichment_jobs": fi.get("enrichment_jobs") or {},
             },
         }
+
+
+@router.get("/data-readiness")
+def system_data_readiness() -> dict[str, Any]:
+    """Investment Data Readiness V1 — Dataset V3 planning gate (stored evidence only)."""
+    from app.modules.system.application.investment_data_readiness import (
+        build_investment_data_readiness,
+    )
+
+    with core_session() as session:
+        return build_investment_data_readiness(session)

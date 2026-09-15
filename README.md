@@ -85,6 +85,9 @@ Market Data V1
   → Prediction ML Candidate V0 (offline CatBoost walk-forward; MIXED; not champion)
   → Historical Simulator V0 (OOS predictions → RANK_LONG_ONLY_V0 → next-open ledger; no real execution)
   → Simulator Dashboard V0 (research UI for persisted runs; not profitability proof)
+  → Portfolio Builder / Allocation Explanation / Relations visualization (research UI)
+  → Fundamentals RAS FNS GIR BO V1 (industrial PIT store; banks unsupported; dividends NOT_READY)
+  → Investment Data Readiness V1 (Dataset V3 planning gate; measurement only)
 ```
 
 **Target direction (mostly not implemented):**
@@ -97,7 +100,8 @@ PIT Dataset → Prediction Models → Meta Model → Trading Policy → Risk
 
 Historical Simulator V0 implements the research path from OOS predictions through a
 diagnostic Trading Policy / Risk guardrails / Historical Execution Adapter. Dividends,
-historical universe, broker execution, and champion promotion are still deferred.
+historical survivorship-free universe, broker execution, and champion promotion are still deferred.
+Dataset V3 is **not** READY_FOR_BUILD — see System → Data Coverage / `investment-data-readiness-v1.md`.
 
 Simulator Dashboard V0 visualizes persisted simulation runs (NAV vs IMOEX, drawdown,
 positions, fills, cost sensitivity). It does **not** claim Kraken is profitable or ready
