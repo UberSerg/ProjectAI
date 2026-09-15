@@ -26,6 +26,9 @@ from app.modules.investment.domain.composition_config import (
 from app.modules.investment.domain.equity_composition import equity_reason_ru
 from app.modules.investment.domain.fixed_income import TransactionCostProfile
 from app.modules.investment.domain.fixed_income_composition import fi_reason_ru
+from app.modules.investment.domain.portfolio_allocation_explanation import (
+    build_portfolio_allocation_explanation,
+)
 from app.modules.investment.domain.portfolio_candidate import (
     CandidatePosition,
     CashBreakdown,
@@ -330,6 +333,31 @@ def build_portfolio_candidate(
         total_cash_rub=total_cash,
     )
 
+    cal = decision_pack.get("calibration") or {}
+    portfolio_explanation = build_portfolio_allocation_explanation(
+        capital=capital,
+        target_equity_weight=target_eq,
+        target_fi_weight=target_fi,
+        target_cash_weight=target_cash,
+        effective_equity_weight=adj_eq,
+        effective_fi_weight=adj_fi,
+        actual_equity_rub=invested_eq,
+        actual_fi_rub=invested_fi,
+        total_cash_rub=total_cash,
+        strategic_cash_rub=strategic_cash_rub,
+        equity_selected_count=sum(1 for p in positions if p.sleeve == "EQUITY_ALPHA"),
+        fi_selected_count=len(fi_sel.selected),
+        fi_eligible_count=fi_sel.after_filters_count,
+        fi_available_count=fi_sel.available_count,
+        max_single_position_weight=config.max_single_position_weight,
+        confidence_level=str(conf.get("confidence_level") or "") or None,
+        calibration_status=str(cal.get("calibration_status") or "") or None,
+        sample_size=int(conf["sample_size"])
+        if conf.get("sample_size") is not None
+        else (int(cal["sample_size"]) if cal.get("sample_size") is not None else None),
+        confidence_unknown=confidence_unknown,
+    )
+
     allocation = {
         "equity": {
             **build_sleeve_money(capital=capital, target_weight=target_eq, actual_rub=invested_eq).to_dict(),
@@ -355,7 +383,6 @@ def build_portfolio_candidate(
         },
     }
 
-    cal = decision_pack.get("calibration") or {}
     as_of = composed.get("as_of") or decision_pack.get("as_of")
     as_of_date = parse_as_of(as_of)
     stale = False
@@ -456,7 +483,15 @@ def build_portfolio_candidate(
         },
         "allocation": allocation,
         "positions": [p.to_dict() for p in positions],
-        "cash": cash.to_dict(),
+        "cash": {
+            **cash.to_dict(),
+            "constraint_unallocated_rub": portfolio_explanation["cash_breakdown"][
+                "constraint_unallocated_rub"
+            ],
+            "lot_rounding_rub": portfolio_explanation["cash_breakdown"]["lot_rounding_rub"],
+            "explanation_note_ru": portfolio_explanation["cash_breakdown"]["note_ru"],
+        },
+        "portfolio_explanation": portfolio_explanation,
         "rejected_candidates": [r.to_dict() for r in rejected[: config.max_rejected_shown]],
         "warnings": warnings_unique[:12],
         "reasons_ru": reasons[:5],

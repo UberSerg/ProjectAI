@@ -46,6 +46,10 @@ Capital does **not** change:
 
 Deferred. Relations V2 / correlation pair APIs exist for research overlays but are not wired into Candidate construction. Recommended follow-up: `Portfolio Relations Visualization V1`.
 
+## Why target ≠ actual
+
+See `docs/product/portfolio-allocation-explanation-v1.md`. High Cash is often intentional: FI sleeve cannot be filled without violating concentration / eligibility — capital stays in Cash.
+
 ## Disclaimer
 
 Research / advisory Candidate only. No broker execution.
