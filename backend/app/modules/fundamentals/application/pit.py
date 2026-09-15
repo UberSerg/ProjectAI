@@ -133,6 +133,7 @@ def dividend_ref(row: DividendEvent) -> DividendEventRef:
         currency=row.currency,
         version=row.version,
         supersedes_id=row.supersedes_id,
+        metadata=dict(row.metadata_ or {}),
     )
 
 

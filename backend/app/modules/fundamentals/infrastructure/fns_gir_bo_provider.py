@@ -45,6 +45,18 @@ SUPPORT_INDUSTRIAL = "INDUSTRIAL_RAS_V1"
 SUPPORT_BANK = "NOT_SUPPORTED_BY_FNS_RAS_V1"
 SUPPORT_UNMAPPED = "UNMAPPED"
 
+# Live FNS GIR BO advanced-search returns 0 hits for these MOEX PJSC INNs
+# (revalidated 2026-09-15). Do not fuzzy-match subsidiaries by name.
+# Provenance: exact INN query → empty; name search returns unrelated subsidiaries.
+FNS_GIR_BO_NOT_INDEXED_INNS: frozenset[str] = frozenset(
+    {
+        "7706107510",  # ROSN — ПАО НК Роснефть
+        "8401005730",  # GMKN — ПАО ГМК Норильский никель
+        "6316031581",  # NVTK — ПАО НОВАТЭК
+        "7703389295",  # PLZL — ПАО Полюс
+    }
+)
+
 FNS_MAP_EXACT = "EXACT_IDENTIFIER"
 FNS_MAP_VERIFIED = "VERIFIED"
 FNS_MAP_AMBIGUOUS = "AMBIGUOUS"
@@ -370,10 +382,13 @@ def resolve_fns_identity(
     hits = client.search_by_inn(inn)
     exact = [h for h in hits if h.inn == inn]
     if not exact:
+        reason = "FNS_INN_SEARCH_EMPTY"
+        if inn in FNS_GIR_BO_NOT_INDEXED_INNS:
+            reason = "FNS_GIR_BO_NOT_INDEXED"
         return FnsIdentityResolution(
             status=FNS_MAP_UNMAPPED,
             support_status=SUPPORT_UNMAPPED,
-            reason="FNS_INN_SEARCH_EMPTY",
+            reason=reason,
             candidates=tuple(hits),
         )
     if len(exact) > 1:

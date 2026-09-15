@@ -20,6 +20,10 @@ SOURCE_AUDIT_KIND = "FUNDAMENTAL_SOURCE_AUDIT_V1"
 SOURCE_MOEX_ISS = "MOEX_ISS"
 SOURCE_MARKET_CORPORATE_ACTIONS = "MARKET_CORPORATE_ACTIONS"
 SOURCE_FNS_GIR_BO = "FNS_GIR_BO"
+SOURCE_ISSUER_IR_XLS_V1 = "ISSUER_IR_XLS_V1"
+
+# known_at quality markers for dividend disclosures (metadata, not inventing clocks).
+KNOWN_AT_QUALITY_APPROXIMATE_PUBLICATION_PROXY = "APPROXIMATE_PUBLICATION_PROXY"
 
 # Feature set identities. Nothing is materialised into a shared feature table in V1;
 # these codes name the in-memory contracts so a later stage can pin them.
@@ -319,6 +323,7 @@ class DividendEventRef:
     currency: str | None = None
     version: int = 1
     supersedes_id: int | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def series_key(self) -> tuple[int, int, date | None]:
