@@ -3,7 +3,9 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import * as investmentApi from "../api/investment";
+import * as manualApi from "../api/manualPortfolios";
 import * as marketApi from "../api/market";
+import * as relationsApi from "../api/relations";
 import * as shadowApi from "../api/shadow";
 import * as systemApi from "../api/system";
 import * as workflowsApi from "../api/workflows";
@@ -15,9 +17,106 @@ vi.mock("../api/system");
 vi.mock("../api/workflows");
 vi.mock("../api/investment");
 vi.mock("../api/shadow");
+vi.mock("../api/manualPortfolios");
+vi.mock("../api/relations");
+
+const analysisFixture = {
+  portfolio: {
+    id: 1,
+    name: "PRIMARY",
+    source: "MANUAL",
+    base_currency: "RUB",
+    cash_rub: 50000,
+    version: 1,
+    created_at: null,
+    updated_at: null,
+    positions: [{ id: 1, instrument_id: 10, units: 10, average_price: 100, note: null, non_standard_lot: false }],
+  },
+  cash_rub: 50000,
+  market_value_supported: 150000,
+  nav: 200000,
+  positions: [
+    {
+      position_id: 1,
+      instrument_id: 10,
+      symbol: "SBER",
+      units: 10,
+      market_value: 150000,
+      unit_price: 15000,
+      quality: "LIVE",
+      price_source: "LAST",
+      supported: true,
+      detail: {},
+      capabilities: {},
+      suggested_action: "KEEP",
+      research_member: true,
+      weight: 0.75,
+    },
+  ],
+  allocation: [{ symbol: "SBER", weight: 0.75, sleeve: "EQUITY" }],
+  concentration_by_issuer: [
+    { issuer_key: "sber", issuer_title: "Сбербанк", market_value: 150000, weight: 0.75 },
+  ],
+  risk_findings: [
+    {
+      code: "CONCENTRATION",
+      severity: "warning",
+      message: "Высокая концентрация в одном эмитенте",
+      symbol: "SBER",
+    },
+  ],
+  coverage_pct: 1,
+  quality: "LIVE",
+  unsupported_count: 0,
+  advisory: true,
+  note: "Advisory оценка",
+};
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
+    vi.mocked(manualApi.getPrimaryRebalance).mockResolvedValue({
+      advisory: true,
+      persisted_orders: false,
+      nav: 200000,
+      cash: 50000,
+      projected_cash: 40000,
+      plan_rows: [
+        {
+          instrument_id: 10,
+          ticker: "SBER",
+          action: "REDUCE",
+          lots_delta: -1,
+          units_delta: -10,
+          target_weight: 0.4,
+          current_weight: 0.75,
+          estimated_price: 15000,
+          estimated_notional: -150000,
+          lot_size: 10,
+          reason: "Снизить концентрацию относительно кандидата",
+        },
+      ],
+      review_rows: [],
+      diagnostics: {},
+      cash_safe: true,
+    } as never);
+    vi.mocked(manualApi.getPrimaryCompareCandidate).mockResolvedValue({
+      nav: 200000,
+      candidate_source: "preview",
+      comparisons: [],
+      manual_analysis: { coverage_pct: 1, quality: "LIVE", risk_findings: [] },
+    } as never);
+    vi.mocked(relationsApi.getPortfolioRelationsMatrix).mockResolvedValue({
+      symbols: ["SBER"],
+      metric: { label_ru: "Корреляция", window_observations: 60, window_label_ru: "60 дней" },
+      cells: [],
+      summary: {
+        pair_count: 0,
+        available_pair_count: 0,
+        unavailable_pair_count: 0,
+        status: "INSUFFICIENT_DATA",
+      },
+    } as never);
     vi.mocked(shadowApi.getShadowLive).mockResolvedValue({
       kind: "FORWARD_SHADOW",
       intraday_enabled: false,
@@ -40,23 +139,6 @@ describe("DashboardPage", () => {
           live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
         },
       ],
-    });
-    vi.mocked(shadowApi.getShadowDailyOperations).mockResolvedValue({
-      ready_for_next_session: true,
-      status_code: "READY_FOR_NEXT_SESSION",
-      next_session_preparation_status: "READY_FOR_NEXT_SESSION",
-      current_session_status: "PENDING_ORDERS_AWAITING_OPEN",
-      blocker_code: null,
-      latest_complete_eod_date: "2026-09-05",
-      pending_orders: 0,
-      today_summary: {
-        code: "PENDING_ORDERS_AWAITING_OPEN",
-        message_ru: "Есть PENDING-ордера — ждут официальный OPEN следующей сессии.",
-      },
-      next_session_summary: {
-        code: "READY_FOR_NEXT_SESSION",
-        message_ru: "Подготовка к следующей сессии завершена.",
-      },
     });
     vi.mocked(systemApi.getSystemHealth).mockResolvedValue({
       status: "ok",
@@ -113,151 +195,30 @@ describe("DashboardPage", () => {
       calibration: { uncertainty_note: "Мало проверенных прогнозов" },
       bond_safety_reminder: "Высокая доходность может отражать риск",
     } as never);
-    vi.mocked(investmentApi.previewPortfolioCandidate).mockResolvedValue({
-      candidate_id: "pc_test",
-      version: "CONCRETE_PORTFOLIO_CANDIDATE_V1",
-      as_of: "2026-09-05",
-      generated_at: "2026-09-07T00:00:00Z",
-      capital: "100000",
-      currency: "RUB",
-      status: "READY_FOR_RESEARCH",
-      summary: {
-        positions_count: 2,
-        equity_positions: 1,
-        fixed_income_positions: 1,
-        equity_rub: "24000",
-        fixed_income_rub: "63000",
-        cash_rub: "13000",
-        research_only_count: 1,
-        executable_count: 1,
-      },
-      readiness: {
-        mode_ru: "Исследовательский режим",
-        ready_for_real_money: false,
-        banner_ru: "Не готов для реальных денег",
-        reasons_ru: ["Equity confidence: Недостаточно данных"],
-      },
-      allocation: {
-        equity: { target_weight: 0.25, actual_weight: 0.24, target_rub: "25000", actual_rub: "24000" },
-        fixed_income: {
-          target_weight: 0.65,
-          actual_weight: 0.63,
-          target_rub: "65000",
-          actual_rub: "63000",
-        },
-        cash: { target_weight: 0.1, actual_weight: 0.13, target_rub: "10000", actual_rub: "13000" },
-      },
-      positions: [
-        {
-          instrument_id: 1,
-          symbol: "SBER",
-          display_name: "Сбербанк",
-          sleeve: "EQUITY_ALPHA",
-          asset_class: "equity",
-          lots: 8,
-          units: 80,
-          lot_size: 10,
-          reference_price: "300",
-          estimated_notional: "24000",
-          estimated_fees: "12",
-          target_weight: 0.25,
-          actual_weight: 0.24,
-          risk_status: "RESEARCH_ONLY",
-          executable: false,
-          reason_ru: "Research-only equity sleeve pick.",
-          warnings_ru: [],
-          selection_rank: 1,
-        },
-        {
-          instrument_id: 2,
-          symbol: "SU26238RMFS4",
-          display_name: "ОФЗ 26238",
-          sleeve: "FIXED_INCOME",
-          asset_class: "bond",
-          lots: 6,
-          units: 6,
-          lot_size: 1,
-          reference_price: "98.5",
-          dirty_price: "100.2",
-          nkd: "1.7",
-          estimated_notional: "63000",
-          estimated_fees: "30",
-          target_weight: 0.65,
-          actual_weight: 0.63,
-          risk_status: "APPROVED_WITH_WARNINGS",
-          executable: true,
-          reason_ru: "Government bond research pick.",
-          warnings_ru: [],
-          credit_status: "UNKNOWN",
-          bond_type: "ОФЗ",
-          selection_rank: 1,
-        },
-      ],
-      cash: {
-        strategic_target_rub: "10000",
-        strategic_target_weight: 0.1,
-        lot_remainder_rub: "3000",
-        total_cash_rub: "13000",
-      },
-      rejected_candidates: [],
-      warnings: ["Equity confidence неизвестна"],
-      reasons_ru: ["Тестовое объяснение"],
-      money: {
-        starting_capital: "100000",
-        invested: "87000",
-        equity_invested: "24000",
-        fixed_income_invested: "63000",
-        fees: "42",
-        equity_fees: "12",
-        fixed_income_fees: "30",
-        strategic_cash: "10000",
-        lot_remainder: "3000",
-        ending_preview_cash: "13000",
-      },
-      composition: {
-        equity: { selected: 1 },
-        fixed_income: { selected: 1 },
-      },
-      provenance: {
-        candidate_version: "CONCRETE_PORTFOLIO_CANDIDATE_V1",
-        equity_policy: "EQUITY_COMPOSITION_V1",
-        fixed_income_policy: "FIXED_INCOME_COMPOSITION_V1",
-      },
-      benchmark: { cbr_hurdle_annual: 0.18 },
-      decision_quality: {
-        equity_confidence_label_ru: "Недостаточно данных",
-        equity_confidence_reason_ru: "Мало данных",
-      },
-      diff: {
-        has_previous: false,
-        summary_ru: "Это первый сохранённый кандидат портфеля.",
-        changes: [],
-      },
-    } as never);
   });
 
-  it("renders russian overview metrics and real DB statuses", async () => {
+  it("renders dark personal cockpit with portfolio summary and actions", async () => {
     render(
       <MemoryRouter>
         <DashboardPage />
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Обзор")).toBeInTheDocument();
-    expect(await screen.findByText("Живой эксперимент")).toBeInTheDocument();
-    expect(await screen.findByText("43")).toBeInTheDocument();
-    expect(
-      await screen.findByText("Kraken рекомендует исследовательское распределение"),
-    ).toBeInTheDocument();
-    expect(await screen.findByText("Система работает нормально")).toBeInTheDocument();
-    expect(await screen.findByText("Основная БД")).toBeInTheDocument();
-    expect(screen.getByText("База памяти")).toBeInTheDocument();
-    expect(screen.getAllByText("Работает").length).toBeGreaterThanOrEqual(2);
-    expect(await screen.findByText(/2 позиций/)).toBeInTheDocument();
-    expect(screen.getAllByText(/Собрать портфель/).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByTestId("kraken-cockpit")).toBeInTheDocument();
+    expect(await screen.findByText("Обзор портфеля")).toBeInTheDocument();
+    expect(await screen.findByTestId("cockpit-nav")).toBeInTheDocument();
+    expect(await screen.findByTestId("cockpit-allocation")).toBeInTheDocument();
+    expect(await screen.findByTestId("cockpit-performance")).toBeInTheDocument();
+    expect(await screen.findByTestId("cockpit-risk")).toBeInTheDocument();
+    expect(await screen.findByTestId("cockpit-recommendations")).toBeInTheDocument();
+    expect(await screen.findByText("Что Kraken предлагает сделать")).toBeInTheDocument();
+    expect(await screen.findByText(/Сократить SBER/)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Подробнее" }).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByTestId("dashboard-virtual-portfolio")).toBeInTheDocument();
+    expect(await screen.findByText("Недавние события")).toBeInTheDocument();
   });
 
-  it("renders error state", async () => {
-    vi.mocked(marketApi.getMarketSummary).mockRejectedValue(new Error("boom"));
+  it("renders error state when health fails", async () => {
+    vi.mocked(systemApi.getSystemHealth).mockRejectedValue(new Error("boom"));
     render(
       <MemoryRouter>
         <DashboardPage />
@@ -294,13 +255,20 @@ describe("Navigation", () => {
         worker: "ok",
       },
     });
-    vi.mocked(marketApi.getMarketSummary).mockResolvedValue({
-      instruments_count: 0,
-      active_instruments_count: 0,
-      records_count: 0,
-      batches_count: 0,
-      dq_warnings: 0,
-      dq_errors: 0,
+    vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
+    vi.mocked(manualApi.getPrimaryRebalance).mockResolvedValue(null as never);
+    vi.mocked(manualApi.getPrimaryCompareCandidate).mockResolvedValue(null as never);
+    vi.mocked(relationsApi.getPortfolioRelationsMatrix).mockResolvedValue({
+      symbols: [],
+      metric: { label_ru: "", window_observations: 60 },
+      cells: [],
+      summary: { pair_count: 0, available_pair_count: 0, unavailable_pair_count: 0, status: "OK" },
+    } as never);
+    vi.mocked(shadowApi.getShadowLive).mockResolvedValue({
+      kind: "FORWARD_SHADOW",
+      intraday_enabled: false,
+      last_intraday_refresh: null,
+      portfolios: [],
     });
     vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([]);
     vi.mocked(investmentApi.getHurdle).mockResolvedValue(null as never);

@@ -1,225 +1,226 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
   decideInvestment,
   getHurdle,
-  previewPortfolioCandidate,
   type HurdleQuote,
   type InvestmentDecisionResponse,
-  type PortfolioCandidate,
 } from "../api/investment";
-import { getMarketSummary, type MarketSummary } from "../api/market";
-import { getShadowDailyOperations, getShadowLive, type ShadowDailyOperations, type ShadowLiveResponse } from "../api/shadow";
+import {
+  getPrimaryAnalysis,
+  getPrimaryCompareCandidate,
+  getPrimaryRebalance,
+  type ManualCompareCandidate,
+  type ManualPortfolioAnalysis,
+  type ManualRebalancePlan,
+} from "../api/manualPortfolios";
+import { getPortfolioRelationsMatrix } from "../api/relations";
+import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
+import { PageState, StatusBadge } from "../components/Ui";
 import {
-  AllocationBars,
-  DataQualityCard,
-  ExplanationCard,
-  HeroCard,
-  MetricCard,
-  PageHeader,
-  PageState,
-  RiskCard,
-  ServiceDot,
-  StatusBadge,
-  WarningCard,
-} from "../components/Ui";
+  ActionCards,
+  AllocationDonut,
+  CockpitSection,
+  PerformancePanel,
+  RelationsPreview,
+} from "../features/dashboard/DashboardSections";
 import {
-  automationWarningText,
-  mapNextSessionStage,
-  nextSessionPrepCode,
-  nextSessionStageTone,
-  pickPortfolioA,
-  todaySessionHeadline,
-} from "../features/shadow/helpers";
-import { isWorkflowActive, usePolling } from "../hooks/usePolling";
-import { formatDate, formatDuration, formatMoney, formatNumber, formatRelativeTime } from "../utils/format";
-import {
-  DASHBOARD_SERVICES,
-  overviewHealthBadgeStatus,
-  overviewHealthTitle,
-  resolveServiceStatus,
-} from "../utils/health";
+  allocationFromAnalysis,
+  topConcentration,
+  unrealizedPnl,
+} from "../features/dashboard/allocation";
+import { buildKrakenActions } from "../features/dashboard/recommendations";
+import { pickPortfolioA } from "../features/shadow/helpers";
+import { qualityLabel } from "../features/manualPortfolio/labels";
+import { formatDate, formatDuration, formatMoney, formatRelativeTime } from "../utils/format";
+import { overviewHealthBadgeStatus, overviewHealthTitle } from "../utils/health";
 import { labels } from "../utils/labels";
 
-interface DashboardData {
-  health: HealthResponse;
-  market: MarketSummary;
-  workflows: Workflow[];
-  hurdle: HurdleQuote | null;
+interface CockpitData {
+  analysis: ManualPortfolioAnalysis | null;
+  analysisError: string | null;
+  rebalance: ManualRebalancePlan | null;
+  compare: ManualCompareCandidate | null;
   decision: InvestmentDecisionResponse | null;
   decisionError: string | null;
-  candidate: PortfolioCandidate | null;
+  hurdle: HurdleQuote | null;
+  health: HealthResponse;
+  workflows: Workflow[];
+  shadow: ShadowLiveResponse | null;
 }
 
-function pct(weight: number | undefined | null): string {
-  if (weight == null) return "—";
-  return `${(weight * 100).toFixed(0)}%`;
+/** Backend may return coverage as 0..1 or 0..100. */
+function formatCoveragePct(coverage: number | null | undefined): string {
+  if (coverage == null || Number.isNaN(coverage)) return "—";
+  const pct = coverage <= 1.0001 ? coverage * 100 : coverage;
+  return `${pct.toFixed(0)}%`;
 }
 
-function VirtualPortfolioCard() {
-  const [live, setLive] = useState<ShadowLiveResponse | null>(null);
-  const [ops, setOps] = useState<ShadowDailyOperations | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+function shortIssuer(label: string, max = 28): string {
+  const t = label.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
 
-  useEffect(() => {
-    const controller = new AbortController();
-    Promise.all([
-      getShadowLive(controller.signal),
-      getShadowDailyOperations(controller.signal).catch(() => null),
-    ])
-      .then(([resp, dailyOps]) => {
-        setLive(resp);
-        setOps(dailyOps);
-        setErr(null);
-      })
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setErr(errorMessage(reason));
-        }
-      });
-    return () => controller.abort();
-  }, []);
+function heroAdvisoryNote(raw: string | undefined, hurdleRate: number | null | undefined): string {
+  const parts: string[] = [];
+  if (raw && !/risk findings are advisory/i.test(raw)) {
+    parts.push(raw);
+  } else {
+    parts.push("Оценка справочная: котировки где доступны, без исполнения сделок.");
+  }
+  if (hurdleRate != null) {
+    parts.push(`Ключевая ставка ЦБ: ${(hurdleRate * 100).toFixed(2)}%.`);
+  }
+  return parts.join(" ");
+}
 
-  const primary = live ? pickPortfolioA(live.portfolios) ?? live.portfolios[0] : null;
-  const nav = primary?.live_nav ?? primary?.live?.nav ?? primary?.nav ?? primary?.cash;
-  const cash = primary?.live?.cash ?? primary?.cash;
-  const pnl =
-    nav != null && primary?.initial_capital != null
-      ? nav - primary.initial_capital
-      : primary?.live?.unrealized_pnl;
-  const positions = primary?.live?.positions?.length ?? primary?.position_count ?? 0;
-  const quoteAge = live?.last_intraday_refresh?.at ?? null;
-  const today = todaySessionHeadline(ops);
-  const prep = nextSessionPrepCode(ops);
-  const nextStage = mapNextSessionStage(prep);
-  const nextTone = nextSessionStageTone(nextStage);
-  const warning = automationWarningText(ops);
-  const blocked = nextStage === "BLOCKED" || Boolean(warning);
-  const cardTone = blocked ? (nextTone === "error" ? "error" : "warning") : nextTone === "success" ? "success" : "neutral";
-
-  return (
-    <article
-      className={`panel shadow-live-card shadow-live-card-${cardTone}`}
-      data-testid="dashboard-virtual-portfolio"
-    >
-      <h2 style={{ marginTop: 0 }}>Живой эксперимент</h2>
-      {err ? (
-        <p className="muted">Живая оценка временно недоступна.</p>
-      ) : !live ? (
-        <p className="muted">Загрузка…</p>
-      ) : !primary ? (
-        <p className="muted">Shadow ещё не инициализирован.</p>
-      ) : (
-        <>
-          <p style={{ margin: "0.25rem 0" }} data-testid="dashboard-shadow-nav">
-            NAV {formatMoney(nav)}
-            {pnl == null ? "" : ` · P&L ${formatMoney(pnl)}`}
-            {cash == null ? "" : ` · cash ${formatMoney(cash)}`}
-            {` · позиций ${positions}`}
-          </p>
-          <p className="muted" data-testid="dashboard-shadow-today">
-            Сегодня: {today.title}
-          </p>
-          <p className="muted" data-testid="dashboard-shadow-next">
-            Следующая сессия:{" "}
-            <span className={`badge badge-${nextTone}`}>{nextStage}</span>{" "}
-            {labels.nextSessionStage(nextStage)}
-          </p>
-          {warning ? (
-            <p className="banner banner-warning" data-testid="dashboard-automation-warning">
-              {warning}
-            </p>
-          ) : null}
-          <p className="muted">Котировки: {formatRelativeTime(quoteAge)}</p>
-        </>
-      )}
-      <p style={{ marginBottom: 0 }}>
-        <Link to="/shadow" data-testid="dashboard-shadow-cta">
-          Открыть живой эксперимент →
-        </Link>
-      </p>
-    </article>
-  );
+function shadowStatusRu(status: string | undefined): string {
+  if (!status) return "—";
+  const map: Record<string, string> = {
+    ACTIVE: "Активен",
+    WAITING_FOR_FUTURE_MARKET_OPEN: "Ждёт открытия рынка",
+    WAITING_FOR_NEW_MARKET: "Ждёт новые данные",
+  };
+  return map[status] ?? labels.status(status.toLowerCase()) ?? status;
 }
 
 export function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<CockpitData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [whyOpen, setWhyOpen] = useState(false);
+  const [relLoading, setRelLoading] = useState(false);
+  const [relError, setRelError] = useState<string | null>(null);
+  const [relSummary, setRelSummary] = useState<{
+    pairCount: number;
+    available: number;
+    avgAbs: number | null;
+    strongest: string | null;
+  } | null>(null);
 
-  function load() {
+  const load = useCallback(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     Promise.all([
-      getSystemHealth(controller.signal),
-      getMarketSummary(controller.signal),
-      getWorkflows(controller.signal),
-      getHurdle(controller.signal).catch(() => null),
+      getPrimaryAnalysis(controller.signal).catch((reason: unknown) => ({
+        __error: errorMessage(reason),
+      })),
+      getPrimaryRebalance(controller.signal).catch(() => null),
+      getPrimaryCompareCandidate(controller.signal).catch(() => null),
       decideInvestment(
         { profile_id: "BALANCED_ALLOCATION_V0", capital: 100000 },
         controller.signal,
       ).catch((reason: unknown) => ({ __error: errorMessage(reason) })),
-      previewPortfolioCandidate({ capital: 100000 }, controller.signal).catch(() => null),
+      getHurdle(controller.signal).catch(() => null),
+      getSystemHealth(controller.signal).catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
+        throw reason;
+      }),
+      getWorkflows(controller.signal).catch(() => [] as Workflow[]),
+      getShadowLive(controller.signal).catch(() => null),
     ])
-      .then(([health, market, workflows, hurdle, decisionOrError, candidate]) => {
-        const decisionError =
-          decisionOrError && typeof decisionOrError === "object" && "__error" in decisionOrError
-            ? String((decisionOrError as { __error: string }).__error)
-            : null;
-        const decision = decisionError
-          ? null
-          : (decisionOrError as InvestmentDecisionResponse);
-        setData({
-          health,
-          market,
-          workflows,
+      .then(
+        ([
+          analysisOrErr,
+          rebalance,
+          compare,
+          decisionOrErr,
           hurdle,
-          decision,
-          decisionError,
-          candidate: candidate as PortfolioCandidate | null,
-        });
-      })
+          health,
+          workflows,
+          shadow,
+        ]) => {
+          if (controller.signal.aborted) return;
+          const analysisError =
+            analysisOrErr && typeof analysisOrErr === "object" && "__error" in analysisOrErr
+              ? String((analysisOrErr as { __error: string }).__error)
+              : null;
+          const analysis = analysisError
+            ? null
+            : (analysisOrErr as ManualPortfolioAnalysis);
+          const decisionError =
+            decisionOrErr && typeof decisionOrErr === "object" && "__error" in decisionOrErr
+              ? String((decisionOrErr as { __error: string }).__error)
+              : null;
+          const decision = decisionError
+            ? null
+            : (decisionOrErr as InvestmentDecisionResponse);
+          setData({
+            analysis,
+            analysisError,
+            rebalance: rebalance as ManualRebalancePlan | null,
+            compare: compare as ManualCompareCandidate | null,
+            decision,
+            decisionError,
+            hurdle: hurdle as HurdleQuote | null,
+            health: health as HealthResponse,
+            workflows: workflows as Workflow[],
+            shadow: shadow as ShadowLiveResponse | null,
+          });
+          setLoading(false);
+        },
+      )
       .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(errorMessage(reason));
-        }
-      })
-      .finally(() => setLoading(false));
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        setError(errorMessage(reason));
+        setLoading(false);
+      });
     return () => controller.abort();
-  }
-
-  const silentRefresh = useCallback(async () => {
-    const [health, market, workflows] = await Promise.all([
-      getSystemHealth(),
-      getMarketSummary(),
-      getWorkflows(),
-    ]);
-    setData((prev) =>
-      prev
-        ? { ...prev, health, market, workflows }
-        : {
-            health,
-            market,
-            workflows,
-            hurdle: null,
-            decision: null,
-            decisionError: null,
-            candidate: null,
-          },
-    );
   }, []);
 
-  useEffect(() => load(), []);
+  useEffect(() => {
+    const abort = load();
+    return abort;
+  }, [load]);
 
-  const needsPoll = Boolean(data?.workflows.some((item) => isWorkflowActive(item.status)));
-  usePolling(() => silentRefresh(), 10_000, needsPoll && !loading && !error);
+  const symbols = useMemo(() => {
+    if (!data?.analysis) return [] as string[];
+    return data.analysis.positions
+      .map((p) => p.symbol)
+      .filter(Boolean)
+      .slice(0, 12);
+  }, [data?.analysis]);
 
-  if (loading) return <PageState kind="loading" title="Загрузка обзора…" />;
+  const symbolKey = symbols.join(",");
+
+  useEffect(() => {
+    if (!symbols.length) {
+      setRelSummary(null);
+      setRelError(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    setRelLoading(true);
+    setRelError(null);
+    getPortfolioRelationsMatrix({ symbols, window: 60 }, ctrl.signal)
+      .then((m) => {
+        const s = m.summary;
+        const strong = s.strongest_positive;
+        setRelSummary({
+          pairCount: s.pair_count,
+          available: s.available_pair_count,
+          avgAbs: s.average_abs_correlation ?? null,
+          strongest: strong
+            ? `${strong.symbol_a}×${strong.symbol_b} (${strong.pearson.toFixed(2)})`
+            : null,
+        });
+      })
+      .catch((err) => {
+        if (!ctrl.signal.aborted) setRelError(errorMessage(err));
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setRelLoading(false);
+      });
+    return () => ctrl.abort();
+  }, [symbolKey, symbols]);
+
+  if (loading) {
+    return <PageState kind="loading" title="Загрузка личного кабинета Kraken…" />;
+  }
   if (error || !data) {
     return (
       <PageState
@@ -236,218 +237,290 @@ export function DashboardPage() {
     );
   }
 
+  const analysis = data.analysis;
+  const emptyPortfolio =
+    Boolean(analysis) && analysis!.positions.length === 0 && analysis!.cash_rub <= 0;
+  const weights = analysis
+    ? allocationFromAnalysis(analysis)
+    : { equity: 0, fixedIncome: 0, cash: 0 };
+  const pnl = analysis ? unrealizedPnl(analysis) : null;
+  const invested = analysis?.market_value_supported ?? null;
+  const nav = analysis?.nav ?? null;
+  const cash = analysis?.cash_rub ?? null;
+  const concentration = analysis ? topConcentration(analysis) : null;
+  const cashShare = analysis && analysis.nav > 0 ? analysis.cash_rub / analysis.nav : null;
+  const riskCount = analysis?.risk_findings?.length ?? 0;
+  const coverage = analysis?.coverage_pct;
+
+  const actions = buildKrakenActions({
+    analysis,
+    rebalance: data.rebalance,
+    compare: data.compare,
+    decision: data.decision,
+  });
+
   const recent = [...data.workflows]
     .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
-    .slice(0, 8);
-  const decision = data.decision?.decision;
-  const equityW = decision?.equity_weight ?? 0;
-  const fiW = decision?.fixed_income_weight ?? 0;
-  const cashW = decision?.cash_weight ?? 0;
-  const risks = [
-    ...(decision?.warnings ?? []),
-    ...(data.decision?.bond_safety_reminder ? [data.decision.bond_safety_reminder] : []),
-  ].slice(0, 4);
+    .slice(0, 6);
+
+  const shadowPrimary = data.shadow
+    ? pickPortfolioA(data.shadow.portfolios) ?? data.shadow.portfolios[0]
+    : null;
+  const shadowNav =
+    shadowPrimary?.live_nav ?? shadowPrimary?.live?.nav ?? shadowPrimary?.nav ?? null;
+
+  const deltaClass =
+    pnl == null ? "flat" : pnl > 0 ? "up" : pnl < 0 ? "down" : "flat";
 
   return (
-    <section>
-      <PageHeader
-        title={labels.nav.overview}
-        description="За несколько секунд: что предлагает Kraken, почему и какие риски."
-        helpPageId="overview"
-      />
-
-      <HeroCard
-        eyebrow="Текущее решение"
-        headline={
-          decision
-            ? "Kraken рекомендует исследовательское распределение"
-            : "Решение пока недоступно"
-        }
-        actions={
-          <>
-            <button type="button" className="why-toggle" onClick={() => setWhyOpen((v) => !v)}>
-              {whyOpen ? "Скрыть «Почему?»" : "Почему?"}
-            </button>
-            <Link className="why-toggle" to="/portfolio/candidate?capital=100000">
-              Собрать портфель
-            </Link>
-            <Link className="why-toggle" to="/investment-decision">
-              Открыть решение
-            </Link>
-            <Link className="why-toggle" to="/portfolio-risk">
-              Проверка риска
-            </Link>
-          </>
-        }
-      >
-        {decision ? (
-          <>
-            <AllocationBars equity={equityW} fixedIncome={fiW} cash={cashW} />
-            <p className="muted" style={{ margin: 0 }}>
-              Акции {pct(equityW)} · Облигации {pct(fiW)} · Деньги {pct(cashW)}. Это research-кандидат
-              на 100 000 ₽, не приказ брокеру.
-            </p>
-          </>
-        ) : (
-          <p className="muted" style={{ margin: 0 }}>
-            {data.decisionError ??
-              "Пока нет готового инвестиционного решения. Откройте раздел «Инвестиционное решение»."}
+    <div className="cockpit" data-testid="kraken-cockpit">
+      <header className="cockpit-topbar">
+        <div>
+          <p className="cockpit-kicker">Kraken · личный кабинет</p>
+          <h1 className="cockpit-title">Обзор портфеля</h1>
+          <p className="cockpit-sub">
+            Стоимость, структура, риски и предложения — по текущим данным.
           </p>
-        )}
-        <div className="reveal-panel" hidden={!whyOpen}>
-          <div className="level-stack">
-            <ExplanationCard title="Простыми словами" level={1}>
-              {decision?.explanations?.[0] ??
-                "Kraken сравнивает возможности акций и облигаций с ключевой ставкой ЦБ и учитывает уверенность модели."}
-            </ExplanationCard>
-            <div className="card-grid">
-              <MetricCard
-                label="Ключевая ставка ЦБ"
-                value={
-                  data.hurdle?.annual_rate == null
-                    ? "Нет данных"
-                    : `${(data.hurdle.annual_rate * 100).toFixed(2)}%`
-                }
-                helpId="cbr_hurdle"
-                hint="Порог сравнения, не «безрисковый депозит»."
-              />
-              <MetricCard
-                label="Уверенность модели"
-                value={data.decision?.equity_opportunity?.calibration_status ?? "UNKNOWN"}
-                helpId="opportunity_confidence"
-              />
-              <MetricCard
-                label="Статус решения"
-                value={<StatusBadge status={decision?.status ?? "unknown"} />}
-                helpId="investment_decision"
-              />
+        </div>
+        <div className="cockpit-health-quiet">
+          <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
+          <p className="muted">{overviewHealthTitle(data.health)}</p>
+        </div>
+      </header>
+
+      {/* 1. HERO */}
+      <section className="cockpit-card cockpit-card-hero" data-testid="cockpit-hero">
+        <p className="cockpit-hero-label">Стоимость портфеля</p>
+        {data.analysisError ? (
+          <div className="cockpit-empty">{data.analysisError}</div>
+        ) : emptyPortfolio ? (
+          <div>
+            <p className="cockpit-hero-value">—</p>
+            <p className="cockpit-hero-note">
+              Портфель пока пуст. Добавьте позиции или кэш в «Мой портфель», чтобы увидеть оценку.
+            </p>
+            <div className="cockpit-footer-links">
+              <Link className="button" to="/portfolio/mine">
+                Открыть мой портфель
+              </Link>
             </div>
           </div>
-        </div>
-      </HeroCard>
-
-      {data.candidate ? (
-        <div className="ds-card ds-card-hero">
-          <div className="ds-card-title">Портфель Kraken</div>
-          <div className="ds-card-headline">
-            {data.candidate.summary?.positions_count ?? data.candidate.positions.length} позиций ·{" "}
-            {data.candidate.as_of ?? "сейчас"} · {data.candidate.status}
-          </div>
-          <AllocationBars
-            equity={data.candidate.allocation.equity.actual_weight}
-            fixedIncome={data.candidate.allocation.fixed_income.actual_weight}
-            cash={data.candidate.allocation.cash.actual_weight}
-          />
-          <p className="muted">
-            {(data.candidate.warnings || []).slice(0, 2).join(" ") ||
-              data.candidate.readiness.banner_ru}
-          </p>
-          <div className="page-actions" style={{ marginTop: "0.75rem" }}>
-            <Link className="why-toggle" to="/portfolio/candidate?capital=100000">
-              Собрать портфель на 100 000 ₽
-            </Link>
-          </div>
-        </div>
-      ) : null}
-
-      <VirtualPortfolioCard />
-
-      <div className="card-grid">
-        <RiskCard title="Риски прямо сейчас">
-          {risks.length ? (
-            <ul className="plain-list">
-              {risks.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>Явных предупреждений в текущем решении нет — это не значит «без риска».</p>
-          )}
-        </RiskCard>
-        <WarningCard title="Доверие к прогнозу">
-          <p>
-            {data.decision?.calibration.uncertainty_note ??
-              "Без достаточного числа проверенных прогнозов Kraken не притворяется уверенным."}
-          </p>
-          <p>
-            <Link to="/calibration">Смотреть качество прогнозов →</Link>
-          </p>
-        </WarningCard>
-        <DataQualityCard title="Контекст рынка">
-          <p>
-            Ставка ЦБ:{" "}
-            {data.hurdle?.annual_rate == null
-              ? "нет данных"
-              : `${(data.hurdle.annual_rate * 100).toFixed(2)}%`}
-          </p>
-          <p>Инструментов: {formatNumber(data.market.instruments_count)}</p>
-          <p>Последние данные: {formatDate(data.market.last_successful_update ?? null)}</p>
-          <p>Свежесть: {labels.dataFreshness(data.market.last_successful_update ?? null)}</p>
-        </DataQualityCard>
-      </div>
-
-      <div className="hero-status">
-        <div>
-          <h2 style={{ margin: 0 }}>Kraken</h2>
-          <p className="subtitle">{overviewHealthTitle(data.health)}</p>
-        </div>
-        <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
-      </div>
-
-      <h2>Рыночные данные</h2>
-      <div className="card-grid">
-        <MetricCard label="Инструментов" value={formatNumber(data.market.instruments_count)} />
-        <MetricCard label="Свечей" value={formatNumber(data.market.records_count)} />
-        <MetricCard label="Рядов ЦБ" value={formatNumber(data.market.series_count ?? 0)} />
-        <MetricCard
-          label="Последние данные"
-          value={formatDate(data.market.last_successful_update ?? null)}
-        />
-      </div>
-
-      <h2>Сервисы</h2>
-      <div className="card-grid">
-        {DASHBOARD_SERVICES.map((service) => (
-          <article className="metric-card" key={service}>
-            <span className="metric-label">{labels.service(service)}</span>
-            <ServiceDot status={resolveServiceStatus(data.health.services, service)} />
-          </article>
-        ))}
-      </div>
-
-      <h2>Недавние процессы</h2>
-      <div className="card">
-        {recent.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Процесс</th>
-                  <th>Статус</th>
-                  <th>Начало</th>
-                  <th>Длительность</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <Link to="/workflows">{labels.workflowType(item.workflow_type)}</Link>
-                    </td>
-                    <td>
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td>{formatDate(item.started_at)}</td>
-                    <td>{formatDuration(item.duration_seconds)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         ) : (
-          <p className="muted">Пока нет завершённых процессов — это нормально для тихого окна.</p>
+          <>
+            <p className="cockpit-hero-value" data-testid="cockpit-nav">
+              {formatMoney(nav)}
+            </p>
+            <div className={`cockpit-hero-delta ${deltaClass}`} data-testid="cockpit-pnl">
+              {pnl == null ? (
+                <span>Результат: нет себестоимости для расчёта</span>
+              ) : (
+                <span>
+                  {pnl >= 0 ? "+" : ""}
+                  {formatMoney(pnl)}
+                  {invested && invested > 0
+                    ? ` · ${((pnl / invested) * 100).toFixed(1)}% к вложенному`
+                    : ""}
+                </span>
+              )}
+            </div>
+            <div className="cockpit-metric-strip">
+              <div className="cockpit-metric">
+                <span className="cockpit-metric-label">Кэш</span>
+                <span className="cockpit-metric-value">{formatMoney(cash)}</span>
+              </div>
+              <div className="cockpit-metric">
+                <span className="cockpit-metric-label">Вложено</span>
+                <span className="cockpit-metric-value">{formatMoney(invested)}</span>
+              </div>
+              <div className="cockpit-metric">
+                <span className="cockpit-metric-label">Позиций</span>
+                <span className="cockpit-metric-value">{analysis?.positions.length ?? 0}</span>
+              </div>
+              <div className="cockpit-metric">
+                <span className="cockpit-metric-label">Качество цен</span>
+                <span className="cockpit-metric-value" style={{ fontSize: "0.92rem" }}>
+                  {qualityLabel(analysis?.quality)}
+                  {coverage != null ? ` · ${formatCoveragePct(coverage)}` : ""}
+                </span>
+              </div>
+            </div>
+            <p className="cockpit-hero-note">
+              {heroAdvisoryNote(analysis?.note, data.hurdle?.annual_rate)}
+            </p>
+          </>
         )}
+      </section>
+
+      {/* 2+3 Allocation + Performance */}
+      <div className="cockpit-grid">
+        <CockpitSection
+          title="Структура активов"
+          action={
+            <Link className="cockpit-card-link" to="/portfolio/mine">
+              Детали →
+            </Link>
+          }
+        >
+          {!analysis || emptyPortfolio ? (
+            <div className="cockpit-empty">Нет позиций для распределения.</div>
+          ) : (
+            <AllocationDonut weights={weights} />
+          )}
+        </CockpitSection>
+
+        <CockpitSection title="Динамика капитала">
+          <PerformancePanel nav={emptyPortfolio ? null : nav} invested={invested} />
+        </CockpitSection>
       </div>
-    </section>
+
+      {/* 4+5 Risk + Relations */}
+      <div className="cockpit-grid">
+        <CockpitSection
+          title="Здоровье портфеля"
+          testId="cockpit-risk"
+          action={
+            <Link className="cockpit-card-link" to="/portfolio-risk">
+              Риски →
+            </Link>
+          }
+        >
+          {!analysis || emptyPortfolio ? (
+            <div className="cockpit-empty">Нет данных для сводки рисков.</div>
+          ) : (
+            <>
+              <div className="cockpit-stat-grid">
+                <div className="cockpit-stat">
+                  <span>Доля кэша</span>
+                  <strong>
+                    {cashShare == null ? "—" : `${(cashShare * 100).toFixed(0)}%`}
+                  </strong>
+                </div>
+                <div className="cockpit-stat">
+                  <span>Концентрация</span>
+                  <strong
+                    title={
+                      concentration
+                        ? `${(concentration.weight * 100).toFixed(0)}% · ${concentration.label}`
+                        : undefined
+                    }
+                  >
+                    {concentration
+                      ? `${(concentration.weight * 100).toFixed(0)}% · ${shortIssuer(concentration.label)}`
+                      : "—"}
+                  </strong>
+                </div>
+                <div className="cockpit-stat">
+                  <span>Предупреждения</span>
+                  <strong>{riskCount}</strong>
+                </div>
+                <div className="cockpit-stat">
+                  <span>Покрытие цен</span>
+                  <strong>{formatCoveragePct(coverage)}</strong>
+                </div>
+              </div>
+              {analysis.risk_findings.slice(0, 3).length ? (
+                <ul className="plain-list" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+                  {analysis.risk_findings.slice(0, 3).map((f) => (
+                    <li key={`${f.code}-${f.symbol ?? f.message}`}>{f.message}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="cockpit-stat-note">
+                  Явных предупреждений нет — это не гарантия отсутствия риска.
+                </p>
+              )}
+            </>
+          )}
+        </CockpitSection>
+
+        <CockpitSection title="Связи и диверсификация" testId="cockpit-relations-section">
+          <RelationsPreview
+            pairCount={relSummary?.pairCount ?? null}
+            available={relSummary?.available ?? null}
+            avgAbs={relSummary?.avgAbs ?? null}
+            strongest={relSummary?.strongest ?? null}
+            loading={relLoading}
+            error={relError}
+          />
+        </CockpitSection>
+      </div>
+
+      {/* 6. Recommendations */}
+      <CockpitSection
+        title="Что Kraken предлагает сделать"
+        testId="cockpit-recommendations"
+        action={
+          <Link className="cockpit-card-link" to="/investment-decision">
+            Решение →
+          </Link>
+        }
+      >
+        {data.decisionError && !actions.length ? (
+          <div className="cockpit-empty">{data.decisionError}</div>
+        ) : (
+          <ActionCards cards={actions} />
+        )}
+      </CockpitSection>
+
+      {/* 7. Journal + shadow note */}
+      <div className="cockpit-grid">
+        <CockpitSection
+          title="Недавние события"
+          testId="cockpit-journal"
+          action={
+            <Link className="cockpit-card-link" to="/workflows">
+              Все процессы →
+            </Link>
+          }
+        >
+          {recent.length ? (
+            <div className="cockpit-journal">
+              {recent.map((item) => (
+                <div className="cockpit-journal-row" key={item.id}>
+                  <span className="cockpit-journal-time">{formatDate(item.started_at)}</span>
+                  <span>
+                    <Link to="/workflows">{labels.workflowType(item.workflow_type)}</Link>
+                    <span className="muted"> · {formatDuration(item.duration_seconds)}</span>
+                  </span>
+                  <StatusBadge status={item.status} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="cockpit-empty">Пока нет зафиксированных процессов.</div>
+          )}
+        </CockpitSection>
+
+        <CockpitSection title="Живой эксперимент" testId="dashboard-virtual-portfolio">
+          {!shadowPrimary ? (
+            <div className="cockpit-empty">Живой эксперимент ещё не запущен.</div>
+          ) : (
+            <>
+              <div className="cockpit-stat-grid">
+                <div className="cockpit-stat">
+                  <span>NAV эксперимента</span>
+                  <strong data-testid="dashboard-shadow-nav">{formatMoney(shadowNav)}</strong>
+                </div>
+                <div className="cockpit-stat">
+                  <span>Статус</span>
+                  <strong style={{ fontSize: "0.9rem" }}>
+                    {shadowStatusRu(shadowPrimary.status)}
+                  </strong>
+                </div>
+              </div>
+              <p className="cockpit-stat-note">
+                Отдельный forward-эксперимент — не ваш личный портфель. Котировки:{" "}
+                {formatRelativeTime(data.shadow?.last_intraday_refresh?.at ?? null)}.
+              </p>
+              <div className="cockpit-footer-links">
+                <Link className="button secondary" to="/shadow" data-testid="dashboard-shadow-cta">
+                  Открыть эксперимент
+                </Link>
+              </div>
+            </>
+          )}
+        </CockpitSection>
+      </div>
+    </div>
   );
 }

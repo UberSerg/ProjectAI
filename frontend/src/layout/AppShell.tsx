@@ -62,13 +62,13 @@ export function AppShell() {
   return (
     <ToastProvider>
       <HelpProvider>
-        <div className="layout">
+        <div className="layout" data-theme="dark" data-product="kraken-personal-v1">
           <aside className="sidebar sidebar-compact">
             <div className="brand">
               <span className="brand-mark">K</span>
               <div className="brand-copy">
                 <span className="brand-name">Kraken</span>
-                <span className="brand-tag">инвестиционный помощник</span>
+                <span className="brand-tag">личный кабинет</span>
               </div>
             </div>
             <nav className="sidebar-nav" data-testid="primary-nav">

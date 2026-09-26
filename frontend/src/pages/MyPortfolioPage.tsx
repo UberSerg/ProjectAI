@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
   getCatalogInstrument,
@@ -226,11 +226,21 @@ function AddInstrumentModal({
 }
 
 export function MyPortfolioPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const initialTab: Tab =
+    tabFromUrl === "analysis" ||
+    tabFromUrl === "payments" ||
+    tabFromUrl === "compare" ||
+    tabFromUrl === "rebalance" ||
+    tabFromUrl === "holdings"
+      ? tabFromUrl
+      : "holdings";
   const [analysis, setAnalysis] = useState<ManualPortfolioAnalysis | null>(null);
   const [catalogBySymbol, setCatalogBySymbol] = useState<Record<string, CatalogInstrumentDetail>>({});
   const [compare, setCompare] = useState<ManualCompareCandidate | null>(null);
   const [rebalance, setRebalance] = useState<ManualRebalancePlan | null>(null);
-  const [tab, setTab] = useState<Tab>("holdings");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -238,6 +248,27 @@ export function MyPortfolioPage() {
   const [cashBusy, setCashBusy] = useState(false);
   const [cashflows, setCashflows] = useState<PortfolioCashflows | null>(null);
   const [fundCoverage, setFundCoverage] = useState<PortfolioFundamentalCoverage | null>(null);
+  const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (
+      t === "analysis" ||
+      t === "payments" ||
+      t === "compare" ||
+      t === "rebalance" ||
+      t === "holdings"
+    ) {
+      setTab(t);
+    }
+  }, [searchParams]);
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", next);
+    setSearchParams(params, { replace: true });
+  }
 
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await getPrimaryAnalysis(signal);
@@ -463,7 +494,7 @@ export function MyPortfolioPage() {
             key={id}
             type="button"
             className={`tab${tab === id ? " active" : ""}`}
-            onClick={() => setTab(id)}
+            onClick={() => selectTab(id)}
             data-testid={`tab-${id}`}
           >
             {label}
@@ -928,8 +959,8 @@ export function MyPortfolioPage() {
                 <MetricCard label="Кэш сейчас" value={moneyRub(rebalance.cash)} />
                 <MetricCard label="Кэш после" value={moneyRub(rebalance.projected_cash)} />
                 <MetricCard
-                  label="Cash-safe"
-                  value={rebalance.cash_safe ? "Да" : "Нет"}
+                  label="Запас ликвидности"
+                  value={rebalance.cash_safe ? "Достаточный" : "Риск нехватки"}
                 />
               </div>
               <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
@@ -947,9 +978,26 @@ export function MyPortfolioPage() {
                   </thead>
                   <tbody>
                     {rebalance.plan_rows.map((row) => (
-                      <tr key={`${row.ticker}-${row.action}`}>
+                      <tr
+                        key={`${row.ticker}-${row.action}`}
+                        data-focus={focusSymbol === row.ticker.toUpperCase() ? "true" : undefined}
+                        style={
+                          focusSymbol === row.ticker.toUpperCase()
+                            ? { background: "rgba(77, 143, 255, 0.12)" }
+                            : undefined
+                        }
+                      >
                         <td className="mono">{row.ticker}</td>
-                        <td>{row.action}</td>
+                        <td>
+                          {(() => {
+                            const a = (row.action || "").toUpperCase();
+                            if (a.includes("BUY") || a.includes("INCREASE")) return "Докупить";
+                            if (a.includes("SELL") || a.includes("REDUCE") || a.includes("EXIT"))
+                              return "Сократить";
+                            const labeled = suggestedActionLabel(row.action);
+                            return labeled !== "—" ? labeled : row.action;
+                          })()}
+                        </td>
                         <td>{row.lots_delta}</td>
                         <td>{row.units_delta}</td>
                         <td>{pctWeight(row.target_weight)}</td>
