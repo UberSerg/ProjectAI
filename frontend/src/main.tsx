@@ -6,6 +6,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { reportClientError } from "./api/system";
 import "./styles.css";
 import "./design-system.css";
+import "./styles/kraken-dark.css";
 
 function installGlobalErrorHandlers() {
   window.addEventListener("error", (event) => {

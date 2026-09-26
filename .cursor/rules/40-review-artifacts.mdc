@@ -1,0 +1,149 @@
+---
+description: Review artifacts lifecycle — publish screenshots/diagnostics for PR review without polluting main
+alwaysApply: true
+---
+
+# Review Artifacts Lifecycle
+
+After every substantial feature / PR iteration — especially UI/frontend or any
+change that can be verified visually or via diagnostics — publish **review
+artifacts** so a GitHub curator can inspect results without local machine access.
+
+Local paths under `.tmp/` are **not** sufficient. Artifacts must be committed and
+**pushed** to GitHub.
+
+## Branch isolation (hard rule)
+
+- Use the long-lived branch: `review-artifacts`.
+- Do **not** commit review screenshots/diagnostics into the feature branch unless
+  the task explicitly requires documentation images in `main`.
+- Do **not** merge `review-artifacts` into feature PRs or `main`.
+- Artifacts must not affect production build, Docker images, or runtime.
+
+## Directory layout
+
+```text
+review-artifacts/pr-<PR_NUMBER>-<short-slug>/
+```
+
+Example: `review-artifacts/pr-59-dark-dashboard/`
+
+If the PR number is unknown yet:
+
+```text
+review-artifacts/pending-<feature-slug>/
+```
+
+Rename/move to `pr-<N>-…` after the PR exists.
+
+## File naming
+
+Names must explain what is shown. Prefer numbered prefixes for sequential review:
+
+- Good: `01-dashboard-overview.png`, `02-recommendations.png`, `before-dashboard.png`
+- Bad: `screen1.png`, `test.png`, `final2.png`, `image.png`
+
+## What to store
+
+**UI/frontend minimum:**
+
+- primary final screen / full overview;
+- important changed states;
+- bug-fix states (focus, empty, error, active tab, etc.);
+- before/after when it helps judgment.
+
+**Backend/data:** only when artifacts materially help review.
+
+Allowed: `.png`, `.jpg`, small `.txt`, `.json`, `.md`, compact diagnostics.
+
+**Never store:** secrets, `.env`, tokens, personal data, DB dumps, huge logs,
+`node_modules`, build output, junk, multi‑hundred‑MB files.
+
+## Manifest (required)
+
+Each PR directory must contain `README.md`:
+
+```markdown
+# Review artifacts — PR #<number>
+
+## Feature
+Short task name.
+
+## Commit
+Feature commit / HEAD the artifacts belong to.
+
+## Artifacts
+
+| File | What it shows |
+|---|---|
+| `01-….png` | … |
+
+## Notes
+What to verify visually.
+```
+
+Keep it short — a map for the curator, not a full report.
+
+## Publish workflow
+
+1. Capture artifacts (browser / tooling).
+2. Check out / update branch `review-artifacts` (create from `main` if missing).
+3. Place files under `review-artifacts/pr-<N>-<slug>/` + `README.md`.
+4. Commit: `chore(review-artifacts): publish PR #<N> <slug>`
+5. Push `origin/review-artifacts`.
+6. Record branch + commit SHA + directory in the Final Report and PR description.
+
+Helper (optional): `scripts/review-artifacts/publish.ps1`
+
+## Final Report contract (mandatory)
+
+Every subsequent Final Report **must** include:
+
+```markdown
+## Review artifacts
+
+- PR: #<N>
+- Branch: `review-artifacts`
+- Commit: `<sha>`
+- Directory: `review-artifacts/pr-<N>-<slug>/`
+
+Key files:
+- `01-….png` — …
+```
+
+If not applicable:
+
+`Review artifacts: N/A — non-visual change`
+
+(must be explicit).
+
+## PR description
+
+For visual/frontend PRs add a short section:
+
+```markdown
+## Review artifacts
+
+`review-artifacts/pr-<N>-<slug>/` on branch `review-artifacts`
+```
+
+Do not dump dozens of images into the PR body.
+
+## Cleanup lifecycle
+
+Delete `review-artifacts/pr-<N>-<slug>/` **only when all** are true:
+
+1. PR is merged **or** finally closed;
+2. required CI/CD finished successfully (or close reason is recorded and no further review);
+3. no open review task still depends on these artifacts.
+
+Then commit: `chore(review-artifacts): clean PR #<N>` and push.
+
+Do **not** clean while PR is in review, CI is red/pending, or curator still needs the files.
+
+Helper (optional): `scripts/review-artifacts/cleanup.ps1`
+
+## Interaction with `.tmp`
+
+Local scratch stays in `.tmp/` (gitignored). Publishing copies selected files into
+`review-artifacts/` on the `review-artifacts` branch only.

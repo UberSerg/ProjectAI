@@ -59,5 +59,6 @@ At completion report:
 - Deviations
 - Issues
 - Possible follow-ups
+- **Review artifacts** (mandatory — see `.cursor/rules/40-review-artifacts.mdc`)
 
 Then stop and wait for the next task.

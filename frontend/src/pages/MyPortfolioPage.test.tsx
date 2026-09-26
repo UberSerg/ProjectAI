@@ -338,7 +338,7 @@ describe("MyPortfolioPage", () => {
     await screen.findByTestId("my-portfolio-hero");
     fireEvent.click(screen.getByTestId("tab-rebalance"));
     expect(await screen.findByText(/Расчётный план, не заявки/i)).toBeInTheDocument();
-    expect(screen.getByText("SELL")).toBeInTheDocument();
+    expect(screen.getByText("Сократить")).toBeInTheDocument();
   });
 
   it("shows portfolio credit intelligence on analysis tab", async () => {
