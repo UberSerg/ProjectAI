@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as forwardApi from "../api/forward";
 import * as intradayApi from "../api/intraday";
@@ -421,7 +421,15 @@ async function expandResearchDetails() {
 describe("ShadowPage", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // Freeze calendar so age-based UX (few observations < 20d) stays deterministic.
+    // Fixture activated_at is 2026-09-04; wall clock around 2026-09-26 would hide the banner.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-08T12:00:00.000Z"));
     mockHappyPath();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("loads live experiment with waiting session status and pending reasons", async () => {
