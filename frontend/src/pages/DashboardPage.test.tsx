@@ -9,8 +9,18 @@ import * as relationsApi from "../api/relations";
 import * as shadowApi from "../api/shadow";
 import * as systemApi from "../api/system";
 import * as workflowsApi from "../api/workflows";
+import { KrakenRoleProvider } from "../role/KrakenRoleContext";
+import { ROLE_STORAGE_KEY } from "../role/types";
 import { DashboardPage } from "./DashboardPage";
 import { PortfolioPage } from "./PortfolioPage";
+
+function renderWithRole(ui: React.ReactNode) {
+  return render(
+    <MemoryRouter>
+      <KrakenRoleProvider>{ui}</KrakenRoleProvider>
+    </MemoryRouter>,
+  );
+}
 
 vi.mock("../api/market");
 vi.mock("../api/system");
@@ -74,6 +84,7 @@ const analysisFixture = {
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
     vi.mocked(manualApi.getPrimaryRebalance).mockResolvedValue({
       advisory: true,
@@ -198,11 +209,7 @@ describe("DashboardPage", () => {
   });
 
   it("renders dark personal cockpit with portfolio summary and actions", async () => {
-    render(
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>,
-    );
+    renderWithRole(<DashboardPage />);
     expect(await screen.findByTestId("kraken-cockpit")).toBeInTheDocument();
     expect(await screen.findByText("Обзор портфеля")).toBeInTheDocument();
     expect(await screen.findByTestId("cockpit-nav")).toBeInTheDocument();
@@ -219,22 +226,23 @@ describe("DashboardPage", () => {
 
   it("renders error state when health fails", async () => {
     vi.mocked(systemApi.getSystemHealth).mockRejectedValue(new Error("boom"));
-    render(
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>,
-    );
+    renderWithRole(<DashboardPage />);
     expect(await screen.findByText("Не удалось получить данные")).toBeInTheDocument();
+  });
+
+  it("USER view hides shadow experiment CTA", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    renderWithRole(<DashboardPage />);
+    expect(await screen.findByTestId("kraken-cockpit")).toBeInTheDocument();
+    expect(await screen.findByTestId("cockpit-recommendations")).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-virtual-portfolio")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-shadow-cta")).not.toBeInTheDocument();
   });
 });
 
 describe("PortfolioPage", () => {
   it("renders portfolio hub links", () => {
-    render(
-      <MemoryRouter>
-        <PortfolioPage />
-      </MemoryRouter>,
-    );
+    renderWithRole(<PortfolioPage />);
     expect(screen.getByText(/Обзор портфеля/i)).toBeInTheDocument();
     expect(screen.getAllByText("Мой портфель").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Собрать портфель").length).toBeGreaterThanOrEqual(1);
@@ -273,9 +281,12 @@ describe("Navigation", () => {
     vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([]);
     vi.mocked(investmentApi.getHurdle).mockResolvedValue(null as never);
     vi.mocked(investmentApi.decideInvestment).mockRejectedValue(new Error("offline"));
+    localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     render(
       <MemoryRouter>
-        <App />
+        <KrakenRoleProvider>
+          <App />
+        </KrakenRoleProvider>
       </MemoryRouter>,
     );
     expect(await screen.findByText("Котировки")).toBeInTheDocument();

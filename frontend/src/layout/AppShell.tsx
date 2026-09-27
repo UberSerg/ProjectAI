@@ -1,43 +1,11 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect } from "react";
+import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ToastProvider } from "../components/Toast";
 import { HelpProvider } from "../help";
+import { RoleModeSwitch } from "../role/RoleModeSwitch";
+import { useKrakenRole } from "../role/KrakenRoleContext";
 import { labels } from "../utils/labels";
-
-interface NavItem {
-  to: string;
-  label: string;
-  end?: boolean;
-  soon?: boolean;
-}
-
-const overview: NavItem[] = [{ to: "/", label: labels.nav.overview, end: true }];
-
-const portfolio: NavItem[] = [
-  { to: "/portfolio/mine", label: labels.nav.myPortfolio },
-  { to: "/portfolio/candidate", label: labels.nav.portfolioCandidate },
-  { to: "/investment-decision", label: labels.nav.investmentDecision },
-  { to: "/portfolio-risk", label: labels.nav.portfolioRisk },
-];
-
-const market: NavItem[] = [
-  { to: "/market", label: labels.nav.quotes },
-  { to: "/instruments", label: labels.nav.instruments },
-  { to: "/fundamentals", label: labels.nav.companies },
-  { to: "/bonds", label: labels.nav.bonds },
-];
-
-const research: NavItem[] = [
-  { to: "/research-hub", label: labels.nav.researchHub },
-  { to: "/calibration", label: labels.nav.calibration },
-  { to: "/simulator", label: labels.nav.historicalSimulations },
-  { to: "/shadow", label: labels.nav.liveExperiment },
-  { to: "/research", label: labels.nav.researchLab },
-];
-
-const system: NavItem[] = [
-  { to: "/workflows", label: labels.nav.workflows },
-  { to: "/system", label: labels.nav.system },
-];
+import { navGroupsForRole, pathAllowedForRole, type NavItem } from "./navConfig";
 
 function NavGroup({ title, items }: { title?: string; items: NavItem[] }) {
   return (
@@ -45,7 +13,7 @@ function NavGroup({ title, items }: { title?: string; items: NavItem[] }) {
       {title ? <div className="nav-group-title">{title}</div> : null}
       {items.map((item) => (
         <NavLink
-          key={item.to}
+          key={`${item.to}:${item.label}`}
           to={item.to}
           end={item.end}
           className={({ isActive }) => `nav${isActive ? " active" : ""}${item.soon ? " soon" : ""}`}
@@ -58,29 +26,54 @@ function NavGroup({ title, items }: { title?: string; items: NavItem[] }) {
   );
 }
 
+function PresentationGate({ children }: { children: React.ReactNode }) {
+  const { role } = useKrakenRole();
+  const location = useLocation();
+  if (!pathAllowedForRole(location.pathname, role)) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
 export function AppShell() {
+  const { role, isUser } = useKrakenRole();
+  const groups = navGroupsForRole(role);
+  const location = useLocation();
+
+  useEffect(() => {
+    document.documentElement.dataset.krakenRole = role;
+  }, [role]);
+
   return (
     <ToastProvider>
       <HelpProvider>
-        <div className="layout" data-theme="dark" data-product="kraken-personal-v1">
+        <div
+          className="layout"
+          data-theme="dark"
+          data-product="kraken-personal-v1"
+          data-role={role}
+        >
           <aside className="sidebar sidebar-compact">
             <div className="brand">
               <span className="brand-mark">K</span>
               <div className="brand-copy">
                 <span className="brand-name">Kraken</span>
-                <span className="brand-tag">личный кабинет</span>
+                <span className="brand-tag">
+                  {isUser ? "личный кабинет" : "кабинет владельца"}
+                </span>
               </div>
             </div>
-            <nav className="sidebar-nav" data-testid="primary-nav">
-              <NavGroup items={overview} />
-              <NavGroup title={labels.nav.portfolioGroup} items={portfolio} />
-              <NavGroup title={labels.nav.marketGroup} items={market} />
-              <NavGroup title={labels.nav.researchGroup} items={research} />
-              <NavGroup title={labels.nav.systemGroup} items={system} />
+            <nav className="sidebar-nav" data-testid="primary-nav" data-role={role}>
+              {groups.map((g, idx) => (
+                <NavGroup key={g.title ?? `g-${idx}`} title={g.title} items={g.items} />
+              ))}
             </nav>
+            <RoleModeSwitch />
           </aside>
           <main className="content content-wide" data-layout="wide" data-testid="app-main">
-            <Outlet />
+            <PresentationGate key={location.pathname}>
+              <Outlet />
+            </PresentationGate>
           </main>
         </div>
       </HelpProvider>

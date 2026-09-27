@@ -21,6 +21,7 @@ import {
   getShadowNav,
   getShadowOrders,
   getShadowOverview,
+  runShadowCatchUp,
   type ShadowDailyOperations,
   type ShadowDecision,
   type ShadowFill,
@@ -31,6 +32,7 @@ import {
   type ShadowPortfolioSummary,
 } from "../api/shadow";
 import { MetricCard, PageHeader, PageState } from "../components/Ui";
+import { CatchUpStatusCard } from "../features/shadow/CatchUpStatusCard";
 import {
   contextFromShadowOrder,
   DecisionExplanationPanel,
@@ -239,6 +241,7 @@ export function ShadowPage() {
   const [lastUiUpdateAt, setLastUiUpdateAt] = useState<string | null>(null);
   const [showAllPreds, setShowAllPreds] = useState(false);
   const [showResearchDetails, setShowResearchDetails] = useState(false);
+  const [catchupRunning, setCatchupRunning] = useState(false);
   const [armTab, setArmTab] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<{
     order: ShadowOrder;
@@ -471,6 +474,17 @@ export function ShadowPage() {
         <NextSessionPanel ops={ops} error={opsError} />
       </div>
       <AutomationWarningBanner ops={ops} />
+      <CatchUpStatusCard
+        catchUp={ops?.catch_up}
+        running={catchupRunning}
+        onRun={() => {
+          setCatchupRunning(true);
+          void runShadowCatchUp()
+            .then(() => refreshLive())
+            .catch((reason: unknown) => setOpsError(errorMessage(reason)))
+            .finally(() => setCatchupRunning(false));
+        }}
+      />
       <DailyLifecycleStrip ops={ops} primary={primaryLive} />
 
       <div className="shadow-hero panel" data-testid="shadow-hero">

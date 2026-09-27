@@ -877,9 +877,82 @@ body:has([data-theme="dark"]) {
   line-height: 1.4;
 }
 
+/* Presentation role switch (not a security control) */
+.role-mode-switch {
+  margin-top: auto;
+  padding: 0.85rem 0.75rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.role-mode-label {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 0.4rem;
+}
+
+.role-mode-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.role-mode-buttons button {
+  font-size: 0.78rem;
+  padding: 0.4rem 0.35rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.role-mode-buttons button.active {
+  background: var(--accent-soft, rgba(59, 130, 246, 0.18));
+  border-color: var(--accent, #3b82f6);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.role-mode-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.catchup-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.catchup-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.catchup-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.catchup-grid strong {
+  font-size: 0.92rem;
+}
+
 @media (max-width: 1180px) {
   .cockpit-grid {
     grid-template-columns: 1fr;
+  }
+  .catchup-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .cockpit-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
