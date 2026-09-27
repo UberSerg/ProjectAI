@@ -160,8 +160,11 @@ def build_portfolio_catchup_plan(
 
 def build_catchup_status(session: Session) -> dict[str, Any]:
     """Observability snapshot for OWNER / daily-operations."""
+    from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+
     readiness = evaluate_eod_readiness(session)
     latest = readiness.latest_complete_eod_date
+    market_gap = detect_market_eod_gap(session)
     portfolios = _operational_portfolios(session)
     plans = [build_portfolio_catchup_plan(session, p, s, latest_completed=latest) for p, s in portfolios]
     backlog = max((pl.backlog_count for pl in plans), default=0)
@@ -170,20 +173,37 @@ def build_catchup_status(session: Session) -> dict[str, Any]:
         None,
     )
     any_work = any(pl.backlog_count > 0 for pl in plans)
-    if blocked is not None and not any_work:
+    market_stale = market_gap.status == MARKET_STALE
+    if market_stale and not any_work:
+        # Local Shadow looks current, but market EOD is behind expected completed session.
+        overall = CATCH_UP_BLOCKED
+    elif blocked is not None and not any_work:
         overall = CATCH_UP_BLOCKED
     elif any_work:
         overall = CATCH_UP_PARTIAL
     else:
         overall = CATCH_UP_NO_OP
+
+    market_block_session = None
+    if market_gap.missing_trading_sessions:
+        market_block_session = market_gap.missing_trading_sessions[0].isoformat()
+    elif market_stale and market_gap.expected_completed_session:
+        market_block_session = market_gap.expected_completed_session.isoformat()
+
+    shadow_block_session = (
+        blocked.blocking_session.isoformat() if blocked and blocked.blocking_session else None
+    )
+
     return {
         "catch_up_status": overall,
         "latest_completed_market_session": latest.isoformat() if latest else None,
         "backlog_session_count": backlog,
-        "blocking_session": (
-            blocked.blocking_session.isoformat() if blocked and blocked.blocking_session else None
+        "blocking_session": market_block_session or shadow_block_session,
+        "blocking_reason": (
+            REASON_MISSING_MARKET_DATA
+            if market_stale and not any_work
+            else (blocked.reason if blocked else None)
         ),
-        "blocking_reason": blocked.reason if blocked else None,
         "last_successful_replay_hint": (
             max(
                 (pl.last_processed_session for pl in plans if pl.last_processed_session is not None),
@@ -194,18 +214,53 @@ def build_catchup_status(session: Session) -> dict[str, Any]:
         ),
         "portfolios": [pl.to_dict() for pl in plans],
         "eod_readiness": readiness.to_dict(),
+        "market_data": {
+            "latest_local_eod_session": (
+                market_gap.local_complete_eod.isoformat() if market_gap.local_complete_eod else None
+            ),
+            "latest_local_raw_max": (
+                market_gap.local_raw_max.isoformat() if market_gap.local_raw_max else None
+            ),
+            "latest_expected_completed_session": (
+                market_gap.expected_completed_session.isoformat()
+                if market_gap.expected_completed_session
+                else None
+            ),
+            "missing_market_sessions_count": market_gap.missing_count,
+            "missing_market_sessions": [d.isoformat() for d in market_gap.missing_trading_sessions],
+            "market_current": market_gap.status != MARKET_STALE,
+            "market_backfill_status": market_gap.status,
+            "blocking_session": market_block_session,
+            "reason": market_gap.reason,
+        },
+        "shadow": {
+            "last_processed_session": (
+                max(
+                    (pl.last_processed_session for pl in plans if pl.last_processed_session is not None),
+                    default=None,
+                ).isoformat()
+                if any(pl.last_processed_session is not None for pl in plans)
+                else None
+            ),
+            "replay_backlog": backlog,
+            "catch_up_status": overall,
+        },
     }
 
 
 def ensure_market_data_for_catchup(session: Session) -> dict[str, Any]:
-    """Lawful incremental market ingest (existing provider). No new data source."""
-    from app.modules.market.application.ingest import MarketIngestionService
+    """Multi-day EOD recovery when local market lags expected completed session."""
+    from app.modules.market.application.eod_recovery import run_eod_market_recovery
 
-    return MarketIngestionService(session).run_update()
+    return run_eod_market_recovery(session, commit_progress=True)
 
 
 def shadow_has_catchup_lag(session: Session) -> bool:
-    """True when any operational Shadow watermark is behind latest complete EOD."""
+    """True when market EOD is stale vs expected session, or Shadow behind local EOD."""
+    from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+
+    if detect_market_eod_gap(session).status == MARKET_STALE:
+        return True
     status = build_catchup_status(session)
     if status.get("catch_up_status") == CATCH_UP_BLOCKED:
         return True
@@ -259,11 +314,23 @@ def run_portfolio_session_catchup(
     plan = build_portfolio_catchup_plan(session, portfolio, spec, latest_completed=latest)
 
     if plan.status == CATCH_UP_NO_OP:
+        # Still sync decisions from any newly arrived Forward batches (PIT-capped).
+        decision_day = latest or plan.last_processed_session
+        decisions_made = 0
+        if decision_day is not None:
+            session_now = datetime.combine(decision_day, datetime.min.time(), UTC).replace(hour=18)
+            decisions_made = apply_pending_forward_decisions(
+                session, portfolio, spec, now=session_now, max_as_of=decision_day
+            )
+            session.flush()
+            if commit_each_session:
+                session.commit()
         return {
             "status": CATCH_UP_NO_OP,
             "reason": plan.reason,
             "portfolio_id": portfolio_id,
             "name": spec.name,
+            "decisions_made": decisions_made,
             "sessions_replayed": [],
             "last_processed_session": (
                 plan.last_processed_session.isoformat() if plan.last_processed_session else None
@@ -301,13 +368,6 @@ def run_portfolio_session_catchup(
             "market_ensure": market_ensure,
         }
 
-    now = now_fn()
-    decisions_made = apply_pending_forward_decisions(session, portfolio, spec, now=now)
-    session.flush()
-    if commit_each_session:
-        session.commit()
-        session.refresh(portfolio)
-
     plan = build_portfolio_catchup_plan(session, portfolio, spec, latest_completed=latest)
     sessions = list(plan.missing_sessions)
     if max_sessions is not None:
@@ -316,6 +376,7 @@ def run_portfolio_session_catchup(
     replayed: list[dict[str, Any]] = []
     blocking_session: date | None = None
     block_reason: str | None = None
+    decisions_made = 0
 
     for day in sessions:
         if not session_has_eod_candles(session, day):
@@ -325,13 +386,19 @@ def run_portfolio_session_catchup(
         last = portfolio.last_processed_market_date
         if last is not None and day <= last:
             continue
-        now = now_fn()
-        result = process_shadow_market_day(session, portfolio, spec, day, now=now)
-        refresh_shadow_portfolio_status(session, portfolio, now=now)
+        # PIT: only Forward batches visible as-of this session (no future as_of / generated_at).
+        session_now = datetime.combine(day, datetime.min.time(), UTC).replace(hour=18)
+        day_decisions = apply_pending_forward_decisions(
+            session, portfolio, spec, now=session_now, max_as_of=day
+        )
+        decisions_made += int(day_decisions or 0)
+        result = process_shadow_market_day(session, portfolio, spec, day, now=session_now)
+        refresh_shadow_portfolio_status(session, portfolio, now=session_now)
         session.flush()
         if commit_each_session:
             session.commit()
             session.refresh(portfolio)
+        result = {**result, "decisions": day_decisions}
         replayed.append(result)
 
     final_last = portfolio.last_processed_market_date

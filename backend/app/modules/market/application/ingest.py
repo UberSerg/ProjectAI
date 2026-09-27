@@ -309,9 +309,19 @@ class MarketIngestionService:
         )
 
     def _load_instruments(self, symbols: list[str] | None) -> list[Instrument]:
+        from app.infrastructure.market.models import InstrumentSource
+
         stmt = select(Instrument).options(selectinload(Instrument.sources)).where(Instrument.is_active.is_(True))
         if symbols:
             stmt = stmt.where(Instrument.symbol.in_(symbols))
+        else:
+            # Incremental update: only instruments with proven MOEX mappings.
+            # Avoid scanning thousands of inactive-master rows with no candle history.
+            mapped_ids = select(InstrumentSource.instrument_id).where(
+                InstrumentSource.source == "MOEX",
+                InstrumentSource.valid_from.is_not(None),
+            ).distinct()
+            stmt = stmt.where(Instrument.id.in_(mapped_ids))
         return list(self.session.scalars(stmt).unique().all())
 
     def _requested_range(

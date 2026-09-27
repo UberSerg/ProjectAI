@@ -438,66 +438,85 @@ def maybe_trigger_cycle_if_ready(session: Session) -> dict[str, Any]:
     covers = _cycle_covers_eod(last_ok, eod)
 
     if readiness.ready and covers and not lags:
-        # Upstream IN_SYNC must not hide Shadow watermark lag after downtime.
-        from app.modules.shadow.application.session_catchup import (
-            run_all_shadow_catchup,
-            shadow_has_catchup_lag,
-        )
+        # Upstream IN_SYNC must not hide market EOD lag vs expected MOEX session,
+        # nor Shadow watermark lag after downtime.
+        from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+        from app.modules.shadow.application.session_catchup import shadow_has_catchup_lag
 
-        if shadow_has_catchup_lag(session):
-            catchup = run_all_shadow_catchup(
-                session,
-                ensure_market=True,
-                commit_each_session=False,
-            )
+        gap = detect_market_eod_gap(session)
+        if gap.status == MARKET_STALE or shadow_has_catchup_lag(session):
+            from app.modules.shadow.application.recovery import run_market_shadow_recovery
+
+            recovery = run_market_shadow_recovery(session, commit_each_session=True)
             return {
                 "status": STAGE_SUCCESS,
                 "stage": STAGE_SUCCESS,
                 "triggered": False,
-                "shadow_catchup": catchup,
-                "reason": "shadow_watermark_lag",
+                "market_shadow_recovery": recovery,
+                "reason": (
+                    "market_eod_stale" if gap.status == MARKET_STALE else "shadow_watermark_lag"
+                ),
                 "readiness": readiness.to_dict(),
+                "market_gap": gap.to_dict(),
             }
         return {
             "status": STAGE_ALREADY_CURRENT,
             "stage": STAGE_ALREADY_CURRENT,
             "readiness": readiness.to_dict(),
+            "market_gap": gap.to_dict(),
         }
 
     # Catch-up path: complete EOD exists but analytics/technical/forward behind,
     # OR cycle does not cover latest complete EOD yet.
     if not readiness.ready and readiness.blocker_code == WAITING_FOR_MARKET_COMPLETE:
+        # Local completeness may be stale vs expected MOEX session — recover EOD first.
+        from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+        from app.modules.shadow.application.recovery import run_market_shadow_recovery
+
+        gap = detect_market_eod_gap(session)
+        if gap.status == MARKET_STALE:
+            recovery = run_market_shadow_recovery(session, commit_each_session=True)
+            return {
+                "status": STAGE_SUCCESS,
+                "stage": STAGE_SUCCESS,
+                "triggered": False,
+                "market_shadow_recovery": recovery,
+                "reason": "market_eod_stale",
+                "readiness": readiness.to_dict(),
+                "market_gap": gap.to_dict(),
+            }
         return {
             "status": STAGE_WAITING_INPUT,
             "stage": STAGE_WAITING_INPUT,
             "blocker_code": WAITING_FOR_MARKET_COMPLETE,
             "readiness": readiness.to_dict(),
+            "market_gap": gap.to_dict(),
         }
 
     if not lags and covers:
-        from app.modules.shadow.application.session_catchup import (
-            run_all_shadow_catchup,
-            shadow_has_catchup_lag,
-        )
+        from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+        from app.modules.shadow.application.recovery import run_market_shadow_recovery
+        from app.modules.shadow.application.session_catchup import shadow_has_catchup_lag
 
-        if shadow_has_catchup_lag(session):
-            catchup = run_all_shadow_catchup(
-                session,
-                ensure_market=True,
-                commit_each_session=False,
-            )
+        gap = detect_market_eod_gap(session)
+        if gap.status == MARKET_STALE or shadow_has_catchup_lag(session):
+            recovery = run_market_shadow_recovery(session, commit_each_session=True)
             return {
                 "status": STAGE_SUCCESS,
                 "stage": STAGE_SUCCESS,
                 "triggered": False,
-                "shadow_catchup": catchup,
-                "reason": "shadow_watermark_lag",
+                "market_shadow_recovery": recovery,
+                "reason": (
+                    "market_eod_stale" if gap.status == MARKET_STALE else "shadow_watermark_lag"
+                ),
                 "readiness": readiness.to_dict(),
+                "market_gap": gap.to_dict(),
             }
         return {
             "status": STAGE_ALREADY_CURRENT,
             "stage": STAGE_ALREADY_CURRENT,
             "readiness": readiness.to_dict(),
+            "market_gap": gap.to_dict(),
         }
 
     latest = _latest_cycle_workflow(session)

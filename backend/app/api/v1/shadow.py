@@ -691,16 +691,29 @@ def shadow_catchup_status() -> dict[str, Any]:
 def shadow_catchup_run(
     commit_each_session: Annotated[bool, Query()] = True,
     ensure_market: Annotated[bool, Query()] = True,
+    full_recovery: Annotated[bool, Query()] = True,
 ) -> dict[str, Any]:
-    """Run deterministic Shadow session catch-up (idempotent)."""
-    from app.modules.shadow.application.session_catchup import run_all_shadow_catchup
+    """Run market EOD recovery + Shadow session catch-up (idempotent).
 
+    Default ``full_recovery=true``: multi-day EOD backfill → features → Forward as_of
+    → chronological Shadow replay. Set ``full_recovery=false`` for Shadow-only path.
+    """
     with core_session() as session:
-        result = run_all_shadow_catchup(
-            session,
-            ensure_market=ensure_market,
-            commit_each_session=commit_each_session,
-        )
+        if full_recovery and ensure_market:
+            from app.modules.shadow.application.recovery import run_market_shadow_recovery
+
+            result = run_market_shadow_recovery(
+                session,
+                commit_each_session=commit_each_session,
+            )
+        else:
+            from app.modules.shadow.application.session_catchup import run_all_shadow_catchup
+
+            result = run_all_shadow_catchup(
+                session,
+                ensure_market=ensure_market,
+                commit_each_session=commit_each_session,
+            )
         if not commit_each_session:
             session.commit()
         return result

@@ -1215,8 +1215,12 @@ def apply_pending_forward_decisions(
     spec: ShadowPortfolioSpec,
     *,
     now: datetime,
+    max_as_of: date | None = None,
 ) -> int:
-    """Create weekly decisions/orders from existing Forward batches (idempotent)."""
+    """Create weekly decisions/orders from existing Forward batches (idempotent).
+
+    PIT: only batches with ``generated_at <= now`` and optional ``as_of_date <= max_as_of``.
+    """
     batches = list(
         session.scalars(
             select(ForwardPredictionBatch)
@@ -1231,6 +1235,8 @@ def apply_pending_forward_decisions(
     )
     decisions_made = 0
     for batch in batches:
+        if max_as_of is not None and batch.as_of_date > max_as_of:
+            continue
         gen = ensure_aware_utc(batch.generated_at)  # type: ignore[arg-type]
         if gen > now:
             continue

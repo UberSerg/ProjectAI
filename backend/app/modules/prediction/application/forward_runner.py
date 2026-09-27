@@ -88,10 +88,12 @@ def run_forward_signal_v0(
     config: CandidateV0Config = CANDIDATE_V0_CONFIG,
     artifact_root: Path | None = None,
     persist: bool = True,
+    generated_at: datetime | None = None,
 ) -> ForwardRunResult:
     """Build immutable FORWARD_LIVE predictions for latest complete as_of (or explicit date).
 
     Never retrains. Never overwrites frozen predictions. Never builds full Dataset history.
+    ``generated_at`` may be pinned (recovery/replay) so Shadow PIT clocks can see the batch.
     """
     t_art = time.perf_counter()
     try:
@@ -111,6 +113,7 @@ def run_forward_signal_v0(
         as_of=as_of,
         persist=persist,
         artifact_load_sec=artifact_load_sec,
+        generated_at=generated_at,
     )
 
 
@@ -123,6 +126,7 @@ def run_forward_for_loaded_model(
     persist: bool = True,
     artifact_load_sec: float = 0.0,
     assembled_rows: list[AssembledRow] | None = None,
+    generated_at: datetime | None = None,
 ) -> ForwardRunResult:
     """Run one already-loaded frozen candidate over the pinned PIT feature snapshot.
 
@@ -293,7 +297,9 @@ def run_forward_for_loaded_model(
     y_pred = loaded.adapter.predict_many(matrix)
     timings["inference_sec"] = round(time.perf_counter() - t_inf, 3)
 
-    generated_at = datetime.now(UTC)
+    generated_at = generated_at or datetime.now(UTC)
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=UTC)
     pred_rows: list[dict[str, Any]] = []
     for row, pred in zip(eligible_rows, y_pred, strict=True):
         pred_rows.append(

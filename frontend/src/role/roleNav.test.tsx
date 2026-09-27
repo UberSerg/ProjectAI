@@ -46,6 +46,46 @@ describe("role presentation nav", () => {
     expect(screen.getByTestId("primary-nav")).toHaveAttribute("data-role", "USER");
     expect(screen.queryByText("Живой эксперимент")).not.toBeInTheDocument();
     expect(localStorage.getItem(ROLE_STORAGE_KEY)).toBe("USER");
-    expect(screen.getByText(/Не защита доступа/i)).toBeInTheDocument();
+    expect(screen.getByTestId("role-mode-switch")).toBeInTheDocument();
+    expect(screen.getByText(/Режим интерфейса/i)).toBeInTheDocument();
+    expect(screen.getByText(/Presentation mode/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("role-switch-owner"));
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute("data-role", "OWNER");
+    expect(localStorage.getItem(ROLE_STORAGE_KEY)).toBe("OWNER");
+  });
+
+  it("reload preserves role from localStorage", () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    const { unmount } = render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <AppShell />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute("data-role", "USER");
+    unmount();
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <AppShell />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute("data-role", "USER");
+    expect(screen.getByTestId("role-switch-user")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("active role button uses high-contrast selected class", () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <AppShell />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("role-switch-owner")).toHaveClass("active");
+    expect(screen.getByTestId("role-switch-user")).not.toHaveClass("active");
   });
 });

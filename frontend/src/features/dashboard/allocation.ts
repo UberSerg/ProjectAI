@@ -18,7 +18,9 @@ export function allocationFromAnalysis(analysis: ManualPortfolioAnalysis): Alloc
   const allocationRows = analysis.allocation ?? [];
   for (const row of analysis.positions) {
     const sleeve = (row as { sleeve?: string }).sleeve?.toUpperCase?.() ?? "";
-    const symbol = String(row.symbol ?? row.ticker ?? "").toUpperCase();
+    const symbol = String(
+      row.symbol ?? (row as { ticker?: string | null }).ticker ?? "",
+    ).toUpperCase();
     const fromAlloc = allocationRows.find((a) => String(a.symbol ?? "").toUpperCase() === symbol);
     const allocSleeve = (fromAlloc?.sleeve ?? "").toUpperCase();
     const w = row.weight ?? (row.market_value != null ? row.market_value / nav : 0);

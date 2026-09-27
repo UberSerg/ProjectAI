@@ -265,6 +265,24 @@ export interface ShadowCatchUpPortfolio {
   reason?: string | null;
 }
 
+export interface ShadowCatchUpMarketData {
+  latest_local_eod_session?: string | null;
+  latest_local_raw_max?: string | null;
+  latest_expected_completed_session?: string | null;
+  missing_market_sessions_count?: number;
+  missing_market_sessions?: string[];
+  market_current?: boolean;
+  market_backfill_status?: string | null;
+  blocking_session?: string | null;
+  reason?: string | null;
+}
+
+export interface ShadowCatchUpShadowMeta {
+  last_processed_session?: string | null;
+  replay_backlog?: number;
+  catch_up_status?: string | null;
+}
+
 export interface ShadowCatchUpStatus {
   catch_up_status?: string;
   latest_completed_market_session?: string | null;
@@ -273,6 +291,8 @@ export interface ShadowCatchUpStatus {
   blocking_reason?: string | null;
   last_successful_replay_hint?: string | null;
   portfolios?: ShadowCatchUpPortfolio[];
+  market_data?: ShadowCatchUpMarketData | null;
+  shadow?: ShadowCatchUpShadowMeta | null;
 }
 
 export interface ShadowOrder {
