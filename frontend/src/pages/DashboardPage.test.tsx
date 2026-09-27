@@ -28,34 +28,51 @@ vi.mock("../api/workflows");
 vi.mock("../api/investment");
 vi.mock("../api/shadow");
 vi.mock("../api/manualPortfolios");
-const getPersonalPrimary = vi.fn().mockResolvedValue({
+/** Default personal book aligned with analysisFixture (single source of truth). */
+const personalFixture = {
   portfolio: {
     id: 1,
     name: "Основной портфель",
-    has_operations: false,
+    has_operations: true,
+    journal_state: "ACTIVE" as const,
+    journal_cutover_at: "2026-09-01T00:00:00+00:00",
     base_currency: "RUB",
     status: "ACTIVE",
     is_test: false,
     version: 1,
   },
   summary: {
-    cash_rub: "0",
-    securities_value_rub: "0",
-    nav_rub: "0",
-    contributed_rub: "0",
+    cash_rub: "50000",
+    securities_value_rub: "150000",
+    nav_rub: "200000",
+    contributed_rub: "200000",
     withdrawn_rub: "0",
     investment_pnl_rub: "0",
     realized_pnl_rub: "0",
     valuation_complete: true,
     valuation_partial: false,
-    valuation_as_of: null,
-    valuation_label: "Оценка недоступна — нет цен",
+    valuation_as_of: "2026-09-25",
+    valuation_label: "Оценка по ценам на 25.09.2026",
     missing_price_count: 0,
   },
-  positions: [],
+  positions: [
+    {
+      instrument_id: 10,
+      secid: "SBER",
+      name: "SBER",
+      units: "10",
+      market_value: "150000",
+      average_price: "100",
+      current_price: "15000",
+      price_available: true,
+      unrealized_pnl: "1490000",
+    },
+  ],
   operations: [],
   recommendation_disclaimer: "Модельная рекомендация",
-});
+};
+
+const getPersonalPrimary = vi.fn().mockResolvedValue(personalFixture);
 
 vi.mock("../api/personalPortfolios", () => ({
   getPersonalPrimary: (...args: unknown[]) => getPersonalPrimary(...args),
@@ -112,11 +129,19 @@ const analysisFixture = {
   unsupported_count: 0,
   advisory: true,
   note: "Advisory оценка",
+  source: "personal_portfolio",
+  journal_state: "ACTIVE",
+  investment_pnl_rub: 0,
+  valuation_partial: false,
+  valuation_complete: true,
+  contributed_rub: 200000,
 };
 
 describe("DashboardPage", () => {
   beforeEach(() => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
+    getPersonalPrimary.mockReset();
+    getPersonalPrimary.mockResolvedValue(personalFixture);
     vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
     vi.mocked(manualApi.getPrimaryRebalance).mockResolvedValue({
       advisory: true,

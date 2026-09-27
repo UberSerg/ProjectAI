@@ -68,6 +68,21 @@ export interface ManualPortfolioAnalysis {
   unsupported_count: number;
   advisory: boolean;
   note: string;
+  /** Personal Portfolio application boundary (journal → projection → analytics). */
+  source?: "personal_portfolio" | string;
+  journal_state?: "EMPTY" | "LEGACY_PENDING" | "ACTIVE" | string;
+  journal_cutover_at?: string | null;
+  contributed_rub?: number;
+  withdrawn_rub?: number;
+  investment_pnl_rub?: number | null;
+  realized_pnl_rub?: number;
+  valuation_complete?: boolean;
+  valuation_partial?: boolean;
+  valuation_as_of?: string | null;
+  valuation_from?: string | null;
+  valuation_to?: string | null;
+  valuation_label?: string | null;
+  missing_price_count?: number;
   credit_intelligence?: {
     government_weight: number;
     corporate_weight: number;

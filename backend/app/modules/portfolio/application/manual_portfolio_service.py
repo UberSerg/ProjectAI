@@ -247,14 +247,35 @@ def _issuer_key(session: Session, instrument_id: int, symbol: str) -> tuple[str,
 
 
 def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
-    portfolio = get_or_create_primary(session)
-    cash = _d(portfolio.cash_rub)
-    valuations: list[PositionValuation] = []
+    """Allocation / concentration / risk / credit for the Personal Portfolio book.
+
+    Holdings and marks come from ``load_personal_snapshot`` (Personal read boundary).
+    Candidate / Shadow / Research paths are not altered here.
+    """
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        load_personal_snapshot,
+    )
+
+    snap = load_personal_snapshot(session)
+    portfolio = snap.portfolio
+    cash = snap.cash_rub
     findings: list[dict[str, Any]] = []
     rows_out: list[dict[str, Any]] = []
     issuer_mv: dict[str, dict[str, Any]] = {}
+    unsupported = 0
 
-    for pos in portfolio.positions or []:
+    for pos in snap.positions:
+        if pos.symbol is None:
+            findings.append(
+                {
+                    "code": "MISSING_INSTRUMENT",
+                    "severity": "WARN",
+                    "instrument_id": pos.instrument_id,
+                    "message": "Position references missing instrument",
+                }
+            )
+            unsupported += 1
+            continue
         instrument = session.get(Instrument, pos.instrument_id)
         if instrument is None:
             findings.append(
@@ -265,9 +286,49 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
                     "message": "Position references missing instrument",
                 }
             )
+            unsupported += 1
             continue
-        val = value_position(session, instrument, _d(pos.units))
-        valuations.append(val)
+
+        # Capabilities / research flags still use Instrument; marks come from Personal snapshot.
+        base_val = value_position(session, instrument, _d(pos.units))
+        asset = (instrument.asset_class or pos.asset_class or "equity").lower()
+        currency = instrument.currency or "RUB"
+        # Override mark with Personal valuation (EOD equity / dirty bond) for NAV consistency.
+        if pos.market_value is not None and pos.unit_price is not None:
+            val = PositionValuation(
+                instrument_id=int(instrument.id),
+                symbol=instrument.symbol,
+                asset_class=asset,
+                units=_d(pos.units),
+                unit_price=pos.unit_price,
+                market_value=pos.market_value,
+                currency=currency,
+                quality="LIVE" if pos.price_available else "UNSUPPORTED",
+                price_source="personal_snapshot",
+                supported=pos.price_available,
+                detail=(
+                    base_val.detail
+                    if isinstance(base_val.detail, dict)
+                    else {"as_of": pos.price_date}
+                ),
+            )
+        elif not pos.price_available:
+            val = PositionValuation(
+                instrument_id=int(instrument.id),
+                symbol=instrument.symbol,
+                asset_class=asset,
+                units=_d(pos.units),
+                unit_price=None,
+                market_value=None,
+                currency=currency,
+                quality="UNSUPPORTED",
+                price_source=None,
+                supported=False,
+                detail={"reason": "personal_mark_unavailable", "as_of": pos.price_date},
+            )
+        else:
+            val = base_val
+
         caps = resolve_instrument_capabilities(session, instrument)
         suggested = _suggest_action(val, caps, candidate_weight=None)
         ikey, ititle = _issuer_key(session, int(instrument.id), instrument.symbol)
@@ -276,9 +337,20 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
                 ikey, {"issuer_key": ikey, "issuer_title": ititle, "market_value": Decimal("0")}
             )
             bucket["market_value"] = _d(bucket["market_value"]) + val.market_value
+        if not val.supported:
+            unsupported += 1
+            findings.append(
+                {
+                    "code": "UNSUPPORTED_VALUATION",
+                    "severity": "WARN",
+                    "symbol": instrument.symbol,
+                    "message": "Position cannot be valued; not treated as zero",
+                    "detail": val.detail,
+                }
+            )
         rows_out.append(
             {
-                "position_id": pos.id,
+                "position_id": pos.position_id,
                 "instrument_id": instrument.id,
                 "symbol": instrument.symbol,
                 "units": float(pos.units),
@@ -291,29 +363,28 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
                 "capabilities": caps.to_dict(),
                 "suggested_action": suggested,
                 "research_member": is_research_member(session, int(instrument.id)),
+                "asset_class": pos.asset_class,
+                "cost_basis_usable": pos.cost_basis_usable,
+                "average_cost_rub": (
+                    float(pos.average_cost_rub) if pos.average_cost_rub is not None else None
+                ),
+                "unrealized_pnl": (
+                    float(pos.unrealized_pnl) if pos.unrealized_pnl is not None else None
+                ),
+                "pnl_unavailable_reason": pos.pnl_unavailable_reason,
             }
         )
-        if not val.supported:
-            findings.append(
-                {
-                    "code": "UNSUPPORTED_VALUATION",
-                    "severity": "WARN",
-                    "symbol": instrument.symbol,
-                    "message": "Position cannot be valued; not treated as zero",
-                    "detail": val.detail,
-                }
-            )
 
-    supported_mv = sum((_d(v.market_value) for v in valuations if v.market_value is not None), Decimal("0"))
-    unsupported = sum(1 for v in valuations if not v.supported)
-    nav = cash + supported_mv
+    nav = snap.known_nav_rub
+    supported_mv = snap.securities_value_rub
     allocation = []
     for row in rows_out:
         mv = row["market_value"]
         weight = (Decimal(str(mv)) / nav) if mv is not None and nav > 0 else None
         row["weight"] = float(weight) if weight is not None else None
         if weight is not None:
-            allocation.append({"symbol": row["symbol"], "weight": float(weight), "sleeve": row.get("symbol")})
+            sleeve = "FIXED_INCOME" if (row.get("asset_class") or "").lower() == "bond" else row["symbol"]
+            allocation.append({"symbol": row["symbol"], "weight": float(weight), "sleeve": sleeve})
 
     concentration = []
     for bucket in issuer_mv.values():
@@ -338,17 +409,14 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
                 }
             )
 
-    qualities = {v.quality for v in valuations}
-    if not valuations:
+    if not snap.positions:
         quality = "LIVE"
-    elif "UNSUPPORTED" in qualities and supported_mv == 0:
-        quality = "STALE"
-    elif "UNSUPPORTED" in qualities or "STALE" in qualities or "PARTIAL" in qualities:
+    elif snap.valuation_partial:
         quality = "PARTIAL"
     else:
         quality = "LIVE"
 
-    total_positions = len(portfolio.positions or [])
+    total_positions = len(snap.positions)
     coverage_pct = (
         100.0 * (total_positions - unsupported) / total_positions if total_positions else 100.0
     )
@@ -361,8 +429,28 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
         session, positions=rows_out, nav=nav
     )
 
+    # Projection rows for API shape — driven by Personal snapshot (not a stale ORM collection).
+    # Never expose ambiguous bond average_price as RUB cost.
+    portfolio_dict = portfolio_to_dict(portfolio)
+    portfolio_dict["positions"] = [
+        {
+            "id": p.position_id,
+            "instrument_id": p.instrument_id,
+            "units": float(p.units),
+            "average_price": (
+                float(p.average_cost_rub)
+                if p.cost_basis_usable and p.average_cost_rub is not None
+                else None
+            ),
+            "note": None,
+            "non_standard_lot": False,
+        }
+        for p in snap.positions
+    ]
+    portfolio_dict["cash_rub"] = float(cash)
+
     return {
-        "portfolio": portfolio_to_dict(portfolio),
+        "portfolio": portfolio_dict,
         "cash_rub": float(cash),
         "market_value_supported": float(supported_mv),
         "nav": float(nav),
@@ -376,6 +464,25 @@ def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
         "advisory": True,
         "note": "Risk findings are advisory; not a BLOCKED gate",
         "credit_intelligence": credit_intelligence,
+        # Personal Portfolio boundary metadata (same book as /personal-portfolios/primary).
+        "source": "personal_portfolio",
+        "journal_state": snap.journal_state,
+        "journal_cutover_at": (
+            snap.journal_cutover_at.isoformat() if snap.journal_cutover_at else None
+        ),
+        "contributed_rub": float(snap.contributed_rub),
+        "withdrawn_rub": float(snap.withdrawn_rub),
+        "investment_pnl_rub": (
+            float(snap.investment_pnl_rub) if snap.investment_pnl_rub is not None else None
+        ),
+        "realized_pnl_rub": float(snap.realized_pnl_rub),
+        "valuation_complete": snap.valuation_complete,
+        "valuation_partial": snap.valuation_partial,
+        "valuation_as_of": snap.valuation_as_of,
+        "valuation_from": snap.valuation_from,
+        "valuation_to": snap.valuation_to,
+        "valuation_label": snap.valuation_label,
+        "missing_price_count": snap.missing_price_count,
     }
 
 
@@ -466,6 +573,8 @@ def compare_to_candidate(session: Session) -> dict[str, Any]:
 
     return {
         "nav": float(nav),
+        "actual_source": "personal_portfolio",
+        "journal_state": analysis.get("journal_state"),
         "candidate_source": candidate_source,
         "candidate_id": candidate.get("candidate_id"),
         "comparisons": comparisons,
@@ -473,11 +582,18 @@ def compare_to_candidate(session: Session) -> dict[str, Any]:
             "coverage_pct": analysis["coverage_pct"],
             "quality": analysis["quality"],
             "risk_findings": analysis["risk_findings"],
+            "source": analysis.get("source"),
+            "valuation_partial": analysis.get("valuation_partial"),
+            "investment_pnl_rub": analysis.get("investment_pnl_rub"),
         },
     }
 
 
 def advisory_rebalance(session: Session) -> dict[str, Any]:
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        load_personal_snapshot,
+    )
+
     analysis = analyze_manual_portfolio(session)
     nav = _d(analysis["nav"])
     cash = _d(analysis["cash_rub"])
@@ -496,13 +612,22 @@ def advisory_rebalance(session: Session) -> dict[str, Any]:
 
     plan_instruments: list[PlanInstrument] = []
     review_rows: list[dict[str, Any]] = []
-    portfolio = get_or_create_primary(session)
+    # Actual side = Personal Portfolio projection (via snapshot), not a separate legacy book.
+    snap = load_personal_snapshot(session)
+    portfolio = snap.portfolio
     pos_by_symbol: dict[str, ManualPosition] = {}
-    for pos in portfolio.positions or []:
-        inst = session.get(Instrument, pos.instrument_id)
-        if inst is None:
+    pos_rows = {
+        int(p.instrument_id): p
+        for p in session.scalars(
+            select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
+        ).all()
+    }
+    for p in snap.positions:
+        if not p.symbol:
             continue
-        pos_by_symbol[inst.symbol.upper()] = pos
+        row = pos_rows.get(int(p.instrument_id))
+        if row is not None:
+            pos_by_symbol[p.symbol.upper()] = row
 
     symbols = sorted(set(scaled) | set(pos_by_symbol))
     for idx, symbol in enumerate(symbols):
@@ -560,6 +685,8 @@ def advisory_rebalance(session: Session) -> dict[str, Any]:
     return {
         "advisory": True,
         "persisted_orders": False,
+        "actual_source": "personal_portfolio",
+        "journal_state": analysis.get("journal_state"),
         "nav": float(nav),
         "cash": float(cash),
         "projected_cash": float(plan.projected_cash),

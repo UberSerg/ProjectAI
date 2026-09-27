@@ -48,12 +48,27 @@ export function allocationFromAnalysis(analysis: ManualPortfolioAnalysis): Alloc
 }
 
 export function unrealizedPnl(analysis: ManualPortfolioAnalysis): number | null {
+  // Prefer Personal Portfolio investment P&L when analysis is wired to that boundary.
+  const inv = (analysis as ManualPortfolioAnalysis & { investment_pnl_rub?: number | null })
+    .investment_pnl_rub;
+  if (inv !== undefined) {
+    return inv == null ? null : inv;
+  }
+  if ((analysis as { valuation_partial?: boolean }).valuation_partial) {
+    return null;
+  }
   const byId = new Map(analysis.portfolio.positions.map((p) => [p.id, p]));
   let cost = 0;
   let hasCost = false;
   let mv = 0;
   let hasMv = false;
   for (const row of analysis.positions) {
+    const asset = String((row as { asset_class?: string }).asset_class || "").toLowerCase();
+    const costOk = (row as { cost_basis_usable?: boolean }).cost_basis_usable !== false;
+    // Never invent bond P&L from ambiguous legacy average_price (% of nominal).
+    if (asset === "bond" || !costOk) {
+      continue;
+    }
     const pos = byId.get(row.position_id);
     if (pos?.average_price != null) {
       cost += pos.average_price * pos.units;

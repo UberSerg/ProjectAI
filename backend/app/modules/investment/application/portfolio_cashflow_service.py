@@ -15,7 +15,7 @@ from app.modules.investment.domain.cashflow_timeline import (
     project_portfolio_cashflows,
 )
 from app.modules.investment.infrastructure.models import BondCashflow, BondTerm
-from app.modules.portfolio.application.manual_portfolio_service import get_or_create_primary
+from app.modules.portfolio.application.personal_portfolio_service import get_or_create_primary
 
 
 def _load_cashflow_rows(

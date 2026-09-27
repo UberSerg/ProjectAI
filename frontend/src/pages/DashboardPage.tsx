@@ -184,12 +184,17 @@ export function DashboardPage() {
   }, [load]);
 
   const symbols = useMemo(() => {
+    // Same book as Personal Portfolio — prefer personal holdings for «Ваш портфель» relations.
+    const fromPersonal = (data?.personal?.positions ?? [])
+      .map((p) => p.secid)
+      .filter((s): s is string => Boolean(s));
+    if (fromPersonal.length) return fromPersonal.slice(0, 12);
     if (!data?.analysis) return [] as string[];
     return data.analysis.positions
       .map((p) => p.symbol)
       .filter(Boolean)
       .slice(0, 12);
-  }, [data?.analysis]);
+  }, [data?.analysis, data?.personal?.positions]);
 
   const symbolKey = symbols.join(",");
 
@@ -247,28 +252,40 @@ export function DashboardPage() {
 
   const analysis = data.analysis;
   const personal = data.personal;
-  const personalActive = Boolean(personal?.portfolio.has_operations);
-  const emptyPortfolio = personalActive
-    ? false
+  const journalState =
+    personal?.portfolio.journal_state ??
+    (personal?.portfolio.has_operations ? "ACTIVE" : personal ? "EMPTY" : null);
+  // Single book: Personal summary for money metrics; analysis (same snapshot) for allocation/risk.
+  const usePersonalMoney = personal != null;
+  const personalActive = journalState === "ACTIVE" || Boolean(personal?.portfolio.has_operations);
+  const emptyPortfolio = usePersonalMoney
+    ? Number(personal!.summary.cash_rub) <= 0 &&
+      (personal!.positions?.length ?? 0) === 0 &&
+      journalState !== "LEGACY_PENDING"
     : Boolean(analysis) && analysis!.positions.length === 0 && analysis!.cash_rub <= 0;
   const weights = analysis
     ? allocationFromAnalysis(analysis)
     : { equity: 0, fixedIncome: 0, cash: 0 };
-  const pnl = personalActive
+  const pnl = usePersonalMoney
     ? personal!.summary.investment_pnl_rub == null
       ? null
       : Number(personal!.summary.investment_pnl_rub)
     : analysis
       ? unrealizedPnl(analysis)
       : null;
-  const securitiesValue = personalActive
+  const securitiesValue = usePersonalMoney
     ? Number(personal!.summary.securities_value_rub)
     : analysis?.market_value_supported ?? null;
-  const invested = personalActive ? securitiesValue : analysis?.market_value_supported ?? null;
-  const nav = personalActive ? Number(personal!.summary.nav_rub) : analysis?.nav ?? null;
-  const cash = personalActive ? Number(personal!.summary.cash_rub) : analysis?.cash_rub ?? null;
+  const invested = securitiesValue;
+  const nav = usePersonalMoney ? Number(personal!.summary.nav_rub) : analysis?.nav ?? null;
+  const cash = usePersonalMoney ? Number(personal!.summary.cash_rub) : analysis?.cash_rub ?? null;
   const concentration = analysis ? topConcentration(analysis) : null;
-  const cashShare = analysis && analysis.nav > 0 ? analysis.cash_rub / analysis.nav : null;
+  const cashShare =
+    usePersonalMoney && nav != null && nav > 0 && cash != null
+      ? cash / nav
+      : analysis && analysis.nav > 0
+        ? analysis.cash_rub / analysis.nav
+        : null;
   const riskCount = analysis?.risk_findings?.length ?? 0;
   const coverage = analysis?.coverage_pct;
 

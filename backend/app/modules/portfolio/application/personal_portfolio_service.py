@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -835,147 +836,252 @@ def _personal_mark(
     return None, None, None, asset
 
 
-def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner: bool = False) -> dict[str, Any]:
-    positions_out: list[dict[str, Any]] = []
+@dataclass
+class PersonalPositionSnapshot:
+    """One holding in the Personal Portfolio read model (downstream analytics input)."""
+
+    position_id: int
+    instrument_id: int
+    symbol: str | None
+    name: str | None
+    asset_class: str | None
+    units: Decimal
+    average_cost_rub: Decimal | None
+    cost_basis_usable: bool
+    unit_price: Decimal | None
+    market_value: Decimal | None
+    price_date: str | None
+    price_available: bool
+    unrealized_pnl: Decimal | None
+    lot_size: int | None = None
+    lots: Decimal | None = None
+    pnl_unavailable_reason: str | None = None
+
+
+@dataclass
+class PersonalPortfolioSnapshot:
+    """Application read boundary for the real user book.
+
+    Journal = authoritative history; ManualPortfolio/ManualPosition = projection;
+    this snapshot = sole contract for Dashboard / Analysis / Relations / Compare / Rebalance.
+    """
+
+    portfolio: ManualPortfolio
+    journal_state: str
+    journal_cutover_at: datetime | None
+    cash_rub: Decimal
+    positions: list[PersonalPositionSnapshot] = field(default_factory=list)
+    securities_value_rub: Decimal = ZERO
+    known_nav_rub: Decimal = ZERO
+    contributed_rub: Decimal = ZERO
+    withdrawn_rub: Decimal = ZERO
+    realized_pnl_rub: Decimal = ZERO
+    investment_pnl_rub: Decimal | None = None
+    valuation_complete: bool = True
+    valuation_partial: bool = False
+    valuation_as_of: str | None = None
+    valuation_from: str | None = None
+    valuation_to: str | None = None
+    valuation_label: str | None = None
+    missing_price_count: int = 0
+
+    @property
+    def symbols(self) -> list[str]:
+        return [p.symbol for p in self.positions if p.symbol]
+
+
+def load_personal_snapshot(
+    session: Session,
+    portfolio: ManualPortfolio | None = None,
+) -> PersonalPortfolioSnapshot:
+    """Load current Personal Portfolio state for downstream analytics.
+
+    Always reads the projected primary (or given) book through Personal valuation rules.
+    Does not invent bond cost basis or treat missing marks as zero.
+    """
+    book = portfolio or get_or_create_primary(session)
+    positions_out: list[PersonalPositionSnapshot] = []
     securities_mv = ZERO
     missing_prices = 0
     price_dates: list[str] = []
+
     for pos in session.scalars(
-        select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
+        select(ManualPosition).where(ManualPosition.portfolio_id == book.id)
     ).all():
         instrument = session.get(Instrument, pos.instrument_id)
         if instrument is None:
             missing_prices += 1
             positions_out.append(
-                {
-                    "instrument_id": pos.instrument_id,
-                    "secid": None,
-                    "name": None,
-                    "units": str(pos.units),
-                    "lots": None,
-                    "average_price": str(pos.average_price) if pos.average_price is not None else None,
-                    "current_price": None,
-                    "price_date": None,
-                    "market_value": None,
-                    "unrealized_pnl": None,
-                    "price_available": False,
-                    "price_label": "Цена недоступна",
-                }
+                PersonalPositionSnapshot(
+                    position_id=int(pos.id),
+                    instrument_id=int(pos.instrument_id),
+                    symbol=None,
+                    name=None,
+                    asset_class=None,
+                    units=units_q(pos.units),
+                    average_cost_rub=None,
+                    cost_basis_usable=False,
+                    unit_price=None,
+                    market_value=None,
+                    price_date=None,
+                    price_available=False,
+                    unrealized_pnl=None,
+                )
             )
             continue
+
+        asset = (instrument.asset_class or "").lower() or None
         lot_size = _resolve_lot_size(session, instrument)
         lots_display = None
         if lot_size and lot_size > 0:
-            lots_display = str(units_q(pos.units) / Decimal(lot_size))
-        unit_price, market_value, price_date, asset = _personal_mark(
+            lots_display = units_q(pos.units) / Decimal(lot_size)
+        unit_price, market_value, price_date, asset_hint = _personal_mark(
             session, instrument, _d(pos.units)
         )
+        asset = asset_hint or asset
         unrealized = None
+        cost_usable = asset != "bond" and pos.average_price is not None
+        average_cost = money(pos.average_price) if cost_usable else None
         if unit_price is not None and market_value is not None:
             securities_mv = money(securities_mv + market_value)
             if price_date:
                 price_dates.append(price_date)
-            # Bond cost basis may be %/ambiguous in legacy Manual — never invent unrealized P&L.
-            if asset != "bond" and pos.average_price is not None:
-                unrealized = money(market_value - money(_d(pos.units) * _d(pos.average_price)))
+            if cost_usable and average_cost is not None:
+                unrealized = money(market_value - money(_d(pos.units) * average_cost))
         else:
             missing_prices += 1
-        avg_display = None
-        if asset == "bond":
-            avg_display = None  # do not present ambiguous legacy % as RUB cost
-        elif pos.average_price is not None:
-            avg_display = str(pos.average_price)
         positions_out.append(
-            {
-                "instrument_id": instrument.id,
-                "secid": instrument.symbol,
-                "name": instrument.name or instrument.symbol,
-                "asset_class": asset or (instrument.asset_class or "").lower() or None,
-                "units": str(pos.units),
-                "lots": lots_display,
-                "lot_size": lot_size,
-                "average_price": avg_display,
-                "current_price": str(money(unit_price)) if unit_price is not None else None,
-                "price_date": price_date,
-                "market_value": str(market_value) if market_value is not None else None,
-                "unrealized_pnl": str(unrealized) if unrealized is not None else None,
-                "price_available": unit_price is not None,
-                "price_label": None if unit_price is not None else "Цена недоступна",
-                "pnl_unavailable_reason": (
+            PersonalPositionSnapshot(
+                position_id=int(pos.id),
+                instrument_id=int(instrument.id),
+                symbol=instrument.symbol,
+                name=instrument.name or instrument.symbol,
+                asset_class=asset,
+                units=units_q(pos.units),
+                average_cost_rub=average_cost,
+                cost_basis_usable=cost_usable,
+                unit_price=money(unit_price) if unit_price is not None else None,
+                market_value=money(market_value) if market_value is not None else None,
+                price_date=price_date,
+                price_available=unit_price is not None,
+                unrealized_pnl=unrealized,
+                lot_size=lot_size,
+                lots=lots_display,
+                pnl_unavailable_reason=(
                     "Для облигаций расчёт результата будет доступен после отдельного учёта цены покупки и НКД."
                     if asset == "bond"
                     else None
                 ),
-            }
+            )
         )
 
-    cash = money(portfolio.cash_rub)
-    contributed = money(portfolio.total_contributed_rub or ZERO)
-    withdrawn = money(portfolio.total_withdrawn_rub or ZERO)
+    cash = money(book.cash_rub)
+    contributed = money(book.total_contributed_rub or ZERO)
+    withdrawn = money(book.total_withdrawn_rub or ZERO)
     valuation_complete = missing_prices == 0
     known_nav = money(cash + securities_mv)
+    inv_pnl: Decimal | None
     if valuation_complete:
-        inv_pnl: Decimal | None = investment_pnl(
-            nav=known_nav, contributed=contributed, withdrawn=withdrawn
-        )
+        inv_pnl = investment_pnl(nav=known_nav, contributed=contributed, withdrawn=withdrawn)
     else:
         inv_pnl = None
     as_of_from = min(price_dates) if price_dates else None
     as_of_to = max(price_dates) if price_dates else None
-    # Single portfolio-wide as_of only when complete and all marks share one date.
-    if valuation_complete and as_of_from is not None and as_of_from == as_of_to:
-        valuation_as_of: str | None = as_of_to
-    else:
-        valuation_as_of = None
+    valuation_as_of = as_of_to if valuation_complete and as_of_from is not None and as_of_from == as_of_to else None
+
+    return PersonalPortfolioSnapshot(
+        portfolio=book,
+        journal_state=journal_state(session, book),
+        journal_cutover_at=journal_cutover_at(session, int(book.id)),
+        cash_rub=cash,
+        positions=positions_out,
+        securities_value_rub=securities_mv,
+        known_nav_rub=known_nav,
+        contributed_rub=contributed,
+        withdrawn_rub=withdrawn,
+        realized_pnl_rub=money(book.realized_pnl_rub or ZERO),
+        investment_pnl_rub=inv_pnl,
+        valuation_complete=valuation_complete,
+        valuation_partial=not valuation_complete,
+        valuation_as_of=valuation_as_of,
+        valuation_from=as_of_from,
+        valuation_to=as_of_to,
+        valuation_label=_valuation_label(price_dates=price_dates, missing_prices=missing_prices),
+        missing_price_count=missing_prices,
+    )
+
+
+def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner: bool = False) -> dict[str, Any]:
+    snap = load_personal_snapshot(session, portfolio)
+    positions_out: list[dict[str, Any]] = []
+    for p in snap.positions:
+        positions_out.append(
+            {
+                "instrument_id": p.instrument_id,
+                "secid": p.symbol,
+                "name": p.name,
+                "asset_class": p.asset_class,
+                "units": str(p.units),
+                "lots": str(p.lots) if p.lots is not None else None,
+                "lot_size": p.lot_size,
+                "average_price": str(p.average_cost_rub) if p.average_cost_rub is not None else None,
+                "current_price": str(p.unit_price) if p.unit_price is not None else None,
+                "price_date": p.price_date,
+                "market_value": str(p.market_value) if p.market_value is not None else None,
+                "unrealized_pnl": str(p.unrealized_pnl) if p.unrealized_pnl is not None else None,
+                "price_available": p.price_available,
+                "price_label": None if p.price_available else "Цена недоступна",
+                "pnl_unavailable_reason": p.pnl_unavailable_reason,
+            }
+        )
 
     ops = list(
         session.scalars(
             select(PersonalOperation)
-            .where(PersonalOperation.portfolio_id == portfolio.id)
+            .where(PersonalOperation.portfolio_id == snap.portfolio.id)
             .order_by(PersonalOperation.occurred_at.desc(), PersonalOperation.id.desc())
             .limit(50)
         ).all()
     )
-    has_ops = journal_operation_count(session, int(portfolio.id)) > 0
-    jstate = journal_state(session, portfolio)
-    cutover = journal_cutover_at(session, int(portfolio.id))
+    has_ops = journal_operation_count(session, int(snap.portfolio.id)) > 0
+    cutover = snap.journal_cutover_at
 
     payload: dict[str, Any] = {
         "portfolio": {
-            "id": portfolio.id,
-            "name": portfolio.name,
-            "base_currency": portfolio.base_currency,
-            "status": portfolio.status,
-            "is_test": bool(portfolio.is_test),
-            "note": portfolio.note,
-            "version": portfolio.version,
+            "id": snap.portfolio.id,
+            "name": snap.portfolio.name,
+            "base_currency": snap.portfolio.base_currency,
+            "status": snap.portfolio.status,
+            "is_test": bool(snap.portfolio.is_test),
+            "note": snap.portfolio.note,
+            "version": snap.portfolio.version,
             "has_operations": has_ops,
-            "journal_state": jstate,
+            "journal_state": snap.journal_state,
             "journal_cutover_at": cutover.isoformat() if cutover else None,
         },
         "summary": {
-            "cash_rub": str(cash),
-            "securities_value_rub": str(securities_mv),
-            "nav_rub": str(known_nav),
-            "known_nav_rub": str(known_nav),
-            "contributed_rub": str(contributed),
-            "withdrawn_rub": str(withdrawn),
-            "investment_pnl_rub": str(inv_pnl) if inv_pnl is not None else None,
-            "realized_pnl_rub": str(money(portfolio.realized_pnl_rub or ZERO)),
-            "valuation_complete": valuation_complete,
-            "valuation_partial": not valuation_complete,
-            "valuation_as_of": valuation_as_of,
-            "valuation_from": as_of_from,
-            "valuation_to": as_of_to,
-            "valuation_label": _valuation_label(
-                price_dates=price_dates, missing_prices=missing_prices
+            "cash_rub": str(snap.cash_rub),
+            "securities_value_rub": str(snap.securities_value_rub),
+            "nav_rub": str(snap.known_nav_rub),
+            "known_nav_rub": str(snap.known_nav_rub),
+            "contributed_rub": str(snap.contributed_rub),
+            "withdrawn_rub": str(snap.withdrawn_rub),
+            "investment_pnl_rub": (
+                str(snap.investment_pnl_rub) if snap.investment_pnl_rub is not None else None
             ),
-            "missing_price_count": missing_prices,
+            "realized_pnl_rub": str(snap.realized_pnl_rub),
+            "valuation_complete": snap.valuation_complete,
+            "valuation_partial": snap.valuation_partial,
+            "valuation_as_of": snap.valuation_as_of,
+            "valuation_from": snap.valuation_from,
+            "valuation_to": snap.valuation_to,
+            "valuation_label": snap.valuation_label,
+            "missing_price_count": snap.missing_price_count,
         },
         "positions": positions_out,
         "operations": [_operation_to_dict(o, owner=owner) for o in ops],
         "recommendation_disclaimer": "Модельная рекомендация",
     }
     if owner:
-        payload["reconciliation"] = reconcile(session, portfolio)
+        payload["reconciliation"] = reconcile(session, snap.portfolio)
     return payload
