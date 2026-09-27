@@ -17,6 +17,7 @@ import {
 } from "../api/manualPortfolios";
 import { getPortfolioRelationsMatrix } from "../api/relations";
 import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
+import { getPersonalPrimary, type PersonalSummary } from "../api/personalPortfolios";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
 import { PageState, StatusBadge } from "../components/Ui";
@@ -51,6 +52,7 @@ interface CockpitData {
   health: HealthResponse;
   workflows: Workflow[];
   shadow: ShadowLiveResponse | null;
+  personal: PersonalSummary | null;
 }
 
 /** Backend may return coverage as 0..1 or 0..100. */
@@ -123,6 +125,7 @@ export function DashboardPage() {
       }),
       getWorkflows(controller.signal).catch(() => [] as Workflow[]),
       getShadowLive(controller.signal).catch(() => null),
+      getPersonalPrimary({ signal: controller.signal }).catch(() => null),
     ])
       .then(
         ([
@@ -134,6 +137,7 @@ export function DashboardPage() {
           health,
           workflows,
           shadow,
+          personal,
         ]) => {
           if (controller.signal.aborted) return;
           const analysisError =
@@ -161,6 +165,7 @@ export function DashboardPage() {
             health: health as HealthResponse,
             workflows: workflows as Workflow[],
             shadow: shadow as ShadowLiveResponse | null,
+            personal: personal as PersonalSummary | null,
           });
           setLoading(false);
         },
@@ -241,15 +246,27 @@ export function DashboardPage() {
   }
 
   const analysis = data.analysis;
-  const emptyPortfolio =
-    Boolean(analysis) && analysis!.positions.length === 0 && analysis!.cash_rub <= 0;
+  const personal = data.personal;
+  const personalActive = Boolean(personal?.portfolio.has_operations);
+  const emptyPortfolio = personalActive
+    ? false
+    : Boolean(analysis) && analysis!.positions.length === 0 && analysis!.cash_rub <= 0;
   const weights = analysis
     ? allocationFromAnalysis(analysis)
     : { equity: 0, fixedIncome: 0, cash: 0 };
-  const pnl = analysis ? unrealizedPnl(analysis) : null;
-  const invested = analysis?.market_value_supported ?? null;
-  const nav = analysis?.nav ?? null;
-  const cash = analysis?.cash_rub ?? null;
+  const pnl = personalActive
+    ? personal!.summary.investment_pnl_rub == null
+      ? null
+      : Number(personal!.summary.investment_pnl_rub)
+    : analysis
+      ? unrealizedPnl(analysis)
+      : null;
+  const securitiesValue = personalActive
+    ? Number(personal!.summary.securities_value_rub)
+    : analysis?.market_value_supported ?? null;
+  const invested = personalActive ? securitiesValue : analysis?.market_value_supported ?? null;
+  const nav = personalActive ? Number(personal!.summary.nav_rub) : analysis?.nav ?? null;
+  const cash = personalActive ? Number(personal!.summary.cash_rub) : analysis?.cash_rub ?? null;
   const concentration = analysis ? topConcentration(analysis) : null;
   const cashShare = analysis && analysis.nav > 0 ? analysis.cash_rub / analysis.nav : null;
   const riskCount = analysis?.risk_findings?.length ?? 0;
@@ -314,7 +331,7 @@ export function DashboardPage() {
           <div>
             <p className="cockpit-hero-value">—</p>
             <p className="cockpit-hero-note">
-              Портфель пока пуст. Добавьте позиции или кэш в «Мой портфель», чтобы увидеть оценку.
+              Добавьте первое пополнение или текущие позиции в «Мой портфель».
             </p>
             <div className="cockpit-footer-links">
               <Link className="button" to="/portfolio/mine">
@@ -328,8 +345,17 @@ export function DashboardPage() {
               {formatMoney(nav)}
             </p>
             <div className={`cockpit-hero-delta ${deltaClass}`} data-testid="cockpit-pnl">
-              {pnl == null ? (
+              {personalActive && personal!.summary.investment_pnl_rub == null ? (
+                <span data-testid="cockpit-pnl-unavailable">
+                  Результат недоступен — не хватает цены по части позиций
+                </span>
+              ) : pnl == null ? (
                 <span>Результат: нет себестоимости для расчёта</span>
+              ) : personalActive ? (
+                <span data-testid="cockpit-investment-result">
+                  Инвестиционный результат: {pnl >= 0 ? "+" : ""}
+                  {formatMoney(pnl)}
+                </span>
               ) : (
                 <span>
                   {pnl >= 0 ? "+" : ""}
@@ -346,8 +372,12 @@ export function DashboardPage() {
                 <span className="cockpit-metric-value">{formatMoney(cash)}</span>
               </div>
               <div className="cockpit-metric">
-                <span className="cockpit-metric-label">Вложено</span>
-                <span className="cockpit-metric-value">{formatMoney(invested)}</span>
+                <span className="cockpit-metric-label">
+                  {personalActive ? "В бумагах" : "Вложено"}
+                </span>
+                <span className="cockpit-metric-value" data-testid="cockpit-securities-value">
+                  {formatMoney(personalActive ? securitiesValue : invested)}
+                </span>
               </div>
               <div className="cockpit-metric">
                 <span className="cockpit-metric-label">Позиций</span>
@@ -475,7 +505,12 @@ export function DashboardPage() {
         {data.decisionError && !actions.length ? (
           <div className="cockpit-empty">{data.decisionError}</div>
         ) : (
-          <ActionCards cards={actions} />
+          <>
+            <p className="muted" data-testid="model-rec-disclaimer">
+              Модельная рекомендация — не персональный совет по фактическому журналу.
+            </p>
+            <ActionCards cards={actions} />
+          </>
         )}
       </CockpitSection>
 

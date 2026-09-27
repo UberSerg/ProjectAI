@@ -13,6 +13,7 @@ from app.api.v1.market import router as market_router
 from app.api.v1.market import workflows_router
 from app.api.v1.market_history import router as market_history_router
 from app.api.v1.model_edge import router as model_edge_router
+from app.api.v1.personal_portfolios import router as personal_portfolios_router
 from app.api.v1.predictions import router as predictions_router
 from app.api.v1.relations import router as relations_router
 from app.api.v1.research_cycle import router as research_cycle_router
@@ -28,6 +29,9 @@ api_router.include_router(market_router, prefix="/market", tags=["market"])
 api_router.include_router(instruments_router, prefix="/instruments", tags=["instruments"])
 api_router.include_router(
     manual_portfolios_router, prefix="/manual-portfolios", tags=["manual-portfolios"]
+)
+api_router.include_router(
+    personal_portfolios_router, prefix="/personal-portfolios", tags=["personal-portfolios"]
 )
 api_router.include_router(intraday_market_router, prefix="/market", tags=["intraday-market"])
 api_router.include_router(

@@ -21,6 +21,7 @@ from app.modules.portfolio.application.manual_portfolio_service import (
     portfolio_to_dict,
     update_cash,
 )
+from app.modules.portfolio.application.personal_portfolio_service import PersonalPortfolioError
 
 router = APIRouter()
 
@@ -51,11 +52,20 @@ def get_primary_manual_portfolio() -> dict[str, Any]:
         return portfolio_to_dict(portfolio)
 
 
+def _journal_managed_http(exc: PersonalPortfolioError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.http_status,
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
 @router.put("/primary/cash")
 def put_primary_cash(body: CashUpdate) -> dict[str, Any]:
     with core_session() as session:
         try:
             portfolio = update_cash(session, body.cash_rub)
+        except PersonalPortfolioError as exc:
+            raise _journal_managed_http(exc) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return portfolio_to_dict(portfolio)
@@ -73,6 +83,8 @@ def post_primary_position(body: PositionCreate) -> dict[str, Any]:
                 note=body.note,
                 non_standard_lot=body.non_standard_lot,
             )
+        except PersonalPortfolioError as exc:
+            raise _journal_managed_http(exc) from exc
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
         except LotValidationError as exc:
@@ -101,6 +113,8 @@ def patch_primary_position(position_id: int, body: PositionPatch) -> dict[str, A
                 note=body.note,
                 non_standard_lot=body.non_standard_lot,
             )
+        except PersonalPortfolioError as exc:
+            raise _journal_managed_http(exc) from exc
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
         except LotValidationError as exc:
@@ -120,6 +134,8 @@ def delete_primary_position(position_id: int) -> dict[str, Any]:
     with core_session() as session:
         try:
             delete_position(session, position_id)
+        except PersonalPortfolioError as exc:
+            raise _journal_managed_http(exc) from exc
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
         return {"status": "DELETED", "id": position_id}

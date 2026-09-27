@@ -36,16 +36,20 @@ def get_or_create_primary(session: Session) -> ManualPortfolio:
     row = session.scalar(
         select(ManualPortfolio)
         .options(selectinload(ManualPortfolio.positions))
+        .where(ManualPortfolio.is_test.is_(False))
         .order_by(ManualPortfolio.id.asc())
         .limit(1)
     )
     if row is not None:
+        if row.name == "Primary Manual Portfolio":
+            row.name = "Основной портфель"
         return row
     row = ManualPortfolio(
-        name=PRIMARY_NAME,
+        name="Основной портфель",
         source="MANUAL",
         base_currency="RUB",
         cash_rub=Decimal("0"),
+        is_test=False,
         version=1,
     )
     session.add(row)
@@ -78,7 +82,12 @@ def portfolio_to_dict(portfolio: ManualPortfolio) -> dict[str, Any]:
 
 
 def update_cash(session: Session, cash_rub: Decimal) -> ManualPortfolio:
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        assert_legacy_writes_allowed,
+    )
+
     portfolio = get_or_create_primary(session)
+    assert_legacy_writes_allowed(session, portfolio)
     if cash_rub < 0:
         raise ValueError("cash_rub must be non-negative")
     portfolio.cash_rub = _d(cash_rub)
@@ -108,7 +117,12 @@ def add_position(
     note: str | None = None,
     non_standard_lot: bool = False,
 ) -> ManualPosition:
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        assert_legacy_writes_allowed,
+    )
+
     portfolio = get_or_create_primary(session)
+    assert_legacy_writes_allowed(session, portfolio)
     instrument = session.get(Instrument, instrument_id)
     if instrument is None:
         raise LookupError("instrument_not_found")
@@ -167,7 +181,12 @@ def patch_position(
     note: str | None = None,
     non_standard_lot: bool | None = None,
 ) -> ManualPosition:
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        assert_legacy_writes_allowed,
+    )
+
     portfolio = get_or_create_primary(session)
+    assert_legacy_writes_allowed(session, portfolio)
     pos = session.get(ManualPosition, position_id)
     if pos is None or pos.portfolio_id != portfolio.id:
         raise LookupError("position_not_found")
@@ -194,7 +213,12 @@ def patch_position(
 
 
 def delete_position(session: Session, position_id: int) -> None:
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        assert_legacy_writes_allowed,
+    )
+
     portfolio = get_or_create_primary(session)
+    assert_legacy_writes_allowed(session, portfolio)
     pos = session.get(ManualPosition, position_id)
     if pos is None or pos.portfolio_id != portfolio.id:
         raise LookupError("position_not_found")

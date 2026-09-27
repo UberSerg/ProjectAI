@@ -9,12 +9,10 @@ import {
 } from "../api/instruments";
 import {
   addPrimaryPosition,
-  deletePrimaryPosition,
   getPrimaryAnalysis,
   getPrimaryCashflows,
   getPrimaryCompareCandidate,
   getPrimaryRebalance,
-  updatePrimaryCash,
   type ManualCompareCandidate,
   type ManualPortfolioAnalysis,
   type ManualRebalancePlan,
@@ -23,9 +21,7 @@ import {
 import {
   AllocationBars,
   DataQualityCard,
-  EmptyState,
   ExplanationCard,
-  HeroCard,
   MetricCard,
   PageHeader,
   PageState,
@@ -36,41 +32,20 @@ import {
 import {
   compareStatusLabel,
   isBondLike,
-  isOfz,
   moneyRub,
   pctWeight,
   qualityLabel,
   suggestedActionLabel,
-  subtypeLabel,
 } from "../features/manualPortfolio/labels";
 import { MetricHelp } from "../help";
 import {
   getPortfolioFundamentalCoverage,
   type PortfolioFundamentalCoverage,
 } from "../api/fundamentals";
+import { PersonalPortfolioPanel } from "../features/personalPortfolio/PersonalPortfolioPanel";
 
 type Tab = "holdings" | "analysis" | "payments" | "compare" | "rebalance";
 
-function unrealizedPnl(analysis: ManualPortfolioAnalysis): number | null {
-  const byId = new Map(analysis.portfolio.positions.map((p) => [p.id, p]));
-  let cost = 0;
-  let hasCost = false;
-  let mv = 0;
-  let hasMv = false;
-  for (const row of analysis.positions) {
-    const pos = byId.get(row.position_id);
-    if (pos?.average_price != null) {
-      cost += pos.average_price * pos.units;
-      hasCost = true;
-    }
-    if (row.market_value != null) {
-      mv += row.market_value;
-      hasMv = true;
-    }
-  }
-  if (!hasCost || !hasMv) return null;
-  return mv - cost;
-}
 
 function AddInstrumentModal({
   open,
@@ -244,8 +219,6 @@ export function MyPortfolioPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [cashDraft, setCashDraft] = useState("");
-  const [cashBusy, setCashBusy] = useState(false);
   const [cashflows, setCashflows] = useState<PortfolioCashflows | null>(null);
   const [fundCoverage, setFundCoverage] = useState<PortfolioFundamentalCoverage | null>(null);
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
@@ -273,7 +246,6 @@ export function MyPortfolioPage() {
   const reload = useCallback(async (signal?: AbortSignal) => {
     const next = await getPrimaryAnalysis(signal);
     setAnalysis(next);
-    setCashDraft(String(next.cash_rub));
     const symbols = [...new Set(next.positions.map((p) => p.symbol))];
     const details = await Promise.all(
       symbols.map((symbol) => getCatalogInstrument(symbol, signal).catch(() => null)),
@@ -351,10 +323,6 @@ export function MyPortfolioPage() {
     return () => controller.abort();
   }, [tab, analysis]);
 
-  const empty = useMemo(() => {
-    if (!analysis) return false;
-    return analysis.positions.length === 0 && analysis.cash_rub <= 0;
-  }, [analysis]);
 
   const allocationWeights = useMemo(() => {
     if (!analysis) return { equity: 0, fixedIncome: 0, cash: 0 };
@@ -374,111 +342,31 @@ export function MyPortfolioPage() {
     return { equity, fixedIncome, cash };
   }, [analysis, catalogBySymbol]);
 
-  const pnl = analysis ? unrealizedPnl(analysis) : null;
 
-  async function saveCash() {
-    const value = Number(cashDraft);
-    if (!Number.isFinite(value) || value < 0) {
-      setError("Кэш должен быть ≥ 0");
-      return;
-    }
-    setCashBusy(true);
-    try {
-      await updatePrimaryCash(value);
-      await reload();
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setCashBusy(false);
-    }
-  }
 
-  async function removePosition(id: number) {
-    try {
-      await deletePrimaryPosition(id);
-      await reload();
-    } catch (reason) {
-      setError(errorMessage(reason));
-    }
-  }
 
-  if (loading) return <PageState kind="loading" title="Загрузка портфеля…" />;
-  if (error && !analysis) return <PageState kind="error">{error}</PageState>;
-  if (!analysis) return <PageState kind="empty" title="Портфель недоступен" />;
+  if (loading && tab !== "holdings") return <PageState kind="loading" title="Загрузка портфеля…" />;
+  if (error && !analysis && tab !== "holdings") return <PageState kind="error">{error}</PageState>;
 
-  if (empty) {
-    return (
-      <section data-testid="my-portfolio-page">
-        <PageHeader
-          title="Мой портфель"
-          description="Ручной портфель инвестора: оценка, анализ и сравнение с кандидатом Kraken."
-          helpPageId="manual_portfolio"
-        />
-        <EmptyState
-          title="Портфель пока пуст"
-          reason="Добавьте позиции и кэш вручную. Kraken не подключается к брокеру — это ваш снимок."
-          action={
-            <button type="button" data-testid="empty-add-cta" onClick={() => setModalOpen(true)}>
-              Добавить инструмент
-            </button>
-          }
-        />
-        <AddInstrumentModal open={modalOpen} onClose={() => setModalOpen(false)} onAdded={() => void reload()} />
-      </section>
-    );
-  }
-
-  const avgById = new Map(analysis.portfolio.positions.map((p) => [p.id, p]));
 
   return (
     <section data-testid="my-portfolio-page">
       <PageHeader
         title="Мой портфель"
-        description="Ручной портфель: оценка по рыночным данным, без брокера и без исполнения сделок."
+        description="Реальные операции и оценка по рыночным данным. Без брокера и без исполнения сделок."
         helpPageId="manual_portfolio"
-        actions={
-          <button type="button" onClick={() => setModalOpen(true)} data-testid="add-position-btn">
-            Добавить инструмент
-          </button>
-        }
       />
 
-      {error ? (
+      {error && tab !== "holdings" ? (
         <WarningCard title="Сообщение">
           <p style={{ margin: 0 }}>{error}</p>
         </WarningCard>
       ) : null}
 
-      <HeroCard
-        eyebrow="Источник: введён вручную"
-        headline={moneyRub(analysis.nav)}
-        actions={
-          <StatusBadge
-            status={analysis.quality === "LIVE" ? "ok" : analysis.quality === "PARTIAL" ? "warning" : "info"}
-            label={qualityLabel(analysis.quality)}
-          />
-        }
-      >
-        <div className="card-grid" data-testid="my-portfolio-hero">
-          <MetricCard label="Стоимость (NAV)" value={moneyRub(analysis.nav)} helpId="current_value" />
-          <MetricCard
-            label="Нереализованный P&L"
-            value={pnl == null ? "—" : moneyRub(pnl)}
-            hint={pnl == null ? "Нужна средняя цена покупки" : undefined}
-            helpId="unrealized_pnl"
-          />
-          <MetricCard label="Кэш" value={moneyRub(analysis.cash_rub)} helpId="manual_portfolio_source" />
-          <MetricCard label="Позиций" value={analysis.positions.length} />
-          <MetricCard
-            label="Покрытие оценки"
-            value={`${analysis.coverage_pct.toFixed(0)}%`}
-            helpId="model_coverage"
-          />
-        </div>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Источник «Введён вручную». Цены — рыночные данные (LIVE / EOD). Не приказы брокеру.
-        </p>
-      </HeroCard>
+      <p className="muted recommendation-disclaimer" data-testid="model-recommendation-disclaimer">
+        Рекомендации в соседних вкладках — <strong>модельные</strong>, пока Daily Personal Decision Engine не
+        привязан к реальному журналу операций.
+      </p>
 
       <div className="tabs" role="tablist" style={{ marginTop: "1rem" }}>
         {(
@@ -504,95 +392,11 @@ export function MyPortfolioPage() {
 
       {tab === "holdings" ? (
         <div data-testid="tab-holdings-panel">
-          <div className="filters" style={{ marginTop: "0.75rem", gridTemplateColumns: "200px auto" }}>
-            <label>
-              Кэш, ₽
-              <input data-testid="cash-input" value={cashDraft} onChange={(e) => setCashDraft(e.target.value)} />
-            </label>
-            <div className="page-actions" style={{ alignItems: "end" }}>
-              <button type="button" className="secondary" disabled={cashBusy} onClick={() => void saveCash()}>
-                Сохранить кэш
-              </button>
-            </div>
-          </div>
-
-          <div className="table-wrap" style={{ marginTop: "0.75rem" }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Инструмент</th>
-                  <th>Кол-во</th>
-                  <th>
-                    Ср. цена <MetricHelp metricId="average_purchase_price" />
-                  </th>
-                  <th>
-                    Оценка <MetricHelp metricId="current_value" />
-                  </th>
-                  <th>
-                    Вес <MetricHelp metricId="portfolio_weight" />
-                  </th>
-                  <th>Качество</th>
-                  <th>Действие</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {analysis.positions.map((row) => {
-                  const cat = catalogBySymbol[row.symbol.toUpperCase()];
-                  const bond = isBondLike(cat?.asset_class, cat?.instrument_subtype, row.detail);
-                  const ofz = isOfz(cat?.instrument_subtype, row.symbol);
-                  const avg = avgById.get(row.position_id)?.average_price;
-                  const dirty = row.detail?.dirty_total as number | undefined;
-                  const nkd = row.detail?.accrued_interest_per_bond as number | undefined;
-                  return (
-                    <tr key={row.position_id}>
-                      <td>
-                        <Link to={`/instruments/${encodeURIComponent(row.symbol)}`} className="mono">
-                          {row.symbol}
-                        </Link>
-                        {ofz ? <span className="badge badge-info" style={{ marginLeft: 6 }}>ОФЗ</span> : null}
-                        {bond && !ofz ? (
-                          <span className="badge" style={{ marginLeft: 6 }}>
-                            Облигация
-                          </span>
-                        ) : null}
-                        {cat?.instrument_subtype ? (
-                          <div className="muted">{subtypeLabel(cat.instrument_subtype)}</div>
-                        ) : null}
-                        {bond ? (
-                          <div className="muted">
-                            <Link to={`/bonds/${encodeURIComponent(row.symbol)}`}>Карточка облигации</Link>
-                            {nkd != null ? ` · НКД ${moneyRub(nkd, 2)}` : ""}
-                            {dirty != null ? ` · dirty ${moneyRub(dirty)}` : ""}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td>{row.units}</td>
-                      <td>{avg == null ? "—" : moneyRub(avg, 2)}</td>
-                      <td>{moneyRub(row.market_value)}</td>
-                      <td>{pctWeight(row.weight)}</td>
-                      <td>
-                        <StatusBadge
-                          status={row.quality === "LIVE" ? "ok" : row.supported ? "warning" : "error"}
-                          label={qualityLabel(row.quality)}
-                        />
-                      </td>
-                      <td>{suggestedActionLabel(row.suggested_action)}</td>
-                      <td>
-                        <button type="button" className="secondary" onClick={() => void removePosition(row.position_id)}>
-                          Удалить
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <PersonalPortfolioPanel />
         </div>
       ) : null}
 
-      {tab === "analysis" ? (
+      {tab === "analysis" && analysis ? (
         <div data-testid="tab-analysis-panel" style={{ marginTop: "0.75rem" }}>
           <ExplanationCard title="Распределение" level={1}>
             <AllocationBars
@@ -801,7 +605,7 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "payments" ? (
+      {tab === "payments" && analysis ? (
         <div data-testid="tab-payments-panel" style={{ marginTop: "0.75rem" }}>
           {!cashflows ? (
             <PageState kind="loading" title="Загрузка выплат…" />
@@ -900,7 +704,7 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "compare" ? (
+      {tab === "compare" && analysis ? (
         <div data-testid="tab-compare-panel" style={{ marginTop: "0.75rem" }}>
           {!compare ? (
             <PageState kind="loading" title="Сравнение…" />
@@ -942,7 +746,7 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "rebalance" ? (
+      {tab === "rebalance" && analysis ? (
         <div data-testid="tab-rebalance-panel" style={{ marginTop: "0.75rem" }}>
           <WarningCard title="Расчётный план, не заявки">
             <p style={{ margin: 0 }}>
