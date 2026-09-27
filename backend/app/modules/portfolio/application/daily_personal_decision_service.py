@@ -435,7 +435,10 @@ def build_daily_personal_decision(
             degradations=degradations,
         )
 
-    analysis, err = _safe_call("analyze", lambda: analyze_manual_portfolio(session))
+    book = snap.portfolio
+    analysis, err = _safe_call(
+        "analyze", lambda: analyze_manual_portfolio(session, portfolio=book)
+    )
     if err:
         degradations.append(err)
     if analysis is None:
@@ -470,10 +473,14 @@ def build_daily_personal_decision(
     compare = None
     rebalance = None
     if allow_precise:
-        compare, cerr = _safe_call("compare", lambda: compare_to_candidate(session))
+        compare, cerr = _safe_call(
+            "compare", lambda: compare_to_candidate(session, portfolio=book)
+        )
         if cerr:
             degradations.append(cerr)
-        rebalance, rerr = _safe_call("rebalance", lambda: advisory_rebalance(session))
+        rebalance, rerr = _safe_call(
+            "rebalance", lambda: advisory_rebalance(session, portfolio=book)
+        )
         if rerr:
             degradations.append(rerr)
     else:
@@ -551,11 +558,38 @@ def build_daily_personal_decision(
         for f in (analysis.get("risk_findings") or [])[:10]
     ]
 
+    # NO_ACTION / ALIGNED_WITH_CANDIDATE only with successful compare evidence.
+    compare_available = compare is not None and bool(compare.get("candidate_source"))
+    soft_only = (not actions) or all(a["action"] in {"KEEP_CASH", "HOLD"} for a in actions)
+
     if partial:
         status = "PARTIAL"
         headline = "Сначала проверьте данные"
         summary = "Оценка портфеля частичная — точные действия по весам отложены."
-    elif not actions or all(a["action"] in {"KEEP_CASH", "HOLD"} for a in actions):
+    elif soft_only and not compare_available:
+        status = "READY"
+        headline = "Сравнение с кандидатом недоступно"
+        summary = (
+            "Портфель оценён, но сравнение с текущим кандидатом Kraken недоступно. "
+            "Точное персональное действие не подтверждено."
+        )
+        actions = [
+            _action(
+                action="REVIEW",
+                priority="MEDIUM",
+                title=_ACTION_TITLE_RU["REVIEW"],
+                rationale=summary,
+                reason_codes=["CANDIDATE_CONTEXT_UNAVAILABLE"],
+                facts=[
+                    f"NAV ≈ {snap.known_nav_rub} ₽",
+                    snap.valuation_label or "Оценка полная",
+                    "Кандидат/compare: недоступен",
+                ],
+                href="/portfolio/mine?tab=decision",
+                limitations=["NO_CANDIDATE_ALIGNMENT"],
+            )
+        ]
+    elif soft_only and compare_available:
         status = "NO_ACTION"
         headline = "Срочных действий нет"
         summary = (
@@ -572,7 +606,7 @@ def build_daily_personal_decision(
                 facts=[
                     f"NAV ≈ {snap.known_nav_rub} ₽",
                     snap.valuation_label or "Оценка полная",
-                    f"Кандидат: {(compare or {}).get('candidate_source') or 'нет данных'}",
+                    f"Кандидат: {compare.get('candidate_source')}",
                 ],
                 href="/portfolio/mine?tab=decision",
             )
