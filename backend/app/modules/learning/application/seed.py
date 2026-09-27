@@ -3,7 +3,7 @@
 After a successful DatasetRun exists for a code+version, semantic fields
 for that version are not overwritten — require a new dataset version instead.
 
-Active released contract remains pit_daily_core v1; V2 is seeded but not activated.
+Active released contract remains pit_daily_core v1; V2/V3 are seeded but not activated.
 """
 
 from __future__ import annotations

@@ -1,6 +1,10 @@
-"""Dataset V3 readiness gate — measurement only, never creates a DatasetSpec.
+"""Dataset V3 readiness gates — measurement for TR enrichment; Core is separate.
 
-Fundamentals alone never yield READY_FOR_BUILD.
+``READY_FOR_BUILD`` continues to mean **Total Return enrichment** readiness
+(universe-wide PIT dividends + RAS). It does **not** block mechanical
+``pit_daily_core`` v3 Core builds (historical universe + price-return labels).
+
+Fundamentals alone never yield READY_FOR_BUILD (TR).
 """
 
 from __future__ import annotations
@@ -99,10 +103,16 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
         "Online FNS depth ~2021–2025; deep history 2014+ not available on this feed"
     )
     design_notes.append("Banks/FI remain NOT_SUPPORTED_BY_FNS_RAS_V1")
-    design_notes.append("Fundamentals alone ≠ Dataset V3 READY_FOR_BUILD")
+    design_notes.append(
+        "Fundamentals alone ≠ Dataset V3 Total Return READY_FOR_BUILD"
+    )
     design_notes.append(
         "Survivorship contract historical_equity_universe_v2 prefers MOEX board dates; "
         "candle bounds remain fallback (PARTIAL)"
+    )
+    design_notes.append(
+        "Dataset V3 Core (historical universe + mechanical price-return) is a separate "
+        "contract from Total Return enrichment; this gate does not forbid Core builds"
     )
 
     # Gate logic: build requires broad RAS + non-IR (or mixed) dividend PIT + coverage.
@@ -155,9 +165,26 @@ def build_dataset_v3_readiness_gate(session: Session) -> dict[str, Any]:
             "online window starts ~2021 fiscal year filings."
         ),
         "total_return_labels": "NOT_READY" if dividends == 0 else "CONDITIONAL",
+        "v3_core": {
+            "status": "READY",
+            "meaning": (
+                "historical_equity_universe_v2 + mechanical price-return labels; "
+                "explicit build via pit_daily_core v3; not auto-activated"
+            ),
+            "dividend_adjusted": False,
+            "total_return": False,
+        },
+        "total_return_enrichment": {
+            "status": "NOT_READY" if production_divs == 0 else gate,
+            "meaning": "universe-wide PIT dividends required; IR-only feed insufficient",
+        },
         "human_summary": (
-            "Dataset V3: design может обсуждаться после industrial RAS ingest; "
-            "READY_FOR_BUILD требует дивидендный PIT-фид и не открывается fundamentals alone."
+            "Dataset V3 Core (survivorship-aware mechanical) is buildable as pit_daily_core v3; "
+            "READY_FOR_BUILD здесь = Total Return enrichment и требует дивидендный PIT-фид; "
+            "не открывается fundamentals alone."
         ),
-        "note": "Gate only. No DatasetSpec / train / Shadow / Candidate changes.",
+        "note": (
+            "Gate measurement for TR enrichment. Core DatasetSpec is seeded separately; "
+            "no Candidate / Shadow / production activation by this gate."
+        ),
     }

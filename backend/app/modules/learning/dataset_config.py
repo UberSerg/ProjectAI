@@ -1,9 +1,10 @@
-"""Dataset / PIT Join — versioned dataset specifications (v1 frozen, v2 mechanical)."""
+"""Dataset / PIT Join — versioned dataset specifications (v1/v2 frozen, v3 survivorship-aware)."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from app.modules.market.application.historical_universe import HISTORICAL_EQUITY_UNIVERSE_V2
 from app.modules.technical.technical_config import (
     RULES_V1_CODE,
     RULES_V1_CONFIG_HASH,
@@ -15,8 +16,12 @@ from app.modules.technical.technical_config import (
 PIT_DAILY_CORE_CODE = "pit_daily_core"
 PIT_DAILY_CORE_VERSION = 1
 PIT_DAILY_CORE_V2_VERSION = 2
-# Released contract stays active; V2 is buildable but not auto-activated.
+PIT_DAILY_CORE_V3_VERSION = 3
+# Released contract stays active; V2/V3 are buildable but not auto-activated.
 PIT_DAILY_CORE_ACTIVE_VERSION = 1
+
+UNIVERSE_POLICY_CURRENT_ACTIVE = "current_active_instruments"
+UNIVERSE_POLICY_HISTORICAL_V2 = HISTORICAL_EQUITY_UNIVERSE_V2
 
 # Dataset V0: Relations PIT join is part of X(t). Pin is basic_relations v1 only.
 RELATIONS_JOIN_ENABLED = True
@@ -201,7 +206,7 @@ PIT_DAILY_CORE_V2: dict[str, Any] = {
     "technical_model_config_hash": RULES_V2_CONFIG_HASH,
     "relation_set_code": "basic_relations",
     "relation_set_version": 2,
-    "universe_policy": "current_active_instruments",
+    "universe_policy": UNIVERSE_POLICY_CURRENT_ACTIVE,
     "parameters": {
         "relation_windows": [20, 60, 120],
         "lag_window": 60,
@@ -211,7 +216,53 @@ PIT_DAILY_CORE_V2: dict[str, Any] = {
     },
 }
 
-DATASET_SPEC_DEFINITIONS: tuple[dict[str, Any], ...] = (PIT_DAILY_CORE_V1, PIT_DAILY_CORE_V2)
+# Same X schema and mechanical labels as V2; universe policy is the contract change.
+PIT_DAILY_CORE_V3: dict[str, Any] = {
+    "code": PIT_DAILY_CORE_CODE,
+    "version": PIT_DAILY_CORE_V3_VERSION,
+    "description": (
+        "survivorship-aware historical-universe mechanical price-return dataset; "
+        "dividends not included. Uses historical_equity_universe_v2 date eligibility; "
+        "not a total-return dataset."
+    ),
+    "feature_manifest": FEATURE_MANIFEST_V1,
+    "relation_contexts": RELATION_CONTEXTS_V1,
+    "label_spec": LABEL_SPEC_V2,
+    "quality_policy": {
+        **QUALITY_POLICY_V2,
+        "fundamentals_in_features": False,
+        "universe_policy": UNIVERSE_POLICY_HISTORICAL_V2,
+        "survivorship_status": "PARTIAL",
+    },
+    "basic_feature_set_code": "basic_daily",
+    "basic_feature_set_version": 2,
+    "technical_feature_set_code": "technical_daily",
+    "technical_feature_set_version": 2,
+    "technical_model_code": RULES_V1_CODE,
+    "technical_model_version": RULES_V2_VERSION,
+    "technical_model_config_hash": RULES_V2_CONFIG_HASH,
+    "relation_set_code": "basic_relations",
+    "relation_set_version": 2,
+    "universe_policy": UNIVERSE_POLICY_HISTORICAL_V2,
+    "parameters": {
+        "relation_windows": [20, 60, 120],
+        "lag_window": 60,
+        "lags": [1, 2, 3, 4, 5],
+        "price_basis": "mechanical_adjusted",
+        "label_price_basis": "mechanical_adjusted",
+        "fundamentals_in_features": False,
+        "dividend_adjusted": False,
+        "total_return": False,
+        "historical_universe_version": HISTORICAL_EQUITY_UNIVERSE_V2,
+        "use_research_cohort": False,
+    },
+}
+
+DATASET_SPEC_DEFINITIONS: tuple[dict[str, Any], ...] = (
+    PIT_DAILY_CORE_V1,
+    PIT_DAILY_CORE_V2,
+    PIT_DAILY_CORE_V3,
+)
 
 DATASET_BUILD_STEPS = [
     "Resolve dataset spec",

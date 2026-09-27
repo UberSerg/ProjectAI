@@ -1,16 +1,32 @@
 # Dataset V3 readiness gate V1
 
-**Measurement only.** No `DatasetSpec` is created, pinned, or mutated.
+**Measurement only for Total Return enrichment.** Mechanical Core is a separate contract.
 
-## Gate values
+## Dated update (2026-09-27) — Core vs TR enrichment
+
+After `DATASET-V3-CORE-01`, distinguish:
+
+| Track | Meaning | Gate |
+|---|---|---|
+| **Dataset V3 Core** | `pit_daily_core` v3: `historical_equity_universe_v2` + mechanical price-return labels (`dividend_adjusted=false`, `total_return=false`) | **READY** for explicit research builds; not auto-activated; Candidate V1 stays on V2 |
+| **Total Return enrichment** | Universe-wide PIT dividends + TR labels / fundamentals depth | Still **NOT READY** without production dividend PIT feed |
+| **Historical universe completeness** | Board/candle evidence coverage | **PARTIAL** — survivorship-aware where evidence exists; delisted market-wide coverage incomplete |
+
+Prior audits (2026-09-08) remain valid for **TR / fundamentals** blockers. They do **not** forbid building mechanical V3 Core.
+
+Do not read this document as “any Dataset V3 is forbidden to build.”
+
+## Gate values (TR enrichment)
 
 | Gate | Meaning |
 |---|---|
 | `NOT_READY` | Insufficient industrial RAS (or schema missing) |
 | `READY_FOR_DATASET_DESIGN` | Industrial RAS present; design discussion allowed |
-| `READY_FOR_BUILD` | Would require RAS **and** accepted dividend PIT feed (+ coverage) |
+| `READY_FOR_BUILD` | Would require RAS **and** accepted dividend PIT feed (+ coverage) for **TR enrichment** |
 
-**Hard rule:** fundamentals alone ≠ `READY_FOR_BUILD`.
+**Hard rule:** fundamentals alone ≠ `READY_FOR_BUILD` (TR).
+
+**Hard rule:** IR-only / bounded issuer XLS dividends do not unlock TR `READY_FOR_BUILD`.
 
 ## Evidence (2026-09-08)
 
@@ -21,11 +37,15 @@
 
 ## Isolation
 
-Dataset V2 (`pit_daily_core` v2 hashes), Prediction, Candidate, Shadow,
-`research_fi_v1` (21) remain unchanged by this gate.
+- Active DatasetSpec remains `pit_daily_core` v1
+- Candidate V1 remains pinned to Dataset V2
+- Shadow / production prediction unchanged by Core seeding
+- Dividend safety gate not weakened
 
 ## API / CLI
 
 - `GET /api/v1/fundamentals/dataset-v3-gate`
 - `python -m app.modules.fundamentals.cli dataset-v3-gate`
 - Artifact: `.tmp/public-fundamentals-dividends-foundation-v1/dataset-v3-readiness.json`
+
+Gate payload includes `v3_core` and `total_return_enrichment` sub-objects after 2026-09-27.

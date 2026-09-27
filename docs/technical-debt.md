@@ -113,3 +113,14 @@ This file is **not** a product roadmap. Large features (Dataset V3, dedicated bo
 - **why deferred:** Explicitly out of scope for Personal / Daily Decision product iterations; fixing requires research_cycle semantics review.
 - **suggested fix:** Align status vocabulary (`FAILED` vs `BLOCKED`) and update tests/docs together.
 - **status:** OPEN
+
+### TD-008
+
+- **category:** TECH-DEBT
+- **priority:** P2
+- **area:** market / historical universe / Dataset V3
+- **description:** `historical_equity_universe_v2` delisted MOEX coverage is incomplete; many boundaries still candle-proxy (`DERIVED_FROM_*`) or `UNKNOWN` open windows. Not a full market-wide survivorship-free catalog.
+- **impact:** Dataset V3 Core reduces survivorship bias only where board/candle evidence exists; year-coverage and inactive representation may understate true historical MOEX universe.
+- **why deferred:** Contract correctly marks `universe_quality=PARTIAL` and does not claim bias eliminated; full delisted archaeology is a data ingestion program, not a Dataset builder bug.
+- **suggested fix:** Expand MOEX board history / delisted security ingest; re-measure authoritative vs proxy boundary ratios.
+- **status:** OPEN
