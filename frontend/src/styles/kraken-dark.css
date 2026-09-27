@@ -938,6 +938,53 @@ body:has([data-theme="dark"]) {
   margin-top: 0.85rem;
 }
 
+.personal-portfolio-panel .page-header-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.personal-portfolio-panel .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.personal-portfolio-panel .ops-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.personal-portfolio-panel .ops-list li {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.personal-portfolio-panel .trade-preview {
+  margin: 0.35rem 0 0.75rem;
+  color: #e2e8f0;
+}
+
+.personal-portfolio-panel .form-error,
+.personal-portfolio-panel .warning-banner {
+  color: #fecaca;
+  margin: 0.5rem 0;
+}
+
+.personal-portfolio-panel .field-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.recommendation-disclaimer {
+  margin: 0.75rem 0 0;
+}
+
 /* Presentation role switch (not a security control) */
 .role-mode-switch {
   flex-shrink: 0;

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpProvider } from "../help";
@@ -166,9 +166,46 @@ vi.mock("../api/manualPortfolios", () => ({
   getPrimaryCashflows: vi.fn(),
 }));
 
+vi.mock("../api/personalPortfolios", () => ({
+  getPersonalPrimary: vi.fn().mockResolvedValue({
+    portfolio: {
+      id: 1,
+      name: "Основной портфель",
+      base_currency: "RUB",
+      status: "ACTIVE",
+      is_test: false,
+      version: 1,
+      has_operations: false,
+    },
+    summary: {
+      cash_rub: "0",
+      securities_value_rub: "0",
+      nav_rub: "0",
+      contributed_rub: "0",
+      withdrawn_rub: "0",
+      investment_pnl_rub: "0",
+      realized_pnl_rub: "0",
+      valuation_complete: true,
+      valuation_partial: false,
+      valuation_as_of: null,
+      valuation_label: "Оценка недоступна — нет цен",
+      missing_price_count: 0,
+    },
+    positions: [],
+    operations: [],
+    recommendation_disclaimer: "Модельная рекомендация",
+  }),
+  createPersonalOperation: vi.fn(),
+}));
+
 vi.mock("../api/instruments", () => ({
   getCatalogInstrument: vi.fn(),
-  searchCatalogInstruments: vi.fn(),
+  searchCatalogInstruments: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 }),
+}));
+
+vi.mock("../role/KrakenRoleContext", () => ({
+  useKrakenRole: () => ({ role: "USER", isUser: true, isOwner: false, setRole: () => undefined }),
+  KrakenRoleProvider: ({ children }: { children: unknown }) => children,
 }));
 
 vi.mock("../api/fundamentals", async () => {
@@ -288,44 +325,30 @@ describe("MyPortfolioPage", () => {
   it("shows empty state with CTA", async () => {
     vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisEmpty as never);
     renderPage();
-    expect(await screen.findByText(/Портфель пока пуст/i)).toBeInTheDocument();
-    expect(screen.getByTestId("empty-add-cta")).toBeInTheDocument();
+    expect(await screen.findByText(/Личный портфель ещё пуст/i)).toBeInTheDocument();
+    expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument();
   });
 
-  it("opens add modal and searches instruments", async () => {
+  it("opens add operation modal from holdings", async () => {
     vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisEmpty as never);
-    vi.mocked(portfolioApi.addPrimaryPosition).mockResolvedValue({
-      id: 1,
-      instrument_id: 1,
-      units: 10,
-      average_price: 250,
-      note: null,
-      non_standard_lot: false,
-    });
     renderPage();
-    fireEvent.click(await screen.findByTestId("empty-add-cta"));
-    expect(screen.getByTestId("add-instrument-modal")).toBeInTheDocument();
-    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "SBER" } });
-    await waitFor(() => expect(instrumentsApi.searchCatalogInstruments).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId("add-instrument-hits")).toBeInTheDocument());
-    fireEvent.click(screen.getByText(/Сбербанк/));
-    fireEvent.click(screen.getByTestId("add-instrument-submit"));
-    await waitFor(() => expect(portfolioApi.addPrimaryPosition).toHaveBeenCalled());
+    fireEvent.click(await screen.findByTestId("add-operation-btn"));
+    expect(screen.getByTestId("add-operation-modal")).toBeInTheDocument();
+    expect(screen.getByTestId("op-type")).toBeInTheDocument();
   });
 
-  it("renders summary hero for filled portfolio", async () => {
+  it("renders personal portfolio panel for holdings", async () => {
     vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
     renderPage();
-    expect(await screen.findByTestId("my-portfolio-hero")).toBeInTheDocument();
-    expect(screen.getAllByText(/40[\s\u00a0]?000/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/вручную/i).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByTestId("personal-portfolio-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("model-recommendation-disclaimer")).toBeInTheDocument();
   });
 
   it("loads compare tab", async () => {
     vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
     vi.mocked(portfolioApi.getPrimaryCompareCandidate).mockResolvedValue(compareSample as never);
     renderPage();
-    await screen.findByTestId("my-portfolio-hero");
+    await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-compare"));
     expect(await screen.findByText("LKOH")).toBeInTheDocument();
     expect(screen.getAllByText(/Увеличить|Нет в моём/i).length).toBeGreaterThanOrEqual(1);
@@ -335,7 +358,7 @@ describe("MyPortfolioPage", () => {
     vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
     vi.mocked(portfolioApi.getPrimaryRebalance).mockResolvedValue(rebalanceSample as never);
     renderPage();
-    await screen.findByTestId("my-portfolio-hero");
+    await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-rebalance"));
     expect(await screen.findByText(/Расчётный план, не заявки/i)).toBeInTheDocument();
     expect(screen.getByText("Сократить")).toBeInTheDocument();
@@ -344,7 +367,7 @@ describe("MyPortfolioPage", () => {
   it("shows portfolio credit intelligence on analysis tab", async () => {
     vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
     renderPage();
-    await screen.findByTestId("my-portfolio-hero");
+    await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-analysis"));
     expect(await screen.findByTestId("portfolio-credit-intelligence")).toBeInTheDocument();
     expect(screen.getByText(/Кредитный риск облигаций/i)).toBeInTheDocument();

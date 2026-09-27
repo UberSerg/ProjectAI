@@ -28,6 +28,28 @@ vi.mock("../api/workflows");
 vi.mock("../api/investment");
 vi.mock("../api/shadow");
 vi.mock("../api/manualPortfolios");
+vi.mock("../api/personalPortfolios", () => ({
+  getPersonalPrimary: vi.fn().mockResolvedValue({
+    portfolio: { id: 1, name: "Основной портфель", has_operations: false, base_currency: "RUB", status: "ACTIVE", is_test: false, version: 1 },
+    summary: {
+      cash_rub: "0",
+      securities_value_rub: "0",
+      nav_rub: "0",
+      contributed_rub: "0",
+      withdrawn_rub: "0",
+      investment_pnl_rub: "0",
+      realized_pnl_rub: "0",
+      valuation_complete: true,
+      valuation_partial: false,
+      valuation_as_of: null,
+      valuation_label: "Оценка недоступна — нет цен",
+      missing_price_count: 0,
+    },
+    positions: [],
+    operations: [],
+    recommendation_disclaimer: "Модельная рекомендация",
+  }),
+}));
 vi.mock("../api/relations");
 
 const analysisFixture = {

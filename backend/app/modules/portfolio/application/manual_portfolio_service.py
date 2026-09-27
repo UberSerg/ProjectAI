@@ -36,16 +36,20 @@ def get_or_create_primary(session: Session) -> ManualPortfolio:
     row = session.scalar(
         select(ManualPortfolio)
         .options(selectinload(ManualPortfolio.positions))
+        .where(ManualPortfolio.is_test.is_(False))
         .order_by(ManualPortfolio.id.asc())
         .limit(1)
     )
     if row is not None:
+        if row.name == "Primary Manual Portfolio":
+            row.name = "Основной портфель"
         return row
     row = ManualPortfolio(
-        name=PRIMARY_NAME,
+        name="Основной портфель",
         source="MANUAL",
         base_currency="RUB",
         cash_rub=Decimal("0"),
+        is_test=False,
         version=1,
     )
     session.add(row)

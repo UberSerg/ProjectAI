@@ -1,0 +1,84 @@
+# Release / image-only override for the SAME project name `projectai`.
+# Requires Compose that supports `!reset` on sequence fields (Docker Compose v2.24+).
+#
+# Usage:
+#   $env:VITE_GIT_SHA = (git rev-parse HEAD)
+#   $env:VITE_BUILD_TIME = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
+#   $env:VITE_KRAKEN_VERSION = (Get-Content VERSION -Raw).Trim()
+#   docker compose -p projectai -f docker-compose.yml -f docker-compose.release.yml build backend frontend worker scheduler
+#   docker compose -p projectai -f docker-compose.yml -f docker-compose.release.yml up -d --no-build --force-recreate backend worker scheduler frontend
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+        GIT_SHA: ${VITE_GIT_SHA:-}
+        BUILD_TIME: ${VITE_BUILD_TIME:-}
+    environment:
+      KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+      GIT_SHA: ${VITE_GIT_SHA:-}
+      BUILD_TIME: ${VITE_BUILD_TIME:-}
+    volumes: !override
+      - projectai_raw_data:/data/raw
+      - projectai_models_data:/data/models
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+        GIT_SHA: ${VITE_GIT_SHA:-}
+        BUILD_TIME: ${VITE_BUILD_TIME:-}
+    environment:
+      KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+      GIT_SHA: ${VITE_GIT_SHA:-}
+      BUILD_TIME: ${VITE_BUILD_TIME:-}
+    volumes: !override
+      - projectai_raw_data:/data/raw
+      - projectai_models_data:/data/models
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+        GIT_SHA: ${VITE_GIT_SHA:-}
+        BUILD_TIME: ${VITE_BUILD_TIME:-}
+    environment:
+      KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+      GIT_SHA: ${VITE_GIT_SHA:-}
+      BUILD_TIME: ${VITE_BUILD_TIME:-}
+    volumes: !override
+      - projectai_raw_data:/data/raw
+      - projectai_models_data:/data/models
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.release
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+        VITE_GIT_SHA: ${VITE_GIT_SHA:-}
+        VITE_BUILD_TIME: ${VITE_BUILD_TIME:-}
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_KRAKEN_VERSION: ${VITE_KRAKEN_VERSION:-1.0.0}
+      VITE_GIT_SHA: ${VITE_GIT_SHA:-}
+      VITE_BUILD_TIME: ${VITE_BUILD_TIME:-}
+    volumes: !override []
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:5173/ >/dev/null || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
