@@ -26,13 +26,16 @@ export interface PersonalSummary {
     nav_rub: string;
     contributed_rub: string;
     withdrawn_rub: string;
-    investment_pnl_rub: string;
+    investment_pnl_rub: string | null;
     realized_pnl_rub: string;
     valuation_complete: boolean;
     valuation_partial: boolean;
     valuation_as_of: string | null;
+    valuation_from?: string | null;
+    valuation_to?: string | null;
     valuation_label: string;
     missing_price_count: number;
+    known_nav_rub?: string;
   };
   positions: Array<{
     instrument_id: number;

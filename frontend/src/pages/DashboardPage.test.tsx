@@ -28,27 +28,37 @@ vi.mock("../api/workflows");
 vi.mock("../api/investment");
 vi.mock("../api/shadow");
 vi.mock("../api/manualPortfolios");
+const getPersonalPrimary = vi.fn().mockResolvedValue({
+  portfolio: {
+    id: 1,
+    name: "Основной портфель",
+    has_operations: false,
+    base_currency: "RUB",
+    status: "ACTIVE",
+    is_test: false,
+    version: 1,
+  },
+  summary: {
+    cash_rub: "0",
+    securities_value_rub: "0",
+    nav_rub: "0",
+    contributed_rub: "0",
+    withdrawn_rub: "0",
+    investment_pnl_rub: "0",
+    realized_pnl_rub: "0",
+    valuation_complete: true,
+    valuation_partial: false,
+    valuation_as_of: null,
+    valuation_label: "Оценка недоступна — нет цен",
+    missing_price_count: 0,
+  },
+  positions: [],
+  operations: [],
+  recommendation_disclaimer: "Модельная рекомендация",
+});
+
 vi.mock("../api/personalPortfolios", () => ({
-  getPersonalPrimary: vi.fn().mockResolvedValue({
-    portfolio: { id: 1, name: "Основной портфель", has_operations: false, base_currency: "RUB", status: "ACTIVE", is_test: false, version: 1 },
-    summary: {
-      cash_rub: "0",
-      securities_value_rub: "0",
-      nav_rub: "0",
-      contributed_rub: "0",
-      withdrawn_rub: "0",
-      investment_pnl_rub: "0",
-      realized_pnl_rub: "0",
-      valuation_complete: true,
-      valuation_partial: false,
-      valuation_as_of: null,
-      valuation_label: "Оценка недоступна — нет цен",
-      missing_price_count: 0,
-    },
-    positions: [],
-    operations: [],
-    recommendation_disclaimer: "Модельная рекомендация",
-  }),
+  getPersonalPrimary: (...args: unknown[]) => getPersonalPrimary(...args),
 }));
 vi.mock("../api/relations");
 
@@ -259,6 +269,44 @@ describe("DashboardPage", () => {
     expect(await screen.findByTestId("cockpit-recommendations")).toBeInTheDocument();
     expect(screen.queryByTestId("dashboard-virtual-portfolio")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dashboard-shadow-cta")).not.toBeInTheDocument();
+  });
+
+  it("personal portfolio shows absolute P&L without fake percent and labels securities value", async () => {
+    getPersonalPrimary.mockResolvedValue({
+      portfolio: {
+        id: 1,
+        name: "Основной портфель",
+        has_operations: true,
+        base_currency: "RUB",
+        status: "ACTIVE",
+        is_test: false,
+        version: 2,
+      },
+      summary: {
+        cash_rub: "129685",
+        securities_value_rub: "276.2",
+        nav_rub: "129961.2",
+        contributed_rub: "130000",
+        withdrawn_rub: "0",
+        investment_pnl_rub: "-38.8",
+        realized_pnl_rub: "-15",
+        valuation_complete: true,
+        valuation_partial: false,
+        valuation_as_of: "2026-09-25",
+        valuation_label: "Оценка по ценам на 25.09.2026",
+        missing_price_count: 0,
+      },
+      positions: [],
+      operations: [{ id: 1 }],
+      recommendation_disclaimer: "Модельная рекомендация",
+    });
+    renderWithRole(<DashboardPage />);
+    expect(await screen.findByTestId("cockpit-investment-result")).toHaveTextContent(
+      /Инвестиционный результат/,
+    );
+    expect(screen.queryByText(/% к вложенному/)).not.toBeInTheDocument();
+    expect(screen.getByText("В бумагах")).toBeInTheDocument();
+    expect(screen.getByTestId("cockpit-securities-value")).toBeInTheDocument();
   });
 });
 

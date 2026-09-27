@@ -13,8 +13,10 @@ vi.mock("../../api/personalPortfolios", () => ({
   createPersonalOperation: (...args: unknown[]) => createPersonalOperation(...args),
 }));
 
+const searchCatalogInstruments = vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 8 }));
+
 vi.mock("../../api/instruments", () => ({
-  searchCatalogInstruments: vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 8 })),
+  searchCatalogInstruments: (...args: unknown[]) => searchCatalogInstruments(...args),
 }));
 
 vi.mock("../../api/system", () => ({
@@ -111,5 +113,100 @@ describe("PersonalPortfolioPanel", () => {
     await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("add-operation-btn"));
     expect(screen.getByTestId("add-operation-modal")).toBeInTheDocument();
+  });
+
+  it("shows unavailable investment result when pnl is null", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue({
+      ...emptySummary,
+      portfolio: { ...emptySummary.portfolio, has_operations: true },
+      summary: {
+        ...emptySummary.summary,
+        cash_rub: "60000",
+        securities_value_rub: "40000",
+        nav_rub: "100000",
+        contributed_rub: "100000",
+        investment_pnl_rub: null,
+        valuation_partial: true,
+        missing_price_count: 1,
+        valuation_label: "Частичная оценка · цены на 25.09.2026 · для 1 позиции цена недоступна",
+      },
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("personal-summary")).toBeInTheDocument());
+    expect(screen.getByText(/Результат недоступен/i)).toBeInTheDocument();
+    expect(screen.getByTestId("valuation-partial")).toBeInTheDocument();
+  });
+
+  it("reuses idempotency key on same payload network retry", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue(emptySummary);
+    createPersonalOperation
+      .mockRejectedValueOnce(new Error("Failed to fetch"))
+      .mockResolvedValueOnce({ operation_id: 1, portfolio: emptySummary });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("add-operation-btn"));
+    fireEvent.change(screen.getByTestId("op-amount"), { target: { value: "100000" } });
+    fireEvent.click(screen.getByTestId("op-submit"));
+    await waitFor(() => expect(createPersonalOperation).toHaveBeenCalledTimes(1));
+    const firstKey = (createPersonalOperation.mock.calls[0][1] as { idempotencyKey: string })
+      .idempotencyKey;
+    fireEvent.click(screen.getByTestId("op-submit"));
+    await waitFor(() => expect(createPersonalOperation).toHaveBeenCalledTimes(2));
+    const secondKey = (createPersonalOperation.mock.calls[1][1] as { idempotencyKey: string })
+      .idempotencyKey;
+    expect(secondKey).toBe(firstKey);
+  });
+
+  it("blocks bond trade confirmation in UI", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue(emptySummary);
+    searchCatalogInstruments.mockResolvedValue({
+      items: [
+        {
+          id: 99,
+          symbol: "OFZ",
+          name: "ОФЗ тест",
+          asset_class: "bond",
+          exchange: "MOEX",
+          currency: "RUB",
+          is_active: true,
+          support_level: "PARTIAL",
+          primary_board: "TQOB",
+          sources: [],
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 8,
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("add-operation-btn"));
+    fireEvent.change(screen.getByTestId("op-type"), { target: { value: "BUY" } });
+    fireEvent.change(screen.getByTestId("op-instrument"), { target: { value: "OFZ" } });
+    await waitFor(() => expect(screen.getByTestId("op-instrument-hits")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /OFZ/i }));
+    expect(screen.getByTestId("bond-trade-blocked")).toBeInTheDocument();
+    expect(screen.getByTestId("op-submit")).toBeDisabled();
   });
 });

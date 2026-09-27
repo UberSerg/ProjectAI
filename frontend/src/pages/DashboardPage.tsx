@@ -255,13 +255,16 @@ export function DashboardPage() {
     ? allocationFromAnalysis(analysis)
     : { equity: 0, fixedIncome: 0, cash: 0 };
   const pnl = personalActive
-    ? Number(personal!.summary.investment_pnl_rub)
+    ? personal!.summary.investment_pnl_rub == null
+      ? null
+      : Number(personal!.summary.investment_pnl_rub)
     : analysis
       ? unrealizedPnl(analysis)
       : null;
-  const invested = personalActive
+  const securitiesValue = personalActive
     ? Number(personal!.summary.securities_value_rub)
     : analysis?.market_value_supported ?? null;
+  const invested = personalActive ? securitiesValue : analysis?.market_value_supported ?? null;
   const nav = personalActive ? Number(personal!.summary.nav_rub) : analysis?.nav ?? null;
   const cash = personalActive ? Number(personal!.summary.cash_rub) : analysis?.cash_rub ?? null;
   const concentration = analysis ? topConcentration(analysis) : null;
@@ -342,8 +345,17 @@ export function DashboardPage() {
               {formatMoney(nav)}
             </p>
             <div className={`cockpit-hero-delta ${deltaClass}`} data-testid="cockpit-pnl">
-              {pnl == null ? (
+              {personalActive && personal!.summary.investment_pnl_rub == null ? (
+                <span data-testid="cockpit-pnl-unavailable">
+                  Результат недоступен — не хватает цены по части позиций
+                </span>
+              ) : pnl == null ? (
                 <span>Результат: нет себестоимости для расчёта</span>
+              ) : personalActive ? (
+                <span data-testid="cockpit-investment-result">
+                  Инвестиционный результат: {pnl >= 0 ? "+" : ""}
+                  {formatMoney(pnl)}
+                </span>
               ) : (
                 <span>
                   {pnl >= 0 ? "+" : ""}
@@ -360,8 +372,12 @@ export function DashboardPage() {
                 <span className="cockpit-metric-value">{formatMoney(cash)}</span>
               </div>
               <div className="cockpit-metric">
-                <span className="cockpit-metric-label">Вложено</span>
-                <span className="cockpit-metric-value">{formatMoney(invested)}</span>
+                <span className="cockpit-metric-label">
+                  {personalActive ? "В бумагах" : "Вложено"}
+                </span>
+                <span className="cockpit-metric-value" data-testid="cockpit-securities-value">
+                  {formatMoney(personalActive ? securitiesValue : invested)}
+                </span>
               </div>
               <div className="cockpit-metric">
                 <span className="cockpit-metric-label">Позиций</span>

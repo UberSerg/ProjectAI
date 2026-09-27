@@ -7,7 +7,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.infrastructure.market.models import Instrument
@@ -35,6 +36,16 @@ from app.modules.portfolio.infrastructure.models import (
 
 PRIMARY_NAME = "Основной портфель"
 TEST_NAME_PREFIX = "TEST — "
+LEGACY_BOOTSTRAP_SOURCE = "LEGACY_BOOTSTRAP"
+JOURNAL_MANAGED_MESSAGE = (
+    "Этот портфель уже ведётся через журнал операций. "
+    "Добавьте покупку, продажу, пополнение или корректировку через «Добавить операцию»."
+)
+BOND_TRADE_MESSAGE = (
+    "Операции с облигациями пока нельзя вносить через обычную цену: "
+    "биржевая цена облигации указывается в процентах от номинала. "
+    "Kraken не будет считать её рублёвой ценой."
+)
 
 
 class PersonalPortfolioError(Exception):
@@ -99,6 +110,30 @@ def get_or_create_test_portfolio(session: Session, *, name: str | None = None) -
     session.add(row)
     session.flush()
     return row
+
+
+def journal_operation_count(session: Session, portfolio_id: int) -> int:
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(PersonalOperation)
+            .where(PersonalOperation.portfolio_id == portfolio_id)
+        )
+        or 0
+    )
+
+
+def is_journal_managed(session: Session, portfolio_id: int) -> bool:
+    return journal_operation_count(session, portfolio_id) > 0
+
+
+def assert_legacy_writes_allowed(session: Session, portfolio: ManualPortfolio) -> None:
+    if is_journal_managed(session, int(portfolio.id)):
+        raise PersonalPortfolioError(
+            "PORTFOLIO_JOURNAL_MANAGED",
+            JOURNAL_MANAGED_MESSAGE,
+            http_status=409,
+        )
 
 
 def _active_operations(session: Session, portfolio_id: int) -> list[PersonalOperation]:
@@ -192,6 +227,198 @@ def _parse_occurred_at(value: datetime | date | str) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
+def _fmt_ru_date(iso_yyyy_mm_dd: str) -> str:
+    return f"{iso_yyyy_mm_dd[8:10]}.{iso_yyyy_mm_dd[5:7]}.{iso_yyyy_mm_dd[0:4]}"
+
+
+def _valuation_label(
+    *,
+    price_dates: list[str],
+    missing_prices: int,
+) -> str:
+    if not price_dates and missing_prices > 0:
+        return "Частичная оценка · для части позиций цена недоступна"
+    if not price_dates:
+        return "Оценка недоступна — нет цен"
+    earliest = min(price_dates)
+    latest = max(price_dates)
+    if earliest == latest:
+        range_part = f"цены на {_fmt_ru_date(earliest)}"
+        complete = f"Оценка по ценам на {_fmt_ru_date(earliest)}"
+    else:
+        range_part = f"цены {_fmt_ru_date(earliest)}–{_fmt_ru_date(latest)}"
+        complete = f"Цены по позициям: {_fmt_ru_date(earliest)}–{_fmt_ru_date(latest)}"
+    if missing_prices <= 0:
+        return complete
+    noun = "позиции" if missing_prices == 1 else "позиций"
+    return f"Частичная оценка · {range_part} · для {missing_prices} {noun} цена недоступна"
+
+
+def _normalize_money_str(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(money(value))
+
+
+def _normalize_units_str(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(units_q(value))
+
+
+def _idempotency_fingerprint(
+    *,
+    operation_type: str,
+    occurred_at: datetime,
+    instrument_id: int | None,
+    units: Decimal | None,
+    lots: Decimal | None,
+    price: Decimal | None,
+    amount: Decimal | None,
+    commission: Decimal | None,
+    note: str | None,
+    supersedes_operation_id: int | None,
+) -> dict[str, Any]:
+    return {
+        "operation_type": operation_type,
+        "occurred_at": occurred_at.astimezone(UTC).date().isoformat(),
+        "instrument_id": instrument_id,
+        "units": _normalize_units_str(units) if units is not None and units > ZERO else None,
+        "lots": _normalize_units_str(lots) if lots is not None else None,
+        "price": _normalize_money_str(price) if price is not None else None,
+        "amount": _normalize_money_str(amount) if amount is not None else None,
+        "commission": _normalize_money_str(commission or ZERO),
+        "note": (note or "").strip() or None,
+        "supersedes_operation_id": supersedes_operation_id,
+    }
+
+
+def _operation_fingerprint(op: PersonalOperation) -> dict[str, Any]:
+    return _idempotency_fingerprint(
+        operation_type=op.operation_type,
+        occurred_at=op.occurred_at,
+        instrument_id=op.instrument_id,
+        units=_d(op.units) if op.units is not None else None,
+        lots=_d(op.lots) if op.lots is not None else None,
+        price=_d(op.price) if op.price is not None else None,
+        amount=_d(op.amount) if op.amount is not None else None,
+        commission=_d(op.commission or ZERO),
+        note=op.note,
+        supersedes_operation_id=op.supersedes_operation_id,
+    )
+
+
+def _assert_idempotency_match(existing: PersonalOperation, expected: dict[str, Any]) -> None:
+    if _operation_fingerprint(existing) != expected:
+        raise PersonalPortfolioError(
+            "IDEMPOTENCY_KEY_REUSED",
+            "Этот идентификатор операции уже использован для других данных.",
+            http_status=409,
+        )
+
+
+def _legacy_positions(session: Session, portfolio_id: int) -> list[ManualPosition]:
+    return list(
+        session.scalars(
+            select(ManualPosition).where(ManualPosition.portfolio_id == portfolio_id)
+        ).all()
+    )
+
+
+def _needs_legacy_bootstrap(session: Session, portfolio: ManualPortfolio) -> bool:
+    if journal_operation_count(session, int(portfolio.id)) > 0:
+        return False
+    cash = money(portfolio.cash_rub)
+    positions = _legacy_positions(session, int(portfolio.id))
+    return cash != ZERO or len(positions) > 0
+
+
+def ensure_legacy_bootstrap(session: Session, portfolio: ManualPortfolio) -> None:
+    """One-time deterministic transition: legacy Manual state → opening journal rows."""
+    if not _needs_legacy_bootstrap(session, portfolio):
+        return
+
+    positions = _legacy_positions(session, int(portfolio.id))
+    missing_cost = [p for p in positions if p.average_price is None]
+    if missing_cost:
+        labels = ", ".join(str(p.instrument_id) for p in missing_cost)
+        raise PersonalPortfolioError(
+            "LEGACY_COST_BASIS_REQUIRED",
+            (
+                "Перед активацией журнала укажите себестоимость для позиций без average_price "
+                f"(instrument_id: {labels}). Нулевая себестоимость не подставляется."
+            ),
+            http_status=409,
+        )
+
+    bootstrap_at = datetime.now(UTC)
+    cash = money(portfolio.cash_rub)
+    if cash > ZERO:
+        key = f"legacy-bootstrap:{portfolio.id}:cash"
+        if (
+            session.scalar(
+                select(PersonalOperation.id).where(
+                    PersonalOperation.portfolio_id == portfolio.id,
+                    PersonalOperation.idempotency_key == key,
+                )
+            )
+            is None
+        ):
+            session.add(
+                PersonalOperation(
+                    portfolio_id=portfolio.id,
+                    operation_type=OperationType.OPENING_CASH.value,
+                    status="ACTIVE",
+                    occurred_at=bootstrap_at,
+                    amount=cash,
+                    commission=ZERO,
+                    currency="RUB",
+                    source=LEGACY_BOOTSTRAP_SOURCE,
+                    note="Legacy Manual cash bootstrap",
+                    idempotency_key=key,
+                )
+            )
+
+    for pos in positions:
+        key = f"legacy-bootstrap:{portfolio.id}:position:{pos.id}"
+        if (
+            session.scalar(
+                select(PersonalOperation.id).where(
+                    PersonalOperation.portfolio_id == portfolio.id,
+                    PersonalOperation.idempotency_key == key,
+                )
+            )
+            is not None
+        ):
+            continue
+        # Bonds may exist in legacy Manual; opening uses known RUB average_price only.
+        instrument = session.get(Instrument, pos.instrument_id)
+        if instrument is not None and (instrument.asset_class or "").lower() == "bond":
+            raise PersonalPortfolioError(
+                "BOND_TRADE_ACCOUNTING_NOT_READY",
+                BOND_TRADE_MESSAGE
+                + " Сначала перенесите облигации отдельным контрактом учёта.",
+                http_status=409,
+            )
+        session.add(
+            PersonalOperation(
+                portfolio_id=portfolio.id,
+                operation_type=OperationType.OPENING_POSITION.value,
+                status="ACTIVE",
+                occurred_at=bootstrap_at,
+                instrument_id=int(pos.instrument_id),
+                units=units_q(pos.units),
+                price=money(pos.average_price),
+                commission=ZERO,
+                currency="RUB",
+                source=LEGACY_BOOTSTRAP_SOURCE,
+                note=f"Legacy Manual position bootstrap #{pos.id}",
+                idempotency_key=key,
+            )
+        )
+    session.flush()
+
+
 def create_operation(
     session: Session,
     *,
@@ -217,13 +444,19 @@ def create_operation(
             PersonalOperation.idempotency_key == key,
         )
     )
-    if existing is not None:
-        return existing
 
     try:
         op_type = OperationType(operation_type)
     except ValueError as exc:
         raise PersonalPortfolioError("UNSUPPORTED_OPERATION", "Неизвестный тип операции") from exc
+
+    occurred_dt = _parse_occurred_at(occurred_at)
+    today = datetime.now(UTC).date()
+    if occurred_dt.astimezone(UTC).date() > today:
+        raise PersonalPortfolioError(
+            "FUTURE_DATED_OPERATION",
+            "Операцию нельзя датировать будущим днём — она сразу меняет текущее состояние портфеля.",
+        )
 
     resolved_units = units_q(units) if units is not None else ZERO
     resolved_lots = _d(lots) if lots is not None else None
@@ -236,6 +469,12 @@ def create_operation(
     if op_type in (OperationType.BUY, OperationType.SELL, OperationType.OPENING_POSITION):
         if instrument is None:
             raise PersonalPortfolioError("INSTRUMENT_REQUIRED", "Нужно указать инструмент")
+        if (instrument.asset_class or "").lower() == "bond":
+            raise PersonalPortfolioError(
+                "BOND_TRADE_ACCOUNTING_NOT_READY",
+                BOND_TRADE_MESSAGE,
+                http_status=409,
+            )
         lot_size = _resolve_lot_size(session, instrument)
         if resolved_lots is not None and resolved_lots > ZERO:
             if lot_size is None:
@@ -251,49 +490,82 @@ def create_operation(
         except LotValidationError as exc:
             raise PersonalPortfolioError(exc.code, str(exc)) from exc
 
-    if supersedes_operation_id is not None:
-        old = session.get(PersonalOperation, supersedes_operation_id)
-        if old is None or old.portfolio_id != portfolio.id:
-            raise PersonalPortfolioError("OPERATION_NOT_FOUND", "Исходная операция не найдена", http_status=404)
-        if old.status != "ACTIVE":
-            raise PersonalPortfolioError("OPERATION_NOT_ACTIVE", "Исправлять можно только активную операцию")
-        old.status = "SUPERSEDED"
-        old.correction_reason = correction_reason or old.correction_reason
-
-    row = PersonalOperation(
-        portfolio_id=portfolio.id,
+    fingerprint = _idempotency_fingerprint(
         operation_type=op_type.value,
-        status="ACTIVE",
-        occurred_at=_parse_occurred_at(occurred_at),
+        occurred_at=occurred_dt,
         instrument_id=instrument_id,
-        lots=resolved_lots,
         units=resolved_units if resolved_units > ZERO else None,
-        price=money(price) if price is not None else None,
-        amount=money(amount) if amount is not None else None,
-        commission=money(commission or ZERO),
-        currency="RUB",
-        source="MANUAL",
+        lots=resolved_lots,
+        price=price,
+        amount=amount,
+        commission=commission,
         note=note,
-        idempotency_key=key,
         supersedes_operation_id=supersedes_operation_id,
-        correction_reason=correction_reason,
     )
-    session.add(row)
-    session.flush()
+    if existing is not None:
+        _assert_idempotency_match(existing, fingerprint)
+        return existing
 
+    # All mutations in a savepoint: invalid ledger apply must not leave half-state
+    # (caught PersonalPortfolioError must not commit a bad ACTIVE journal row).
     try:
-        state = rebuild_ledger_from_journal(session, portfolio.id)
-    except LedgerError as exc:
-        session.delete(row)
-        if supersedes_operation_id is not None:
-            old = session.get(PersonalOperation, supersedes_operation_id)
-            if old is not None:
-                old.status = "ACTIVE"
-        session.flush()
-        raise PersonalPortfolioError(exc.code, exc.message) from exc
+        with session.begin_nested():
+            ensure_legacy_bootstrap(session, portfolio)
 
-    project_portfolio(session, portfolio, state)
-    return row
+            if supersedes_operation_id is not None:
+                old = session.get(PersonalOperation, supersedes_operation_id)
+                if old is None or old.portfolio_id != portfolio.id:
+                    raise PersonalPortfolioError(
+                        "OPERATION_NOT_FOUND", "Исходная операция не найдена", http_status=404
+                    )
+                if old.status != "ACTIVE":
+                    raise PersonalPortfolioError(
+                        "OPERATION_NOT_ACTIVE", "Исправлять можно только активную операцию"
+                    )
+                old.status = "SUPERSEDED"
+                old.correction_reason = correction_reason or old.correction_reason
+
+            row = PersonalOperation(
+                portfolio_id=portfolio.id,
+                operation_type=op_type.value,
+                status="ACTIVE",
+                occurred_at=occurred_dt,
+                instrument_id=instrument_id,
+                lots=resolved_lots,
+                units=resolved_units if resolved_units > ZERO else None,
+                price=money(price) if price is not None else None,
+                amount=money(amount) if amount is not None else None,
+                commission=money(commission or ZERO),
+                currency="RUB",
+                source="MANUAL",
+                note=note,
+                idempotency_key=key,
+                supersedes_operation_id=supersedes_operation_id,
+                correction_reason=correction_reason,
+            )
+            session.add(row)
+            session.flush()
+            try:
+                state = rebuild_ledger_from_journal(session, portfolio.id)
+            except LedgerError as exc:
+                raise PersonalPortfolioError(exc.code, exc.message) from exc
+            project_portfolio(session, portfolio, state)
+            return row
+    except IntegrityError as exc:
+        raced = session.scalar(
+            select(PersonalOperation).where(
+                PersonalOperation.portfolio_id == portfolio.id,
+                PersonalOperation.idempotency_key == key,
+            )
+        )
+        if raced is None:
+            raise PersonalPortfolioError(
+                "IDEMPOTENCY_CONFLICT",
+                "Конфликт идентификатора операции. Повторите запрос.",
+                http_status=409,
+            ) from exc
+        _assert_idempotency_match(raced, fingerprint)
+        return raced
 
 
 def cancel_operation(
@@ -304,7 +576,7 @@ def cancel_operation(
     reason: str | None = None,
     idempotency_key: str | None = None,
 ) -> PersonalOperation:
-    """Soft-cancel: mark SUPERSEDED/CANCELLED and reproject (no replacement)."""
+    """Soft-cancel: mark CANCELLED and reproject (no replacement). Returns original op."""
     key = (idempotency_key or "").strip() or f"cancel:{operation_id}:{uuid4()}"
     existing = session.scalar(
         select(PersonalOperation).where(
@@ -313,6 +585,11 @@ def cancel_operation(
         )
     )
     if existing is not None:
+        # Marker rows supersede the cancelled operation — always return the original.
+        if existing.supersedes_operation_id is not None:
+            original = session.get(PersonalOperation, existing.supersedes_operation_id)
+            if original is not None:
+                return original
         return existing
 
     op = session.get(PersonalOperation, operation_id)
@@ -322,7 +599,6 @@ def cancel_operation(
         raise PersonalPortfolioError("OPERATION_NOT_ACTIVE", "Операция уже не активна")
     op.status = "CANCELLED"
     op.correction_reason = reason
-    # Marker row for idempotent cancel requests
     marker = PersonalOperation(
         portfolio_id=portfolio.id,
         operation_type=op.operation_type,
@@ -341,8 +617,22 @@ def cancel_operation(
         supersedes_operation_id=op.id,
         correction_reason=reason,
     )
-    session.add(marker)
-    session.flush()
+    try:
+        with session.begin_nested():
+            session.add(marker)
+            session.flush()
+    except IntegrityError:
+        raced = session.scalar(
+            select(PersonalOperation).where(
+                PersonalOperation.portfolio_id == portfolio.id,
+                PersonalOperation.idempotency_key == key,
+            )
+        )
+        if raced is not None and raced.supersedes_operation_id is not None:
+            original = session.get(PersonalOperation, raced.supersedes_operation_id)
+            if original is not None:
+                return original
+        raise
     state = rebuild_ledger_from_journal(session, portfolio.id)
     project_portfolio(session, portfolio, state)
     return op
@@ -412,6 +702,37 @@ def _operation_to_dict(op: PersonalOperation, *, owner: bool) -> dict[str, Any]:
     return base
 
 
+def _personal_mark(
+    session: Session,
+    instrument: Instrument,
+    units: Decimal,
+) -> tuple[Decimal | None, Decimal | None, str | None, str | None]:
+    """Return (unit_price, market_value, price_date, asset_hint).
+
+    Equity/fund: latest valid EOD only (no intraday fallback).
+    Bond: existing dirty valuation (never treat clean % as RUB).
+    """
+    asset = (instrument.asset_class or "").lower()
+    if asset == "bond":
+        val = value_position(session, instrument, units)
+        if val.market_value is None or val.unit_price is None:
+            return None, None, None, "bond"
+        as_of = val.detail.get("as_of") if isinstance(val.detail, dict) else None
+        price_date = str(as_of)[:10] if as_of else None
+        return money(val.unit_price), money(val.market_value), price_date, "bond"
+
+    if asset in {"equity", "fund", ""}:
+        eod_px, eod_ts = latest_eod_close(session, int(instrument.id))
+        if eod_px is None:
+            return None, None, None, asset or "equity"
+        price_date = eod_ts[:10] if eod_ts else None
+        mv = money(units * eod_px)
+        return money(eod_px), mv, price_date, asset or "equity"
+
+    # Unsupported for Personal Portfolio mark
+    return None, None, None, asset
+
+
 def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner: bool = False) -> dict[str, Any]:
     positions_out: list[dict[str, Any]] = []
     securities_mv = ZERO
@@ -436,6 +757,7 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
                     "market_value": None,
                     "unrealized_pnl": None,
                     "price_available": False,
+                    "price_label": "Цена недоступна",
                 }
             )
             continue
@@ -443,19 +765,14 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
         lots_display = None
         if lot_size and lot_size > 0:
             lots_display = str(units_q(pos.units) / Decimal(lot_size))
-        val = value_position(session, instrument, _d(pos.units))
-        # Prefer EOD for "Оценка по ценам на …" freshness
-        eod_px, eod_ts = latest_eod_close(session, int(instrument.id))
-        unit_price = eod_px if eod_px is not None else val.unit_price
-        price_date = None
-        if eod_ts:
-            price_date = eod_ts[:10]
-            price_dates.append(price_date)
-        market_value = None
+        unit_price, market_value, price_date, _asset = _personal_mark(
+            session, instrument, _d(pos.units)
+        )
         unrealized = None
-        if unit_price is not None:
-            market_value = money(_d(pos.units) * unit_price)
+        if unit_price is not None and market_value is not None:
             securities_mv = money(securities_mv + market_value)
+            if price_date:
+                price_dates.append(price_date)
             if pos.average_price is not None:
                 unrealized = money(market_value - money(_d(pos.units) * _d(pos.average_price)))
         else:
@@ -482,10 +799,16 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
     contributed = money(portfolio.total_contributed_rub or ZERO)
     withdrawn = money(portfolio.total_withdrawn_rub or ZERO)
     valuation_complete = missing_prices == 0
-    nav = money(cash + securities_mv) if True else None
-    # When prices missing, NAV is partial (cash + known MV only)
-    inv_pnl = investment_pnl(nav=nav, contributed=contributed, withdrawn=withdrawn)
-    as_of = max(price_dates) if price_dates else None
+    known_nav = money(cash + securities_mv)
+    # Partial valuation: never treat unknown holdings as zero for total investment P&L.
+    if valuation_complete:
+        inv_pnl: Decimal | None = investment_pnl(
+            nav=known_nav, contributed=contributed, withdrawn=withdrawn
+        )
+    else:
+        inv_pnl = None
+    as_of_from = min(price_dates) if price_dates else None
+    as_of_to = max(price_dates) if price_dates else None
 
     ops = list(
         session.scalars(
@@ -495,6 +818,7 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             .limit(50)
         ).all()
     )
+    has_ops = journal_operation_count(session, int(portfolio.id)) > 0
 
     payload: dict[str, Any] = {
         "portfolio": {
@@ -505,27 +829,24 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "is_test": bool(portfolio.is_test),
             "note": portfolio.note,
             "version": portfolio.version,
-            "has_operations": len(ops) > 0 or bool(session.scalar(
-                select(PersonalOperation.id)
-                .where(PersonalOperation.portfolio_id == portfolio.id)
-                .limit(1)
-            )),
+            "has_operations": has_ops,
         },
         "summary": {
             "cash_rub": str(cash),
             "securities_value_rub": str(securities_mv),
-            "nav_rub": str(nav),
+            "nav_rub": str(known_nav),
+            "known_nav_rub": str(known_nav),
             "contributed_rub": str(contributed),
             "withdrawn_rub": str(withdrawn),
-            "investment_pnl_rub": str(inv_pnl),
+            "investment_pnl_rub": str(inv_pnl) if inv_pnl is not None else None,
             "realized_pnl_rub": str(money(portfolio.realized_pnl_rub or ZERO)),
             "valuation_complete": valuation_complete,
             "valuation_partial": not valuation_complete,
-            "valuation_as_of": as_of,
-            "valuation_label": (
-                f"Оценка по ценам на {as_of[8:10]}.{as_of[5:7]}.{as_of[0:4]}"
-                if as_of
-                else "Оценка недоступна — нет цен"
+            "valuation_as_of": as_of_to,
+            "valuation_from": as_of_from,
+            "valuation_to": as_of_to,
+            "valuation_label": _valuation_label(
+                price_dates=price_dates, missing_prices=missing_prices
             ),
             "missing_price_count": missing_prices,
         },

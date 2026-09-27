@@ -36,6 +36,26 @@ function newIdempotencyKey(): string {
   return `op-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function canonicalPayloadKey(body: CreatePersonalOperationBody): string {
+  const normalized = {
+    operation_type: body.operation_type,
+    occurred_at: body.occurred_at,
+    instrument_id: body.instrument_id ?? null,
+    lots: body.lots ?? null,
+    units: body.units ?? null,
+    price: body.price ?? null,
+    amount: body.amount ?? null,
+    commission: body.commission ?? "0",
+    note: body.note ?? null,
+    non_standard_lot: body.non_standard_lot ?? false,
+    supersedes_operation_id: body.supersedes_operation_id ?? null,
+  };
+  return JSON.stringify(normalized);
+}
+
+const BOND_TRADE_USER_MSG =
+  "Операции с облигациями пока нельзя вносить через обычную цену: биржевая цена облигации указывается в процентах от номинала. Kraken не будет считать её рублёвой ценой.";
+
 function AddOperationModal({
   open,
   onClose,
@@ -58,9 +78,15 @@ function AddOperationModal({
   const [hits, setHits] = useState<CatalogInstrument[]>([]);
   const [instrumentId, setInstrumentId] = useState<number | null>(null);
   const [instrumentLabel, setInstrumentLabel] = useState("");
+  const [instrumentAssetClass, setInstrumentAssetClass] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [lotSize, setLotSize] = useState<number | null>(null);
+  const [lastAttempt, setLastAttempt] = useState<{ payloadKey: string; key: string } | null>(null);
+
+  const bondTradeBlocked =
+    (type === "BUY" || type === "SELL" || type === "OPENING_POSITION") &&
+    (instrumentAssetClass || "").toLowerCase() === "bond";
 
   useEffect(() => {
     if (!open) return;
@@ -98,14 +124,16 @@ function AddOperationModal({
   if (!open) return null;
 
   async function submit() {
+    if (bondTradeBlocked) {
+      setError(BOND_TRADE_USER_MSG);
+      return;
+    }
     setBusy(true);
     setError(null);
-    const key = newIdempotencyKey();
     const body: CreatePersonalOperationBody = {
       operation_type: type,
       occurred_at: occurredAt,
       note: note || undefined,
-      idempotency_key: key,
       commission: commission || "0",
     };
     try {
@@ -118,7 +146,15 @@ function AddOperationModal({
         if (lots) body.lots = lots;
         if (units) body.units = units;
       }
+      const payloadKey = canonicalPayloadKey(body);
+      const key =
+        lastAttempt && lastAttempt.payloadKey === payloadKey
+          ? lastAttempt.key
+          : newIdempotencyKey();
+      setLastAttempt({ payloadKey, key });
+      body.idempotency_key = key;
       await createPersonalOperation(body, { idempotencyKey: key });
+      setLastAttempt(null);
       onSaved();
       onClose();
     } catch (e) {
@@ -185,12 +221,18 @@ function AddOperationModal({
                   setQuery(e.target.value);
                   setInstrumentId(null);
                   setInstrumentLabel("");
+                  setInstrumentAssetClass(null);
                   setLotSize(null);
                 }}
                 placeholder="SBER, GAZP…"
                 data-testid="op-instrument"
               />
             </label>
+            {bondTradeBlocked ? (
+              <p className="form-error" data-testid="bond-trade-blocked">
+                {BOND_TRADE_USER_MSG}
+              </p>
+            ) : null}
             {hits.length > 0 && !instrumentId ? (
               <ul className="search-hits" data-testid="op-instrument-hits">
                 {hits.map((h) => (
@@ -200,12 +242,14 @@ function AddOperationModal({
                       onClick={() => {
                         setInstrumentId(h.id);
                         setInstrumentLabel(`${h.symbol} · ${h.name || ""}`);
+                        setInstrumentAssetClass(h.asset_class || null);
                         setQuery("");
                         setHits([]);
                         setLotSize(null);
                       }}
                     >
                       {h.symbol} — {h.name}
+                      {(h.asset_class || "").toLowerCase() === "bond" ? " · облигация" : ""}
                     </button>
                   </li>
                 ))}
@@ -269,7 +313,7 @@ function AddOperationModal({
             type="button"
             className="btn primary"
             onClick={() => void submit()}
-            disabled={busy}
+            disabled={busy || bondTradeBlocked}
             data-testid="op-submit"
           >
             {busy ? "Сохранение…" : "Подтвердить"}
@@ -352,13 +396,17 @@ export function PersonalPortfolioPanel() {
             <MetricCard label="Бумаги" value={money(data.summary.securities_value_rub)} />
             <MetricCard
               label="Инвестиционный результат"
-              value={money(data.summary.investment_pnl_rub)}
+              value={
+                data.summary.investment_pnl_rub == null
+                  ? "Результат недоступен — не хватает цены по части позиций"
+                  : money(data.summary.investment_pnl_rub)
+              }
               hint="Без учёта пополнений и выводов как «прибыли»"
             />
           </div>
           {data.summary.valuation_partial ? (
             <p className="warning-banner" data-testid="valuation-partial">
-              Оценка частичная: для части позиций цена недоступна (не подставляем ноль).
+              {data.summary.valuation_label}
             </p>
           ) : null}
 

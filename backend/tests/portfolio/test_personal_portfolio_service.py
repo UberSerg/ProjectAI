@@ -46,9 +46,14 @@ def test_portfolio_id() -> int:
 
 def _instrument_id() -> int:
     with core_session() as session:
-        inst = session.scalar(select(Instrument).where(Instrument.is_active.is_(True)).limit(1))
+        inst = session.scalar(
+            select(Instrument).where(
+                Instrument.is_active.is_(True),
+                Instrument.asset_class.in_(("equity", "fund")),
+            ).limit(1)
+        )
         if inst is None:
-            pytest.skip("no instruments in DB")
+            pytest.skip("no equity/fund instruments in DB")
         return int(inst.id)
 
 
