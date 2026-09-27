@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
-import {
-  decideInvestment,
-  getHurdle,
-  type HurdleQuote,
-  type InvestmentDecisionResponse,
-} from "../api/investment";
+import { getDailyPersonalDecision, type DailyPersonalDecision } from "../api/dailyPersonalDecision";
+import { getHurdle, type HurdleQuote } from "../api/investment";
 import {
   getPrimaryAnalysis,
-  getPrimaryCompareCandidate,
-  getPrimaryRebalance,
-  type ManualCompareCandidate,
   type ManualPortfolioAnalysis,
-  type ManualRebalancePlan,
 } from "../api/manualPortfolios";
 import { getPortfolioRelationsMatrix } from "../api/relations";
 import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
@@ -33,7 +25,7 @@ import {
   topConcentration,
   unrealizedPnl,
 } from "../features/dashboard/allocation";
-import { buildKrakenActions } from "../features/dashboard/recommendations";
+import { dailyDecisionToActionCards } from "../features/dashboard/dailyDecisionCards";
 import { pickPortfolioA } from "../features/shadow/helpers";
 import { qualityLabel } from "../features/manualPortfolio/labels";
 import { useKrakenRole } from "../role/KrakenRoleContext";
@@ -44,10 +36,8 @@ import { labels } from "../utils/labels";
 interface CockpitData {
   analysis: ManualPortfolioAnalysis | null;
   analysisError: string | null;
-  rebalance: ManualRebalancePlan | null;
-  compare: ManualCompareCandidate | null;
-  decision: InvestmentDecisionResponse | null;
-  decisionError: string | null;
+  dailyDecision: DailyPersonalDecision | null;
+  dailyDecisionError: string | null;
   hurdle: HurdleQuote | null;
   health: HealthResponse;
   workflows: Workflow[];
@@ -112,12 +102,9 @@ export function DashboardPage() {
       getPrimaryAnalysis(controller.signal).catch((reason: unknown) => ({
         __error: errorMessage(reason),
       })),
-      getPrimaryRebalance(controller.signal).catch(() => null),
-      getPrimaryCompareCandidate(controller.signal).catch(() => null),
-      decideInvestment(
-        { profile_id: "BALANCED_ALLOCATION_V0", capital: 100000 },
-        controller.signal,
-      ).catch((reason: unknown) => ({ __error: errorMessage(reason) })),
+      getDailyPersonalDecision({ signal: controller.signal }).catch((reason: unknown) => ({
+        __error: errorMessage(reason),
+      })),
       getHurdle(controller.signal).catch(() => null),
       getSystemHealth(controller.signal).catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
@@ -127,18 +114,7 @@ export function DashboardPage() {
       getShadowLive(controller.signal).catch(() => null),
       getPersonalPrimary({ signal: controller.signal }).catch(() => null),
     ])
-      .then(
-        ([
-          analysisOrErr,
-          rebalance,
-          compare,
-          decisionOrErr,
-          hurdle,
-          health,
-          workflows,
-          shadow,
-          personal,
-        ]) => {
+      .then(([analysisOrErr, dailyOrErr, hurdle, health, workflows, shadow, personal]) => {
           if (controller.signal.aborted) return;
           const analysisError =
             analysisOrErr && typeof analysisOrErr === "object" && "__error" in analysisOrErr
@@ -147,20 +123,18 @@ export function DashboardPage() {
           const analysis = analysisError
             ? null
             : (analysisOrErr as ManualPortfolioAnalysis);
-          const decisionError =
-            decisionOrErr && typeof decisionOrErr === "object" && "__error" in decisionOrErr
-              ? String((decisionOrErr as { __error: string }).__error)
+          const dailyDecisionError =
+            dailyOrErr && typeof dailyOrErr === "object" && "__error" in dailyOrErr
+              ? String((dailyOrErr as { __error: string }).__error)
               : null;
-          const decision = decisionError
+          const dailyDecision = dailyDecisionError
             ? null
-            : (decisionOrErr as InvestmentDecisionResponse);
+            : (dailyOrErr as DailyPersonalDecision);
           setData({
             analysis,
             analysisError,
-            rebalance: rebalance as ManualRebalancePlan | null,
-            compare: compare as ManualCompareCandidate | null,
-            decision,
-            decisionError,
+            dailyDecision,
+            dailyDecisionError,
             hurdle: hurdle as HurdleQuote | null,
             health: health as HealthResponse,
             workflows: workflows as Workflow[],
@@ -168,8 +142,7 @@ export function DashboardPage() {
             personal: personal as PersonalSummary | null,
           });
           setLoading(false);
-        },
-      )
+        })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         setError(errorMessage(reason));
@@ -289,12 +262,7 @@ export function DashboardPage() {
   const riskCount = analysis?.risk_findings?.length ?? 0;
   const coverage = analysis?.coverage_pct;
 
-  const actions = buildKrakenActions({
-    analysis,
-    rebalance: data.rebalance,
-    compare: data.compare,
-    decision: data.decision,
-  });
+  const actions = dailyDecisionToActionCards(data.dailyDecision);
 
   const recent = [...data.workflows]
     .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""))
@@ -509,22 +477,32 @@ export function DashboardPage() {
         </CockpitSection>
       </div>
 
-      {/* 6. Recommendations */}
+      {/* 6. Daily Personal Decision */}
       <CockpitSection
-        title="Что Kraken предлагает сделать"
+        title="Что делать сейчас"
         testId="cockpit-recommendations"
         action={
-          <Link className="cockpit-card-link" to="/investment-decision">
-            Решение →
+          <Link className="cockpit-card-link" to="/portfolio/mine?tab=decision">
+            Подробнее →
           </Link>
         }
       >
-        {data.decisionError && !actions.length ? (
-          <div className="cockpit-empty">{data.decisionError}</div>
+        {data.dailyDecisionError && !actions.length ? (
+          <div className="cockpit-empty" data-testid="daily-decision-error">
+            Персональное решение временно недоступно. Остальной обзор портфеля работает.
+          </div>
         ) : (
           <>
+            {data.dailyDecision ? (
+              <p className="muted" data-testid="daily-decision-status-line">
+                {data.dailyDecision.headline}
+                {data.dailyDecision.status === "PARTIAL" ? " · частичная оценка" : ""}
+                {data.dailyDecision.status === "NO_ACTION" ? " · срочных действий нет" : ""}
+              </p>
+            ) : null}
             <p className="muted" data-testid="model-rec-disclaimer">
-              Модельная рекомендация — не персональный совет по фактическому журналу.
+              {data.dailyDecision?.disclaimer ||
+                "Модельная рекомендация по текущему личному портфелю — не приказ брокеру."}
             </p>
             <ActionCards cards={actions} />
           </>

@@ -79,6 +79,62 @@ vi.mock("../api/personalPortfolios", () => ({
 }));
 vi.mock("../api/relations");
 
+const dailyDecisionFixture = {
+  as_of: "2026-09-27",
+  status: "READY",
+  headline: "Рассмотреть сокращение · SBER",
+  summary: "Вес SBER в вашем портфеле 75%, у текущего кандидата 40%.",
+  portfolio: {
+    id: 1,
+    journal_state: "ACTIVE",
+    cash_rub: "50000",
+    securities_value_rub: "150000",
+    nav_rub: "200000",
+    contributed_rub: "200000",
+    withdrawn_rub: "0",
+    investment_pnl_rub: "0",
+    symbols: ["SBER"],
+  },
+  actions: [
+    {
+      id: "CONSIDER_REDUCE:SBER:CANDIDATE_WEIGHT_HIGH",
+      priority: "MEDIUM",
+      action: "CONSIDER_REDUCE",
+      symbol: "SBER",
+      title: "Рассмотреть сокращение · SBER",
+      rationale: "Вес SBER в вашем портфеле 75%, у текущего кандидата 40%.",
+      reason_codes: ["CANDIDATE_WEIGHT_HIGH"],
+      facts: ["Сейчас 75.0%", "Кандидат 40.0%"],
+      current_weight: 0.75,
+      target_weight: 0.4,
+      href: "/portfolio/mine?tab=rebalance",
+      limitations: [],
+    },
+  ],
+  risks: [],
+  data_quality: {
+    valuation_complete: true,
+    valuation_partial: false,
+    valuation_as_of: "2026-09-25",
+    valuation_from: "2026-09-25",
+    valuation_to: "2026-09-25",
+    valuation_label: "Оценка по ценам на 25.09.2026",
+    missing_price_count: 0,
+    degradations: [],
+  },
+  context: {
+    candidate_source: "preview",
+    research_used_personal_nav: true,
+    what_can_change_decision: ["новая котировка"],
+  },
+  disclaimer: "Модельная рекомендация по текущему личному портфелю.",
+};
+
+const getDailyPersonalDecision = vi.fn().mockResolvedValue(dailyDecisionFixture);
+vi.mock("../api/dailyPersonalDecision", () => ({
+  getDailyPersonalDecision: (...args: unknown[]) => getDailyPersonalDecision(...args),
+}));
+
 const analysisFixture = {
   portfolio: {
     id: 1,
@@ -142,38 +198,9 @@ describe("DashboardPage", () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     getPersonalPrimary.mockReset();
     getPersonalPrimary.mockResolvedValue(personalFixture);
+    getDailyPersonalDecision.mockReset();
+    getDailyPersonalDecision.mockResolvedValue(dailyDecisionFixture);
     vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
-    vi.mocked(manualApi.getPrimaryRebalance).mockResolvedValue({
-      advisory: true,
-      persisted_orders: false,
-      nav: 200000,
-      cash: 50000,
-      projected_cash: 40000,
-      plan_rows: [
-        {
-          instrument_id: 10,
-          ticker: "SBER",
-          action: "REDUCE",
-          lots_delta: -1,
-          units_delta: -10,
-          target_weight: 0.4,
-          current_weight: 0.75,
-          estimated_price: 15000,
-          estimated_notional: -150000,
-          lot_size: 10,
-          reason: "Снизить концентрацию относительно кандидата",
-        },
-      ],
-      review_rows: [],
-      diagnostics: {},
-      cash_safe: true,
-    } as never);
-    vi.mocked(manualApi.getPrimaryCompareCandidate).mockResolvedValue({
-      nav: 200000,
-      candidate_source: "preview",
-      comparisons: [],
-      manual_analysis: { coverage_pct: 1, quality: "LIVE", risk_findings: [] },
-    } as never);
     vi.mocked(relationsApi.getPortfolioRelationsMatrix).mockResolvedValue({
       symbols: ["SBER"],
       metric: { label_ru: "Корреляция", window_observations: 60, window_label_ru: "60 дней" },
@@ -274,8 +301,8 @@ describe("DashboardPage", () => {
     expect(await screen.findByTestId("cockpit-performance")).toBeInTheDocument();
     expect(await screen.findByTestId("cockpit-risk")).toBeInTheDocument();
     expect(await screen.findByTestId("cockpit-recommendations")).toBeInTheDocument();
-    expect(await screen.findByText("Что Kraken предлагает сделать")).toBeInTheDocument();
-    expect(await screen.findByText(/Сократить SBER/)).toBeInTheDocument();
+    expect(await screen.findByText("Что делать сейчас")).toBeInTheDocument();
+    expect(screen.getAllByText(/Рассмотреть сокращение/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole("link", { name: "Подробнее" }).length).toBeGreaterThanOrEqual(1);
     expect(await screen.findByTestId("dashboard-virtual-portfolio")).toBeInTheDocument();
     expect(await screen.findByText("Недавние события")).toBeInTheDocument();

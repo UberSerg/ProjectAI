@@ -10,6 +10,9 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.infrastructure.db.session import core_session
+from app.modules.portfolio.application.daily_personal_decision_service import (
+    build_daily_personal_decision,
+)
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
     activate_journal,
@@ -81,6 +84,16 @@ def get_primary_reconciliation(test: bool = Query(False)) -> dict[str, Any]:
     with core_session() as session:
         portfolio = _portfolio(session, test=test)
         return reconcile(session, portfolio)
+
+
+@router.get("/primary/daily-decision")
+def get_primary_daily_decision(
+    test: bool = Query(False, description="Use isolated TEST portfolio (never the real book)"),
+) -> dict[str, Any]:
+    """Read-only Daily Personal Decision for the real (or test) Personal book."""
+    with core_session() as session:
+        portfolio = _portfolio(session, test=test)
+        return build_daily_personal_decision(session, portfolio=portfolio)
 
 
 @router.post("/primary/activate-journal")
