@@ -1,0 +1,66 @@
+{
+  "scenario": "EOD 2026-09-10 → expected completed 2026-09-25 + Shadow session replay",
+  "root_cause": {
+    "summary": "Scheduled MarketDataUpdate stopped after 2026-09-11; autonomy treated local complete EOD + matching Shadow watermark as ALREADY_CURRENT and never probed expected MOEX session / provider for newer EOD.",
+    "last_market_update_workflow": "2026-09-11T09:15Z MarketDataUpdate WARNING",
+    "compute_incremental_range": "correctly returns (last+1 .. today) when invoked",
+    "false_already_current": "local complete=2026-09-10, shadow watermark=2026-09-10, backlog=0"
+  },
+  "before": {
+    "local_complete_eod": "2026-09-10",
+    "expected_completed_session": "2026-09-25",
+    "missing_market_sessions_count": 11,
+    "shadow_watermark_operational": "2026-09-10"
+  },
+  "market_backfill": {
+    "status": "SUCCESS",
+    "received": 473,
+    "inserted": 462,
+    "updated": 11,
+    "completeness_after": "2026-09-25",
+    "instruments": 43,
+    "sessions": [
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-18",
+      "2026-09-21",
+      "2026-09-22",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-25"
+    ]
+  },
+  "forward_as_of": {
+    "status": "SUCCESS",
+    "count": 11,
+    "batch_ids": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    "pit": "generated_at pinned to session 18:00 UTC; Shadow apply uses max_as_of=session day"
+  },
+  "shadow_replay": {
+    "portfolios": [1, 2, 5, 6],
+    "sessions_replayed": [
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-18",
+      "2026-09-21",
+      "2026-09-22",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-25"
+    ],
+    "watermark_after": "2026-09-25",
+    "decisions_applied_after_forward": 2
+  },
+  "repeat_recovery": {
+    "status": "RECOVERY_NO_OP",
+    "market_status": "NO_OP",
+    "shadow_status": "CATCH_UP_NO_OP"
+  },
+  "pit_answer": "YES — with intermediate Forward as_of backfill + per-session decision clock/max_as_of. Candle/feature rows are date-keyed; Forward batches generated per session with pinned generated_at."
+}

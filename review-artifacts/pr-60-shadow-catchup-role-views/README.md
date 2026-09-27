@@ -1,22 +1,21 @@
-﻿# Review artifacts — PR #60
+# Review artifacts — PR #60 (addendum)
 
 ## Feature
-Shadow session catch-up + USER/OWNER presentation views.
+Real multi-day EOD backfill + Shadow catch-up + visible USER/OWNER presentation switch.
 
 ## Commit
-Feature HEAD: `6bcf03f` (+ follow-up allocation harden on branch tip)
+`328266a` — `fix(shadow): multi-day EOD recovery before catch-up and visible role switch`
 
 ## Artifacts
 
 | File | What it shows |
 |---|---|
-| `01-user-dashboard.png` | USER cockpit: short nav, portfolio hero, recommendations |
-| `02-user-recommendations.png` | USER recommendations + Подробнее |
-| `03-owner-dashboard.png` | OWNER cockpit with technical sections |
-| `04-owner-shadow-catchup.png` | OWNER Shadow page with catch-up status card |
-| `05-user-navigation.png` | USER nav + role switch disclaimer |
-| `06-owner-navigation.png` | OWNER full navigation |
+| `07-owner-role-switch.png` | OWNER mode — sidebar footer `USER \| OWNER`, label «Режим интерфейса» |
+| `08-user-role-switch.png` | USER mode — short nav + active USER switch |
+| `09-owner-market-shadow-recovery.png` | OWNER Shadow page with market/shadow recovery card |
+| `10-live-recovery-proof.json` | Live proof 2026-09-10 → 2026-09-25 (market, Forward as_of, Shadow replay, NO-OP repeat) |
 
 ## Notes
-- Role switch is presentation-level only (not auth).
-- Catch-up live smoke on DB advanced lagging Shadow watermarks to 2026-09-10 (no history reset).
+- Role switch is presentation-only (not IAM).
+- Live DB recovery: complete EOD and Shadow watermarks advanced to `2026-09-25`.
+- Intermediate Forward as_of batches 11/11 SUCCESS after Analytics/Technical v2 pins.
