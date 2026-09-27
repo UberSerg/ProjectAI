@@ -12,71 +12,70 @@
 
 ### Portfolio
 
-- Portfolio Builder под заданный капитал
-- lot-aware построение позиций
-- акции / fixed income / cash
-- структура портфеля и концентрация
-- rebalance и варианты действий
-- recommendation cards
-- rationale / explanation из реально доступных данных
-- переход «Подробнее» в соответствующий контекст
-- portfolio relations / correlations
+- Собирает портфель под заданный капитал — можно сразу увидеть, как распределить деньги по позициям с учётом лотов MOEX.
+- Показывает акции, облигации и кэш в одной структуре — понятно, куда реально вложены средства.
+- Считает концентрацию и риск перекоса — помогает заметить слишком крупную позицию.
+- Предлагает варианты ребалансировки — что купить или сократить, чтобы приблизиться к цели.
+- Объясняет рекомендации на доступных данных — не «магия модели», а понятный контекст.
+- Ведёт в детали по кнопке «Подробнее» — от карточки сразу в нужный раздел.
+- Показывает связи между бумагами — где портфель движется слишком синхронно.
 
 ### Market Data
 
-- MOEX EOD ingest и incremental updates
-- multi-day recovery после простоя (expected completed session vs local complete EOD)
-- market completeness / readiness diagnostics
-- technical analytics и relations data
-- Data Coverage / investment data readiness
+- Загружает дневные котировки MOEX — актуальная база для анализа и решений.
+- Обновляет рынок постепенно — не нужно каждый раз тянуть всю историю заново.
+- Автоматически догоняет рынок после простоя — если Kraken был выключен несколько дней, он сам подтягивает пропущенные торговые сессии.
+- Проверяет полноту данных по инструментам — видно, готов ли день к расчётам.
+- Считает технические индикаторы и связи бумаг — фундамент для аналитики.
+- Показывает покрытие инвестиционных данных — где данные READY, а где ещё PARTIAL.
 
 ### Shadow
 
-- Shadow portfolios: decisions, pending, fills, NAV
-- prospective history и next-session execution semantics
-- multi-day catch-up с day-by-day replay
-- PIT / as-of recovery (Forward per session, `max_as_of`)
-- idempotency, crash/resume, no duplicate replay
-- recovery observability (market vs shadow lag)
+- Ведёт виртуальные Shadow-портфели — решения и сделки без реальных денег.
+- Фиксирует решения, ожидания, исполнения и стоимость портфеля по дням — история эксперимента не теряется.
+- Исполняет план на следующей сессии — без подглядывания в уже известную цену открытия.
+- Сам догоняет пропущенные дни — после простоя проигрывает историю день за днём.
+- Не использует будущие данные для прошлых решений — восстановление идёт честно по состоянию на каждый день.
+- Безопасно повторяет восстановление — повторный запуск не плодит дубликаты.
+- Показывает отставание рынка и Shadow — владельцу видно, где именно есть лаг.
 
 ### Investment Data
 
-- Instrument Master
-- market data foundation
-- technical features и relations
-- RAS / fundamentals foundation (coverage PARTIAL где не READY)
-- dividend foundation и dividend PIT quality tracking (PARTIAL)
-- fixed income foundation (PARTIAL)
-- historical universe foundation
-- CBR / rate context
+- Хранит справочник инструментов — единый каталог бумаг.
+- Держит рыночную историю как основу аналитики — котировки не «подчищаются» задним числом.
+- Считает технические признаки и связи — вход для моделей и объяснений.
+- Закладывает фундамент отчётности эмитентов (RAS) — покрытие пока PARTIAL.
+- Ведёт основу дивидендного календаря и качество доступности данных — покрытие PARTIAL.
+- Закладывает основу по облигациям — покрытие PARTIAL.
+- Учитывает исторический состав рынка и ставку ЦБ — контекст для решений.
+- Показывает экран покрытия данных — честно, где ещё есть пробелы.
 
 ### Analytics / Decisions
 
-- portfolio analysis, allocation, risk/concentration indicators
-- recommendation presentation и rebalance calculations
-- available explanations
-- decision infrastructure (не доказанная edge)
+- Анализирует портфель: структура, аллокация, риск и концентрация — картина «как есть».
+- Считает и показывает рекомендации по действиям — что имеет смысл рассмотреть дальше.
+- Даёт доступные объяснения — на тех данных, которые реально есть.
+- Хранит инфраструктуру решений — это ещё не доказанная прибыльность.
 
 ### User Experience
 
-- dark desktop cockpit
-- Portfolio Overview, allocation, risk/health, recommendations
-- honest empty / partial states
-- USER presentation mode и OWNER presentation mode
-- technical USER/OWNER switch (`kraken.presentationRole`)
-- OWNER operational diagnostics
+- Тёмный desktop-кабинет — удобно работать с портфелем каждый день.
+- Обзор портфеля, структура, здоровье и рекомендации — главное на одном экране.
+- Честные пустые и частичные состояния — система не притворяется, что данных больше, чем есть.
+- Простой USER-режим и расширенный OWNER-режим — разный уровень детализации интерфейса.
+- Переключатель USER / OWNER в сайдбаре — только режим показа, не безопасность аккаунта.
+- OWNER видит операционную диагностику — Shadow, покрытие данных, процессы.
 
-Явно: **USER / OWNER V1.0 — presentation-level separation, not production authorization.**
+Явно: **USER / OWNER V1.0 — разделение на уровне интерфейса, не production-авторизация.**
 
 ### Reliability / Engineering
 
-- Docker-based environment
-- backend / frontend tests и CI
-- migrations
-- recovery contracts
-- worktree-safe development rules
-- review-artifacts workflow
-- post-merge validation
+- Работает в Docker — воспроизводимое окружение.
+- Есть автотесты backend/frontend и CI — изменения проверяются до merge.
+- Миграции БД версионируются — схема развивается контролируемо.
+- Есть контракты восстановления после простоя — рынок и Shadow можно догнать предсказуемо.
+- Правила безопасной разработки в worktree — чужие незакоммиченные файлы не затираются.
+- Review-artifacts и post-merge проверка — визуальный и live-контроль перед релизом.
 
 ### What Kraken V1.0 is NOT
 
@@ -92,5 +91,13 @@ Kraken V1.0 пока **не** является:
 - полноценным self-learning Kraken Brain.
 
 Это первый рабочий product baseline.
+
+### Technical notes
+
+Для разработчиков и OWNER-диагностики:
+
+- Market recovery сравнивает local complete EOD с expected completed MOEX session (не только raw max тикера).
+- Shadow catch-up: Forward as-of по сессиям, `max_as_of`, session clock, idempotent replay.
+- Presentation role: `localStorage.kraken.presentationRole`.
 
 [1.0.0]: https://github.com/UberSerg/ProjectAI/releases/tag/v1.0.0
