@@ -678,6 +678,47 @@ def shadow_daily_operations() -> dict[str, Any]:
         return build_daily_operations_status(session)
 
 
+@router.get("/catch-up")
+def shadow_catchup_status() -> dict[str, Any]:
+    """Shadow session catch-up observability (OWNER / ops)."""
+    from app.modules.shadow.application.session_catchup import build_catchup_status
+
+    with core_session() as session:
+        return build_catchup_status(session)
+
+
+@router.post("/catch-up")
+def shadow_catchup_run(
+    commit_each_session: Annotated[bool, Query()] = True,
+    ensure_market: Annotated[bool, Query()] = True,
+    full_recovery: Annotated[bool, Query()] = True,
+) -> dict[str, Any]:
+    """Run market EOD recovery + Shadow session catch-up (idempotent).
+
+    Default ``full_recovery=true``: multi-day EOD backfill → features → Forward as_of
+    → chronological Shadow replay. Set ``full_recovery=false`` for Shadow-only path.
+    """
+    with core_session() as session:
+        if full_recovery and ensure_market:
+            from app.modules.shadow.application.recovery import run_market_shadow_recovery
+
+            result = run_market_shadow_recovery(
+                session,
+                commit_each_session=commit_each_session,
+            )
+        else:
+            from app.modules.shadow.application.session_catchup import run_all_shadow_catchup
+
+            result = run_all_shadow_catchup(
+                session,
+                ensure_market=ensure_market,
+                commit_each_session=commit_each_session,
+            )
+        if not commit_each_session:
+            session.commit()
+        return result
+
+
 @router.get("/portfolios/{portfolio_id}/current")
 def get_shadow_portfolio_current(portfolio_id: int) -> dict[str, Any]:
     """Current portfolio snapshot for UI: lots, cash breakdown, order_plan, live marks."""

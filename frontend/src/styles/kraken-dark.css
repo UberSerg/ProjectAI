@@ -877,9 +877,135 @@ body:has([data-theme="dark"]) {
   line-height: 1.4;
 }
 
+/* Presentation role switch (not a security control) */
+.role-mode-switch {
+  margin-top: auto;
+  flex-shrink: 0;
+  padding: 0.85rem 0.65rem 1rem;
+  border-top: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.role-mode-label {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(196, 205, 218, 0.92);
+  margin-bottom: 0.4rem;
+}
+
+.role-mode-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.role-mode-buttons button {
+  font-size: 0.78rem;
+  padding: 0.42rem 0.35rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.65);
+  color: rgba(226, 232, 240, 0.92);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.role-mode-buttons button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  border-color: rgba(191, 219, 254, 0.55);
+}
+
+.role-mode-buttons button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.role-mode-buttons button.active {
+  /* High-contrast selected state: light surface + dark ink (no blue-on-blue). */
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.role-mode-buttons button.active:hover {
+  background: #f8fafc;
+  color: #020617;
+  border-color: #f8fafc;
+}
+
+.role-mode-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.66rem;
+  line-height: 1.35;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.catchup-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.catchup-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.catchup-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.catchup-section {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.catchup-section-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+
+.catchup-market-flag {
+  margin: 0.55rem 0 0;
+  font-size: 0.82rem;
+}
+
+.catchup-market-flag .ok {
+  color: #86efac;
+}
+
+.catchup-market-flag .warn {
+  color: #fbbf24;
+}
+
+.catchup-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.catchup-grid strong {
+  font-size: 0.92rem;
+}
+
 @media (max-width: 1180px) {
   .cockpit-grid {
     grid-template-columns: 1fr;
+  }
+  .catchup-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .cockpit-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));

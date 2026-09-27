@@ -7,6 +7,7 @@ import * as intradayApi from "../api/intraday";
 import * as researchCycleApi from "../api/researchCycle";
 import * as shadowApi from "../api/shadow";
 import { HelpProvider } from "../help";
+import { KrakenRoleProvider } from "../role/KrakenRoleContext";
 import { ShadowPage } from "./ShadowPage";
 
 vi.mock("../api/shadow");
@@ -406,9 +407,11 @@ function mockHappyPath(opts?: { withV2?: boolean }) {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <HelpProvider>
-        <ShadowPage />
-      </HelpProvider>
+      <KrakenRoleProvider>
+        <HelpProvider>
+          <ShadowPage />
+        </HelpProvider>
+      </KrakenRoleProvider>
     </MemoryRouter>,
   );
 }

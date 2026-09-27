@@ -1,21 +1,29 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { KrakenRoleProvider } from "../role/KrakenRoleContext";
+import { ROLE_STORAGE_KEY } from "../role/types";
 import { AppShell } from "./AppShell";
 
 function renderShell(path = "/") {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route path="*" element={<div>page</div>} />
-        </Route>
-      </Routes>
+      <KrakenRoleProvider>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="*" element={<div>page</div>} />
+          </Route>
+        </Routes>
+      </KrakenRoleProvider>
     </MemoryRouter>,
   );
 }
 
 describe("AppShell investor-first nav", () => {
+  beforeEach(() => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
+  });
+
   it("includes research-hub, candidate, bonds, companies/fundamentals", () => {
     renderShell();
     const nav = screen.getByTestId("primary-nav");

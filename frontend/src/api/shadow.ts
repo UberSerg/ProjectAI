@@ -250,6 +250,49 @@ export interface ShadowDailyOperations {
     last_processed_market_date?: string | null;
   }>;
   watermarks?: Record<string, string | null>;
+  catch_up?: ShadowCatchUpStatus | null;
+}
+
+export interface ShadowCatchUpPortfolio {
+  portfolio_id: number;
+  name: string;
+  last_processed_session?: string | null;
+  latest_completed_market_session?: string | null;
+  missing_sessions?: string[];
+  backlog_count?: number;
+  status?: string;
+  blocking_session?: string | null;
+  reason?: string | null;
+}
+
+export interface ShadowCatchUpMarketData {
+  latest_local_eod_session?: string | null;
+  latest_local_raw_max?: string | null;
+  latest_expected_completed_session?: string | null;
+  missing_market_sessions_count?: number;
+  missing_market_sessions?: string[];
+  market_current?: boolean;
+  market_backfill_status?: string | null;
+  blocking_session?: string | null;
+  reason?: string | null;
+}
+
+export interface ShadowCatchUpShadowMeta {
+  last_processed_session?: string | null;
+  replay_backlog?: number;
+  catch_up_status?: string | null;
+}
+
+export interface ShadowCatchUpStatus {
+  catch_up_status?: string;
+  latest_completed_market_session?: string | null;
+  backlog_session_count?: number;
+  blocking_session?: string | null;
+  blocking_reason?: string | null;
+  last_successful_replay_hint?: string | null;
+  portfolios?: ShadowCatchUpPortfolio[];
+  market_data?: ShadowCatchUpMarketData | null;
+  shadow?: ShadowCatchUpShadowMeta | null;
 }
 
 export interface ShadowOrder {
@@ -325,6 +368,14 @@ export function getShadowLive(signal?: AbortSignal): Promise<ShadowLiveResponse>
 
 export function getShadowDailyOperations(signal?: AbortSignal): Promise<ShadowDailyOperations> {
   return apiRequest("/shadow/daily-operations", { signal });
+}
+
+export function getShadowCatchUp(signal?: AbortSignal): Promise<ShadowCatchUpStatus> {
+  return apiRequest("/shadow/catch-up", { signal });
+}
+
+export function runShadowCatchUp(signal?: AbortSignal): Promise<Record<string, unknown>> {
+  return apiRequest("/shadow/catch-up", { method: "POST", signal });
 }
 
 export function listShadowPortfolios(signal?: AbortSignal): Promise<ShadowPortfolioSummary[]> {

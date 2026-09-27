@@ -15,9 +15,13 @@ export function allocationFromAnalysis(analysis: ManualPortfolioAnalysis): Alloc
   }
   let equity = 0;
   let fixedIncome = 0;
+  const allocationRows = analysis.allocation ?? [];
   for (const row of analysis.positions) {
     const sleeve = (row as { sleeve?: string }).sleeve?.toUpperCase?.() ?? "";
-    const fromAlloc = analysis.allocation.find((a) => a.symbol.toUpperCase() === row.symbol.toUpperCase());
+    const symbol = String(
+      row.symbol ?? (row as { ticker?: string | null }).ticker ?? "",
+    ).toUpperCase();
+    const fromAlloc = allocationRows.find((a) => String(a.symbol ?? "").toUpperCase() === symbol);
     const allocSleeve = (fromAlloc?.sleeve ?? "").toUpperCase();
     const w = row.weight ?? (row.market_value != null ? row.market_value / nav : 0);
     const bond =
@@ -25,7 +29,7 @@ export function allocationFromAnalysis(analysis: ManualPortfolioAnalysis): Alloc
       allocSleeve.includes("BOND") ||
       sleeve.includes("FIXED") ||
       isBondLike(null, null, typeof row.detail === "object" && row.detail ? row.detail : null) ||
-      /^(SU|OFZ)/i.test(row.symbol) ||
+      /^(SU|OFZ)/i.test(symbol) ||
       (row.capabilities?.can_fixed_income_analyze === true);
     if (bond) fixedIncome += w;
     else equity += w;
@@ -68,7 +72,7 @@ export function topConcentration(analysis: ManualPortfolioAnalysis): {
   label: string;
   weight: number;
 } | null {
-  const top = [...analysis.concentration_by_issuer].sort((a, b) => b.weight - a.weight)[0];
+  const top = [...(analysis.concentration_by_issuer ?? [])].sort((a, b) => b.weight - a.weight)[0];
   if (!top) return null;
   return { label: top.issuer_title || top.issuer_key, weight: top.weight };
 }

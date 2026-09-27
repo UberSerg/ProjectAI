@@ -155,6 +155,10 @@ def test_catchup_idempotent_already_current() -> None:
         updated_at=None,
     )
     settings = SimpleNamespace(eod_readiness_retry_enabled=True, research_live_mode=True)
+    market_gap = SimpleNamespace(
+        status="MARKET_CURRENT",
+        to_dict=lambda: {"status": "MARKET_CURRENT", "market_current": True},
+    )
 
     with (
         patch(
@@ -172,6 +176,14 @@ def test_catchup_idempotent_already_current() -> None:
         patch(
             "app.modules.shadow.application.daily_operations._last_successful_cycle",
             return_value=last_ok,
+        ),
+        patch(
+            "app.modules.market.application.eod_gap.detect_market_eod_gap",
+            return_value=market_gap,
+        ),
+        patch(
+            "app.modules.shadow.application.session_catchup.shadow_has_catchup_lag",
+            return_value=False,
         ),
     ):
         first = maybe_trigger_cycle_if_ready(session)
@@ -201,6 +213,10 @@ def test_waiting_input_when_market_incomplete() -> None:
         to_dict=lambda: {"ready": False},
     )
     settings = SimpleNamespace(eod_readiness_retry_enabled=True, research_live_mode=True)
+    market_gap = SimpleNamespace(
+        status="MARKET_UNKNOWN",
+        to_dict=lambda: {"status": "MARKET_UNKNOWN"},
+    )
     with (
         patch(
             "app.modules.shadow.application.daily_operations.get_settings",
@@ -213,6 +229,10 @@ def test_waiting_input_when_market_incomplete() -> None:
         patch(
             "app.modules.shadow.application.daily_operations._collect_watermarks",
             return_value={},
+        ),
+        patch(
+            "app.modules.market.application.eod_gap.detect_market_eod_gap",
+            return_value=market_gap,
         ),
     ):
         out = maybe_trigger_cycle_if_ready(session)

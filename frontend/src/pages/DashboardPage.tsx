@@ -35,6 +35,7 @@ import {
 import { buildKrakenActions } from "../features/dashboard/recommendations";
 import { pickPortfolioA } from "../features/shadow/helpers";
 import { qualityLabel } from "../features/manualPortfolio/labels";
+import { useKrakenRole } from "../role/KrakenRoleContext";
 import { formatDate, formatDuration, formatMoney, formatRelativeTime } from "../utils/format";
 import { overviewHealthBadgeStatus, overviewHealthTitle } from "../utils/health";
 import { labels } from "../utils/labels";
@@ -218,6 +219,8 @@ export function DashboardPage() {
     return () => ctrl.abort();
   }, [symbolKey, symbols]);
 
+  const { isUser } = useKrakenRole();
+
   if (loading) {
     return <PageState kind="loading" title="Загрузка личного кабинета Kraken…" />;
   }
@@ -276,15 +279,29 @@ export function DashboardPage() {
     <div className="cockpit" data-testid="kraken-cockpit">
       <header className="cockpit-topbar">
         <div>
-          <p className="cockpit-kicker">Kraken · личный кабинет</p>
+          <p className="cockpit-kicker">
+            Kraken · {isUser ? "личный кабинет" : "кабинет владельца"}
+          </p>
           <h1 className="cockpit-title">Обзор портфеля</h1>
           <p className="cockpit-sub">
             Стоимость, структура, риски и предложения — по текущим данным.
           </p>
         </div>
         <div className="cockpit-health-quiet">
-          <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
-          <p className="muted">{overviewHealthTitle(data.health)}</p>
+          {isUser ? (
+            data.health.status !== "ok" ? (
+              <p className="muted" data-testid="user-data-refresh-note">
+                Данные обновляются
+              </p>
+            ) : (
+              <p className="muted">Система в порядке</p>
+            )
+          ) : (
+            <>
+              <StatusBadge status={overviewHealthBadgeStatus(data.health)} />
+              <p className="muted">{overviewHealthTitle(data.health)}</p>
+            </>
+          )}
         </div>
       </header>
 
@@ -462,65 +479,77 @@ export function DashboardPage() {
         )}
       </CockpitSection>
 
-      {/* 7. Journal + shadow note */}
-      <div className="cockpit-grid">
-        <CockpitSection
-          title="Недавние события"
-          testId="cockpit-journal"
-          action={
-            <Link className="cockpit-card-link" to="/workflows">
-              Все процессы →
-            </Link>
-          }
-        >
-          {recent.length ? (
-            <div className="cockpit-journal">
-              {recent.map((item) => (
-                <div className="cockpit-journal-row" key={item.id}>
-                  <span className="cockpit-journal-time">{formatDate(item.started_at)}</span>
-                  <span>
-                    <Link to="/workflows">{labels.workflowType(item.workflow_type)}</Link>
-                    <span className="muted"> · {formatDuration(item.duration_seconds)}</span>
-                  </span>
-                  <StatusBadge status={item.status} />
-                </div>
-              ))}
+      {/* 7. Recent activity — USER: simple; OWNER: journal + shadow */}
+      {isUser ? (
+        <CockpitSection title="Что произошло недавно" testId="cockpit-journal">
+          {actions.length ? (
+            <div className="cockpit-empty">
+              Актуальные предложения Kraken — в блоке выше. История портфеля: раздел «История».
             </div>
           ) : (
-            <div className="cockpit-empty">Пока нет зафиксированных процессов.</div>
+            <div className="cockpit-empty">Пока нет заметных изменений в портфеле.</div>
           )}
         </CockpitSection>
+      ) : (
+        <div className="cockpit-grid">
+          <CockpitSection
+            title="Недавние события"
+            testId="cockpit-journal"
+            action={
+              <Link className="cockpit-card-link" to="/workflows">
+                Все процессы →
+              </Link>
+            }
+          >
+            {recent.length ? (
+              <div className="cockpit-journal">
+                {recent.map((item) => (
+                  <div className="cockpit-journal-row" key={item.id}>
+                    <span className="cockpit-journal-time">{formatDate(item.started_at)}</span>
+                    <span>
+                      <Link to="/workflows">{labels.workflowType(item.workflow_type)}</Link>
+                      <span className="muted"> · {formatDuration(item.duration_seconds)}</span>
+                    </span>
+                    <StatusBadge status={item.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="cockpit-empty">Пока нет зафиксированных процессов.</div>
+            )}
+          </CockpitSection>
 
-        <CockpitSection title="Живой эксперимент" testId="dashboard-virtual-portfolio">
-          {!shadowPrimary ? (
-            <div className="cockpit-empty">Живой эксперимент ещё не запущен.</div>
-          ) : (
-            <>
-              <div className="cockpit-stat-grid">
-                <div className="cockpit-stat">
-                  <span>NAV эксперимента</span>
-                  <strong data-testid="dashboard-shadow-nav">{formatMoney(shadowNav)}</strong>
+          <CockpitSection title="Живой эксперимент" testId="dashboard-virtual-portfolio">
+            {!shadowPrimary ? (
+              <div className="cockpit-empty">Живой эксперимент ещё не запущен.</div>
+            ) : (
+              <>
+                <div className="cockpit-stat-grid">
+                  <div className="cockpit-stat">
+                    <span>NAV эксперимента</span>
+                    <strong data-testid="dashboard-shadow-nav">{formatMoney(shadowNav)}</strong>
+                  </div>
+                  <div className="cockpit-stat">
+                    <span>Статус</span>
+                    <strong style={{ fontSize: "0.9rem" }}>
+                      {shadowStatusRu(shadowPrimary.status)}
+                    </strong>
+                  </div>
                 </div>
-                <div className="cockpit-stat">
-                  <span>Статус</span>
-                  <strong style={{ fontSize: "0.9rem" }}>
-                    {shadowStatusRu(shadowPrimary.status)}
-                  </strong>
+                <p className="cockpit-stat-note">
+                  Отдельный forward-эксперимент — не ваш личный портфель. Котировки:{" "}
+                  {formatRelativeTime(data.shadow?.last_intraday_refresh?.at ?? null)}.
+                </p>
+                <div className="cockpit-footer-links">
+                  <Link className="button secondary" to="/shadow" data-testid="dashboard-shadow-cta">
+                    Открыть эксперимент
+                  </Link>
                 </div>
-              </div>
-              <p className="cockpit-stat-note">
-                Отдельный forward-эксперимент — не ваш личный портфель. Котировки:{" "}
-                {formatRelativeTime(data.shadow?.last_intraday_refresh?.at ?? null)}.
-              </p>
-              <div className="cockpit-footer-links">
-                <Link className="button secondary" to="/shadow" data-testid="dashboard-shadow-cta">
-                  Открыть эксперимент
-                </Link>
-              </div>
-            </>
-          )}
-        </CockpitSection>
-      </div>
+              </>
+            )}
+          </CockpitSection>
+        </div>
+      )}
     </div>
   );
 }

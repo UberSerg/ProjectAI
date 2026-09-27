@@ -80,6 +80,13 @@ body {
   top: 0;
   height: 100vh;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-nav {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .sidebar-compact {

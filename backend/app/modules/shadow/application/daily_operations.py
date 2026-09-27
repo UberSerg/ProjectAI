@@ -308,8 +308,13 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
         READY_FOR_NEXT_SESSION if prep == PENDING_ORDERS_AWAITING_OPEN else prep
     )
 
+    from app.modules.shadow.application.session_catchup import build_catchup_status
+
+    catch_up = build_catchup_status(session)
+
     return {
         "latest_complete_eod_date": readiness.to_dict()["latest_complete_eod_date"],
+        "catch_up": catch_up,
         "latest_forward_as_of": (
             wm.get("forward_latest_as_of").isoformat()
             if wm.get("forward_latest_as_of") is not None
@@ -433,27 +438,85 @@ def maybe_trigger_cycle_if_ready(session: Session) -> dict[str, Any]:
     covers = _cycle_covers_eod(last_ok, eod)
 
     if readiness.ready and covers and not lags:
+        # Upstream IN_SYNC must not hide market EOD lag vs expected MOEX session,
+        # nor Shadow watermark lag after downtime.
+        from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+        from app.modules.shadow.application.session_catchup import shadow_has_catchup_lag
+
+        gap = detect_market_eod_gap(session)
+        if gap.status == MARKET_STALE or shadow_has_catchup_lag(session):
+            from app.modules.shadow.application.recovery import run_market_shadow_recovery
+
+            recovery = run_market_shadow_recovery(session, commit_each_session=True)
+            return {
+                "status": STAGE_SUCCESS,
+                "stage": STAGE_SUCCESS,
+                "triggered": False,
+                "market_shadow_recovery": recovery,
+                "reason": (
+                    "market_eod_stale" if gap.status == MARKET_STALE else "shadow_watermark_lag"
+                ),
+                "readiness": readiness.to_dict(),
+                "market_gap": gap.to_dict(),
+            }
         return {
             "status": STAGE_ALREADY_CURRENT,
             "stage": STAGE_ALREADY_CURRENT,
             "readiness": readiness.to_dict(),
+            "market_gap": gap.to_dict(),
         }
 
     # Catch-up path: complete EOD exists but analytics/technical/forward behind,
     # OR cycle does not cover latest complete EOD yet.
     if not readiness.ready and readiness.blocker_code == WAITING_FOR_MARKET_COMPLETE:
+        # Local completeness may be stale vs expected MOEX session — recover EOD first.
+        from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+        from app.modules.shadow.application.recovery import run_market_shadow_recovery
+
+        gap = detect_market_eod_gap(session)
+        if gap.status == MARKET_STALE:
+            recovery = run_market_shadow_recovery(session, commit_each_session=True)
+            return {
+                "status": STAGE_SUCCESS,
+                "stage": STAGE_SUCCESS,
+                "triggered": False,
+                "market_shadow_recovery": recovery,
+                "reason": "market_eod_stale",
+                "readiness": readiness.to_dict(),
+                "market_gap": gap.to_dict(),
+            }
         return {
             "status": STAGE_WAITING_INPUT,
             "stage": STAGE_WAITING_INPUT,
             "blocker_code": WAITING_FOR_MARKET_COMPLETE,
             "readiness": readiness.to_dict(),
+            "market_gap": gap.to_dict(),
         }
 
     if not lags and covers:
+        from app.modules.market.application.eod_gap import MARKET_STALE, detect_market_eod_gap
+        from app.modules.shadow.application.recovery import run_market_shadow_recovery
+        from app.modules.shadow.application.session_catchup import shadow_has_catchup_lag
+
+        gap = detect_market_eod_gap(session)
+        if gap.status == MARKET_STALE or shadow_has_catchup_lag(session):
+            recovery = run_market_shadow_recovery(session, commit_each_session=True)
+            return {
+                "status": STAGE_SUCCESS,
+                "stage": STAGE_SUCCESS,
+                "triggered": False,
+                "market_shadow_recovery": recovery,
+                "reason": (
+                    "market_eod_stale" if gap.status == MARKET_STALE else "shadow_watermark_lag"
+                ),
+                "readiness": readiness.to_dict(),
+                "market_gap": gap.to_dict(),
+            }
         return {
             "status": STAGE_ALREADY_CURRENT,
             "stage": STAGE_ALREADY_CURRENT,
             "readiness": readiness.to_dict(),
+            "market_gap": gap.to_dict(),
         }
 
     latest = _latest_cycle_workflow(session)
