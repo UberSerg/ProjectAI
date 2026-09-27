@@ -173,6 +173,10 @@ def test_catchup_idempotent_already_current() -> None:
             "app.modules.shadow.application.daily_operations._last_successful_cycle",
             return_value=last_ok,
         ),
+        patch(
+            "app.modules.shadow.application.session_catchup.shadow_has_catchup_lag",
+            return_value=False,
+        ),
     ):
         first = maybe_trigger_cycle_if_ready(session)
         second = maybe_trigger_cycle_if_ready(session)

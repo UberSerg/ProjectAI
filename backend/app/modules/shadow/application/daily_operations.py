@@ -308,8 +308,13 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
         READY_FOR_NEXT_SESSION if prep == PENDING_ORDERS_AWAITING_OPEN else prep
     )
 
+    from app.modules.shadow.application.session_catchup import build_catchup_status
+
+    catch_up = build_catchup_status(session)
+
     return {
         "latest_complete_eod_date": readiness.to_dict()["latest_complete_eod_date"],
+        "catch_up": catch_up,
         "latest_forward_as_of": (
             wm.get("forward_latest_as_of").isoformat()
             if wm.get("forward_latest_as_of") is not None
@@ -433,6 +438,26 @@ def maybe_trigger_cycle_if_ready(session: Session) -> dict[str, Any]:
     covers = _cycle_covers_eod(last_ok, eod)
 
     if readiness.ready and covers and not lags:
+        # Upstream IN_SYNC must not hide Shadow watermark lag after downtime.
+        from app.modules.shadow.application.session_catchup import (
+            run_all_shadow_catchup,
+            shadow_has_catchup_lag,
+        )
+
+        if shadow_has_catchup_lag(session):
+            catchup = run_all_shadow_catchup(
+                session,
+                ensure_market=True,
+                commit_each_session=False,
+            )
+            return {
+                "status": STAGE_SUCCESS,
+                "stage": STAGE_SUCCESS,
+                "triggered": False,
+                "shadow_catchup": catchup,
+                "reason": "shadow_watermark_lag",
+                "readiness": readiness.to_dict(),
+            }
         return {
             "status": STAGE_ALREADY_CURRENT,
             "stage": STAGE_ALREADY_CURRENT,
@@ -450,6 +475,25 @@ def maybe_trigger_cycle_if_ready(session: Session) -> dict[str, Any]:
         }
 
     if not lags and covers:
+        from app.modules.shadow.application.session_catchup import (
+            run_all_shadow_catchup,
+            shadow_has_catchup_lag,
+        )
+
+        if shadow_has_catchup_lag(session):
+            catchup = run_all_shadow_catchup(
+                session,
+                ensure_market=True,
+                commit_each_session=False,
+            )
+            return {
+                "status": STAGE_SUCCESS,
+                "stage": STAGE_SUCCESS,
+                "triggered": False,
+                "shadow_catchup": catchup,
+                "reason": "shadow_watermark_lag",
+                "readiness": readiness.to_dict(),
+            }
         return {
             "status": STAGE_ALREADY_CURRENT,
             "stage": STAGE_ALREADY_CURRENT,

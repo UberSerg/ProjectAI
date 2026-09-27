@@ -294,6 +294,47 @@ def _trading_days_after(session: Session, after: date | None) -> list[date]:
     return days
 
 
+def list_trading_sessions_after(session: Session, after: date | None) -> list[date]:
+    """Observed MOEX trading sessions after watermark (from raw 1d candles)."""
+    return _trading_days_after(session, after)
+
+
+def session_has_eod_candles(session: Session, day: date) -> bool:
+    """True when at least one raw 1d candle exists for the calendar day."""
+    row = session.scalar(
+        select(Candle.id).where(
+            Candle.timeframe == "1d",
+            func.date(Candle.timestamp) == day,
+        ).limit(1)
+    )
+    return row is not None
+
+
+def process_shadow_market_day(
+    session: Session,
+    portfolio: ShadowPortfolio,
+    spec: ShadowPortfolioSpec,
+    day: date,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    """Process exactly one completed market session for a Shadow portfolio.
+
+    Same production path as ``advance_shadow_portfolio`` day loop:
+    corporate actions → pending fills → NAV watermark.
+    Idempotent under unique constraints on fills/NAV.
+    """
+    activation_date = ensure_aware_utc(portfolio.activated_at).date()
+    if day <= activation_date:
+        portfolio.last_processed_market_date = day
+        portfolio.updated_at = now
+        return {"day": day.isoformat(), "skipped": "pre_activation", "fills": 0}
+    _apply_ca_for_day(session, portfolio, day)
+    fills = _fill_pending_orders(session, portfolio, spec, day, now=now)
+    _mark_nav(session, portfolio, spec, day, now=now)
+    return {"day": day.isoformat(), "skipped": None, "fills": fills}
+
+
 def _apply_ca_for_day(session: Session, portfolio: ShadowPortfolio, day: date) -> None:
     for _key, pos in list(_positions_dict(portfolio).items()):
         iid = int(pos["instrument_id"])
@@ -1168,25 +1209,14 @@ def initialize_shadow_portfolios(
     return results
 
 
-def advance_shadow_portfolio(
+def apply_pending_forward_decisions(
     session: Session,
-    portfolio_id: int,
+    portfolio: ShadowPortfolio,
+    spec: ShadowPortfolioSpec,
     *,
-    clock: Clock | None = None,
-) -> AdvanceResult:
-    """Advance one Shadow portfolio: decisions → fills → CA → MTM. Idempotent."""
-    now = (clock or _utcnow)()
-    portfolio = session.get(ShadowPortfolio, portfolio_id)
-    if portfolio is None:
-        raise ValueError(f"shadow portfolio not found: {portfolio_id}")
-    spec = session.get(ShadowPortfolioSpec, portfolio.spec_id)
-    if spec is None:
-        raise ValueError("shadow spec missing")
-
-    late_warnings = _scan_late_input_corrections(session, portfolio)
-
-    # 1) New forward batches eligible for weekly decision.
-    # Bound to the spec's own Prediction Candidate so parallel candidates stay isolated.
+    now: datetime,
+) -> int:
+    """Create weekly decisions/orders from existing Forward batches (idempotent)."""
     batches = list(
         session.scalars(
             select(ForwardPredictionBatch)
@@ -1220,27 +1250,10 @@ def advance_shadow_portfolio(
         d = _build_decision_and_orders(session, portfolio, spec, batch, preds, decision_at=now)
         if d is not None:
             decisions_made += 1
+    return decisions_made
 
-    # 2) Process newly available market dates after watermark (and after activation)
-    activation_date = ensure_aware_utc(portfolio.activated_at).date()
-    start_after = portfolio.last_processed_market_date
-    # Never process market dates on/before activation calendar day for MTM bootstrap from history
-    # Fills still gated by min_execution_date separately.
-    days = _trading_days_after(session, start_after)
-    fills_total = 0
-    processed_days: list[str] = []
-    for day in days:
-        # Do not fabricate pre-activation NAV / fills from already-known calendar days.
-        # Safe forward rule: process only market dates strictly after activation calendar date.
-        # Watermark may still advance through older days without creating history.
-        if day <= activation_date:
-            portfolio.last_processed_market_date = day
-            continue
-        _apply_ca_for_day(session, portfolio, day)
-        fills_total += _fill_pending_orders(session, portfolio, spec, day, now=now)
-        _mark_nav(session, portfolio, spec, day, now=now)
-        processed_days.append(day.isoformat())
 
+def refresh_shadow_portfolio_status(session: Session, portfolio: ShadowPortfolio, *, now: datetime) -> None:
     pending = int(
         session.scalar(
             select(func.count()).select_from(ShadowOrder).where(
@@ -1263,6 +1276,37 @@ def advance_shadow_portfolio(
         portfolio.status = "DECISION_READY"
     portfolio.updated_at = now
 
+
+def advance_shadow_portfolio(
+    session: Session,
+    portfolio_id: int,
+    *,
+    clock: Clock | None = None,
+) -> AdvanceResult:
+    """Advance one Shadow portfolio: decisions → fills → CA → MTM. Idempotent."""
+    now = (clock or _utcnow)()
+    portfolio = session.get(ShadowPortfolio, portfolio_id)
+    if portfolio is None:
+        raise ValueError(f"shadow portfolio not found: {portfolio_id}")
+    spec = session.get(ShadowPortfolioSpec, portfolio.spec_id)
+    if spec is None:
+        raise ValueError("shadow spec missing")
+
+    late_warnings = _scan_late_input_corrections(session, portfolio)
+    decisions_made = apply_pending_forward_decisions(session, portfolio, spec, now=now)
+
+    # Process newly available market dates after watermark (production day path).
+    days = _trading_days_after(session, portfolio.last_processed_market_date)
+    fills_total = 0
+    processed_days: list[str] = []
+    for day in days:
+        day_result = process_shadow_market_day(session, portfolio, spec, day, now=now)
+        fills_total += int(day_result.get("fills") or 0)
+        if day_result.get("skipped") is None:
+            processed_days.append(day.isoformat())
+
+    refresh_shadow_portfolio_status(session, portfolio, now=now)
+
     return AdvanceResult(
         portfolio_id=portfolio.id,
         name=spec.name,
@@ -1270,8 +1314,22 @@ def advance_shadow_portfolio(
         summary={
             "decisions_made": decisions_made,
             "fills_this_advance": fills_total,
-            "pending_orders": pending,
-            "filled_orders": filled,
+            "pending_orders": int(
+                session.scalar(
+                    select(func.count()).select_from(ShadowOrder).where(
+                        ShadowOrder.portfolio_id == portfolio.id, ShadowOrder.status == "PENDING"
+                    )
+                )
+                or 0
+            ),
+            "filled_orders": int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ShadowFill)
+                    .where(ShadowFill.portfolio_id == portfolio.id)
+                )
+                or 0
+            ),
             "last_processed_market_date": (
                 portfolio.last_processed_market_date.isoformat()
                 if portfolio.last_processed_market_date
