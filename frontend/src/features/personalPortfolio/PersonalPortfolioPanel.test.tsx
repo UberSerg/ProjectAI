@@ -13,10 +13,11 @@ vi.mock("../../api/personalPortfolios", () => ({
   createPersonalOperation: (...args: unknown[]) => createPersonalOperation(...args),
 }));
 
-const searchCatalogInstruments = vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 8 }));
+const searchCatalogInstruments = vi.fn();
 
 vi.mock("../../api/instruments", () => ({
-  searchCatalogInstruments: (...args: unknown[]) => searchCatalogInstruments(...args),
+  searchCatalogInstruments: (params?: unknown, signal?: AbortSignal) =>
+    searchCatalogInstruments(params, signal),
 }));
 
 vi.mock("../../api/system", () => ({
@@ -57,6 +58,8 @@ describe("PersonalPortfolioPanel", () => {
     localStorage.clear();
     getPersonalPrimary.mockReset();
     createPersonalOperation.mockReset();
+    searchCatalogInstruments.mockReset();
+    searchCatalogInstruments.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 });
   });
 
   it("shows onboarding when empty", async () => {
@@ -181,12 +184,14 @@ describe("PersonalPortfolioPanel", () => {
           symbol: "OFZ",
           name: "ОФЗ тест",
           asset_class: "bond",
-          exchange: "MOEX",
-          currency: "RUB",
-          is_active: true,
+          instrument_subtype: null,
           support_level: "PARTIAL",
           primary_board: "TQOB",
-          sources: [],
+          exchange: "MOEX",
+          currency: "RUB",
+          isin: null,
+          is_active: true,
+          sources: ["MOEX"],
         },
       ],
       total: 1,
