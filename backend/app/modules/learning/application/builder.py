@@ -37,7 +37,11 @@ from app.modules.learning.application.hash_util import (
     sample_content_hash,
     sample_values_hash,
 )
-from app.modules.learning.application.labels import ForwardReturnLabelCalculator, PriceObservation
+from app.modules.learning.application.labels import (
+    ForwardReturnLabelCalculator,
+    LabelResult,
+    PriceObservation,
+)
 from app.modules.learning.application.relations_join import (
     RelationIndex,
     empty_relation_join,
@@ -69,6 +73,67 @@ from app.modules.market.application.mechanical_adjustment import MechanicalActio
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 
 logger = get_logger(__name__, component="dataset-pit")
+
+
+def _clip_prices_to_eligibility(
+    prices: list[PriceObservation],
+    elig: HistoricalEligibility,
+) -> list[PriceObservation]:
+    """Restrict label observations to the historical eligibility window (V3 only)."""
+    return [
+        p
+        for p in prices
+        if p.date >= elig.eligible_from
+        and (elig.eligible_to is None or p.date <= elig.eligible_to)
+    ]
+
+
+def _invalidate_labels_past_eligible_to(
+    label_result: LabelResult,
+    *,
+    full_prices: list[PriceObservation],
+    as_of: date,
+    eligible_to: date,
+    horizons: list[int],
+) -> int:
+    """Invalidate Y(t+h) when the target observation is after eligible_to.
+
+    Distinguishes ``target_after_eligible_to_*`` from ordinary ``missing_future_*``.
+    Returns the number of horizons invalidated.
+    """
+    full_dates = sorted({p.date for p in full_prices})
+    if as_of not in full_dates:
+        return 0
+    idx = full_dates.index(as_of)
+    rejected = 0
+    for h in horizons:
+        key = f"{h}d"
+        target_idx = idx + h
+        if target_idx >= len(full_dates):
+            continue
+        target_date = full_dates[target_idx]
+        if target_date <= eligible_to:
+            continue
+        attr = f"forward_return_{h}d"
+        date_attr = f"target_date_{h}d"
+        if hasattr(label_result.labels, attr):
+            setattr(label_result.labels, attr, None)
+        prior_target = None
+        if hasattr(label_result.labels, date_attr):
+            prior_target = getattr(label_result.labels, date_attr, None)
+            setattr(label_result.labels, date_attr, None)
+        label_result.label_valid[key] = False
+        label_result.label_flags[f"target_after_eligible_to_{key}"] = True
+        label_result.label_flags[f"rejected_target_date_{key}"] = (
+            prior_target.isoformat()
+            if isinstance(prior_target, date)
+            else target_date.isoformat()
+        )
+        # Prefer the explicit boundary reason over truncation-induced missing_future.
+        label_result.label_flags.pop(f"missing_future_{key}", None)
+        label_result.target_candle_ids[key] = None
+        rejected += 1
+    return rejected
 
 
 def _build_year_coverage(
@@ -408,6 +473,7 @@ class PITDatasetBuilder:
                 "feature_valid_samples": 0,
                 "rejected_before_eligible_from": 0,
                 "rejected_after_eligible_to": 0,
+                "labels_rejected_after_eligible_to": 0,
                 "samples_from_inactive_now": 0,
                 "instruments_with_samples": set(),
                 "inactive_instruments_with_samples": set(),
@@ -556,13 +622,29 @@ class PITDatasetBuilder:
                     if rel_join.age_days is not None:
                         meta["relation_age_days"] = rel_join.age_days
 
+                    label_prices = prices
+                    if apply_date_eligibility and elig is not None:
+                        label_prices = _clip_prices_to_eligibility(prices, elig)
                     label_result = label_calc.calculate(
-                        prices,
+                        label_prices,
                         as_of=as_of,
                         discontinuity_dates=disc,
                         mechanical_actions=actions_by_inst.get(inst.id, []),
                         price_basis=label_price_basis,
                     )
+                    if (
+                        apply_date_eligibility
+                        and elig is not None
+                        and elig.eligible_to is not None
+                    ):
+                        n_rejected = _invalidate_labels_past_eligible_to(
+                            label_result,
+                            full_prices=prices,
+                            as_of=as_of,
+                            eligible_to=elig.eligible_to,
+                            horizons=horizons,
+                        )
+                        counters["labels_rejected_after_eligible_to"] += n_rejected
 
                     core_valid = bool(basic and basic.is_valid)
                     tech_available = bool(
@@ -885,6 +967,9 @@ class PITDatasetBuilder:
                     "mechanical_ca_normalized_labels": counters.get(
                         "mechanical_ca_normalized_labels", 0
                     ),
+                    "labels_rejected_after_eligible_to": counters.get(
+                        "labels_rejected_after_eligible_to", 0
+                    ),
                     "eligible": {
                         "1d": counters.get("eligible_1d", 0),
                         "5d": counters.get("eligible_5d", 0),
@@ -908,6 +993,9 @@ class PITDatasetBuilder:
                         "rejected_before_eligible_from"
                     ],
                     "samples_rejected_after_eligible_to": counters["rejected_after_eligible_to"],
+                    "labels_rejected_after_eligible_to": counters.get(
+                        "labels_rejected_after_eligible_to", 0
+                    ),
                     "missing_feature_rows": counters["core_invalid"],
                     "missing_technical_rows": counters["technical_missing"],
                     "invalid_labels": counters["invalid_labels"],

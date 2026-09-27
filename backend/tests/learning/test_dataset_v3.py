@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.analytics.models import InstrumentFeatureDaily
 from app.infrastructure.learning.models import DatasetRun, DatasetSampleDaily, DatasetSpec
 from app.infrastructure.market.models import Candle, Instrument, InstrumentSource
+from app.infrastructure.technical.models import InstrumentTechnicalFeatureDaily, TechnicalSignalDaily
 from app.modules.analytics.application.resolve import resolve_feature_set
 from app.modules.analytics.application.seed import seed_feature_sets
 from app.modules.learning.application.builder import PITDatasetBuilder
@@ -43,6 +44,7 @@ from app.modules.market.application.historical_universe import (
     QUALITY_MOEX_LISTED_TILL,
 )
 from app.modules.prediction.candidate_v1_config import CANDIDATE_V1_RANKER_CONFIG
+from app.modules.technical.technical_config import RULES_V1_CODE, RULES_V2_CONFIG_HASH, RULES_V2_VERSION
 
 
 def _bind_flush_only(session: Session) -> None:
@@ -141,6 +143,45 @@ def _add_basic(
     )
     session.add(row)
     return row
+
+
+def _add_tech_and_signal(
+    session: Session,
+    *,
+    instrument_id: int,
+    day: date,
+    basic_fs_id,
+    tech_fs_id,
+) -> None:
+    session.add(
+        InstrumentTechnicalFeatureDaily(
+            instrument_id=instrument_id,
+            date=day,
+            timeframe="1d",
+            feature_set_id=tech_fs_id,
+            rsi14=Decimal("50"),
+            has_sufficient_history=True,
+            is_valid=True,
+            quality_flags={},
+        )
+    )
+    session.add(
+        TechnicalSignalDaily(
+            instrument_id=instrument_id,
+            as_of_date=day,
+            timeframe="1d",
+            model_code=RULES_V1_CODE,
+            model_version=RULES_V2_VERSION,
+            model_config_hash=RULES_V2_CONFIG_HASH,
+            basic_feature_set_id=basic_fs_id,
+            technical_feature_set_id=tech_fs_id,
+            score=Decimal("0.1"),
+            confidence=Decimal("0.5"),
+            direction="neutral",
+            is_valid=True,
+            quality_flags={},
+        )
+    )
 
 
 def test_v3_spec_seeded_inactive(core_db: Session) -> None:
@@ -402,6 +443,113 @@ def test_v2_build_excludes_inactive(core_db: Session) -> None:
     )
     assert all(s.instrument_id != fx["dead"].id for s in samples)
     assert any(s.instrument_id == fx["aaa"].id for s in samples)
+
+
+def test_v3_forward_label_blocked_when_target_after_eligible_to(core_db: Session) -> None:
+    """Y(t+h) must stay inside historical eligibility — post-delisting candles are not outcomes."""
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    dead = fx["dead"]
+    tech_fs = resolve_feature_set(core_db, "technical_daily", 2)
+    # Fixture May-loop ends ~early June; plant explicit end-of-window + post-delisting chain.
+    for day, close in (
+        (date(2024, 6, 26), 90.0),
+        (date(2024, 6, 27), 91.0),
+        (date(2024, 6, 28), 92.0),
+    ):
+        _add_candle(core_db, dead.id, day, close=close)
+        _add_basic(core_db, instrument_id=dead.id, day=day, feature_set_id=fx["basic"].id)
+        _add_tech_and_signal(
+            core_db,
+            instrument_id=dead.id,
+            day=day,
+            basic_fs_id=fx["basic"].id,
+            tech_fs_id=tech_fs.id,
+        )
+    core_db.flush()
+    eligible_to = date(2024, 6, 28)
+    result = PITDatasetBuilder(core_db).run_build(
+        date_from=date(2024, 6, 26),
+        date_to=date(2024, 7, 3),
+        dataset_spec_version=PIT_DAILY_CORE_V3_VERSION,
+        instrument_ids=[dead.id],
+    )
+    assert result["pit_status"] == "PASS"
+    run = core_db.get(DatasetRun, result["dataset_run_id"])
+    assert run is not None
+    samples = {
+        s.as_of_date: s
+        for s in core_db.scalars(
+            select(DatasetSampleDaily).where(DatasetSampleDaily.dataset_run_id == run.id)
+        )
+    }
+    # Sample on eligible_to itself is allowed for X(t).
+    assert eligible_to in samples
+    # Previous trading day exists and may keep a 1d label inside the window.
+    assert date(2024, 6, 27) in samples
+    inside = samples[date(2024, 6, 27)]
+    assert inside.labels.get("forward_return_1d") is not None
+    assert inside.label_quality.get("label_valid", {}).get("1d") is True
+    assert inside.training_eligibility.get("training_eligible_1d") is True
+    assert inside.labels.get("target_date_1d") == "2024-06-28"
+
+    crossing = samples[eligible_to]
+    assert crossing.labels.get("forward_return_1d") is None
+    assert crossing.label_quality.get("label_valid", {}).get("1d") is False
+    assert crossing.training_eligibility.get("training_eligible_1d") is False
+    flags = crossing.label_quality.get("flags") or {}
+    assert flags.get("target_after_eligible_to_1d") is True
+    assert flags.get("rejected_target_date_1d") == "2024-07-01"
+    assert flags.get("missing_future_1d") is not True
+    # Post-delisting July candles must not appear as a valid V3 outcome.
+    assert crossing.labels.get("target_date_1d") is None
+
+    cov = run.coverage_summary or {}
+    assert (cov.get("labels") or {}).get("labels_rejected_after_eligible_to", 0) >= 1
+    assert (cov.get("universe") or {}).get("labels_rejected_after_eligible_to", 0) >= 1
+    # Boundary invalidation is not a DatasetRun PIT failure.
+    assert run.pit_status == "PASS"
+    assert run.status == "SUCCESS"
+
+
+def test_v2_still_uses_post_window_candles_for_active_names(core_db: Session) -> None:
+    """V2 has no historical eligible_to gate — forward labels may use later candles."""
+    _bind_flush_only(core_db)
+    seed_feature_sets(core_db)
+    seed_dataset_specs(core_db)
+    basic = resolve_feature_set(core_db, "basic_daily", 2)
+    live = _add_instrument(core_db, symbol=_sym("LIVE"), is_active=True)
+    # Contiguous observations: 27→28 (1d ok), 28→Jul1 (still valid under V2).
+    for day, close in (
+        (date(2024, 6, 27), 100.0),
+        (date(2024, 6, 28), 101.0),
+        (date(2024, 7, 1), 102.0),
+        (date(2024, 7, 2), 103.0),
+    ):
+        _add_candle(core_db, live.id, day, close=close)
+        _add_basic(core_db, instrument_id=live.id, day=day, feature_set_id=basic.id)
+    core_db.flush()
+
+    result = PITDatasetBuilder(core_db).run_build(
+        date_from=date(2024, 6, 27),
+        date_to=date(2024, 6, 28),
+        dataset_spec_version=PIT_DAILY_CORE_V2_VERSION,
+        instrument_ids=[live.id],
+    )
+    samples = {
+        s.as_of_date: s
+        for s in core_db.scalars(
+            select(DatasetSampleDaily).where(
+                DatasetSampleDaily.dataset_run_id == result["dataset_run_id"]
+            )
+        )
+    }
+    crossing = samples[date(2024, 6, 28)]
+    assert crossing.labels.get("forward_return_1d") is not None
+    assert crossing.labels.get("target_date_1d") == "2024-07-01"
+    assert crossing.label_quality.get("label_valid", {}).get("1d") is True
+    flags = crossing.label_quality.get("flags") or {}
+    assert "target_after_eligible_to_1d" not in flags
 
 
 def test_v3_dividends_do_not_change_mechanical_labels() -> None:
