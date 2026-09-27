@@ -877,13 +877,71 @@ body:has([data-theme="dark"]) {
   line-height: 1.4;
 }
 
-/* Presentation role switch (not a security control) */
-.role-mode-switch {
+/* Sidebar footer: version entry + presentation role switch */
+.sidebar-footer {
   margin-top: auto;
   flex-shrink: 0;
-  padding: 0.85rem 0.65rem 1rem;
   border-top: 1px solid var(--line);
   background: rgba(0, 0, 0, 0.18);
+}
+
+.version-entry {
+  display: block;
+  padding: 0.65rem 0.75rem 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(226, 232, 240, 0.92);
+  text-decoration: none;
+}
+
+.version-entry:hover,
+.version-entry:focus-visible {
+  color: #f8fafc;
+  text-decoration: underline;
+  outline: none;
+}
+
+.version-entry.active {
+  color: #e2e8f0;
+}
+
+.about-kraken .about-highlights,
+.about-kraken .about-history-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.about-kraken .about-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin: 0.75rem 0 0;
+}
+
+.about-kraken .about-meta-grid dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-secondary);
+}
+
+.about-kraken .about-meta-grid dd {
+  margin: 0.15rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86rem;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.about-kraken .about-iam-note {
+  margin-top: 0.85rem;
+}
+
+/* Presentation role switch (not a security control) */
+.role-mode-switch {
+  flex-shrink: 0;
+  padding: 0.55rem 0.65rem 1rem;
 }
 
 .role-mode-label {

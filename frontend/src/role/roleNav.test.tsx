@@ -22,7 +22,9 @@ describe("role presentation nav", () => {
     expect(pathAllowedForRole("/shadow", "USER")).toBe(false);
     expect(pathAllowedForRole("/system", "USER")).toBe(false);
     expect(pathAllowedForRole("/portfolio/mine", "USER")).toBe(true);
+    expect(pathAllowedForRole("/about", "USER")).toBe(true);
   });
+
 
   it("OWNER keeps technical navigation", () => {
     const labels = navGroupsForRole("OWNER").flatMap((g) => g.items.map((i) => i.label));

@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
+import { AboutKrakenPage } from "./pages/AboutKrakenPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { BondsPage } from "./pages/BondsPage";
 import { BondDetailPage } from "./pages/BondDetailPage";
@@ -38,6 +39,7 @@ export function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/about" element={<AboutKrakenPage />} />
         <Route path="/market" element={<MarketPage />} />
         <Route path="/market/instruments/:instrumentId" element={<InstrumentPage />} />
         <Route path="/market/:instrumentId" element={<InstrumentPage />} />

@@ -5,6 +5,7 @@ import { HelpProvider } from "../help";
 import { RoleModeSwitch } from "../role/RoleModeSwitch";
 import { useKrakenRole } from "../role/KrakenRoleContext";
 import { labels } from "../utils/labels";
+import { KRAKEN_DISPLAY_VERSION } from "../version/manifest";
 import { navGroupsForRole, pathAllowedForRole, type NavItem } from "./navConfig";
 
 function NavGroup({ title, items }: { title?: string; items: NavItem[] }) {
@@ -68,7 +69,18 @@ export function AppShell() {
                 <NavGroup key={g.title ?? `g-${idx}`} title={g.title} items={g.items} />
               ))}
             </nav>
-            <RoleModeSwitch />
+            <div className="sidebar-footer">
+              <NavLink
+                to="/about"
+                className={({ isActive }) =>
+                  `version-entry${isActive ? " active" : ""}`
+                }
+                data-testid="version-entry"
+              >
+                {KRAKEN_DISPLAY_VERSION}
+              </NavLink>
+              <RoleModeSwitch />
+            </div>
           </aside>
           <main className="content content-wide" data-layout="wide" data-testid="app-main">
             <PresentationGate key={location.pathname}>
