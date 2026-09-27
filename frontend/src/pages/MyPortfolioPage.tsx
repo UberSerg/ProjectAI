@@ -7,6 +7,7 @@ import {
   type CatalogInstrument,
   type CatalogInstrumentDetail,
 } from "../api/instruments";
+import { getDailyPersonalDecision, type DailyPersonalDecision } from "../api/dailyPersonalDecision";
 import {
   addPrimaryPosition,
   getPrimaryAnalysis,
@@ -42,9 +43,11 @@ import {
   getPortfolioFundamentalCoverage,
   type PortfolioFundamentalCoverage,
 } from "../api/fundamentals";
+import { DailyDecisionPanel } from "../features/personalPortfolio/DailyDecisionPanel";
 import { PersonalPortfolioPanel } from "../features/personalPortfolio/PersonalPortfolioPanel";
+import { useKrakenRole } from "../role/KrakenRoleContext";
 
-type Tab = "holdings" | "analysis" | "payments" | "compare" | "rebalance";
+type Tab = "holdings" | "decision" | "analysis" | "payments" | "compare" | "rebalance";
 
 
 function AddInstrumentModal({
@@ -201,6 +204,7 @@ function AddInstrumentModal({
 }
 
 export function MyPortfolioPage() {
+  const { isUser } = useKrakenRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
   const initialTab: Tab =
@@ -208,6 +212,7 @@ export function MyPortfolioPage() {
     tabFromUrl === "payments" ||
     tabFromUrl === "compare" ||
     tabFromUrl === "rebalance" ||
+    tabFromUrl === "decision" ||
     tabFromUrl === "holdings"
       ? tabFromUrl
       : "holdings";
@@ -215,6 +220,7 @@ export function MyPortfolioPage() {
   const [catalogBySymbol, setCatalogBySymbol] = useState<Record<string, CatalogInstrumentDetail>>({});
   const [compare, setCompare] = useState<ManualCompareCandidate | null>(null);
   const [rebalance, setRebalance] = useState<ManualRebalancePlan | null>(null);
+  const [dailyDecision, setDailyDecision] = useState<DailyPersonalDecision | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -230,6 +236,7 @@ export function MyPortfolioPage() {
       t === "payments" ||
       t === "compare" ||
       t === "rebalance" ||
+      t === "decision" ||
       t === "holdings"
     ) {
       setTab(t);
@@ -279,6 +286,20 @@ export function MyPortfolioPage() {
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
           setFundCoverage(null);
+        }
+      });
+    return () => controller.abort();
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "decision") return;
+    const controller = new AbortController();
+    getDailyPersonalDecision({ signal: controller.signal })
+      .then(setDailyDecision)
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setDailyDecision(null);
+          setError(errorMessage(reason));
         }
       });
     return () => controller.abort();
@@ -364,14 +385,14 @@ export function MyPortfolioPage() {
       ) : null}
 
       <p className="muted recommendation-disclaimer" data-testid="model-recommendation-disclaimer">
-        Рекомендации в соседних вкладках — <strong>модельные</strong>, пока Daily Personal Decision Engine не
-        привязан к реальному журналу операций.
+        Блок «Что делать» — модельная рекомендация по текущему личному портфелю, не приказ брокеру.
       </p>
 
       <div className="tabs" role="tablist" style={{ marginTop: "1rem" }}>
         {(
           [
             ["holdings", "Состав"],
+            ["decision", "Что делать"],
             ["analysis", "Анализ"],
             ["payments", "Выплаты"],
             ["compare", "Сравнение с Kraken"],
@@ -393,6 +414,12 @@ export function MyPortfolioPage() {
       {tab === "holdings" ? (
         <div data-testid="tab-holdings-panel">
           <PersonalPortfolioPanel />
+        </div>
+      ) : null}
+
+      {tab === "decision" ? (
+        <div data-testid="tab-decision-panel" style={{ marginTop: "0.75rem" }}>
+          <DailyDecisionPanel decision={dailyDecision} owner={!isUser} />
         </div>
       ) : null}
 

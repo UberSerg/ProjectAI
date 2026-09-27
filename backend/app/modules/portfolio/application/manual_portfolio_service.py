@@ -246,17 +246,21 @@ def _issuer_key(session: Session, instrument_id: int, symbol: str) -> tuple[str,
     return f"symbol_family:{base}", base
 
 
-def analyze_manual_portfolio(session: Session) -> dict[str, Any]:
+def analyze_manual_portfolio(
+    session: Session,
+    portfolio: ManualPortfolio | None = None,
+) -> dict[str, Any]:
     """Allocation / concentration / risk / credit for the Personal Portfolio book.
 
     Holdings and marks come from ``load_personal_snapshot`` (Personal read boundary).
+    Optional ``portfolio`` keeps test/isolated books from leaking into primary analytics.
     Candidate / Shadow / Research paths are not altered here.
     """
     from app.modules.portfolio.application.personal_portfolio_service import (
         load_personal_snapshot,
     )
 
-    snap = load_personal_snapshot(session)
+    snap = load_personal_snapshot(session, portfolio)
     portfolio = snap.portfolio
     cash = snap.cash_rub
     findings: list[dict[str, Any]] = []
@@ -502,8 +506,11 @@ def _suggest_action(
     return "KEEP"
 
 
-def compare_to_candidate(session: Session) -> dict[str, Any]:
-    analysis = analyze_manual_portfolio(session)
+def compare_to_candidate(
+    session: Session,
+    portfolio: ManualPortfolio | None = None,
+) -> dict[str, Any]:
+    analysis = analyze_manual_portfolio(session, portfolio)
     nav = _d(analysis["nav"])
     latest = get_latest_candidate_snapshot(session)
     if latest and latest.get("payload"):
@@ -589,15 +596,18 @@ def compare_to_candidate(session: Session) -> dict[str, Any]:
     }
 
 
-def advisory_rebalance(session: Session) -> dict[str, Any]:
+def advisory_rebalance(
+    session: Session,
+    portfolio: ManualPortfolio | None = None,
+) -> dict[str, Any]:
     from app.modules.portfolio.application.personal_portfolio_service import (
         load_personal_snapshot,
     )
 
-    analysis = analyze_manual_portfolio(session)
+    analysis = analyze_manual_portfolio(session, portfolio)
     nav = _d(analysis["nav"])
     cash = _d(analysis["cash_rub"])
-    compare = compare_to_candidate(session)
+    compare = compare_to_candidate(session, portfolio)
     cand_weights = {
         c["symbol"]: _d(c["candidate_weight"])
         for c in compare["comparisons"]
@@ -613,7 +623,7 @@ def advisory_rebalance(session: Session) -> dict[str, Any]:
     plan_instruments: list[PlanInstrument] = []
     review_rows: list[dict[str, Any]] = []
     # Actual side = Personal Portfolio projection (via snapshot), not a separate legacy book.
-    snap = load_personal_snapshot(session)
+    snap = load_personal_snapshot(session, portfolio)
     portfolio = snap.portfolio
     pos_by_symbol: dict[str, ManualPosition] = {}
     pos_rows = {

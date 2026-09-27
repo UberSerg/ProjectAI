@@ -198,6 +198,51 @@ vi.mock("../api/personalPortfolios", () => ({
   createPersonalOperation: vi.fn(),
 }));
 
+vi.mock("../api/dailyPersonalDecision", () => ({
+  getDailyPersonalDecision: vi.fn().mockResolvedValue({
+    as_of: "2026-09-27",
+    status: "NEEDS_SETUP",
+    headline: "Сначала добавьте портфель",
+    summary: "Пока нет денег и позиций.",
+    portfolio: {
+      id: 1,
+      journal_state: "EMPTY",
+      cash_rub: "0",
+      securities_value_rub: "0",
+      nav_rub: "0",
+      contributed_rub: "0",
+      withdrawn_rub: "0",
+      investment_pnl_rub: "0",
+      symbols: [],
+    },
+    actions: [
+      {
+        id: "SETUP:portfolio:PORTFOLIO_EMPTY",
+        priority: "HIGH",
+        action: "SETUP",
+        title: "Добавить текущий портфель",
+        rationale: "Добавьте текущий портфель",
+        reason_codes: ["PORTFOLIO_EMPTY"],
+        facts: ["Журнал пуст"],
+        limitations: [],
+      },
+    ],
+    risks: [],
+    data_quality: {
+      valuation_complete: true,
+      valuation_partial: false,
+      valuation_as_of: null,
+      valuation_from: null,
+      valuation_to: null,
+      valuation_label: null,
+      missing_price_count: 0,
+      degradations: [],
+    },
+    context: {},
+    disclaimer: "Модельная рекомендация",
+  }),
+}));
+
 vi.mock("../api/instruments", () => ({
   getCatalogInstrument: vi.fn(),
   searchCatalogInstruments: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 }),
@@ -342,6 +387,16 @@ describe("MyPortfolioPage", () => {
     renderPage();
     expect(await screen.findByTestId("personal-portfolio-panel")).toBeInTheDocument();
     expect(screen.getByTestId("model-recommendation-disclaimer")).toBeInTheDocument();
+  });
+
+  it("loads decision tab with daily personal decision", async () => {
+    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
+    renderPage();
+    await screen.findByTestId("personal-portfolio-panel");
+    fireEvent.click(screen.getByTestId("tab-decision"));
+    expect(await screen.findByTestId("tab-decision-panel")).toBeInTheDocument();
+    expect(await screen.findByTestId("daily-decision-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("daily-action-SETUP")).toBeInTheDocument();
   });
 
   it("loads compare tab", async () => {
