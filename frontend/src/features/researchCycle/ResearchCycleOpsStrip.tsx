@@ -34,7 +34,7 @@ export function ResearchCycleOpsStrip({
 
   const cycle = status.latest_cycle;
   const wm = status.watermarks;
-  const shadowDates = (wm.shadow_portfolios ?? [])
+  const shadowDates = (wm?.shadow_portfolios ?? [])
     .map((p) => p.last_processed_market_date)
     .filter(Boolean) as string[];
   const shadowProcessed = shadowDates.sort().at(-1) ?? null;
