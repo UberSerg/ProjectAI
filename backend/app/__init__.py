@@ -1,3 +1,4 @@
 """ProjectAI application package."""
 
-__version__ = "0.1.0"
+# Keep in sync with root VERSION on each official release.
+__version__ = "1.0.0"

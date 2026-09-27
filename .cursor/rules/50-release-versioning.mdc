@@ -1,0 +1,50 @@
+---
+description: Official Kraken release / SemVer workflow — versions only on explicit release
+alwaysApply: true
+---
+
+# Kraken Release & Versioning
+
+Версия создаётся **только** когда пользователь/куратор явно объявляет release.
+Не повышать версию после каждого PR автоматически.
+
+## Source of truth
+
+- Product semantic version: root `VERSION` (e.g. `1.0.0`)
+- Display name: `Kraken V{MAJOR}.{MINOR}` (e.g. `Kraken V1.0`)
+- Changelog: root `CHANGELOG.md`
+- Backend reads version via `app.__version__` (synced from `VERSION`)
+- Frontend reads via `import.meta.env.VITE_KRAKEN_VERSION` / `src/version/manifest.ts`
+
+Do not keep independent version numbers that can drift.
+
+## SemVer
+
+| Bump | Example | When |
+|------|---------|------|
+| PATCH | `1.0.1` | bug fixes; small corrections without a major new capability |
+| MINOR | `1.1.0` | noticeable new functionality / product capabilities |
+| MAJOR | `2.0.0` | substantial product change; breaking domain/API; architecture shift |
+
+## Official release checklist
+
+Каждый официальный release обязан:
+
+1. определить version (SemVer);
+2. обновить `VERSION` / synced sources;
+3. обновить `CHANGELOG.md` (честный capability snapshot);
+4. пройти required CI;
+5. пройти live smoke (market/shadow/USER/OWNER);
+6. создать Git tag `vX.Y.Z` на release SHA в `main`;
+7. создать GitHub Release;
+8. обновить in-app version history (`frontend/src/version/manifest.ts`);
+9. зафиксировать release SHA в Final Report;
+10. указать version в Final Report.
+
+Tag must point at verified `main`, not an intermediate feature tip.
+
+## Safety
+
+- Never force-push `main` for a release.
+- Never invent profitability / broker autonomy claims in CHANGELOG.
+- USER/OWNER remain presentation-level until real IAM exists.

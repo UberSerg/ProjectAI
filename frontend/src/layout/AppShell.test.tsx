@@ -64,4 +64,12 @@ describe("AppShell investor-first nav", () => {
     expect(main.className.split(/\s+/)).toEqual(expect.arrayContaining(["content", "content-wide"]));
     expect(main.className).not.toMatch(/content-reading|page-layout-reading/);
   });
+
+  it("shows Kraken V1.0 version entry in sidebar footer", () => {
+    renderShell();
+    const entry = screen.getByTestId("version-entry");
+    expect(entry).toHaveTextContent("Kraken V1.0");
+    expect(entry).toHaveAttribute("href", "/about");
+  });
 });
+

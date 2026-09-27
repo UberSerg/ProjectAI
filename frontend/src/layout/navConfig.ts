@@ -69,6 +69,7 @@ export const USER_ALLOWED_PATH_PREFIXES = [
   "/portfolio/mine",
   "/investment-decision",
   "/portfolio-risk",
+  "/about",
 ];
 
 export function navGroupsForRole(role: KrakenPresentationRole): NavGroupDef[] {

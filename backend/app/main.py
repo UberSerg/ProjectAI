@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app import __version__
 from app.api.v1.router import api_router
 from app.application.system.event_log import cleanup_old_days, enforce_day_limit, new_trace_id
 from app.core.config import get_settings
@@ -85,7 +86,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
         default_response_class=UTF8JSONResponse,
     )
