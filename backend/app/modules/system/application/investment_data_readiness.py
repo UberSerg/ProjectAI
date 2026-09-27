@@ -261,7 +261,7 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
     domains.append(
         _domain(
             code="survivorship",
-            title_ru="Survivorship-free universe",
+            title_ru="Survivorship-aware historical universe",
             status=ReadinessStatus.PARTIAL if univ_n > 0 else ReadinessStatus.NOT_READY,
             coverage_ru=(
                 f"{HISTORICAL_EQUITY_UNIVERSE_V2}: {univ_n} members; "
@@ -272,9 +272,11 @@ def build_investment_data_readiness(session: Session) -> dict[str, Any]:
             pit_ru="universe_as_of(T) excludes securities before eligible_from / after eligible_to",
             limitation_ru=(
                 "V2 prefers MOEX board listed_from/history_from in InstrumentSource metadata; "
-                "candle first/last remains explicit fallback. Full delisted cohort still incomplete."
+                "candle first/last remains explicit fallback. Full delisted cohort still incomplete. "
+                "Bias reduced where evidence exists — not eliminated market-wide."
             ),
-            dataset_v3="partial" if univ_n > 0 else "blocker",
+            # Core V3 consumes this contract; TR enrichment still blocked elsewhere.
+            dataset_v3="optional_core" if univ_n > 0 else "blocker",
             evidence=dict(univ) if isinstance(univ, dict) else {"raw": str(univ)},
         )
     )
@@ -302,7 +304,7 @@ def _build_dataset_v3_summary(session: Session, domains: list[dict[str, Any]]) -
         d["title_ru"]
         for d in domains
         if d["dataset_v3"] in {"blocker", "partial"}
-        and d["code"] in {"dividends", "total_return", "survivorship"}
+        and d["code"] in {"dividends", "total_return"}
         and d["status"] in {"NOT_READY", "PARTIAL", "UNKNOWN"}
     ]
     # Also include hard blockers from other domains
@@ -343,7 +345,12 @@ def _build_dataset_v3_summary(session: Session, domains: list[dict[str, Any]]) -
         "reasons_ru": list(fund_gate.get("blockers") or [])
         + list(fund_gate.get("design_notes") or [])[:4],
         "human_summary_ru": fund_gate.get("human_summary")
-        or "Dataset V3 не готов: дивиденды / total return / survivorship блокируют READY_FOR_BUILD.",
+        or (
+            "Dataset V3 Core (mechanical + historical universe) отделён от TR enrichment; "
+            "READY_FOR_BUILD здесь блокируется дивидендами / total return, не самим Core."
+        ),
+        "v3_core": fund_gate.get("v3_core"),
+        "total_return_enrichment": fund_gate.get("total_return_enrichment"),
         "dataset_spec_mutated": False,
         "to_become_ready_ru": [
             "Production dividend lifecycle with known_at (no LLM critical extraction)",

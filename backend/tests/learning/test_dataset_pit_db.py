@@ -53,8 +53,8 @@ def _activate_version(session: Session, code: str, version: int) -> FeatureSet:
 def test_seed_dataset_spec_idempotent(core_db: Session) -> None:
     first = seed_dataset_specs(core_db)
     second = seed_dataset_specs(core_db)
-    assert first["ensured"] == 2
-    assert second["ensured"] == 2
+    assert first["ensured"] == 3
+    assert second["ensured"] == 3
     rows = list(
         core_db.scalars(
             select(DatasetSpec)
@@ -62,7 +62,7 @@ def test_seed_dataset_spec_idempotent(core_db: Session) -> None:
             .order_by(DatasetSpec.version)
         )
     )
-    assert len(rows) == 2
+    assert len(rows) == 3
     spec = rows[0]
     assert spec.version == PIT_DAILY_CORE_VERSION
     assert spec.is_active is True
@@ -74,6 +74,12 @@ def test_seed_dataset_spec_idempotent(core_db: Session) -> None:
     assert v2.technical_model_version == 2
     assert v2.relation_set_version == 2
     assert v2.label_spec.get("price_basis") == "mechanical_adjusted"
+    v3 = rows[2]
+    assert v3.version == 3
+    assert v3.is_active is False
+    assert v3.universe_policy == "historical_equity_universe_v2"
+    assert v3.label_spec.get("dividend_adjusted") is False
+    assert v3.label_spec.get("total_return") is False
     assert spec.basic_feature_set_code == "basic_daily"
     assert spec.basic_feature_set_version == 1
     assert spec.technical_feature_set_code == "technical_daily"

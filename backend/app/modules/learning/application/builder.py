@@ -21,7 +21,7 @@ from app.infrastructure.analytics.relation_repository import (
 )
 from app.infrastructure.learning.models import DatasetRun, DatasetSpec
 from app.infrastructure.learning.repository import insert_dataset_samples, sample_row
-from app.infrastructure.market.models import Candle, DataQualityIssue, Instrument, Workflow
+from app.infrastructure.market.models import Candle, DataQualityIssue, Workflow
 from app.infrastructure.technical.models import InstrumentTechnicalFeatureDaily, TechnicalSignalDaily
 from app.modules.analytics.application.resolve import resolve_feature_set
 from app.modules.analytics.application.seed import seed_feature_sets
@@ -37,7 +37,11 @@ from app.modules.learning.application.hash_util import (
     sample_content_hash,
     sample_values_hash,
 )
-from app.modules.learning.application.labels import ForwardReturnLabelCalculator, PriceObservation
+from app.modules.learning.application.labels import (
+    ForwardReturnLabelCalculator,
+    LabelResult,
+    PriceObservation,
+)
 from app.modules.learning.application.relations_join import (
     RelationIndex,
     empty_relation_join,
@@ -46,6 +50,11 @@ from app.modules.learning.application.relations_join import (
 )
 from app.modules.learning.application.seed import seed_dataset_specs
 from app.modules.learning.application.source_join import merge_phase1_features, select_exact_as_of
+from app.modules.learning.application.universe_resolve import (
+    HistoricalUniverseResolutionError,
+    eligibility_audit,
+    resolve_dataset_universe,
+)
 from app.modules.learning.application.validator import PITDatasetValidator, assert_manifest_separation
 from app.modules.learning.dataset_config import (
     DATASET_BUILD_STEPS,
@@ -56,10 +65,118 @@ from app.modules.learning.dataset_config import (
     relation_feature_names,
     uses_mechanical_label_basis,
 )
+from app.modules.market.application.historical_universe import (
+    HISTORICAL_EQUITY_UNIVERSE_V2,
+    HistoricalEligibility,
+)
 from app.modules.market.application.mechanical_adjustment import MechanicalAction, load_mechanical_actions
 from app.modules.market.application.workflows import create_workflow, finish_workflow, get_step, update_step
 
 logger = get_logger(__name__, component="dataset-pit")
+
+
+def _clip_prices_to_eligibility(
+    prices: list[PriceObservation],
+    elig: HistoricalEligibility,
+) -> list[PriceObservation]:
+    """Restrict label observations to the historical eligibility window (V3 only)."""
+    return [
+        p
+        for p in prices
+        if p.date >= elig.eligible_from
+        and (elig.eligible_to is None or p.date <= elig.eligible_to)
+    ]
+
+
+def _invalidate_labels_past_eligible_to(
+    label_result: LabelResult,
+    *,
+    full_prices: list[PriceObservation],
+    as_of: date,
+    eligible_to: date,
+    horizons: list[int],
+) -> int:
+    """Invalidate Y(t+h) when the target observation is after eligible_to.
+
+    Distinguishes ``target_after_eligible_to_*`` from ordinary ``missing_future_*``.
+    Returns the number of horizons invalidated.
+    """
+    full_dates = sorted({p.date for p in full_prices})
+    if as_of not in full_dates:
+        return 0
+    idx = full_dates.index(as_of)
+    rejected = 0
+    for h in horizons:
+        key = f"{h}d"
+        target_idx = idx + h
+        if target_idx >= len(full_dates):
+            continue
+        target_date = full_dates[target_idx]
+        if target_date <= eligible_to:
+            continue
+        attr = f"forward_return_{h}d"
+        date_attr = f"target_date_{h}d"
+        if hasattr(label_result.labels, attr):
+            setattr(label_result.labels, attr, None)
+        prior_target = None
+        if hasattr(label_result.labels, date_attr):
+            prior_target = getattr(label_result.labels, date_attr, None)
+            setattr(label_result.labels, date_attr, None)
+        label_result.label_valid[key] = False
+        label_result.label_flags[f"target_after_eligible_to_{key}"] = True
+        label_result.label_flags[f"rejected_target_date_{key}"] = (
+            prior_target.isoformat()
+            if isinstance(prior_target, date)
+            else target_date.isoformat()
+        )
+        # Prefer the explicit boundary reason over truncation-induced missing_future.
+        label_result.label_flags.pop(f"missing_future_{key}", None)
+        label_result.target_candle_ids[key] = None
+        rejected += 1
+    return rejected
+
+
+def _build_year_coverage(
+    *,
+    by_year: dict[str, Any],
+    eligibility_by_id: dict[int, HistoricalEligibility],
+    date_from: date,
+    date_to: date,
+) -> list[dict[str, Any]]:
+    """Bounded per-year summary for Dataset V3 coverage diagnostics."""
+    years = sorted({y for y in range(date_from.year, date_to.year + 1)} | {int(k) for k in by_year})
+    out: list[dict[str, Any]] = []
+    for year in years:
+        y_start = date(year, 1, 1)
+        y_end = date(year, 12, 31)
+        window_start = max(date_from, y_start)
+        window_end = min(date_to, y_end)
+        if window_start > window_end:
+            continue
+        eligible = 0
+        if eligibility_by_id:
+            for elig in eligibility_by_id.values():
+                # Any overlap of eligibility window with the year slice.
+                e_to = elig.eligible_to or window_end
+                if elig.eligible_from <= window_end and e_to >= window_start:
+                    eligible += 1
+        bucket = by_year.get(str(year), {})
+        sampled_ids = bucket.get("sampled_instruments") or set()
+        inactive_ids = bucket.get("inactive_now_instruments") or set()
+        samples_n = int(bucket.get("samples") or 0)
+        sampled_n = len(sampled_ids)
+        denom = eligible if eligibility_by_id else max(sampled_n, 1)
+        out.append(
+            {
+                "year": year,
+                "eligible_instruments": eligible if eligibility_by_id else None,
+                "sampled_instruments": sampled_n,
+                "samples": samples_n,
+                "inactive_now_instruments_represented": len(inactive_ids),
+                "coverage_pct": round(100.0 * sampled_n / max(denom, 1), 2),
+            }
+        )
+    return out
 
 
 class PITDatasetBuilder:
@@ -130,16 +247,29 @@ class PITDatasetBuilder:
             self._mark(workflow, "Resolve pinned source versions", "SUCCESS")
 
             self._mark(workflow, "Resolve universe", "RUNNING")
-            q = select(Instrument).where(Instrument.is_active.is_(True)).order_by(Instrument.id)
-            if instrument_ids:
-                q = q.where(Instrument.id.in_(instrument_ids))
-            instruments = list(self.session.scalars(q))
-            resolved_universe = {
-                "policy": spec.universe_policy,
-                "instrument_ids": [i.id for i in instruments],
-                "symbols": [i.symbol for i in instruments],
-                "note": "current_active_instruments may contain survivorship bias; PIT universe history is future work",
-            }
+            try:
+                universe = resolve_dataset_universe(
+                    self.session,
+                    universe_policy=str(spec.universe_policy or ""),
+                    instrument_ids=instrument_ids,
+                    parameters=dict(spec.parameters or {}),
+                )
+            except HistoricalUniverseResolutionError as exc:
+                self._mark(workflow, "Resolve universe", "FAILED")
+                write_event(
+                    self.session,
+                    level="ERROR",
+                    component="dataset",
+                    event_type="dataset.universe_failed",
+                    message=str(exc),
+                    workflow_id=workflow.id,
+                    trace_id=(workflow.meta or {}).get("trace_id"),
+                )
+                raise
+            instruments = universe.instruments
+            resolved_universe = dict(universe.resolved_universe)
+            eligibility_by_id = universe.eligibility_by_id
+            apply_date_eligibility = universe.apply_date_eligibility
             self._mark(workflow, "Resolve universe", "SUCCESS")
 
             effective_to = date_to or self.session.scalar(select(func.max(Candle.timestamp)))
@@ -341,7 +471,22 @@ class PITDatasetBuilder:
                 "discontinuity_labels": 0,
                 "mechanical_ca_normalized_labels": 0,
                 "feature_valid_samples": 0,
+                "rejected_before_eligible_from": 0,
+                "rejected_after_eligible_to": 0,
+                "labels_rejected_after_eligible_to": 0,
+                "samples_from_inactive_now": 0,
+                "instruments_with_samples": set(),
+                "inactive_instruments_with_samples": set(),
+                "by_year": {},
             }
+            universe_version = str(
+                (spec.parameters or {}).get("historical_universe_version")
+                or (
+                    HISTORICAL_EQUITY_UNIVERSE_V2
+                    if apply_date_eligibility
+                    else str(spec.universe_policy or "")
+                )
+            )
             for ctx in relation_contexts:
                 counters["rel_context_available"][ctx["key"]] = 0
                 counters["rel_context_hits"][ctx["key"]] = 0
@@ -427,7 +572,19 @@ class PITDatasetBuilder:
                 as_of_dates = sorted(
                     d for d in basic_map.keys() if date_from <= d <= effective_to
                 )
+                elig = eligibility_by_id.get(inst.id) if apply_date_eligibility else None
                 for as_of in as_of_dates:
+                    if apply_date_eligibility:
+                        if elig is None:
+                            counters["rejected_before_eligible_from"] += 1
+                            continue
+                        if as_of < elig.eligible_from:
+                            counters["rejected_before_eligible_from"] += 1
+                            continue
+                        if elig.eligible_to is not None and as_of > elig.eligible_to:
+                            counters["rejected_after_eligible_to"] += 1
+                            continue
+
                     basic = select_exact_as_of(basic_map, as_of)
                     technical = select_exact_as_of(tech_map, as_of)
                     signal = select_exact_as_of(sig_map, as_of)
@@ -465,13 +622,29 @@ class PITDatasetBuilder:
                     if rel_join.age_days is not None:
                         meta["relation_age_days"] = rel_join.age_days
 
+                    label_prices = prices
+                    if apply_date_eligibility and elig is not None:
+                        label_prices = _clip_prices_to_eligibility(prices, elig)
                     label_result = label_calc.calculate(
-                        prices,
+                        label_prices,
                         as_of=as_of,
                         discontinuity_dates=disc,
                         mechanical_actions=actions_by_inst.get(inst.id, []),
                         price_basis=label_price_basis,
                     )
+                    if (
+                        apply_date_eligibility
+                        and elig is not None
+                        and elig.eligible_to is not None
+                    ):
+                        n_rejected = _invalidate_labels_past_eligible_to(
+                            label_result,
+                            full_prices=prices,
+                            as_of=as_of,
+                            eligible_to=elig.eligible_to,
+                            horizons=horizons,
+                        )
+                        counters["labels_rejected_after_eligible_to"] += n_rejected
 
                     core_valid = bool(basic and basic.is_valid)
                     tech_available = bool(
@@ -579,6 +752,12 @@ class PITDatasetBuilder:
                         dataset_spec_version=spec.version,
                     )
 
+                    universe_meta = eligibility_audit(
+                        elig,
+                        as_of=as_of,
+                        policy=str(spec.universe_policy or ""),
+                        version=universe_version,
+                    )
                     sample = DatasetSampleV1(
                         instrument_id=inst.id,
                         ticker=inst.symbol,
@@ -592,6 +771,7 @@ class PITDatasetBuilder:
                             "label_flags": label_result.label_flags,
                             "relations_join": "enabled" if relations_enabled else "disabled",
                             "relation_contexts": rel_join.context_meta,
+                            **universe_meta,
                         },
                     )
                     pit = validator.validate_sample(sample)
@@ -604,9 +784,30 @@ class PITDatasetBuilder:
                     else:
                         samples.append(sample)
 
+                    counters["instruments_with_samples"].add(inst.id)
+                    if not inst.is_active:
+                        counters["samples_from_inactive_now"] += 1
+                        counters["inactive_instruments_with_samples"].add(inst.id)
+                    year_key = str(as_of.year)
+                    year_bucket = counters["by_year"].setdefault(
+                        year_key,
+                        {
+                            "year": as_of.year,
+                            "samples": 0,
+                            "sampled_instruments": set(),
+                            "inactive_now_instruments": set(),
+                        },
+                    )
+                    year_bucket["samples"] += 1
+                    year_bucket["sampled_instruments"].add(inst.id)
+                    if not inst.is_active:
+                        year_bucket["inactive_now_instruments"].add(inst.id)
+
                     features_dict = sample.features.to_dict()
                     labels_dict = sample.labels.to_dict()
                     lineage_dict = sample.lineage.to_dict()
+                    # Audit-only: eligible_to must never enter X(t) / content hash identity.
+                    lineage_dict.update(universe_meta)
                     ch = sample_content_hash(
                         instrument_id=inst.id,
                         as_of_date=as_of.isoformat(),
@@ -766,6 +967,9 @@ class PITDatasetBuilder:
                     "mechanical_ca_normalized_labels": counters.get(
                         "mechanical_ca_normalized_labels", 0
                     ),
+                    "labels_rejected_after_eligible_to": counters.get(
+                        "labels_rejected_after_eligible_to", 0
+                    ),
                     "eligible": {
                         "1d": counters.get("eligible_1d", 0),
                         "5d": counters.get("eligible_5d", 0),
@@ -773,6 +977,49 @@ class PITDatasetBuilder:
                         "20d": counters.get("eligible_20d", 0),
                     },
                 },
+                "universe": {
+                    "policy": spec.universe_policy,
+                    "historical_candidate_instruments": len(eligibility_by_id)
+                    if apply_date_eligibility
+                    else len(instruments),
+                    "instruments_with_samples": len(counters["instruments_with_samples"]),
+                    "inactive_instruments_with_samples": len(
+                        counters["inactive_instruments_with_samples"]
+                    ),
+                    "samples_from_currently_inactive_instruments": counters[
+                        "samples_from_inactive_now"
+                    ],
+                    "samples_rejected_before_eligible_from": counters[
+                        "rejected_before_eligible_from"
+                    ],
+                    "samples_rejected_after_eligible_to": counters["rejected_after_eligible_to"],
+                    "labels_rejected_after_eligible_to": counters.get(
+                        "labels_rejected_after_eligible_to", 0
+                    ),
+                    "missing_feature_rows": counters["core_invalid"],
+                    "missing_technical_rows": counters["technical_missing"],
+                    "invalid_labels": counters["invalid_labels"],
+                    "pit_violations": 0,
+                    "boundary_quality": {
+                        "eligible_from_quality_counts": resolved_universe.get(
+                            "eligible_from_quality_counts"
+                        ),
+                        "eligible_to_quality_counts": resolved_universe.get(
+                            "eligible_to_quality_counts"
+                        ),
+                        "universe_quality": resolved_universe.get("universe_quality"),
+                        "proxy_boundaries": resolved_universe.get("proxy_boundaries"),
+                        "authoritative_boundaries": resolved_universe.get(
+                            "authoritative_boundaries"
+                        ),
+                    },
+                },
+                "by_year": _build_year_coverage(
+                    by_year=counters["by_year"],
+                    eligibility_by_id=eligibility_by_id if apply_date_eligibility else {},
+                    date_from=date_from,
+                    date_to=effective_to,
+                ),
                 "timings": timings,
                 "top_missing_features": sorted(
                     counters["feature_missing"].items(), key=lambda x: -x[1]
