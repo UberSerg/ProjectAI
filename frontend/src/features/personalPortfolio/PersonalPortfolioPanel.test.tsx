@@ -7,13 +7,14 @@ import { PersonalPortfolioPanel } from "./PersonalPortfolioPanel";
 
 const getPersonalPrimary = vi.fn();
 const createPersonalOperation = vi.fn();
+const activatePersonalJournal = vi.fn();
+const searchCatalogInstruments = vi.fn();
 
 vi.mock("../../api/personalPortfolios", () => ({
   getPersonalPrimary: (...args: unknown[]) => getPersonalPrimary(...args),
   createPersonalOperation: (...args: unknown[]) => createPersonalOperation(...args),
+  activatePersonalJournal: (...args: unknown[]) => activatePersonalJournal(...args),
 }));
-
-const searchCatalogInstruments = vi.fn();
 
 vi.mock("../../api/instruments", () => ({
   searchCatalogInstruments: (params?: unknown, signal?: AbortSignal) =>
@@ -33,6 +34,8 @@ const emptySummary = {
     is_test: false,
     version: 1,
     has_operations: false,
+    journal_state: "EMPTY" as const,
+    journal_cutover_at: null,
   },
   summary: {
     cash_rub: "0",
@@ -58,6 +61,7 @@ describe("PersonalPortfolioPanel", () => {
     localStorage.clear();
     getPersonalPrimary.mockReset();
     createPersonalOperation.mockReset();
+    activatePersonalJournal.mockReset();
     searchCatalogInstruments.mockReset();
     searchCatalogInstruments.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 });
   });
@@ -76,11 +80,107 @@ describe("PersonalPortfolioPanel", () => {
     expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument();
   });
 
+  it("shows legacy cutover and hides normal add-operation CTA", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        journal_state: "LEGACY_PENDING",
+        has_operations: false,
+      },
+      summary: {
+        ...emptySummary.summary,
+        cash_rub: "50000",
+        securities_value_rub: "25000",
+        nav_rub: "75000",
+      },
+      positions: [
+        {
+          instrument_id: 1,
+          secid: "SBER",
+          name: "Sber",
+          units: "100",
+          lots: null,
+          average_price: "250",
+          current_price: "260",
+          price_date: "2026-09-25",
+          market_value: "26000",
+          unrealized_pnl: "1000",
+          price_available: true,
+        },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("legacy-cutover-panel")).toBeInTheDocument());
+    expect(screen.getByTestId("activate-journal-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("add-operation-btn")).not.toBeInTheDocument();
+    expect(screen.getByText(/начальное состояние/i)).toBeInTheDocument();
+  });
+
+  it("activation success enters ACTIVE mode", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue({
+      ...emptySummary,
+      portfolio: { ...emptySummary.portfolio, journal_state: "LEGACY_PENDING" },
+      summary: { ...emptySummary.summary, cash_rub: "50000" },
+    });
+    activatePersonalJournal.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        journal_state: "ACTIVE",
+        has_operations: true,
+        journal_cutover_at: "2026-09-27T12:00:00+00:00",
+      },
+      summary: {
+        ...emptySummary.summary,
+        cash_rub: "50000",
+        contributed_rub: "50000",
+        nav_rub: "50000",
+        investment_pnl_rub: "0",
+      },
+      operations: [
+        {
+          id: 1,
+          operation_type: "OPENING_CASH",
+          status: "ACTIVE",
+          occurred_at: "2026-09-27T12:00:00+00:00",
+          instrument_id: null,
+          lots: null,
+          units: null,
+          price: null,
+          amount: "50000",
+          commission: "0",
+          currency: "RUB",
+          note: null,
+        },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("activate-journal-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("activate-journal-btn"));
+    await waitFor(() => expect(screen.getByTestId("personal-summary")).toBeInTheDocument());
+    expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument();
+  });
+
   it("shows contribution vs investment pnl and owner reconciliation", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     getPersonalPrimary.mockResolvedValue({
       ...emptySummary,
-      portfolio: { ...emptySummary.portfolio, has_operations: true },
+      portfolio: { ...emptySummary.portfolio, has_operations: true, journal_state: "ACTIVE" },
       summary: {
         ...emptySummary.summary,
         cash_rub: "130000",
@@ -103,7 +203,52 @@ describe("PersonalPortfolioPanel", () => {
     expect(screen.getByTestId("owner-reconciliation")).toHaveTextContent("OK");
   });
 
-  it("opens add operation modal", async () => {
+  it("shows bond P&L unavailable", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue({
+      ...emptySummary,
+      portfolio: { ...emptySummary.portfolio, has_operations: true, journal_state: "ACTIVE" },
+      summary: {
+        ...emptySummary.summary,
+        cash_rub: "0",
+        securities_value_rub: "1935",
+        nav_rub: "1935",
+        contributed_rub: "1935",
+        investment_pnl_rub: "0",
+        valuation_as_of: "2026-09-20",
+        valuation_label: "Оценка по ценам на 20.09.2026",
+      },
+      positions: [
+        {
+          instrument_id: 9,
+          secid: "OFZ",
+          name: "Облигация",
+          asset_class: "bond",
+          units: "2",
+          lots: "2",
+          average_price: null,
+          current_price: "967.5",
+          price_date: "2026-09-20",
+          market_value: "1935",
+          unrealized_pnl: null,
+          price_available: true,
+          pnl_unavailable_reason: "Для облигаций расчёт результата будет доступен",
+        },
+      ],
+      operations: [],
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("personal-positions")).toBeInTheDocument());
+    expect(screen.getByText("Недоступно")).toBeInTheDocument();
+  });
+
+  it("opens add operation modal with datetime-local", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
     getPersonalPrimary.mockResolvedValue(emptySummary);
     render(
@@ -116,13 +261,14 @@ describe("PersonalPortfolioPanel", () => {
     await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("add-operation-btn"));
     expect(screen.getByTestId("add-operation-modal")).toBeInTheDocument();
+    expect(screen.getByTestId("op-occurred-at")).toHaveAttribute("type", "datetime-local");
   });
 
   it("shows unavailable investment result when pnl is null", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
     getPersonalPrimary.mockResolvedValue({
       ...emptySummary,
-      portfolio: { ...emptySummary.portfolio, has_operations: true },
+      portfolio: { ...emptySummary.portfolio, has_operations: true, journal_state: "ACTIVE" },
       summary: {
         ...emptySummary.summary,
         cash_rub: "60000",
@@ -132,6 +278,7 @@ describe("PersonalPortfolioPanel", () => {
         investment_pnl_rub: null,
         valuation_partial: true,
         missing_price_count: 1,
+        valuation_as_of: null,
         valuation_label: "Частичная оценка · цены на 25.09.2026 · для 1 позиции цена недоступна",
       },
     });

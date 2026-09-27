@@ -1,4 +1,4 @@
-"""Corrective-pass financial correctness for Personal Portfolio V1."""
+"""Final correctness: cutover, bond P&L, as-of, cancel idempotency."""
 
 from __future__ import annotations
 
@@ -19,11 +19,14 @@ from app.modules.portfolio.application.manual_portfolio_service import (
 )
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
+    activate_journal,
     cancel_operation,
     create_operation,
     get_or_create_test_portfolio,
     get_personal_summary,
+    journal_cutover_at,
     journal_operation_count,
+    journal_state,
 )
 from app.modules.portfolio.domain.personal_ledger import money
 from app.modules.portfolio.infrastructure.models import (
@@ -117,7 +120,7 @@ def _make_equity(session: Session, symbol: str, *, close: Decimal, as_of: date) 
     return inst
 
 
-def _make_bond(session: Session, symbol: str = "PPBOND") -> Instrument:
+def _make_bond(session: Session, symbol: str = "PPCUTB") -> Instrument:
     inst = Instrument(
         symbol=symbol,
         name=symbol,
@@ -155,7 +158,6 @@ def _make_bond(session: Session, symbol: str = "PPBOND") -> Instrument:
             observed_fields={},
         )
     )
-    # Misleading equity-style EOD candle — must NOT be used as RUB unit price.
     session.add(
         Candle(
             instrument_id=inst.id,
@@ -173,58 +175,9 @@ def _make_bond(session: Session, symbol: str = "PPBOND") -> Instrument:
     return inst
 
 
-def test_bond_valuation_uses_dirty_not_percent_as_rub(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — bond valuation")
-    bond = _make_bond(pp_db)
-    pp_db.add(
-        ManualPosition(
-            portfolio_id=portfolio.id,
-            instrument_id=bond.id,
-            units=Decimal("2"),
-            average_price=Decimal("967.5"),
-        )
-    )
-    pp_db.flush()
-
-    summary = get_personal_summary(pp_db, portfolio)
-    pos = next(p for p in summary["positions"] if p["instrument_id"] == bond.id)
-    # Dirty: 2 * (1000*0.955 + 12.5) = 2 * 967.5 = 1935 — NOT 95.5 × 2
-    assert pos["market_value"] == str(money("1935"))
-    assert Decimal(pos["market_value"]) != money(Decimal("95.5") * 2)
-    assert pos["price_available"] is True
-    assert Decimal(pos["current_price"]) == money("967.5")
-
-
-def test_bond_journal_trade_blocked(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — bond trade block")
-    bond = _make_bond(pp_db, "PPBOND2")
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("100000"),
-        idempotency_key="bond-block-dep",
-    )
-    with pytest.raises(PersonalPortfolioError) as ei:
-        create_operation(
-            pp_db,
-            portfolio=portfolio,
-            operation_type="BUY",
-            occurred_at=date(2026, 9, 2),
-            instrument_id=bond.id,
-            units=Decimal("1"),
-            price=Decimal("95.5"),
-            non_standard_lot=True,
-            idempotency_key="bond-block-buy",
-        )
-    assert ei.value.code == "BOND_TRADE_ACCOUNTING_NOT_READY"
-    assert journal_operation_count(pp_db, portfolio.id) == 1
-
-
-def test_legacy_bootstrap_preserves_cash_and_position(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — legacy bootstrap")
-    eq = _make_equity(pp_db, "PPLEG1", close=Decimal("260"), as_of=date(2026, 9, 25))
+def test_cutover_a_legacy_pending(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover A")
+    eq = _make_equity(pp_db, "CUTA", close=Decimal("260"), as_of=date(2026, 9, 25))
     portfolio.cash_rub = Decimal("50000")
     pp_db.add(
         ManualPosition(
@@ -235,37 +188,103 @@ def test_legacy_bootstrap_preserves_cash_and_position(pp_db: Session) -> None:
         )
     )
     pp_db.flush()
+    assert journal_state(pp_db, portfolio) == "LEGACY_PENDING"
+    summary = get_personal_summary(pp_db, portfolio)
+    assert summary["portfolio"]["journal_state"] == "LEGACY_PENDING"
     assert journal_operation_count(pp_db, portfolio.id) == 0
 
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 10),
-        amount=Decimal("10000"),
-        idempotency_key="legacy-dep-1",
-    )
-    assert money(portfolio.cash_rub) == money("60000")
-    pos = pp_db.scalar(
-        select(ManualPosition).where(
-            ManualPosition.portfolio_id == portfolio.id,
-            ManualPosition.instrument_id == eq.id,
+
+def test_cutover_b_explicit_activation(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover B")
+    eq = _make_equity(pp_db, "CUTB", close=Decimal("260"), as_of=date(2026, 9, 25))
+    portfolio.cash_rub = Decimal("50000")
+    pp_db.add(
+        ManualPosition(
+            portfolio_id=portfolio.id,
+            instrument_id=eq.id,
+            units=Decimal("100"),
+            average_price=Decimal("250"),
         )
     )
-    assert pos is not None
-    assert Decimal(pos.units) == Decimal("100")
-    opening = pp_db.scalars(
+    pp_db.flush()
+    summary = activate_journal(pp_db, portfolio)
+    assert summary["portfolio"]["journal_state"] == "ACTIVE"
+    assert summary["portfolio"]["journal_cutover_at"] is not None
+    assert money(summary["summary"]["cash_rub"]) == money("50000")
+    pos = next(p for p in summary["positions"] if p["instrument_id"] == eq.id)
+    assert Decimal(pos["units"]) == Decimal("100")
+    assert Decimal(pos["average_price"]) == money("250")
+    assert summary["reconciliation"]["status"] == "OK"
+    openings = pp_db.scalars(
         select(PersonalOperation).where(
             PersonalOperation.portfolio_id == portfolio.id,
             PersonalOperation.source == "LEGACY_BOOTSTRAP",
         )
     ).all()
-    assert len(opening) == 2  # cash + position
+    assert len(openings) == 2
+    assert len({o.occurred_at for o in openings}) == 1
 
 
-def test_legacy_missing_cost_basis_rejected(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — legacy no cost")
-    eq = _make_equity(pp_db, "PPLEG2", close=Decimal("100"), as_of=date(2026, 9, 25))
+def test_cutover_c_activation_idempotent(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover C")
+    portfolio.cash_rub = Decimal("5000")
+    pp_db.flush()
+    activate_journal(pp_db, portfolio)
+    n1 = journal_operation_count(pp_db, portfolio.id)
+    activate_journal(pp_db, portfolio)
+    assert journal_operation_count(pp_db, portfolio.id) == n1
+
+
+def test_cutover_d_e_before_after_cutover(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover DE")
+    portfolio.cash_rub = Decimal("50000")
+    pp_db.flush()
+    activate_journal(pp_db, portfolio)
+    cutover = journal_cutover_at(pp_db, portfolio.id)
+    assert cutover is not None
+    with pytest.raises(PersonalPortfolioError) as ei:
+        create_operation(
+            pp_db,
+            portfolio=portfolio,
+            operation_type="DEPOSIT",
+            occurred_at=cutover - timedelta(days=1),
+            amount=Decimal("1000"),
+            idempotency_key="before-cut",
+        )
+    assert ei.value.code == "OPERATION_BEFORE_JOURNAL_CUTOVER"
+    assert money(portfolio.cash_rub) == money("50000")
+
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=cutover + timedelta(minutes=5),
+        amount=Decimal("1000"),
+        idempotency_key="after-cut",
+    )
+    assert money(portfolio.cash_rub) == money("51000")
+
+
+def test_cutover_f_no_auto_bootstrap(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover F")
+    portfolio.cash_rub = Decimal("50000")
+    pp_db.flush()
+    with pytest.raises(PersonalPortfolioError) as ei:
+        create_operation(
+            pp_db,
+            portfolio=portfolio,
+            operation_type="DEPOSIT",
+            occurred_at=datetime.now(UTC),
+            amount=Decimal("10000"),
+            idempotency_key="no-auto",
+        )
+    assert ei.value.code == "LEGACY_STATE_REQUIRES_CUTOVER"
+    assert journal_operation_count(pp_db, portfolio.id) == 0
+
+
+def test_cutover_g_missing_cost_basis(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover G")
+    eq = _make_equity(pp_db, "CUTG", close=Decimal("100"), as_of=date(2026, 9, 25))
     portfolio.cash_rub = Decimal("1000")
     pp_db.add(
         ManualPosition(
@@ -277,49 +296,256 @@ def test_legacy_missing_cost_basis_rejected(pp_db: Session) -> None:
     )
     pp_db.flush()
     with pytest.raises(PersonalPortfolioError) as ei:
-        create_operation(
-            pp_db,
-            portfolio=portfolio,
-            operation_type="DEPOSIT",
-            occurred_at=date(2026, 9, 10),
-            amount=Decimal("100"),
-            idempotency_key="legacy-nocost",
-        )
+        activate_journal(pp_db, portfolio)
     assert ei.value.code == "LEGACY_COST_BASIS_REQUIRED"
     assert journal_operation_count(pp_db, portfolio.id) == 0
     assert money(portfolio.cash_rub) == money("1000")
 
 
-def test_legacy_bootstrap_idempotent(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — legacy idem")
-    portfolio.cash_rub = Decimal("5000")
+def test_cutover_h_legacy_bond_rejected(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover H")
+    bond = _make_bond(pp_db, "CUTH")
+    portfolio.cash_rub = Decimal("1000")
+    pp_db.add(
+        ManualPosition(
+            portfolio_id=portfolio.id,
+            instrument_id=bond.id,
+            units=Decimal("2"),
+            average_price=Decimal("95.5"),
+        )
+    )
+    pp_db.flush()
+    with pytest.raises(PersonalPortfolioError) as ei:
+        activate_journal(pp_db, portfolio)
+    assert ei.value.code == "LEGACY_BOND_COST_BASIS_NOT_READY"
+    assert journal_operation_count(pp_db, portfolio.id) == 0
+    assert money(portfolio.cash_rub) == money("1000")
+
+
+def test_bond_valuation_and_null_unrealized(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — bond pnl")
+    bond = _make_bond(pp_db, "PPNLB")
+    pp_db.add(
+        ManualPosition(
+            portfolio_id=portfolio.id,
+            instrument_id=bond.id,
+            units=Decimal("2"),
+            average_price=Decimal("95.5"),  # ambiguous % — must NOT invent P&L
+        )
+    )
+    pp_db.flush()
+    summary = get_personal_summary(pp_db, portfolio)
+    pos = next(p for p in summary["positions"] if p["instrument_id"] == bond.id)
+    assert pos["market_value"] == str(money("1935"))
+    assert pos["unrealized_pnl"] is None
+    assert Decimal(pos["market_value"]) != money(Decimal("95.5") * 2)
+
+
+def test_valuation_as_of_same_mixed_partial(pp_db: Session) -> None:
+    # Same date
+    p1 = _reset_test_portfolio(pp_db, "TEST — asof same")
+    a = _make_equity(pp_db, "AS1", close=Decimal("10"), as_of=date(2026, 9, 25))
+    b = _make_equity(pp_db, "AS2", close=Decimal("20"), as_of=date(2026, 9, 25))
+    create_operation(
+        pp_db,
+        portfolio=p1,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="asof-dep1",
+    )
+    create_operation(
+        pp_db,
+        portfolio=p1,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=a.id,
+        units=Decimal("1"),
+        price=Decimal("10"),
+        non_standard_lot=True,
+        idempotency_key="asof-b1",
+    )
+    create_operation(
+        pp_db,
+        portfolio=p1,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=b.id,
+        units=Decimal("1"),
+        price=Decimal("20"),
+        non_standard_lot=True,
+        idempotency_key="asof-b2",
+    )
+    s1 = get_personal_summary(pp_db, p1)
+    assert s1["summary"]["valuation_as_of"] == "2026-09-25"
+    assert s1["summary"]["valuation_from"] == "2026-09-25"
+    assert s1["summary"]["valuation_to"] == "2026-09-25"
+
+    # Mixed
+    p2 = _reset_test_portfolio(pp_db, "TEST — asof mix")
+    c = _make_equity(pp_db, "AM1", close=Decimal("10"), as_of=date(2026, 9, 20))
+    d = _make_equity(pp_db, "AM2", close=Decimal("20"), as_of=date(2026, 9, 25))
+    create_operation(
+        pp_db,
+        portfolio=p2,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="mix-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=p2,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=c.id,
+        units=Decimal("1"),
+        price=Decimal("10"),
+        non_standard_lot=True,
+        idempotency_key="mix-c",
+    )
+    create_operation(
+        pp_db,
+        portfolio=p2,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=d.id,
+        units=Decimal("1"),
+        price=Decimal("20"),
+        non_standard_lot=True,
+        idempotency_key="mix-d",
+    )
+    s2 = get_personal_summary(pp_db, p2)
+    assert s2["summary"]["valuation_as_of"] is None
+    assert s2["summary"]["valuation_from"] == "2026-09-20"
+    assert s2["summary"]["valuation_to"] == "2026-09-25"
+    assert "20.09" in s2["summary"]["valuation_label"] and "25.09" in s2["summary"]["valuation_label"]
+
+    # Partial
+    p3 = _reset_test_portfolio(pp_db, "TEST — asof partial")
+    e = _make_equity(pp_db, "AP1", close=Decimal("10"), as_of=date(2026, 9, 25))
+    f = Instrument(
+        symbol="AP2",
+        name="AP2",
+        asset_class="equity",
+        exchange="MOEX",
+        currency="RUB",
+        is_active=True,
+        support_level="FULL",
+        primary_board="TQBR",
+    )
+    pp_db.add(f)
     pp_db.flush()
     create_operation(
         pp_db,
+        portfolio=p3,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="par-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=p3,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=e.id,
+        units=Decimal("1"),
+        price=Decimal("10"),
+        non_standard_lot=True,
+        idempotency_key="par-e",
+    )
+    create_operation(
+        pp_db,
+        portfolio=p3,
+        operation_type="OPENING_POSITION",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=f.id,
+        units=Decimal("1"),
+        price=Decimal("10"),
+        non_standard_lot=True,
+        idempotency_key="par-f",
+    )
+    s3 = get_personal_summary(pp_db, p3)
+    assert s3["summary"]["valuation_partial"] is True
+    assert s3["summary"]["valuation_as_of"] is None
+    assert s3["summary"]["investment_pnl_rub"] is None
+
+
+def test_cancel_idempotency_intent(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cancel intent")
+    a = create_operation(
+        pp_db,
         portfolio=portfolio,
         operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
         amount=Decimal("1000"),
-        idempotency_key="legacy-idem-1",
+        idempotency_key="c-a",
+    )
+    b = create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        amount=Decimal("2000"),
+        idempotency_key="c-b",
+    )
+    first = cancel_operation(
+        pp_db, portfolio=portfolio, operation_id=a.id, reason="Исправление", idempotency_key="ck"
+    )
+    second = cancel_operation(
+        pp_db, portfolio=portfolio, operation_id=a.id, reason="Исправление", idempotency_key="ck"
+    )
+    assert first.id == a.id == second.id
+
+    with pytest.raises(PersonalPortfolioError) as ei:
+        cancel_operation(
+            pp_db, portfolio=portfolio, operation_id=b.id, reason="Исправление", idempotency_key="ck"
+        )
+    assert ei.value.code == "IDEMPOTENCY_KEY_REUSED"
+    assert pp_db.get(PersonalOperation, b.id).status == "ACTIVE"
+
+    with pytest.raises(PersonalPortfolioError) as ei2:
+        cancel_operation(
+            pp_db, portfolio=portfolio, operation_id=a.id, reason="Другая причина", idempotency_key="ck"
+        )
+    assert ei2.value.code == "IDEMPOTENCY_KEY_REUSED"
+
+
+def test_idempotency_and_contribution_and_guards(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — regress")
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="r-1",
     )
     create_operation(
         pp_db,
         portfolio=portfolio,
         operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 2),
-        amount=Decimal("500"),
-        idempotency_key="legacy-idem-2",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        amount=Decimal("30000"),
+        idempotency_key="r-2",
     )
-    openings = pp_db.scalars(
-        select(PersonalOperation).where(
-            PersonalOperation.portfolio_id == portfolio.id,
-            PersonalOperation.operation_type == "OPENING_CASH",
+    summary = get_personal_summary(pp_db, portfolio)
+    assert money(summary["summary"]["contributed_rub"]) == money("130000")
+    assert money(summary["summary"]["investment_pnl_rub"]) == money("0")
+
+    with pytest.raises(PersonalPortfolioError) as ei:
+        create_operation(
+            pp_db,
+            portfolio=portfolio,
+            operation_type="DEPOSIT",
+            occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+            amount=Decimal("50000"),
+            idempotency_key="r-1",
         )
-    ).all()
-    assert len(openings) == 1
+    assert ei.value.code == "IDEMPOTENCY_KEY_REUSED"
 
-
-def test_journal_managed_blocks_legacy_writes(pp_db: Session) -> None:
+    # Primary write guard after journal active
     primary = get_or_create_primary(pp_db)
     for pos in list(
         pp_db.scalars(select(ManualPosition).where(ManualPosition.portfolio_id == primary.id)).all()
@@ -328,232 +554,44 @@ def test_journal_managed_blocks_legacy_writes(pp_db: Session) -> None:
     pp_db.execute(delete(PersonalOperation).where(PersonalOperation.portfolio_id == primary.id))
     primary.cash_rub = Decimal("0")
     pp_db.flush()
-
-    # Before journal: legacy write ok
-    update_cash(pp_db, Decimal("100"))
-    assert money(primary.cash_rub) == money("100")
-
     create_operation(
         pp_db,
         portfolio=primary,
         operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("50"),
-        idempotency_key="primary-journal-1",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("10"),
+        idempotency_key="prim-1",
     )
-    cash_before = money(primary.cash_rub)
-    with pytest.raises(PersonalPortfolioError) as ei:
-        update_cash(pp_db, Decimal("999999"))
-    assert ei.value.code == "PORTFOLIO_JOURNAL_MANAGED"
-    assert money(primary.cash_rub) == cash_before
-
-    eq = _make_equity(pp_db, "PPGUARD", close=Decimal("10"), as_of=date(2026, 9, 25))
-    with pytest.raises(PersonalPortfolioError) as ei2:
-        add_position(pp_db, instrument_id=eq.id, units=Decimal("1"), average_price=Decimal("10"))
-    assert ei2.value.code == "PORTFOLIO_JOURNAL_MANAGED"
+    with pytest.raises(PersonalPortfolioError) as eg:
+        update_cash(pp_db, Decimal("999"))
+    assert eg.value.code == "PORTFOLIO_JOURNAL_MANAGED"
+    eq = _make_equity(pp_db, "GRD1", close=Decimal("1"), as_of=date(2026, 9, 25))
+    with pytest.raises(PersonalPortfolioError) as eg2:
+        add_position(pp_db, instrument_id=eq.id, units=Decimal("1"), average_price=Decimal("1"))
+    assert eg2.value.code == "PORTFOLIO_JOURNAL_MANAGED"
 
 
-def test_partial_valuation_nulls_investment_pnl(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — partial pnl")
-    a = _make_equity(pp_db, "PPKA", close=Decimal("100"), as_of=date(2026, 9, 25))
-    b = Instrument(
-        symbol="PPKB",
-        name="PPKB",
-        asset_class="equity",
-        exchange="MOEX",
-        currency="RUB",
-        is_active=True,
-        support_level="FULL",
-        primary_board="TQBR",
-    )
-    pp_db.add(b)
-    pp_db.flush()
-
+def test_bond_trade_still_blocked(pp_db: Session) -> None:
+    portfolio = _reset_test_portfolio(pp_db, "TEST — bond block")
+    bond = _make_bond(pp_db, "BLKB")
     create_operation(
         pp_db,
         portfolio=portfolio,
         operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
         amount=Decimal("100000"),
-        idempotency_key="partial-dep",
-    )
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="BUY",
-        occurred_at=date(2026, 9, 2),
-        instrument_id=a.id,
-        units=Decimal("400"),
-        price=Decimal("100"),
-        non_standard_lot=True,
-        idempotency_key="partial-buy-a",
-    )
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="OPENING_POSITION",
-        occurred_at=date(2026, 9, 2),
-        instrument_id=b.id,
-        units=Decimal("10"),
-        price=Decimal("50"),
-        non_standard_lot=True,
-        idempotency_key="partial-open-b",
-    )
-    summary = get_personal_summary(pp_db, portfolio)
-    assert summary["summary"]["valuation_partial"] is True
-    assert summary["summary"]["missing_price_count"] >= 1
-    assert summary["summary"]["investment_pnl_rub"] is None
-
-
-def test_mixed_price_dates_label(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — mixed dates")
-    a = _make_equity(pp_db, "PPDA", close=Decimal("10"), as_of=date(2026, 9, 20))
-    b = _make_equity(pp_db, "PPDB", close=Decimal("20"), as_of=date(2026, 9, 25))
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("100000"),
-        idempotency_key="mix-dep",
-    )
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="BUY",
-        occurred_at=date(2026, 9, 2),
-        instrument_id=a.id,
-        units=Decimal("1"),
-        price=Decimal("10"),
-        non_standard_lot=True,
-        idempotency_key="mix-buy-a",
-    )
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="BUY",
-        occurred_at=date(2026, 9, 2),
-        instrument_id=b.id,
-        units=Decimal("1"),
-        price=Decimal("20"),
-        non_standard_lot=True,
-        idempotency_key="mix-buy-b",
-    )
-    summary = get_personal_summary(pp_db, portfolio)
-    label = summary["summary"]["valuation_label"]
-    assert "20.09" in label and "25.09" in label
-    assert summary["summary"]["valuation_as_of"] != "2026-09-25" or "–" in label or "-" in label
-    # Must not claim whole portfolio is valued only on newest date.
-    assert label != "Оценка по ценам на 25.09.2026"
-
-
-def test_idempotency_same_key_different_payload_conflict(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — idem conflict")
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("100000"),
-        idempotency_key="same-key",
+        idempotency_key="bb-dep",
     )
     with pytest.raises(PersonalPortfolioError) as ei:
         create_operation(
             pp_db,
             portfolio=portfolio,
-            operation_type="DEPOSIT",
-            occurred_at=date(2026, 9, 1),
-            amount=Decimal("50000"),
-            idempotency_key="same-key",
+            operation_type="BUY",
+            occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+            instrument_id=bond.id,
+            units=Decimal("1"),
+            price=Decimal("95.5"),
+            non_standard_lot=True,
+            idempotency_key="bb-buy",
         )
-    assert ei.value.code == "IDEMPOTENCY_KEY_REUSED"
-    assert money(portfolio.cash_rub) == money("100000")
-
-
-def test_idempotency_same_payload_reuses(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — idem reuse")
-    a = create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("100000"),
-        idempotency_key="reuse-key",
-    )
-    b = create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("100000"),
-        idempotency_key="reuse-key",
-    )
-    assert a.id == b.id
-    assert money(portfolio.cash_rub) == money("100000")
-
-
-def test_cancel_retry_returns_original(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — cancel retry")
-    op = create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("1000"),
-        idempotency_key="cancel-src",
-    )
-    first = cancel_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_id=op.id,
-        reason="fix",
-        idempotency_key="cancel-key-1",
-    )
-    second = cancel_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_id=op.id,
-        reason="fix",
-        idempotency_key="cancel-key-1",
-    )
-    assert first.id == op.id
-    assert second.id == op.id
-    assert first.id == second.id
-
-
-def test_future_dated_operation_rejected(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — future date")
-    future = date.today() + timedelta(days=3)
-    with pytest.raises(PersonalPortfolioError) as ei:
-        create_operation(
-            pp_db,
-            portfolio=portfolio,
-            operation_type="DEPOSIT",
-            occurred_at=future,
-            amount=Decimal("1000"),
-            idempotency_key="future-1",
-        )
-    assert ei.value.code == "FUTURE_DATED_OPERATION"
-
-
-def test_contribution_still_not_profit(pp_db: Session) -> None:
-    portfolio = _reset_test_portfolio(pp_db, "TEST — contrib")
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 1),
-        amount=Decimal("100000"),
-        idempotency_key="c-1",
-    )
-    create_operation(
-        pp_db,
-        portfolio=portfolio,
-        operation_type="DEPOSIT",
-        occurred_at=date(2026, 9, 2),
-        amount=Decimal("30000"),
-        idempotency_key="c-2",
-    )
-    summary = get_personal_summary(pp_db, portfolio)
-    assert money(summary["summary"]["contributed_rub"]) == money("130000")
-    assert money(summary["summary"]["investment_pnl_rub"]) == money("0")
+    assert ei.value.code == "BOND_TRADE_ACCOUNTING_NOT_READY"

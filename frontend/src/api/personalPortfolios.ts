@@ -19,6 +19,8 @@ export interface PersonalSummary {
     note?: string | null;
     version: number;
     has_operations: boolean;
+    journal_state?: "EMPTY" | "LEGACY_PENDING" | "ACTIVE";
+    journal_cutover_at?: string | null;
   };
   summary: {
     cash_rub: string;
@@ -41,6 +43,7 @@ export interface PersonalSummary {
     instrument_id: number;
     secid: string | null;
     name: string | null;
+    asset_class?: string | null;
     units: string;
     lots: string | null;
     lot_size?: number | null;
@@ -51,6 +54,7 @@ export interface PersonalSummary {
     unrealized_pnl: string | null;
     price_available: boolean;
     price_label?: string | null;
+    pnl_unavailable_reason?: string | null;
   }>;
   operations: Array<{
     id: number;
@@ -106,6 +110,16 @@ export function getPersonalPrimary(opts?: { owner?: boolean; test?: boolean; sig
   return apiRequest<PersonalSummary>(`/personal-portfolios/primary${qs(!!opts?.owner, !!opts?.test)}`, {
     signal: opts?.signal,
   });
+}
+
+export function activatePersonalJournal(opts?: { test?: boolean; signal?: AbortSignal }) {
+  return apiRequest<PersonalSummary>(
+    `/personal-portfolios/primary/activate-journal${qs(false, !!opts?.test)}`,
+    {
+      method: "POST",
+      signal: opts?.signal,
+    },
+  );
 }
 
 export function createPersonalOperation(

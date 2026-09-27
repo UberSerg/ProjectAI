@@ -279,9 +279,11 @@ def _idempotency_fingerprint(
     note: str | None,
     supersedes_operation_id: int | None,
 ) -> dict[str, Any]:
+    # Minute-level UTC — matches datetime-local operation entry.
+    occurred_norm = occurred_at.astimezone(UTC).replace(second=0, microsecond=0).isoformat()
     return {
         "operation_type": operation_type,
-        "occurred_at": occurred_at.astimezone(UTC).date().isoformat(),
+        "occurred_at": occurred_norm,
         "instrument_id": instrument_id,
         "units": _normalize_units_str(units) if units is not None and units > ZERO else None,
         "lots": _normalize_units_str(lots) if lots is not None else None,
@@ -325,18 +327,47 @@ def _legacy_positions(session: Session, portfolio_id: int) -> list[ManualPositio
     )
 
 
-def _needs_legacy_bootstrap(session: Session, portfolio: ManualPortfolio) -> bool:
-    if journal_operation_count(session, int(portfolio.id)) > 0:
-        return False
+def _has_legacy_snapshot(session: Session, portfolio: ManualPortfolio) -> bool:
     cash = money(portfolio.cash_rub)
     positions = _legacy_positions(session, int(portfolio.id))
     return cash != ZERO or len(positions) > 0
 
 
-def ensure_legacy_bootstrap(session: Session, portfolio: ManualPortfolio) -> None:
-    """One-time deterministic transition: legacy Manual state → opening journal rows."""
-    if not _needs_legacy_bootstrap(session, portfolio):
-        return
+def journal_state(session: Session, portfolio: ManualPortfolio) -> str:
+    """EMPTY | LEGACY_PENDING | ACTIVE — derived, no schema."""
+    if journal_operation_count(session, int(portfolio.id)) > 0:
+        return "ACTIVE"
+    if _has_legacy_snapshot(session, portfolio):
+        return "LEGACY_PENDING"
+    return "EMPTY"
+
+
+def journal_cutover_at(session: Session, portfolio_id: int) -> datetime | None:
+    """Cutover timestamp = MIN(occurred_at) of LEGACY_BOOTSTRAP rows, if any."""
+    return session.scalar(
+        select(func.min(PersonalOperation.occurred_at)).where(
+            PersonalOperation.portfolio_id == portfolio_id,
+            PersonalOperation.source == LEGACY_BOOTSTRAP_SOURCE,
+        )
+    )
+
+
+def _fmt_cutover_human(ts: datetime) -> str:
+    local = ts.astimezone(UTC)
+    return local.strftime("%d.%m.%Y %H:%M UTC")
+
+
+def activate_journal(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
+    """Explicit one-time cutover: legacy Manual snapshot → OPENING_* journal rows."""
+    state = journal_state(session, portfolio)
+    if state == "ACTIVE":
+        # Idempotent: already journal-managed.
+        rebuilt = rebuild_ledger_from_journal(session, int(portfolio.id))
+        project_portfolio(session, portfolio, rebuilt)
+        return get_personal_summary(session, portfolio, owner=True)
+    if state == "EMPTY":
+        # Nothing to bootstrap — leave EMPTY (caller may start with DEPOSIT).
+        return get_personal_summary(session, portfolio, owner=True)
 
     positions = _legacy_positions(session, int(portfolio.id))
     missing_cost = [p for p in positions if p.average_price is None]
@@ -351,72 +382,83 @@ def ensure_legacy_bootstrap(session: Session, portfolio: ManualPortfolio) -> Non
             http_status=409,
         )
 
-    bootstrap_at = datetime.now(UTC)
-    cash = money(portfolio.cash_rub)
-    if cash > ZERO:
-        key = f"legacy-bootstrap:{portfolio.id}:cash"
-        if (
-            session.scalar(
-                select(PersonalOperation.id).where(
-                    PersonalOperation.portfolio_id == portfolio.id,
-                    PersonalOperation.idempotency_key == key,
-                )
-            )
-            is None
-        ):
-            session.add(
-                PersonalOperation(
-                    portfolio_id=portfolio.id,
-                    operation_type=OperationType.OPENING_CASH.value,
-                    status="ACTIVE",
-                    occurred_at=bootstrap_at,
-                    amount=cash,
-                    commission=ZERO,
-                    currency="RUB",
-                    source=LEGACY_BOOTSTRAP_SOURCE,
-                    note="Legacy Manual cash bootstrap",
-                    idempotency_key=key,
-                )
-            )
-
     for pos in positions:
-        key = f"legacy-bootstrap:{portfolio.id}:position:{pos.id}"
-        if (
-            session.scalar(
-                select(PersonalOperation.id).where(
-                    PersonalOperation.portfolio_id == portfolio.id,
-                    PersonalOperation.idempotency_key == key,
-                )
-            )
-            is not None
-        ):
-            continue
-        # Bonds may exist in legacy Manual; opening uses known RUB average_price only.
         instrument = session.get(Instrument, pos.instrument_id)
         if instrument is not None and (instrument.asset_class or "").lower() == "bond":
             raise PersonalPortfolioError(
-                "BOND_TRADE_ACCOUNTING_NOT_READY",
-                BOND_TRADE_MESSAGE
-                + " Сначала перенесите облигации отдельным контрактом учёта.",
+                "LEGACY_BOND_COST_BASIS_NOT_READY",
+                (
+                    "В текущем портфеле есть облигации. Kraken пока не может безопасно "
+                    "перенести их себестоимость в новый журнал и поэтому не будет выполнять переход частично."
+                ),
                 http_status=409,
             )
-        session.add(
-            PersonalOperation(
-                portfolio_id=portfolio.id,
-                operation_type=OperationType.OPENING_POSITION.value,
-                status="ACTIVE",
-                occurred_at=bootstrap_at,
-                instrument_id=int(pos.instrument_id),
-                units=units_q(pos.units),
-                price=money(pos.average_price),
-                commission=ZERO,
-                currency="RUB",
-                source=LEGACY_BOOTSTRAP_SOURCE,
-                note=f"Legacy Manual position bootstrap #{pos.id}",
-                idempotency_key=key,
-            )
-        )
-    session.flush()
+
+    cutover_at = datetime.now(UTC)
+    try:
+        with session.begin_nested():
+            cash = money(portfolio.cash_rub)
+            if cash > ZERO:
+                key = f"legacy-bootstrap:{portfolio.id}:cash"
+                if (
+                    session.scalar(
+                        select(PersonalOperation.id).where(
+                            PersonalOperation.portfolio_id == portfolio.id,
+                            PersonalOperation.idempotency_key == key,
+                        )
+                    )
+                    is None
+                ):
+                    session.add(
+                        PersonalOperation(
+                            portfolio_id=portfolio.id,
+                            operation_type=OperationType.OPENING_CASH.value,
+                            status="ACTIVE",
+                            occurred_at=cutover_at,
+                            amount=cash,
+                            commission=ZERO,
+                            currency="RUB",
+                            source=LEGACY_BOOTSTRAP_SOURCE,
+                            note="Legacy Manual cash bootstrap",
+                            idempotency_key=key,
+                        )
+                    )
+
+            for pos in positions:
+                key = f"legacy-bootstrap:{portfolio.id}:position:{pos.id}"
+                if (
+                    session.scalar(
+                        select(PersonalOperation.id).where(
+                            PersonalOperation.portfolio_id == portfolio.id,
+                            PersonalOperation.idempotency_key == key,
+                        )
+                    )
+                    is not None
+                ):
+                    continue
+                session.add(
+                    PersonalOperation(
+                        portfolio_id=portfolio.id,
+                        operation_type=OperationType.OPENING_POSITION.value,
+                        status="ACTIVE",
+                        occurred_at=cutover_at,
+                        instrument_id=int(pos.instrument_id),
+                        units=units_q(pos.units),
+                        price=money(pos.average_price),
+                        commission=ZERO,
+                        currency="RUB",
+                        source=LEGACY_BOOTSTRAP_SOURCE,
+                        note=f"Legacy Manual position bootstrap #{pos.id}",
+                        idempotency_key=key,
+                    )
+                )
+            session.flush()
+            rebuilt = rebuild_ledger_from_journal(session, int(portfolio.id))
+            project_portfolio(session, portfolio, rebuilt)
+    except LedgerError as exc:
+        raise PersonalPortfolioError(exc.code, exc.message) from exc
+
+    return get_personal_summary(session, portfolio, owner=True)
 
 
 def create_operation(
@@ -450,12 +492,32 @@ def create_operation(
     except ValueError as exc:
         raise PersonalPortfolioError("UNSUPPORTED_OPERATION", "Неизвестный тип операции") from exc
 
+    # Never silently migrate legacy Manual into journal on a random trade.
+    jstate = journal_state(session, portfolio)
+    if jstate == "LEGACY_PENDING":
+        raise PersonalPortfolioError(
+            "LEGACY_STATE_REQUIRES_CUTOVER",
+            "Сначала зафиксируйте текущий портфель как начальное состояние.",
+            http_status=409,
+        )
+
     occurred_dt = _parse_occurred_at(occurred_at)
     today = datetime.now(UTC).date()
     if occurred_dt.astimezone(UTC).date() > today:
         raise PersonalPortfolioError(
             "FUTURE_DATED_OPERATION",
             "Операцию нельзя датировать будущим днём — она сразу меняет текущее состояние портфеля.",
+        )
+
+    cutover = journal_cutover_at(session, int(portfolio.id))
+    if cutover is not None and occurred_dt.astimezone(UTC) <= cutover.astimezone(UTC):
+        raise PersonalPortfolioError(
+            "OPERATION_BEFORE_JOURNAL_CUTOVER",
+            (
+                f"Этот портфель начал вести журнал с {_fmt_cutover_human(cutover)}. "
+                "Более ранние операции уже входят в начальное состояние и не могут быть добавлены повторно."
+            ),
+            http_status=409,
         )
 
     resolved_units = units_q(units) if units is not None else ZERO
@@ -506,12 +568,8 @@ def create_operation(
         _assert_idempotency_match(existing, fingerprint)
         return existing
 
-    # All mutations in a savepoint: invalid ledger apply must not leave half-state
-    # (caught PersonalPortfolioError must not commit a bad ACTIVE journal row).
     try:
         with session.begin_nested():
-            ensure_legacy_bootstrap(session, portfolio)
-
             if supersedes_operation_id is not None:
                 old = session.get(PersonalOperation, supersedes_operation_id)
                 if old is None or old.portfolio_id != portfolio.id:
@@ -568,6 +626,21 @@ def create_operation(
         return raced
 
 
+def _cancel_fingerprint(*, operation_id: int, reason: str | None) -> dict[str, Any]:
+    return {
+        "intent": "CANCEL",
+        "operation_id": int(operation_id),
+        "reason": (reason or "").strip() or None,
+    }
+
+
+def _cancel_fingerprint_from_marker(marker: PersonalOperation) -> dict[str, Any]:
+    target = marker.supersedes_operation_id
+    if target is None:
+        return {"intent": "CANCEL", "operation_id": None, "reason": (marker.correction_reason or "").strip() or None}
+    return _cancel_fingerprint(operation_id=int(target), reason=marker.correction_reason)
+
+
 def cancel_operation(
     session: Session,
     *,
@@ -576,8 +649,9 @@ def cancel_operation(
     reason: str | None = None,
     idempotency_key: str | None = None,
 ) -> PersonalOperation:
-    """Soft-cancel: mark CANCELLED and reproject (no replacement). Returns original op."""
+    """Soft-cancel: mark CANCELLED and reproject. Returns original op. Atomic."""
     key = (idempotency_key or "").strip() or f"cancel:{operation_id}:{uuid4()}"
+    expected = _cancel_fingerprint(operation_id=operation_id, reason=reason)
     existing = session.scalar(
         select(PersonalOperation).where(
             PersonalOperation.portfolio_id == portfolio.id,
@@ -585,57 +659,70 @@ def cancel_operation(
         )
     )
     if existing is not None:
-        # Marker rows supersede the cancelled operation — always return the original.
+        if _cancel_fingerprint_from_marker(existing) != expected:
+            raise PersonalPortfolioError(
+                "IDEMPOTENCY_KEY_REUSED",
+                "Этот идентификатор операции уже использован для других данных.",
+                http_status=409,
+            )
         if existing.supersedes_operation_id is not None:
             original = session.get(PersonalOperation, existing.supersedes_operation_id)
             if original is not None:
                 return original
         return existing
 
-    op = session.get(PersonalOperation, operation_id)
-    if op is None or op.portfolio_id != portfolio.id:
-        raise PersonalPortfolioError("OPERATION_NOT_FOUND", "Операция не найдена", http_status=404)
-    if op.status != "ACTIVE":
-        raise PersonalPortfolioError("OPERATION_NOT_ACTIVE", "Операция уже не активна")
-    op.status = "CANCELLED"
-    op.correction_reason = reason
-    marker = PersonalOperation(
-        portfolio_id=portfolio.id,
-        operation_type=op.operation_type,
-        status="CANCELLED",
-        occurred_at=op.occurred_at,
-        instrument_id=op.instrument_id,
-        lots=op.lots,
-        units=op.units,
-        price=op.price,
-        amount=op.amount,
-        commission=op.commission,
-        currency=op.currency,
-        source="MANUAL",
-        note=f"CANCEL of #{op.id}",
-        idempotency_key=key,
-        supersedes_operation_id=op.id,
-        correction_reason=reason,
-    )
     try:
         with session.begin_nested():
+            op = session.get(PersonalOperation, operation_id)
+            if op is None or op.portfolio_id != portfolio.id:
+                raise PersonalPortfolioError("OPERATION_NOT_FOUND", "Операция не найдена", http_status=404)
+            if op.status != "ACTIVE":
+                raise PersonalPortfolioError("OPERATION_NOT_ACTIVE", "Операция уже не активна")
+            op.status = "CANCELLED"
+            op.correction_reason = reason
+            marker = PersonalOperation(
+                portfolio_id=portfolio.id,
+                operation_type=op.operation_type,
+                status="CANCELLED",
+                occurred_at=op.occurred_at,
+                instrument_id=op.instrument_id,
+                lots=op.lots,
+                units=op.units,
+                price=op.price,
+                amount=op.amount,
+                commission=op.commission,
+                currency=op.currency,
+                source="MANUAL",
+                note=f"CANCEL of #{op.id}",
+                idempotency_key=key,
+                supersedes_operation_id=op.id,
+                correction_reason=reason,
+            )
             session.add(marker)
             session.flush()
-    except IntegrityError:
+            state = rebuild_ledger_from_journal(session, portfolio.id)
+            project_portfolio(session, portfolio, state)
+            return op
+    except IntegrityError as exc:
         raced = session.scalar(
             select(PersonalOperation).where(
                 PersonalOperation.portfolio_id == portfolio.id,
                 PersonalOperation.idempotency_key == key,
             )
         )
-        if raced is not None and raced.supersedes_operation_id is not None:
+        if raced is None:
+            raise
+        if _cancel_fingerprint_from_marker(raced) != expected:
+            raise PersonalPortfolioError(
+                "IDEMPOTENCY_KEY_REUSED",
+                "Этот идентификатор операции уже использован для других данных.",
+                http_status=409,
+            ) from exc
+        if raced.supersedes_operation_id is not None:
             original = session.get(PersonalOperation, raced.supersedes_operation_id)
             if original is not None:
                 return original
-        raise
-    state = rebuild_ledger_from_journal(session, portfolio.id)
-    project_portfolio(session, portfolio, state)
-    return op
+        return raced
 
 
 def reconcile(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
@@ -765,7 +852,7 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
         lots_display = None
         if lot_size and lot_size > 0:
             lots_display = str(units_q(pos.units) / Decimal(lot_size))
-        unit_price, market_value, price_date, _asset = _personal_mark(
+        unit_price, market_value, price_date, asset = _personal_mark(
             session, instrument, _d(pos.units)
         )
         unrealized = None
@@ -773,25 +860,37 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             securities_mv = money(securities_mv + market_value)
             if price_date:
                 price_dates.append(price_date)
-            if pos.average_price is not None:
+            # Bond cost basis may be %/ambiguous in legacy Manual — never invent unrealized P&L.
+            if asset != "bond" and pos.average_price is not None:
                 unrealized = money(market_value - money(_d(pos.units) * _d(pos.average_price)))
         else:
             missing_prices += 1
+        avg_display = None
+        if asset == "bond":
+            avg_display = None  # do not present ambiguous legacy % as RUB cost
+        elif pos.average_price is not None:
+            avg_display = str(pos.average_price)
         positions_out.append(
             {
                 "instrument_id": instrument.id,
                 "secid": instrument.symbol,
                 "name": instrument.name or instrument.symbol,
+                "asset_class": asset or (instrument.asset_class or "").lower() or None,
                 "units": str(pos.units),
                 "lots": lots_display,
                 "lot_size": lot_size,
-                "average_price": str(pos.average_price) if pos.average_price is not None else None,
+                "average_price": avg_display,
                 "current_price": str(money(unit_price)) if unit_price is not None else None,
                 "price_date": price_date,
                 "market_value": str(market_value) if market_value is not None else None,
                 "unrealized_pnl": str(unrealized) if unrealized is not None else None,
                 "price_available": unit_price is not None,
                 "price_label": None if unit_price is not None else "Цена недоступна",
+                "pnl_unavailable_reason": (
+                    "Для облигаций расчёт результата будет доступен после отдельного учёта цены покупки и НКД."
+                    if asset == "bond"
+                    else None
+                ),
             }
         )
 
@@ -800,7 +899,6 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
     withdrawn = money(portfolio.total_withdrawn_rub or ZERO)
     valuation_complete = missing_prices == 0
     known_nav = money(cash + securities_mv)
-    # Partial valuation: never treat unknown holdings as zero for total investment P&L.
     if valuation_complete:
         inv_pnl: Decimal | None = investment_pnl(
             nav=known_nav, contributed=contributed, withdrawn=withdrawn
@@ -809,6 +907,11 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
         inv_pnl = None
     as_of_from = min(price_dates) if price_dates else None
     as_of_to = max(price_dates) if price_dates else None
+    # Single portfolio-wide as_of only when complete and all marks share one date.
+    if valuation_complete and as_of_from is not None and as_of_from == as_of_to:
+        valuation_as_of: str | None = as_of_to
+    else:
+        valuation_as_of = None
 
     ops = list(
         session.scalars(
@@ -819,6 +922,8 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
         ).all()
     )
     has_ops = journal_operation_count(session, int(portfolio.id)) > 0
+    jstate = journal_state(session, portfolio)
+    cutover = journal_cutover_at(session, int(portfolio.id))
 
     payload: dict[str, Any] = {
         "portfolio": {
@@ -830,6 +935,8 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "note": portfolio.note,
             "version": portfolio.version,
             "has_operations": has_ops,
+            "journal_state": jstate,
+            "journal_cutover_at": cutover.isoformat() if cutover else None,
         },
         "summary": {
             "cash_rub": str(cash),
@@ -842,7 +949,7 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "realized_pnl_rub": str(money(portfolio.realized_pnl_rub or ZERO)),
             "valuation_complete": valuation_complete,
             "valuation_partial": not valuation_complete,
-            "valuation_as_of": as_of_to,
+            "valuation_as_of": valuation_as_of,
             "valuation_from": as_of_from,
             "valuation_to": as_of_to,
             "valuation_label": _valuation_label(

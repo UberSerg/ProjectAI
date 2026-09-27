@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from app.infrastructure.db.session import core_session
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
+    activate_journal,
     cancel_operation,
     create_operation,
     get_or_create_primary,
@@ -80,6 +81,19 @@ def get_primary_reconciliation(test: bool = Query(False)) -> dict[str, Any]:
     with core_session() as session:
         portfolio = _portfolio(session, test=test)
         return reconcile(session, portfolio)
+
+
+@router.post("/primary/activate-journal")
+def post_activate_journal(
+    test: bool = Query(False, description="Use isolated TEST portfolio (never the real book)"),
+) -> dict[str, Any]:
+    """Explicit legacy Manual → journal cutover (OPENING_* only; no trade)."""
+    with core_session() as session:
+        portfolio = _portfolio(session, test=test)
+        try:
+            return activate_journal(session, portfolio)
+        except PersonalPortfolioError as exc:
+            raise _http(exc) from exc
 
 
 @router.post("/primary/operations")

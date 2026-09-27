@@ -5,6 +5,7 @@ import {
   type CatalogInstrument,
 } from "../../api/instruments";
 import {
+  activatePersonalJournal,
   createPersonalOperation,
   getPersonalPrimary,
   type CreatePersonalOperationBody,
@@ -56,6 +57,19 @@ function canonicalPayloadKey(body: CreatePersonalOperationBody): string {
 const BOND_TRADE_USER_MSG =
   "Операции с облигациями пока нельзя вносить через обычную цену: биржевая цена облигации указывается в процентах от номинала. Kraken не будет считать её рублёвой ценой.";
 
+function defaultOccurredLocal(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toIsoOccurredAt(localValue: string): string {
+  // datetime-local → interpret as local wall time, send ISO with offset via Date.
+  const dt = new Date(localValue);
+  if (Number.isNaN(dt.getTime())) return localValue;
+  return dt.toISOString();
+}
+
 function AddOperationModal({
   open,
   onClose,
@@ -67,7 +81,7 @@ function AddOperationModal({
 }) {
   const titleId = useId();
   const [type, setType] = useState<PersonalOperationType>("DEPOSIT");
-  const [occurredAt, setOccurredAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [occurredAt, setOccurredAt] = useState(defaultOccurredLocal);
   const [amount, setAmount] = useState("");
   const [lots, setLots] = useState("");
   const [units, setUnits] = useState("");
@@ -91,6 +105,7 @@ function AddOperationModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setOccurredAt(defaultOccurredLocal());
   }, [open, type]);
 
   useEffect(() => {
@@ -132,7 +147,7 @@ function AddOperationModal({
     setError(null);
     const body: CreatePersonalOperationBody = {
       operation_type: type,
-      occurred_at: occurredAt,
+      occurred_at: toIsoOccurredAt(occurredAt),
       note: note || undefined,
       commission: commission || "0",
     };
@@ -195,8 +210,13 @@ function AddOperationModal({
           </select>
         </label>
         <label className="field">
-          <span>Дата</span>
-          <input type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
+          <span>Дата и время</span>
+          <input
+            type="datetime-local"
+            value={occurredAt}
+            onChange={(e) => setOccurredAt(e.target.value)}
+            data-testid="op-occurred-at"
+          />
         </label>
         {type === "DEPOSIT" ||
         type === "WITHDRAWAL" ||
@@ -330,6 +350,8 @@ export function PersonalPortfolioPanel() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [activateError, setActivateError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -348,6 +370,25 @@ export function PersonalPortfolioPanel() {
     void reload();
   }, [reload]);
 
+  async function onActivate() {
+    setActivating(true);
+    setActivateError(null);
+    try {
+      const row = await activatePersonalJournal();
+      setData(row);
+    } catch (e) {
+      const msg = errorMessage(e);
+      try {
+        const parsed = JSON.parse(msg) as { message?: string; detail?: { message?: string } };
+        setActivateError(parsed.detail?.message || parsed.message || msg);
+      } catch {
+        setActivateError(msg);
+      }
+    } finally {
+      setActivating(false);
+    }
+  }
+
   if (loading && !data) return <PageState kind="loading" title="Портфель" />;
   if (error && !data)
     return (
@@ -357,7 +398,10 @@ export function PersonalPortfolioPanel() {
     );
   if (!data) return null;
 
-  const empty = !data.portfolio.has_operations;
+  const journalState = data.portfolio.journal_state ?? (data.portfolio.has_operations ? "ACTIVE" : "EMPTY");
+  const legacyPending = journalState === "LEGACY_PENDING";
+  const empty = journalState === "EMPTY";
+  const active = journalState === "ACTIVE";
 
   return (
     <div className="personal-portfolio-panel" data-testid="personal-portfolio-panel">
@@ -366,27 +410,69 @@ export function PersonalPortfolioPanel() {
           <h2 data-testid="personal-portfolio-name">{data.portfolio.name}</h2>
           <p className="muted">{data.summary.valuation_label}</p>
         </div>
-        <button
-          type="button"
-          className="btn primary"
-          onClick={() => setModalOpen(true)}
-          data-testid="add-operation-btn"
-        >
-          Добавить операцию
-        </button>
+        {active ? (
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => setModalOpen(true)}
+            data-testid="add-operation-btn"
+          >
+            Добавить операцию
+          </button>
+        ) : null}
       </div>
+
+      {legacyPending ? (
+        <div className="panel" data-testid="legacy-cutover-panel">
+          <h3>Найден текущий портфель</h3>
+          <p>
+            Kraken уже видит текущие деньги и позиции. Чтобы начать вести историю операций,
+            зафиксируйте их как начальное состояние.
+          </p>
+          <p className="muted">
+            Старые сделки отдельно добавлять после этого не нужно — они уже отражены в текущих
+            позициях.
+          </p>
+          <div className="metric-grid" data-testid="legacy-cutover-summary">
+            <MetricCard label="Кэш сейчас" value={money(data.summary.cash_rub)} />
+            <MetricCard label="Позиций" value={String(data.positions.length)} />
+            <MetricCard label="Бумаги (оценка)" value={money(data.summary.securities_value_rub)} />
+          </div>
+          {activateError ? (
+            <p className="form-error" data-testid="activate-error">
+              {activateError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void onActivate()}
+            disabled={activating}
+            data-testid="activate-journal-btn"
+          >
+            {activating ? "Фиксация…" : "Начать учёт с текущего состояния"}
+          </button>
+        </div>
+      ) : null}
 
       {empty ? (
         <EmptyState
           title="Личный портфель ещё пуст"
           reason="Добавьте первое пополнение или текущие позиции — без выдуманных сделок."
           action={
-            <button type="button" className="btn primary" onClick={() => setModalOpen(true)}>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => setModalOpen(true)}
+              data-testid="add-operation-btn"
+            >
               Добавить операцию
             </button>
           }
         />
-      ) : (
+      ) : null}
+
+      {active ? (
         <>
           <div className="metric-grid" data-testid="personal-summary">
             <MetricCard label="Текущая стоимость" value={money(data.summary.nav_rub)} />
@@ -427,25 +513,44 @@ export function PersonalPortfolioPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.positions.map((p) => (
-                    <tr key={p.instrument_id}>
-                      <td>
-                        <strong>{p.secid}</strong>
-                        <div className="muted">{p.name}</div>
-                      </td>
-                      <td>
-                        {p.units}
-                        {p.lots ? <div className="muted">{p.lots} лот(ов)</div> : null}
-                      </td>
-                      <td>{p.average_price != null ? money(p.average_price) : "—"}</td>
-                      <td>
-                        {p.price_available ? money(p.current_price) : "Цена недоступна"}
-                        {p.price_date ? <div className="muted">{p.price_date}</div> : null}
-                      </td>
-                      <td>{p.market_value != null ? money(p.market_value) : "—"}</td>
-                      <td>{p.unrealized_pnl != null ? money(p.unrealized_pnl) : "—"}</td>
-                    </tr>
-                  ))}
+                  {data.positions.map((p) => {
+                    const isBond = (p.asset_class || "").toLowerCase() === "bond";
+                    return (
+                      <tr key={p.instrument_id}>
+                        <td>
+                          <strong>{p.secid}</strong>
+                          <div className="muted">{p.name}</div>
+                        </td>
+                        <td>
+                          {p.units}
+                          {p.lots ? <div className="muted">{p.lots} лот(ов)</div> : null}
+                        </td>
+                        <td>
+                          {isBond || p.average_price == null ? (
+                            <span className="muted">—</span>
+                          ) : (
+                            money(p.average_price)
+                          )}
+                        </td>
+                        <td>
+                          {p.price_available ? money(p.current_price) : "Цена недоступна"}
+                          {p.price_date ? <div className="muted">{p.price_date}</div> : null}
+                        </td>
+                        <td>{p.market_value != null ? money(p.market_value) : "—"}</td>
+                        <td>
+                          {isBond ? (
+                            <span className="muted" title={p.pnl_unavailable_reason || undefined}>
+                              Недоступно
+                            </span>
+                          ) : p.unrealized_pnl != null ? (
+                            money(p.unrealized_pnl)
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -469,7 +574,10 @@ export function PersonalPortfolioPanel() {
                       {o.units && o.price ? ` · ${o.units} × ${money(o.price)}` : ""}
                     </span>
                     {!isUser && o.idempotency_key ? (
-                      <div className="muted owner-meta">#{o.id} · {o.source}</div>
+                      <div className="muted owner-meta">
+                        #{o.id} · {o.source}
+                        {o.occurred_at ? ` · ${o.occurred_at}` : ""}
+                      </div>
                     ) : null}
                   </li>
                 ))}
@@ -486,7 +594,7 @@ export function PersonalPortfolioPanel() {
             </section>
           ) : null}
         </>
-      )}
+      ) : null}
 
       <AddOperationModal open={modalOpen} onClose={() => setModalOpen(false)} onSaved={() => void reload()} />
     </div>
