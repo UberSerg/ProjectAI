@@ -9,11 +9,11 @@ from app.api.v1.intraday_market import router as intraday_market_router
 from app.api.v1.investment import router as investment_router
 from app.api.v1.learning import router as learning_router
 from app.api.v1.manual_portfolios import router as manual_portfolios_router
-from app.api.v1.personal_portfolios import router as personal_portfolios_router
 from app.api.v1.market import router as market_router
 from app.api.v1.market import workflows_router
 from app.api.v1.market_history import router as market_history_router
 from app.api.v1.model_edge import router as model_edge_router
+from app.api.v1.personal_portfolios import router as personal_portfolios_router
 from app.api.v1.predictions import router as predictions_router
 from app.api.v1.relations import router as relations_router
 from app.api.v1.research_cycle import router as research_cycle_router
