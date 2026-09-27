@@ -12,6 +12,27 @@ Do **not** reuse Shadow / Simulator ledgers for real money.
 - Money math: `Decimal` / `NUMERIC` only
 - Isolated E2E/tests: `is_test=true` portfolios (never the owner's real book)
 
+## Source of truth / downstream analytics
+
+```text
+journal (personal_operations)
+  → projection (manual_portfolios / manual_positions)
+  → PersonalPortfolioSnapshot (load_personal_snapshot)
+  → analytics (allocation, concentration, risk, credit, compare, rebalance, cashflows)
+  → Dashboard / My Portfolio UI
+```
+
+| Layer | Role |
+|---|---|
+| Journal | Authoritative financial history (ACTIVE) |
+| Projection | Derived current cash/positions for efficient reads |
+| `load_personal_snapshot` | **Sole application read boundary** for user-facing Personal analytics |
+| Candidate / Shadow / Research | Separate books — not mixed into «Мой портфель» |
+
+After `journal_state=ACTIVE`, legacy Manual write APIs remain blocked. Downstream must not treat a raw `ManualPortfolio` load as an independent source of truth; always go through the Personal snapshot (marks, cost-basis usability, valuation completeness).
+
+Bond cost basis remains unavailable until dedicated bond accounting exists — analytics must not invent unrealized P&L from legacy `% of nominal` average prices.
+
 ## External capital vs investment P&L
 
 `investment_pnl = NAV - (contributed - withdrawn)`
