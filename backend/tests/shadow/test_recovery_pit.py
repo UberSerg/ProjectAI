@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 

@@ -6,8 +6,9 @@ stale EOD → detect market gap → backfill all missing EOD → verify sessions
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy.orm import Session
 
