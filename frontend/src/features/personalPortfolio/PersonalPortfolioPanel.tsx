@@ -57,13 +57,14 @@ function canonicalPayloadKey(body: CreatePersonalOperationBody): string {
 const BOND_TRADE_USER_MSG =
   "Операции с облигациями пока нельзя вносить через обычную цену: биржевая цена облигации указывается в процентах от номинала. Kraken не будет считать её рублёвой ценой.";
 
-function defaultOccurredLocal(): string {
-  const d = new Date();
+/** Local wall time for datetime-local; second precision matches backend cutover (`<= cutover` rejected). */
+export function defaultOccurredLocal(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
-function toIsoOccurredAt(localValue: string): string {
+/** datetime-local (local wall, second precision) → ISO-8601 UTC for the API. */
+export function toIsoOccurredAt(localValue: string): string {
   // datetime-local → interpret as local wall time, send ISO with offset via Date.
   const dt = new Date(localValue);
   if (Number.isNaN(dt.getTime())) return localValue;
@@ -213,6 +214,7 @@ function AddOperationModal({
           <span>Дата и время</span>
           <input
             type="datetime-local"
+            step={1}
             value={occurredAt}
             onChange={(e) => setOccurredAt(e.target.value)}
             data-testid="op-occurred-at"

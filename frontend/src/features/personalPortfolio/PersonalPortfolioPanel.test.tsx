@@ -264,6 +264,44 @@ describe("PersonalPortfolioPanel", () => {
     expect(screen.getByTestId("op-occurred-at")).toHaveAttribute("type", "datetime-local");
   });
 
+  it("uses second-precision datetime-local for post-cutover ops", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPrimary.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        has_operations: true,
+        journal_state: "ACTIVE",
+        journal_cutover_at: "2026-09-27T13:11:37.123456+00:00",
+      },
+    });
+    const { defaultOccurredLocal, toIsoOccurredAt } = await import("./PersonalPortfolioPanel");
+    const cutover = new Date("2026-09-27T13:11:37.123456Z");
+    // Simulate UI default taken one second after cutover (step=1, no minute wait).
+    const justAfter = new Date(cutover.getTime() + 1000);
+    const local = defaultOccurredLocal(justAfter);
+    expect(local).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+    const iso = toIsoOccurredAt(local);
+    expect(new Date(iso).getTime()).toBeGreaterThan(cutover.getTime());
+
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("add-operation-btn"));
+    const input = screen.getByTestId("op-occurred-at");
+    expect(input).toHaveAttribute("type", "datetime-local");
+    expect(input).toHaveAttribute("step", "1");
+    // jsdom may normalize to fractional seconds; require at least HH:mm:ss precision.
+    expect((input as HTMLInputElement).value).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/,
+    );
+  });
+
   it("shows unavailable investment result when pnl is null", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
     getPersonalPrimary.mockResolvedValue({

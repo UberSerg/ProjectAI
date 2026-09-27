@@ -265,6 +265,57 @@ def test_cutover_d_e_before_after_cutover(pp_db: Session) -> None:
     assert money(portfolio.cash_rub) == money("51000")
 
 
+def test_immediate_post_cutover_second_precision(pp_db: Session) -> None:
+    """UI datetime-local second precision must accept ops right after cutover (no next-minute wait)."""
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cutover immediacy")
+    portfolio.cash_rub = Decimal("50000")
+    pp_db.flush()
+    activate_journal(pp_db, portfolio)
+    cutover = journal_cutover_at(pp_db, portfolio.id)
+    assert cutover is not None
+    cutover_utc = cutover.astimezone(UTC)
+
+    # Exact cutover (and second-floor ≤ cutover) still rejected — no double-count window.
+    with pytest.raises(PersonalPortfolioError) as ei_eq:
+        create_operation(
+            pp_db,
+            portfolio=portfolio,
+            operation_type="DEPOSIT",
+            occurred_at=cutover_utc,
+            amount=Decimal("1"),
+            idempotency_key="immed-eq",
+        )
+    assert ei_eq.value.code == "OPERATION_BEFORE_JOURNAL_CUTOVER"
+
+    floored = cutover_utc.replace(microsecond=0)
+    with pytest.raises(PersonalPortfolioError) as ei_floor:
+        create_operation(
+            pp_db,
+            portfolio=portfolio,
+            operation_type="DEPOSIT",
+            occurred_at=floored,
+            amount=Decimal("1"),
+            idempotency_key="immed-floor",
+        )
+    assert ei_floor.value.code == "OPERATION_BEFORE_JOURNAL_CUTOVER"
+    assert money(portfolio.cash_rub) == money("50000")
+
+    # Supported UI precision: next whole second after cutover (datetime-local step=1).
+    ui_after = floored + timedelta(seconds=1)
+    if ui_after <= cutover_utc:
+        ui_after = cutover_utc + timedelta(seconds=1)
+        ui_after = ui_after.replace(microsecond=0)
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=ui_after,
+        amount=Decimal("1000"),
+        idempotency_key="immed-after",
+    )
+    assert money(portfolio.cash_rub) == money("51000")
+
+
 def test_cutover_f_no_auto_bootstrap(pp_db: Session) -> None:
     portfolio = _reset_test_portfolio(pp_db, "TEST — cutover F")
     portfolio.cash_rub = Decimal("50000")
@@ -470,6 +521,116 @@ def test_valuation_as_of_same_mixed_partial(pp_db: Session) -> None:
     assert s3["summary"]["valuation_partial"] is True
     assert s3["summary"]["valuation_as_of"] is None
     assert s3["summary"]["investment_pnl_rub"] is None
+
+
+def test_cancel_invalidating_later_ops_is_atomic_4xx(pp_db: Session) -> None:
+    """Cancel that breaks later journal must 4xx + full rollback (no 500 / partial state)."""
+    portfolio = _reset_test_portfolio(pp_db, "TEST — cancel atomic")
+    eq = _make_equity(pp_db, "CATM", close=Decimal("100"), as_of=date(2026, 9, 25))
+    deposit = create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("1000"),
+        idempotency_key="ca-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("5"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="ca-buy",
+    )
+    cash_before = money(portfolio.cash_rub)
+    contributed_before = money(portfolio.total_contributed_rub or 0)
+    ops_before = journal_operation_count(pp_db, portfolio.id)
+    pos_before = pp_db.scalars(
+        select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
+    ).all()
+    assert len(pos_before) == 1
+    units_before = pos_before[0].units
+
+    with pytest.raises(PersonalPortfolioError) as ei:
+        cancel_operation(
+            pp_db,
+            portfolio=portfolio,
+            operation_id=deposit.id,
+            reason="Сломать журнал",
+            idempotency_key="ca-bad-cancel",
+        )
+    assert ei.value.code == "INSUFFICIENT_CASH"
+    assert ei.value.http_status == 409
+
+    pp_db.refresh(deposit)
+    assert deposit.status == "ACTIVE"
+    markers = pp_db.scalars(
+        select(PersonalOperation).where(
+            PersonalOperation.portfolio_id == portfolio.id,
+            PersonalOperation.idempotency_key == "ca-bad-cancel",
+        )
+    ).all()
+    assert markers == []
+    assert journal_operation_count(pp_db, portfolio.id) == ops_before
+    assert money(portfolio.cash_rub) == cash_before
+    assert money(portfolio.total_contributed_rub or 0) == contributed_before
+    pos_after = pp_db.scalars(
+        select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
+    ).all()
+    assert len(pos_after) == 1
+    assert pos_after[0].units == units_before
+
+
+def test_activate_journal_integrity_race_idempotent(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Concurrent activate: unique-key IntegrityError recovers to ACTIVE without duplicates/500."""
+    from app.modules.portfolio.application import personal_portfolio_service as pps
+
+    portfolio = _reset_test_portfolio(pp_db, "TEST — activate race")
+    eq = _make_equity(pp_db, "ARACE", close=Decimal("250"), as_of=date(2026, 9, 25))
+    portfolio.cash_rub = Decimal("50000")
+    pp_db.add(
+        ManualPosition(
+            portfolio_id=portfolio.id,
+            instrument_id=eq.id,
+            units=Decimal("100"),
+            average_price=Decimal("250"),
+        )
+    )
+    pp_db.flush()
+
+    # Peer already committed bootstrap (unique keys present).
+    summary = activate_journal(pp_db, portfolio)
+    assert summary["portfolio"]["journal_state"] == "ACTIVE"
+    n = journal_operation_count(pp_db, portfolio.id)
+    assert n >= 2
+
+    # Force re-entry into bootstrap path as if we still saw LEGACY_PENDING (lost race).
+    calls = {"n": 0}
+    real_state = pps.journal_state
+
+    def _race_state(session: Session, p: ManualPortfolio) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "LEGACY_PENDING"
+        return real_state(session, p)
+
+    monkeypatch.setattr(pps, "journal_state", _race_state)
+    again = activate_journal(pp_db, portfolio)
+    assert again["portfolio"]["journal_state"] == "ACTIVE"
+    assert journal_operation_count(pp_db, portfolio.id) == n
+    opening = pp_db.scalars(
+        select(PersonalOperation).where(
+            PersonalOperation.portfolio_id == portfolio.id,
+            PersonalOperation.source == "LEGACY_BOOTSTRAP",
+        )
+    ).all()
+    keys = [o.idempotency_key for o in opening]
+    assert len(keys) == len(set(keys))
+    assert money(portfolio.cash_rub) == money("50000")
 
 
 def test_cancel_idempotency_intent(pp_db: Session) -> None:

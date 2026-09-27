@@ -457,6 +457,17 @@ def activate_journal(session: Session, portfolio: ManualPortfolio) -> dict[str, 
             project_portfolio(session, portfolio, rebuilt)
     except LedgerError as exc:
         raise PersonalPortfolioError(exc.code, exc.message) from exc
+    except IntegrityError as exc:
+        # Concurrent activate-journal: peer already inserted deterministic bootstrap keys.
+        if journal_operation_count(session, int(portfolio.id)) == 0:
+            raise PersonalPortfolioError(
+                "IDEMPOTENCY_CONFLICT",
+                "Конфликт активации журнала. Повторите запрос.",
+                http_status=409,
+            ) from exc
+        rebuilt = rebuild_ledger_from_journal(session, int(portfolio.id))
+        project_portfolio(session, portfolio, rebuilt)
+        return get_personal_summary(session, portfolio, owner=True)
 
     return get_personal_summary(session, portfolio, owner=True)
 
@@ -700,7 +711,11 @@ def cancel_operation(
             )
             session.add(marker)
             session.flush()
-            state = rebuild_ledger_from_journal(session, portfolio.id)
+            try:
+                state = rebuild_ledger_from_journal(session, portfolio.id)
+            except LedgerError as exc:
+                # Dependent later journal would become invalid — full cancel mutation rolls back.
+                raise PersonalPortfolioError(exc.code, exc.message, http_status=409) from exc
             project_portfolio(session, portfolio, state)
             return op
     except IntegrityError as exc:
