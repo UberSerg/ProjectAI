@@ -1,26 +1,26 @@
 # Review artifacts — PR #63
 
 ## Feature
-Personal Portfolio V1 + lean image-only release runtime (development toward future V1.1; no version bump).
+Personal Portfolio V1 + lean release runtime — **corrective financial pass**.
 
 ## Commit
-`50929bb` on `feature/personal-portfolio-v1`
+`0f0884b8cb315e1008e67b130756775b4c5a507b` on `feature/personal-portfolio-v1`
 
 ## Artifacts
 
 | File | What it shows |
 |---|---|
-| `01-personal-portfolio-empty.png` | Live empty primary portfolio onboarding (Основной портфель) |
-| `02-personal-portfolio-summary.png` | Summary cards: NAV, contributed, cash, securities, investment P&L |
-| `03-add-deposit.png` | Add operation modal — Пополнение |
-| `04-add-buy.png` | Add operation modal — Покупка with instrument/lots/price |
-| `05-position-pnl.png` | Positions table with average/current price and P&L |
-| `06-operation-history.png` | Recent journal (deposit / buy / commission / +30k / sell) |
-| `07-owner-reconciliation.png` | OWNER diagnostics: Reconciliation OK + operation IDs |
-| `08-dashboard-personal-binding.png` | Dashboard hero bound to personal portfolio valuation |
+| `01-personal-portfolio-empty.png` | Live empty primary onboarding |
+| `02-personal-portfolio-summary.png` | Summary: NAV / contributed / cash / investment P&L (absolute) |
+| `03-add-deposit.png` | Add operation — deposit |
+| `04-add-buy.png` | Add operation — buy form |
+| `05-position-pnl.png` | Positions + P&L |
+| `06-operation-history.png` | Journal history |
+| `07-owner-reconciliation.png` | OWNER Reconciliation OK |
+| `08-dashboard-personal-binding.png` | Dashboard: absolute investment result, label «В бумагах», no fake % |
+| `09-partial-valuation.png` | Partial valuation: investment P&L unavailable |
 
 ## Notes
-- Screenshots 02–07 use the isolated `is_test=true` E2E portfolio state (mocked in browser for review) so the owner's future real book is not polluted.
-- Contribution 130 000 ₽ vs investment P&L −38.8 ₽ proves deposits are not counted as profit.
-- Dark V1.0 theme preserved; USER/OWNER toggle visible.
-- Release runtime proof was run separately (image-only, then DEV bind mounts restored).
+- Screenshots 02–09 use isolated `is_test` / mocked review state (owner real book not polluted).
+- Bond journal trades are blocked (backend + UI); covered by automated tests.
+- Corrective fixes: bond dirty valuation, legacy bootstrap, journal write guards, partial P&L null, mixed as-of, idempotency intent.
