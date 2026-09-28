@@ -39,17 +39,35 @@ function ScenarioCard({ scenario }: { scenario: DecisionScenario }) {
       {!unavailable ? (
         <>
           <p className="muted">
-            К размещению: {money(scenario.deployed_rub)} · остаток: {money(scenario.residual_cash_rub)}
+            Целевой объём: {money(scenario.target_allocation_rub ?? scenario.deployed_rub)}
+            {" · "}
+            Можно оценить по лотам: {money(scenario.executable_notional_rub ?? "0")}
+            {scenario.advisory_only_rub != null && Number(scenario.advisory_only_rub) > 0
+              ? ` · Только ориентир: ${money(scenario.advisory_only_rub)}`
+              : ""}
+            {" · "}
+            Остаётся: {money(
+              scenario.id === "DO_NOTHING"
+                ? scenario.external_unallocated_rub
+                : scenario.residual_cash_rub,
+            )}
             {scenario.cash_share != null ? ` · кэш ≈ ${pct(scenario.cash_share)}` : ""}
           </p>
           {scenario.purchases && scenario.purchases.length > 0 ? (
             <ul className="muted" data-testid={`decision-scenario-purchases-${scenario.id}`}>
               {scenario.purchases.map((p, idx) => (
                 <li key={`${p.symbol || p.sleeve || "row"}-${idx}`}>
-                  {p.symbol || p.sleeve || "план"}: цель {money(p.target_rub)}
+                  {p.symbol || p.sleeve || "план"}: Целевой объём {money(p.target_rub)}
                   {p.lots != null ? ` · лотов ${p.lots}` : p.limitations?.includes("LOT_SIZE_UNKNOWN") ? " · лот неизвестен" : ""}
-                  {p.estimated_notional ? ` · оценочно ${money(p.estimated_notional)}` : ""}
-                  {p.limitations?.includes("ADVISORY_ONLY_BOND_TRADE") ? " · advisory FI" : ""}
+                  {p.executable_estimated_notional_rub || p.estimated_notional
+                    ? ` · Можно оценить по лотам ${money(p.executable_estimated_notional_rub || p.estimated_notional)}`
+                    : ""}
+                  {p.limitations?.includes("ADVISORY_ONLY_BOND_TRADE") || p.execution_status === "ADVISORY_ONLY"
+                    ? " · Только ориентир"
+                    : ""}
+                  {p.residual_cash_rub || p.residual_unexecuted_rub
+                    ? ` · Остаётся ${money(p.residual_unexecuted_rub || p.residual_cash_rub)}`
+                    : ""}
                 </li>
               ))}
             </ul>

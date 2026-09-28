@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Instrument
@@ -30,6 +30,18 @@ PRIMARY_NAME = "Primary Manual Portfolio"
 
 def _d(value: object) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _unique_instruments_by_symbol(session: Session, symbols: list[str]) -> dict[str, Instrument]:
+    """Batch-resolve symbols to a unique Instrument; never invent IDs."""
+    wanted = sorted({s.upper() for s in symbols if s})
+    if not wanted:
+        return {}
+    rows = list(session.scalars(select(Instrument).where(func.upper(Instrument.symbol).in_(wanted))))
+    grouped: dict[str, list[Instrument]] = {}
+    for inst in rows:
+        grouped.setdefault(inst.symbol.upper(), []).append(inst)
+    return {symbol: items[0] for symbol, items in grouped.items() if len(items) == 1}
 
 
 def get_or_create_primary(session: Session) -> ManualPortfolio:
@@ -515,6 +527,7 @@ def compare_to_candidate(
         cand_positions = candidate["payload"].get("positions") or []
 
     cand_weights: dict[str, Decimal] = {}
+    cand_meta: dict[str, dict[str, Any]] = {}
     for row in cand_positions:
         if not isinstance(row, dict):
             continue
@@ -523,18 +536,56 @@ def compare_to_candidate(
         if not symbol or w is None:
             continue
         cand_weights[symbol] = _d(w)
+        cand_meta[symbol] = {
+            "instrument_id": row.get("instrument_id"),
+            "asset_class": row.get("asset_class"),
+        }
+
+    manual_by_symbol: dict[str, dict[str, Any]] = {}
+    for r in analysis["positions"]:
+        symbol = str(r.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        manual_by_symbol[symbol] = r
 
     manual_weights = {
-        str(r["symbol"]).upper(): _d(r["weight"])
-        for r in analysis["positions"]
-        if r.get("weight") is not None
+        symbol: _d(row["weight"])
+        for symbol, row in manual_by_symbol.items()
+        if row.get("weight") is not None
     }
+
+    unresolved_symbols = [
+        symbol
+        for symbol in set(manual_weights) | set(cand_weights)
+        if not cand_meta.get(symbol, {}).get("instrument_id")
+        and not manual_by_symbol.get(symbol, {}).get("instrument_id")
+    ]
+    catalog = _unique_instruments_by_symbol(session, unresolved_symbols)
+
+    freshness = dict(candidate.get("freshness") or {})
+    candidate_stale = bool(freshness.get("stale"))
+    if latest is not None and str(latest.get("status") or "").upper() == "STALE":
+        candidate_stale = True
+    if candidate_source == "live_preview" and freshness.get("stale") is None:
+        # Not persisted — do not invent staleness from missing snapshot age.
+        candidate_stale = False
 
     comparisons = []
     all_symbols = sorted(set(manual_weights) | set(cand_weights))
     for symbol in all_symbols:
         mw = manual_weights.get(symbol)
         cw = cand_weights.get(symbol)
+        manual_row = manual_by_symbol.get(symbol) or {}
+        meta = cand_meta.get(symbol) or {}
+        instrument_id = meta.get("instrument_id") or manual_row.get("instrument_id")
+        if instrument_id in (None, 0, "0") and symbol in catalog:
+            instrument_id = catalog[symbol].id
+        elif instrument_id not in (None, 0, "0"):
+            instrument_id = int(instrument_id)
+        else:
+            instrument_id = None
+        asset_class = meta.get("asset_class") or manual_row.get("asset_class")
+        current_mv = manual_row.get("market_value")
         status = "BOTH"
         if mw is None:
             status = "NOT_IN_MANUAL"
@@ -556,8 +607,11 @@ def compare_to_candidate(
         comparisons.append(
             {
                 "symbol": symbol,
+                "instrument_id": instrument_id,
+                "asset_class": asset_class,
                 "manual_weight": float(mw) if mw is not None else None,
                 "candidate_weight": float(cw) if cw is not None else None,
+                "current_market_value": float(current_mv) if current_mv is not None else None,
                 "status": status,
                 "suggested_action": action,
                 "note": (
@@ -573,7 +627,21 @@ def compare_to_candidate(
         "actual_source": "personal_portfolio",
         "journal_state": analysis.get("journal_state"),
         "candidate_source": candidate_source,
-        "candidate_id": candidate.get("candidate_id"),
+        "candidate_id": candidate.get("candidate_id") or (latest.get("candidate_id") if latest else None),
+        "candidate_as_of": (
+            freshness.get("market_as_of")
+            or candidate.get("as_of")
+            or (latest.get("as_of") if latest else None)
+        ),
+        "candidate_generated_at": (
+            freshness.get("generated_at")
+            or candidate.get("generated_at")
+            or (latest.get("generated_at") if latest else None)
+        ),
+        "candidate_stale": candidate_stale,
+        "candidate_stale_after_days": freshness.get("stale_after_days"),
+        "candidate_stale_note_ru": freshness.get("stale_note_ru"),
+        "freshness": freshness,
         "comparisons": comparisons,
         "manual_analysis": {
             "coverage_pct": analysis["coverage_pct"],

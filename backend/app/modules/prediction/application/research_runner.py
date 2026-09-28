@@ -2,6 +2,7 @@
 
 Uses the same CatBoost hyperparameters as Candidate V0 but:
 - loads via research_dataset_loader (no production hash pins);
+- purges TRAIN rows whose 20d target reaches/crosses the OOS cut;
 - labels artifacts EXPERIMENTAL_V3_RESEARCH;
 - does NOT upsert production Candidate V0/V1 registry rows.
 """
@@ -16,11 +17,18 @@ import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from app.infrastructure.learning.models import DatasetSpec
+from app.modules.learning.application.research_eval import (
+    FairCompareError,
+    assert_fair_model_run_contract,
+)
 from app.modules.prediction.application.metrics import evaluate_predictions
 from app.modules.prediction.application.research_dataset_loader import (
     EXPERIMENTAL_V3_RESEARCH,
     FEATURE_NAMES,
     load_research_frame,
+    resolve_research_dataset_run,
+    split_research_oos,
 )
 from app.modules.prediction.candidate_config import (
     CATBOOST_HYPERPARAMETERS,
@@ -33,6 +41,10 @@ from app.modules.prediction.infrastructure.catboost_adapter import CatBoostRegre
 # Production Candidate pins must stay untouched.
 CANDIDATE_V0_LOCKED_VERSION = 2
 CANDIDATE_V1_LOCKED_VERSION = 2
+
+
+class ResearchCompareError(FairCompareError):
+    """Raised when experimental V2↔V3 model compare is not a fair experiment."""
 
 
 def _feature_matrix(frame: pd.DataFrame, feature_names: list[str]) -> np.ndarray:
@@ -48,7 +60,7 @@ def run_experimental_v2_v3_oos(
     artifact_dir: Path | None = None,
     persist_registry: bool = False,
 ) -> dict[str, Any]:
-    """Train on pre-OOS eligible rows, evaluate chronologically on OOS.
+    """Train on pre-OOS eligible rows (purged 20d target), evaluate on OOS.
 
     ``persist_registry`` is accepted only as False — production registry writes are
     forbidden on this research path.
@@ -68,9 +80,15 @@ def run_experimental_v2_v3_oos(
         feature_names=feature_names,
     )
     cut = oos_start or HOLDOUT_START
-    eligible = frame["y"].notna() & frame["label_valid_20d"] & frame["eligible_20d"]
-    train_df = frame.loc[eligible & (frame["as_of_date"] < cut)].copy()
-    oos_df = frame.loc[eligible & (frame["as_of_date"] >= cut)].copy()
+    if run.date_from is not None and run.date_to is not None:
+        if cut < run.date_from or cut > run.date_to:
+            raise ResearchCompareError(
+                f"oos_start {cut.isoformat()} is outside run {run.id} "
+                f"{run.date_from}→{run.date_to}"
+            )
+    split = split_research_oos(frame, cut)
+    train_df = split["train_df"]
+    oos_df = split["oos_df"]
 
     payload: dict[str, Any] = {
         "label": EXPERIMENTAL_V3_RESEARCH,
@@ -78,7 +96,12 @@ def run_experimental_v2_v3_oos(
         "dataset_run_id": run.id,
         "dataset_hash": run.dataset_hash,
         "values_hash": (run.manifest or {}).get("values_hash"),
+        "date_from": run.date_from.isoformat() if run.date_from else None,
+        "date_to": run.date_to.isoformat() if run.date_to else None,
         "oos_start": cut.isoformat(),
+        "train_n_before_purge": split["train_n_before_purge"],
+        "purged_train_boundary_rows": split["purged_train_boundary_rows"],
+        "train_n_after_purge": split["train_n_after_purge"],
         "train_n": int(len(train_df)),
         "oos_n": int(len(oos_df)),
         "model_family": "CatBoostRegressor",
@@ -112,7 +135,8 @@ def run_experimental_v2_v3_oos(
     payload["metrics"] = metrics
     payload["note"] = (
         "Research chronological OOS only; not a Candidate promote/rollback decision. "
-        "Identical model config across v2|v3 when both runs are evaluated separately."
+        "TRAIN excludes rows whose target_date_20d is NULL or >= oos_start. "
+        "Identical model config across v2|v3 when compared under assert_fair_model_run_contract."
     )
 
     if artifact_dir is not None:
@@ -134,29 +158,54 @@ def compare_experimental_model_v2_v3(
     oos_start: date | None = None,
     artifact_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Run identical-config OOS on V2 and V3 research runs; factual side-by-side only."""
+    """Run identical-config OOS on V2 and V3 only when the fair contract holds."""
+    cut = oos_start or HOLDOUT_START
+    run_v2 = resolve_research_dataset_run(session, dataset_spec_version=2, dataset_run_id=v2_run_id)
+    run_v3 = resolve_research_dataset_run(session, dataset_spec_version=3, dataset_run_id=v3_run_id)
+    spec_v2 = session.get(DatasetSpec, run_v2.dataset_spec_id)
+    spec_v3 = session.get(DatasetSpec, run_v3.dataset_spec_id)
+    try:
+        fair = assert_fair_model_run_contract(
+            run_v2,
+            run_v3,
+            oos_start=cut,
+            hyperparameters=dict(CATBOOST_HYPERPARAMETERS),
+            random_seed=RANDOM_SEED,
+            spec_v2=spec_v2,
+            spec_v3=spec_v3,
+        )
+    except FairCompareError as exc:
+        raise ResearchCompareError(str(exc)) from exc
+
     root = artifact_root
     v2 = run_experimental_v2_v3_oos(
         session,
         dataset_spec_version=2,
-        dataset_run_id=v2_run_id,
-        oos_start=oos_start,
+        dataset_run_id=run_v2.id,
+        oos_start=cut,
         artifact_dir=(root / "v2") if root else None,
     )
     v3 = run_experimental_v2_v3_oos(
         session,
         dataset_spec_version=3,
-        dataset_run_id=v3_run_id,
-        oos_start=oos_start,
+        dataset_run_id=run_v3.id,
+        oos_start=cut,
         artifact_dir=(root / "v3") if root else None,
     )
     out = {
         "label": EXPERIMENTAL_V3_RESEARCH,
         "artifact_kind": "v2_v3_model_research_oos",
+        "fair_contract_pass": True,
+        "fair_compare": fair,
+        "oos_start": cut.isoformat(),
+        "hyperparameters": dict(CATBOOST_HYPERPARAMETERS),
+        "random_seed": RANDOM_SEED,
         "v2": v2,
         "v3": v3,
+        "persist_registry": False,
         "interpretation": [
-            "Same CatBoost hyperparameters and chronological OOS cut for both sides.",
+            "Same CatBoost hyperparameters, seed, chronological OOS cut, and run windows.",
+            "TRAIN labels whose target_date_20d reaches or crosses oos_start are purged.",
             "Differences may reflect universe composition, not a claim that one dataset 'wins'.",
             "Production Candidate V0/V1 remain pinned to Dataset V2; ACTIVE DatasetSpec unchanged.",
             "No production model_registry upsert on this path.",

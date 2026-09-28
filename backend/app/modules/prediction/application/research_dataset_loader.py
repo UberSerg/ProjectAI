@@ -151,3 +151,33 @@ def load_research_frame(
     if missing_cols:
         raise ResearchDatasetError(f"missing feature columns: {missing_cols[:5]}")
     return run, frame
+
+
+def split_research_oos(
+    frame: pd.DataFrame,
+    cut: date,
+) -> dict[str, Any]:
+    """Chronological OOS split with 20d target-boundary purge.
+
+    TRAIN requires: as_of_date < cut AND target_date_20d is not NULL AND
+    target_date_20d < cut, plus eligibility/label-valid. OOS is as_of_date >= cut.
+    """
+    if frame.empty:
+        raise ResearchDatasetError("cannot split empty research frame")
+    eligible = frame["y"].notna() & frame["label_valid_20d"] & frame["eligible_20d"]
+    as_of = pd.to_datetime(frame["as_of_date"])
+    target = pd.to_datetime(frame["target_date_20d"], errors="coerce")
+    cut_ts = pd.Timestamp(cut)
+    pre_cut = eligible & (as_of < cut_ts)
+    train_ok = pre_cut & target.notna() & (target < cut_ts)
+    oos_ok = eligible & (as_of >= cut_ts)
+    purged = pre_cut & ~train_ok
+    train_df = frame.loc[train_ok].copy()
+    oos_df = frame.loc[oos_ok].copy()
+    return {
+        "train_df": train_df,
+        "oos_df": oos_df,
+        "train_n_before_purge": int(pre_cut.sum()),
+        "train_n_after_purge": int(train_ok.sum()),
+        "purged_train_boundary_rows": int(purged.sum()),
+    }

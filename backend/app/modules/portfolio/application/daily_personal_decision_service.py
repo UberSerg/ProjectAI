@@ -854,6 +854,8 @@ def _pack(
         "context": {
             "candidate_source": (compare or {}).get("candidate_source"),
             "candidate_id": (compare or {}).get("candidate_id"),
+            "candidate_as_of": (compare or {}).get("candidate_as_of"),
+            "candidate_stale": (compare or {}).get("candidate_stale"),
             "rebalance_available": rebalance is not None,
             "research_decision_status": (decision_block or {}).get("status") if decision_block else None,
             "research_equity_weight": (decision_block or {}).get("equity_weight") if decision_block else None,

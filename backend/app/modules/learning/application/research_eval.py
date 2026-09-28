@@ -66,6 +66,59 @@ def assert_fair_compare_contract() -> dict[str, Any]:
     }
 
 
+class FairCompareError(ValueError):
+    """Raised when V2/V3 runs are not comparable under the fair contract."""
+
+
+def assert_fair_model_run_contract(
+    run_v2: DatasetRun,
+    run_v3: DatasetRun,
+    *,
+    oos_start: date,
+    hyperparameters: dict[str, Any],
+    random_seed: int,
+    spec_v2: DatasetSpec | None,
+    spec_v3: DatasetSpec | None,
+) -> dict[str, Any]:
+    """Schema pins plus matching run windows, OOS cut, hypers, and seed."""
+    schema = assert_fair_compare_contract()
+    if spec_v2 is None or spec_v2.code != PIT_DAILY_CORE_CODE or spec_v2.version != 2:
+        raise FairCompareError("V2 run is not pit_daily_core v2")
+    if spec_v3 is None or spec_v3.code != PIT_DAILY_CORE_CODE or spec_v3.version != 3:
+        raise FairCompareError("V3 run is not pit_daily_core v3")
+    if run_v2.status not in ("SUCCESS", "WARNING"):
+        raise FairCompareError(f"V2 run status={run_v2.status}")
+    if run_v3.status not in ("SUCCESS", "WARNING"):
+        raise FairCompareError(f"V3 run status={run_v3.status}")
+    if run_v2.date_from is None or run_v2.date_to is None:
+        raise FairCompareError("V2 run missing date_from/date_to")
+    if run_v3.date_from is None or run_v3.date_to is None:
+        raise FairCompareError("V3 run missing date_from/date_to")
+    if run_v2.date_from != run_v3.date_from or run_v2.date_to != run_v3.date_to:
+        raise FairCompareError(
+            f"mismatched run windows: v2 {run_v2.date_from}→{run_v2.date_to} "
+            f"vs v3 {run_v3.date_from}→{run_v3.date_to}"
+        )
+    for run, label in ((run_v2, "v2"), (run_v3, "v3")):
+        assert run.date_from is not None and run.date_to is not None
+        if oos_start < run.date_from or oos_start > run.date_to:
+            raise FairCompareError(
+                f"oos_start {oos_start.isoformat()} is outside {label} run "
+                f"{run.date_from}→{run.date_to}"
+            )
+    return {
+        **schema,
+        "fair_contract_pass": True,
+        "date_from": run_v2.date_from.isoformat(),
+        "date_to": run_v2.date_to.isoformat(),
+        "oos_start": oos_start.isoformat(),
+        "hyperparameters": dict(hyperparameters),
+        "random_seed": random_seed,
+        "v2_run_id": run_v2.id,
+        "v3_run_id": run_v3.id,
+    }
+
+
 def sample_keys_for_run(session: Session, run_id: int) -> set[SampleKey]:
     rows = session.execute(
         select(DatasetSampleDaily.instrument_id, DatasetSampleDaily.as_of_date).where(

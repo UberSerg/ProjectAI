@@ -1,7 +1,8 @@
 """Reproducible Dataset V2 vs V3 coverage comparison (correctness, not alpha).
 
 Fair contract: identical date_from/to, feature schema, source pins, and mechanical
-labels; only universe policy differs. Research-only — does not activate DatasetSpec.
+labels; only universe policy differs. Research-only — does not activate DatasetSpec
+and must not call seed_dataset_specs() (that helper clears/sets is_active).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from app.modules.learning.application.research_eval import (
     factual_interpretation,
     summarize_run_side,
 )
-from app.modules.learning.application.seed import seed_dataset_specs
+from app.modules.learning.application.seed import snapshot_dataset_spec_flags
 from app.modules.learning.dataset_config import (
     PIT_DAILY_CORE_ACTIVE_VERSION,
     PIT_DAILY_CORE_CODE,
@@ -47,6 +48,21 @@ def _load_run(session: Session, run_id: int, *, expected_version: int) -> Datase
     return run
 
 
+def _require_spec(session: Session, version: int) -> DatasetSpec:
+    spec = session.scalar(
+        select(DatasetSpec).where(
+            DatasetSpec.code == PIT_DAILY_CORE_CODE,
+            DatasetSpec.version == version,
+        )
+    )
+    if spec is None:
+        raise CompareContractError(
+            f"missing DatasetSpec {PIT_DAILY_CORE_CODE}/v{version}; "
+            "compare does not seed or activate specs"
+        )
+    return spec
+
+
 def _assert_same_window(run_a: DatasetRun, run_b: DatasetRun, date_from: date, date_to: date) -> None:
     for run, label in ((run_a, "v2"), (run_b, "v3")):
         if run.date_from != date_from or run.date_to != date_to:
@@ -56,13 +72,14 @@ def _assert_same_window(run_a: DatasetRun, run_b: DatasetRun, date_from: date, d
             )
 
 
-def _active_spec_snapshot(session: Session) -> dict[str, Any]:
-    active = session.scalar(select(DatasetSpec).where(DatasetSpec.is_active.is_(True)))
+def _activation_payload(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> dict[str, Any]:
+    unchanged = before == after
     return {
-        "code": active.code if active else None,
-        "version": active.version if active else None,
-        "expected_active_version": PIT_DAILY_CORE_ACTIVE_VERSION,
-        "unchanged": (active.version == PIT_DAILY_CORE_ACTIVE_VERSION) if active else False,
+        "before": before,
+        "after": after,
+        "unchanged": unchanged,
+        "active_state_unchanged": unchanged,
+        "current_product_expected_active_version": PIT_DAILY_CORE_ACTIVE_VERSION,
     }
 
 
@@ -79,16 +96,17 @@ def compare_v2_v3_builds(
 ) -> dict[str, Any]:
     """Run (or load) bounded V2 and V3 builds and return a coverage comparison artifact.
 
-    When ``v2_run_id`` / ``v3_run_id`` are provided, those runs are reused (must match
-    the requested date window and spec versions). Otherwise builds are executed when
-    ``rebuild=True``.
+    Does **not** call ``seed_dataset_specs`` (activation-mutating). Specs must already
+    exist; missing V2/V3 is a clean research error. Rebuild uses the dataset builder
+    with ``seed_specs=False``.
     """
     if date_to < date_from:
         raise CompareContractError("date_to must be >= date_from")
 
     fair = assert_fair_compare_contract()
-    seed_dataset_specs(session)
-    active_before = _active_spec_snapshot(session)
+    _require_spec(session, PIT_DAILY_CORE_V2_VERSION)
+    _require_spec(session, PIT_DAILY_CORE_V3_VERSION)
+    active_before = snapshot_dataset_spec_flags(session)
 
     builder = PITDatasetBuilder(session)
     if v2_run_id is not None:
@@ -100,6 +118,7 @@ def compare_v2_v3_builds(
             dataset_spec_code=PIT_DAILY_CORE_CODE,
             dataset_spec_version=PIT_DAILY_CORE_V2_VERSION,
             instrument_ids=instrument_ids,
+            seed_specs=False,
         )
         run_v2 = session.get(DatasetRun, v2_result["dataset_run_id"])
         if run_v2 is None:
@@ -116,6 +135,7 @@ def compare_v2_v3_builds(
             dataset_spec_code=PIT_DAILY_CORE_CODE,
             dataset_spec_version=PIT_DAILY_CORE_V3_VERSION,
             instrument_ids=instrument_ids,
+            seed_specs=False,
         )
         run_v3 = session.get(DatasetRun, v3_result["dataset_run_id"])
         if run_v3 is None:
@@ -130,7 +150,8 @@ def compare_v2_v3_builds(
     sample_diff = compare_sample_sets(
         session, v2_run_id=run_v2.id, v3_run_id=run_v3.id
     )
-    active_after = _active_spec_snapshot(session)
+    active_after = snapshot_dataset_spec_flags(session)
+    activation = _activation_payload(active_before, active_after)
 
     artifact: dict[str, Any] = {
         "artifact_kind": "v2_v3_dataset_evaluation",
@@ -146,21 +167,19 @@ def compare_v2_v3_builds(
         "interpretation": factual_interpretation(
             v2=v2_side, v3=v3_side, sample_diff=sample_diff, fair=fair
         ),
-        "active_dataset_spec": {
-            "before": active_before,
-            "after": active_after,
-            "isolation_ok": (
-                active_before.get("version") == PIT_DAILY_CORE_ACTIVE_VERSION
-                and active_after.get("version") == PIT_DAILY_CORE_ACTIVE_VERSION
-                and active_before.get("version") == active_after.get("version")
-            ),
-        },
+        "active_dataset_spec": activation,
         "limitations": [
             "Comparison is dataset coverage/correctness only — not model performance or alpha.",
             "Historical universe completeness remains PARTIAL.",
             "V3 Core labels are mechanical price-return (not total return).",
             "Missingness scan may be capped for large runs.",
-            "Does not change ACTIVE DatasetSpec; Candidate V0/V1 pins stay on V2.",
+            "Does not change DatasetSpec is_active flags; Candidate V0/V1 pins stay on V2.",
+            (
+                "Remaining seed_dataset_specs callers (activation-mutating, not this path): "
+                "POST /learning/datasets/build, GET /learning/datasets/overview, "
+                "GET /learning/datasets/specs, PITDatasetBuilder.run_build(seed_specs=True), "
+                "system diagnostics seed."
+            ),
         ],
     }
     return artifact

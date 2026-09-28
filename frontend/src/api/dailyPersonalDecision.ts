@@ -65,8 +65,12 @@ export interface DecisionScenarioPurchase {
   lots?: number | null;
   units?: number | null;
   estimated_notional?: string | null;
+  executable_estimated_notional_rub?: string | null;
   residual_cash_rub?: string | null;
+  residual_unexecuted_rub?: string | null;
+  lot_rounding_residual_rub?: string | null;
   lot_size?: number | null;
+  execution_status?: string | null;
   limitations?: string[];
   note?: string | null;
 }
@@ -77,7 +81,14 @@ export interface DecisionScenario {
   status: string;
   reason?: string | null;
   deployed_rub?: string | null;
+  target_allocation_rub?: string | null;
+  executable_notional_rub?: string | null;
+  advisory_only_rub?: string | null;
   residual_cash_rub?: string | null;
+  residual_unexecuted_rub?: string | null;
+  external_unallocated_rub?: string | null;
+  portfolio_nav_after_rub?: string | null;
+  execution_status?: string | null;
   cash_share?: number | null;
   equity_share?: number | null;
   fixed_income_share?: number | null;
@@ -127,6 +138,8 @@ export interface DailyPersonalDecision {
   context: {
     candidate_source?: string | null;
     candidate_id?: string | null;
+    candidate_as_of?: string | null;
+    candidate_stale?: boolean | null;
     rebalance_available?: boolean;
     research_decision_status?: string | null;
     research_equity_weight?: number | null;

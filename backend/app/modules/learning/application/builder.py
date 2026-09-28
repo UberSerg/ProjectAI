@@ -314,6 +314,7 @@ class PITDatasetBuilder:
         dataset_spec_version: int = PIT_DAILY_CORE_VERSION,
         instrument_ids: list[int] | None = None,
         workflow_id: int | None = None,
+        seed_specs: bool = True,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         workflow = self._resolve_workflow(workflow_id)
@@ -321,7 +322,8 @@ class PITDatasetBuilder:
 
         try:
             self._mark(workflow, "Resolve dataset spec", "RUNNING")
-            seed_dataset_specs(self.session)
+            if seed_specs:
+                seed_dataset_specs(self.session)
             spec = self.session.scalar(
                 select(DatasetSpec).where(
                     DatasetSpec.code == dataset_spec_code,

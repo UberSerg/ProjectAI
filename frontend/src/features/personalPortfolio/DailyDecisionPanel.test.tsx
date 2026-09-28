@@ -139,9 +139,13 @@ describe("DailyDecisionPanel", () => {
         },
         {
           id: "FIXED_INCOME_ALTERNATIVE",
-          title: "Альтернатива: fixed-income sleeve",
-          status: "available",
-          purchases: [{ sleeve: "fixed_income", limitations: ["ADVISORY_ONLY_BOND_TRADE"] }],
+          title: "Ориентир по fixed-income",
+          status: "advisory",
+          target_allocation_rub: "30000",
+          executable_notional_rub: "0",
+          advisory_only_rub: "30000",
+          residual_cash_rub: "0",
+          purchases: [{ sleeve: "fixed_income", target_rub: "30000", limitations: ["ADVISORY_ONLY_BOND_TRADE"], execution_status: "ADVISORY_ONLY" }],
         },
       ],
       data_confidence: { status: "PARTIAL", reasons: ["candidate_unavailable"] },
@@ -155,7 +159,7 @@ describe("DailyDecisionPanel", () => {
     expect(screen.getByTestId("decision-scenario-DO_NOTHING")).toBeInTheDocument();
     expect(screen.getByTestId("decision-scenario-TARGET_UNDERWEIGHTS")).toBeInTheDocument();
     expect(screen.getByText(/лот неизвестен/)).toBeInTheDocument();
-    expect(screen.getByText(/advisory FI/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Только ориентир/).length).toBeGreaterThan(0);
 
     rerender(<DailyDecisionPanel decision={base} portfolioId={2} />);
     expect(screen.getByTestId("daily-decision-new-cash-input")).toHaveValue("");
