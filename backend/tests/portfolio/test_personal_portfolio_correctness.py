@@ -515,6 +515,7 @@ def test_valuation_as_of_same_mixed_partial(pp_db: Session) -> None:
         price=Decimal("10"),
         non_standard_lot=True,
         idempotency_key="par-f",
+        system=True,
     )
     s3 = get_personal_summary(pp_db, p3)
     assert s3["summary"]["valuation_partial"] is True

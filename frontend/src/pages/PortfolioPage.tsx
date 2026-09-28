@@ -99,27 +99,42 @@ export function PortfolioPage() {
       ) : (
         <div className="portfolio-hub-grid">
           {portfolios.map((p) => (
-            <div key={p.id} className="hub-link" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <strong>
-                {p.name}
-                {selectedPortfolioId === p.id ? " · выбран" : ""}
-              </strong>
-              <span>{lifecycleLabel(p.lifecycle_state)}</span>
-              <span>
-                Кэш {p.cash_rub} ₽ · активов {p.positions_count}
-              </span>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Link className="btn btn-primary" to={`/portfolio/${p.id}`}>
+            <article
+              key={p.id}
+              className={`portfolio-card${selectedPortfolioId === p.id ? " is-selected" : ""}`}
+            >
+              <header className="portfolio-card-header">
+                <strong className="portfolio-card-title">{p.name}</strong>
+                {selectedPortfolioId === p.id ? (
+                  <span className="badge badge-running">выбран</span>
+                ) : null}
+              </header>
+              <p className="portfolio-card-meta">
+                <span>{lifecycleLabel(p.lifecycle_state)}</span>
+                <span>
+                  Кэш {p.cash_rub} ₽ · активов {p.positions_count}
+                </span>
+              </p>
+              <div className="portfolio-card-actions">
+                <Link className="button" to={`/portfolio/${p.id}`}>
                   Открыть
                 </Link>
-                <button type="button" className="btn" onClick={() => void onRename(p.id, p.name)}>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => void onRename(p.id, p.name)}
+                >
                   Переименовать
                 </button>
-                <button type="button" className="btn" onClick={() => void onDelete(p.id, p.name)}>
+                <button
+                  type="button"
+                  className="button quiet-danger"
+                  onClick={() => void onDelete(p.id, p.name)}
+                >
                   Удалить
                 </button>
               </div>
-            </div>
+            </article>
           ))}
         </div>
       )}

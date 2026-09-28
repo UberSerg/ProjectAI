@@ -728,3 +728,128 @@ def test_position_counts_use_one_aggregate_query(mp_db: Session) -> None:
     )
     card = next(c for c in list_user_portfolios(mp_db) if c["id"] == int(book.id))
     assert card["positions_count"] == expected == 1
+
+
+# --------------------------------------------------------------------------- #
+# 4. Opening operations are system-only
+# --------------------------------------------------------------------------- #
+
+
+def _active_book_with_position(
+    session: Session, *, name: str, symbol: str
+) -> tuple[ManualPortfolio, Instrument]:
+    book = create_user_portfolio(session, name=name)
+    equity = _mk_instrument(session, symbol=symbol)
+    set_draft_cash(session, book, Decimal("100000"))
+    add_draft_position(
+        session,
+        book,
+        instrument_id=int(equity.id),
+        units=Decimal("10"),
+        average_price=Decimal("250"),
+        non_standard_lot=True,
+    )
+    activate_portfolio(session, book)
+    return book, equity
+
+
+def test_public_opening_cash_is_rejected(mp_db: Session) -> None:
+    book, _ = _active_book_with_position(mp_db, name="OPENING GUARD CASH", symbol="OPNCSH")
+    cutover = journal_cutover_at(mp_db, int(book.id))
+    assert cutover is not None
+
+    with pytest.raises(PersonalPortfolioError) as refused:
+        create_operation(
+            mp_db,
+            portfolio=book,
+            operation_type="OPENING_CASH",
+            occurred_at=cutover + timedelta(seconds=1),
+            amount=Decimal("5000"),
+            idempotency_key="public-opening-cash",
+        )
+
+    assert refused.value.code == "OPENING_OPERATION_SYSTEM_ONLY"
+    assert refused.value.http_status == 409
+    assert refused.value.message == "Начальное состояние создаётся Kraken при запуске учёта."
+    opening_cash = [
+        o
+        for o in mp_db.scalars(
+            select(PersonalOperation).where(PersonalOperation.portfolio_id == book.id)
+        ).all()
+        if o.operation_type == "OPENING_CASH"
+    ]
+    assert len(opening_cash) == 1  # only the activation snapshot row
+
+
+def test_public_opening_position_is_rejected(mp_db: Session) -> None:
+    book, equity = _active_book_with_position(mp_db, name="OPENING GUARD POS", symbol="OPNPOS")
+    cutover = journal_cutover_at(mp_db, int(book.id))
+    assert cutover is not None
+
+    with pytest.raises(PersonalPortfolioError) as refused:
+        create_operation(
+            mp_db,
+            portfolio=book,
+            operation_type="OPENING_POSITION",
+            occurred_at=cutover + timedelta(seconds=1),
+            instrument_id=int(equity.id),
+            units=Decimal("5"),
+            price=Decimal("250"),
+            non_standard_lot=True,
+            idempotency_key="public-opening-position",
+        )
+
+    assert refused.value.code == "OPENING_OPERATION_SYSTEM_ONLY"
+    assert refused.value.http_status == 409
+    opening_positions = [
+        o
+        for o in mp_db.scalars(
+            select(PersonalOperation).where(PersonalOperation.portfolio_id == book.id)
+        ).all()
+        if o.operation_type == "OPENING_POSITION"
+    ]
+    assert len(opening_positions) == 1
+
+
+def test_opening_guard_does_not_block_human_operations(mp_db: Session) -> None:
+    book, _ = _active_book_with_position(mp_db, name="OPENING GUARD HUMAN", symbol="OPNHUM")
+    cutover = journal_cutover_at(mp_db, int(book.id))
+    assert cutover is not None
+    op = create_operation(
+        mp_db,
+        portfolio=book,
+        operation_type="DEPOSIT",
+        occurred_at=cutover + timedelta(seconds=1),
+        amount=Decimal("1000"),
+        idempotency_key="human-deposit",
+    )
+    assert op.operation_type == "DEPOSIT"
+    assert op.status == "ACTIVE"
+
+
+def test_activation_still_writes_the_opening_snapshot(mp_db: Session) -> None:
+    """The internal activation path must keep creating opening cash + positions."""
+    book, equity = _active_book_with_position(mp_db, name="OPENING ACTIVATE", symbol="OPNACT")
+
+    ops = list(
+        mp_db.scalars(
+            select(PersonalOperation).where(PersonalOperation.portfolio_id == book.id)
+        ).all()
+    )
+    opening_cash = [o for o in ops if o.operation_type == "OPENING_CASH"]
+    opening_positions = [o for o in ops if o.operation_type == "OPENING_POSITION"]
+    assert len(opening_cash) == 1
+    assert money(opening_cash[0].amount) == money("100000")
+    assert len(opening_positions) == 1
+    assert int(opening_positions[0].instrument_id) == int(equity.id)
+    assert (book.status or "").upper() == "ACTIVE"
+
+
+def test_public_operations_api_never_asks_for_system_mode() -> None:
+    """The HTTP layer must not be able to opt out of the opening guard."""
+    import inspect
+
+    from app.api.v1 import personal_portfolios as api
+
+    assert inspect.signature(create_operation).parameters["system"].default is False
+    assert "system" not in inspect.getsource(api.post_operation)

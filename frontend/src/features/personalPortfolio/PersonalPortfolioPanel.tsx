@@ -20,6 +20,7 @@ import {
 import { EmptyState, MetricCard, PageState, StatusBadge } from "../../components/Ui";
 import { useKrakenRole } from "../../role/KrakenRoleContext";
 
+/** Display labels for every journal row, including Kraken-written opening rows. */
 export const OP_LABELS: Record<PersonalOperationType, string> = {
   DEPOSIT: "Пополнение",
   WITHDRAWAL: "Вывод",
@@ -29,6 +30,18 @@ export const OP_LABELS: Record<PersonalOperationType, string> = {
   OPENING_CASH: "Начальное состояние · деньги",
   OPENING_POSITION: "Начальное состояние · позиция",
 };
+
+/**
+ * Types a human may add by hand. OPENING_* is written only by Kraken when the
+ * journal starts, so it must never appear in the operation selector.
+ */
+export const USER_CREATABLE_OPERATION_TYPES: readonly PersonalOperationType[] = [
+  "DEPOSIT",
+  "WITHDRAWAL",
+  "BUY",
+  "SELL",
+  "COMMISSION",
+];
 
 function money(v: string | null | undefined): string {
   if (v == null || v === "") return "—";
@@ -535,7 +548,7 @@ function AddOperationModal({
   const [lastAttempt, setLastAttempt] = useState<{ payloadKey: string; key: string } | null>(null);
 
   const bondTradeBlocked =
-    (type === "BUY" || type === "SELL" || type === "OPENING_POSITION") &&
+    (type === "BUY" || type === "SELL") &&
     (instrumentAssetClass || "").toLowerCase() === "bond";
 
   useEffect(() => {
@@ -588,7 +601,7 @@ function AddOperationModal({
       commission: commission || "0",
     };
     try {
-      if (type === "DEPOSIT" || type === "WITHDRAWAL" || type === "OPENING_CASH" || type === "COMMISSION") {
+      if (type === "DEPOSIT" || type === "WITHDRAWAL" || type === "COMMISSION") {
         body.amount = amount;
       } else {
         if (!instrumentId) throw new Error("Выберите инструмент");
@@ -638,7 +651,7 @@ function AddOperationModal({
             onChange={(e) => setType(e.target.value as PersonalOperationType)}
             data-testid="op-type"
           >
-            {(Object.keys(OP_LABELS) as PersonalOperationType[]).map((k) => (
+            {USER_CREATABLE_OPERATION_TYPES.map((k) => (
               <option key={k} value={k}>
                 {OP_LABELS[k]}
               </option>
@@ -655,10 +668,7 @@ function AddOperationModal({
             data-testid="op-occurred-at"
           />
         </label>
-        {type === "DEPOSIT" ||
-        type === "WITHDRAWAL" ||
-        type === "OPENING_CASH" ||
-        type === "COMMISSION" ? (
+        {type === "DEPOSIT" || type === "WITHDRAWAL" || type === "COMMISSION" ? (
           <label className="field">
             <span>Сумма, ₽</span>
             <input
@@ -784,9 +794,12 @@ function AddOperationModal({
 export function PersonalPortfolioPanel({
   portfolioId,
   onChanged,
+  refreshToken = 0,
 }: {
   portfolioId: number;
   onChanged?: () => void;
+  /** Bumped by the page after any mutation so the panel refetches immediately. */
+  refreshToken?: number;
 }) {
   const { isUser } = useKrakenRole();
   const [data, setData] = useState<PersonalSummary | null>(null);
@@ -817,7 +830,7 @@ export function PersonalPortfolioPanel({
 
   useEffect(() => {
     void reload();
-  }, [reload]);
+  }, [reload, refreshToken]);
 
   const notifyChanged = () => {
     onChanged?.();

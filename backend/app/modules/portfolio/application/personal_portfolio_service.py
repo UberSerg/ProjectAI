@@ -47,6 +47,10 @@ BOND_TRADE_MESSAGE = (
     "Kraken пока не умеет корректно учитывать новую сделку с облигацией. "
     "Текущую позицию можно хранить и анализировать."
 )
+OPENING_SYSTEM_ONLY_MESSAGE = "Начальное состояние создаётся Kraken при запуске учёта."
+SYSTEM_ONLY_OPERATION_TYPES = frozenset(
+    {OperationType.OPENING_CASH, OperationType.OPENING_POSITION}
+)
 LIFECYCLE_DRAFT = "DRAFT"
 LIFECYCLE_ACTIVE = "ACTIVE"
 MISSING_PRICE_MESSAGE = "Не хватает текущей цены для части позиций."
@@ -440,7 +444,14 @@ def create_operation(
     non_standard_lot: bool = False,
     supersedes_operation_id: int | None = None,
     correction_reason: str | None = None,
+    system: bool = False,
 ) -> PersonalOperation:
+    """Append a journal operation.
+
+    ``system=True`` is reserved for Kraken-internal writers (activation opening
+    snapshot). Public callers must leave it ``False`` so opening rows can never be
+    forged through the operations API.
+    """
     portfolio = lock_portfolio(session, portfolio)
     key = (idempotency_key or "").strip() or str(uuid4())
     existing = session.scalar(
@@ -454,6 +465,13 @@ def create_operation(
         op_type = OperationType(operation_type)
     except ValueError as exc:
         raise PersonalPortfolioError("UNSUPPORTED_OPERATION", "Неизвестный тип операции") from exc
+
+    if not system and op_type in SYSTEM_ONLY_OPERATION_TYPES:
+        raise PersonalPortfolioError(
+            "OPENING_OPERATION_SYSTEM_ONLY",
+            OPENING_SYSTEM_ONLY_MESSAGE,
+            http_status=409,
+        )
 
     # Operations require ACTIVE lifecycle. Empty DRAFT may start with the first
     # journal operation (implicit empty activate) — a DRAFT with setup snapshot must

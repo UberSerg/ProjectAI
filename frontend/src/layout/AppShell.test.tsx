@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { KrakenRoleProvider } from "../role/KrakenRoleContext";
 import { ROLE_STORAGE_KEY } from "../role/types";
+import { THEME_STORAGE_KEY } from "../theme/theme";
+import { initKrakenTheme } from "../theme/useKrakenTheme";
 import { AppShell } from "./AppShell";
 
 function renderShell(path = "/") {
@@ -21,7 +23,9 @@ function renderShell(path = "/") {
 
 describe("AppShell investor-first nav", () => {
   beforeEach(() => {
+    localStorage.clear();
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
+    initKrakenTheme();
   });
 
   it("includes research-hub, portfolios, candidate, bonds, companies/fundamentals", () => {
@@ -69,6 +73,41 @@ describe("AppShell investor-first nav", () => {
     const entry = screen.getByTestId("version-entry");
     expect(entry).toHaveTextContent("Kraken V1.0");
     expect(entry).toHaveAttribute("href", "/about");
+  });
+});
+
+describe("AppShell theme wiring", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
+    initKrakenTheme();
+  });
+
+  it("marks the theme on the document root instead of hardcoding it on the shell", () => {
+    renderShell();
+    const shell = document.querySelector('[data-product="kraken-personal-v1"]');
+    expect(shell).not.toBeNull();
+    expect(shell).not.toHaveAttribute("data-theme");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("offers the theme switch next to the version entry and role switch", () => {
+    renderShell();
+    const footer = screen.getByTestId("version-entry").parentElement;
+    expect(footer).toContainElement(screen.getByTestId("theme-switch"));
+    expect(footer).toContainElement(screen.getByTestId("role-mode-switch"));
+  });
+
+  it("keeps the selected theme when the presentation role changes", () => {
+    localStorage.setItem(THEME_STORAGE_KEY, "light");
+    initKrakenTheme();
+    renderShell();
+
+    fireEvent.click(screen.getByTestId("role-switch-user"));
+
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute("data-role", "USER");
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
   });
 });
 

@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kraken — инвестиционный помощник</title>
+    <script>
+      // Pre-paint theme init: avoids a light flash before the bundle runs.
+      // Key/default duplicated from src/theme/theme.ts on purpose (must stay inline).
+      (function () {
+        var theme = "dark";
+        try {
+          var stored = localStorage.getItem("kraken.theme");
+          if (stored === "light" || stored === "dark") theme = stored;
+        } catch (err) {
+          /* storage unavailable */
+        }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -583,6 +583,108 @@ describe("PersonalPortfolioPanel", () => {
     expect(secondKey).toBe(firstKey);
   });
 
+  it("offers only human operation types in the selector", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={1} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("add-operation-btn"));
+
+    const select = screen.getByTestId("op-type") as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toEqual(["DEPOSIT", "WITHDRAWAL", "BUY", "SELL", "COMMISSION"]);
+    expect(select.textContent).not.toMatch(/Начальное состояние/);
+  });
+
+  it("still labels Kraken opening rows in the journal", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+      operations: [
+        {
+          id: 1,
+          operation_type: "OPENING_CASH",
+          status: "ACTIVE",
+          occurred_at: "2026-09-27T12:00:00+00:00",
+          instrument_id: null,
+          lots: null,
+          units: null,
+          price: null,
+          amount: "50000",
+          commission: "0",
+          currency: "RUB",
+          note: null,
+        },
+        {
+          id: 2,
+          operation_type: "OPENING_POSITION",
+          status: "ACTIVE",
+          occurred_at: "2026-09-27T12:00:00+00:00",
+          instrument_id: 1,
+          lots: null,
+          units: "10",
+          price: "250",
+          amount: null,
+          commission: "0",
+          currency: "RUB",
+          note: null,
+        },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={1} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("personal-operations")).toBeInTheDocument());
+    expect(screen.getByText("Начальное состояние · деньги")).toBeInTheDocument();
+    expect(screen.getByText("Начальное состояние · позиция")).toBeInTheDocument();
+  });
+
+  it("refetches when the page bumps refreshToken", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPortfolio.mockResolvedValue(emptySummary);
+    const { rerender } = render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={1} refreshToken={0} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={1} refreshToken={1} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalledTimes(2));
+  });
+
   it("blocks bond trade confirmation in UI", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
     getPersonalPortfolio.mockResolvedValue({

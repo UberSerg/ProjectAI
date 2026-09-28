@@ -26,67 +26,50 @@ export function PortfolioSwitcher({ className = "" }: { className?: string }) {
   }
 
   return (
-    <div className={`portfolio-switcher ${className}`} style={{ position: "relative" }}>
+    <div className={`portfolio-switcher ${className}`}>
       <button
         type="button"
-        className="btn"
+        className="btn btn-secondary"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
         {selectedPortfolio?.name ?? "Портфель"} ▾
       </button>
       {open && (
-        <div
-          className="panel"
-          style={{
-            position: "absolute",
-            zIndex: 40,
-            top: "100%",
-            left: 0,
-            minWidth: 240,
-            marginTop: 4,
-            padding: 8,
-          }}
-        >
+        <div className="portfolio-switcher-menu" data-testid="portfolio-switcher-menu">
           {portfolios.map((p) => (
             <button
               key={p.id}
               type="button"
-              className="btn"
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                marginBottom: 4,
-                opacity: p.id === selectedPortfolio?.id ? 1 : 0.85,
-              }}
+              className={`portfolio-switcher-option${
+                p.id === selectedPortfolio?.id ? " is-active" : ""
+              }`}
+              aria-pressed={p.id === selectedPortfolio?.id}
               onClick={() => {
                 selectPortfolio(p.id);
                 setOpen(false);
                 navigate(`/portfolio/${p.id}`);
               }}
             >
-              {p.name}
-              <span style={{ opacity: 0.6, marginLeft: 8, fontSize: 12 }}>
+              <span>{p.name}</span>
+              <span className="portfolio-switcher-state">
                 {p.lifecycle_state === "ACTIVE" ? "Учёт" : "Настройка"}
               </span>
             </button>
           ))}
-          <hr style={{ borderColor: "rgba(255,255,255,0.1)" }} />
+          <hr className="portfolio-switcher-sep" />
           {!creating ? (
             <>
               <button
                 type="button"
-                className="btn"
-                style={{ display: "block", width: "100%", textAlign: "left" }}
+                className="portfolio-switcher-option"
                 onClick={() => setCreating(true)}
               >
                 + Создать портфель
               </button>
               <button
                 type="button"
-                className="btn"
-                style={{ display: "block", width: "100%", textAlign: "left" }}
+                className="portfolio-switcher-option"
                 onClick={() => {
                   setOpen(false);
                   navigate("/portfolio");
@@ -97,6 +80,7 @@ export function PortfolioSwitcher({ className = "" }: { className?: string }) {
             </>
           ) : (
             <form
+              className="portfolio-switcher-form"
               onSubmit={async (e) => {
                 e.preventDefault();
                 setError(null);
@@ -117,7 +101,6 @@ export function PortfolioSwitcher({ className = "" }: { className?: string }) {
                 placeholder="Основной"
                 required
                 maxLength={120}
-                style={{ width: "100%", marginBottom: 6 }}
               />
               {error && <div className="error-text">{error}</div>}
               <button type="submit" className="btn btn-primary">

@@ -329,14 +329,21 @@ export function MyPortfolioPage() {
     refreshList,
     selectedPortfolio,
   } = usePortfolioContext();
-  const portfolioId = routePortfolioId ? Number(routePortfolioId) : selectedPortfolioId;
+  // An explicit deep link is only honoured once it is proven to exist. An unknown
+  // id must not become the stored selection, must not silently redirect, and must
+  // not trigger any portfolio request.
+  const routeId = useMemo(() => {
+    if (!routePortfolioId) return null;
+    const id = Number(routePortfolioId);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }, [routePortfolioId]);
+  const routeIdResolved = routeId != null && portfolios.some((p) => p.id === routeId);
+  const portfolioId = routePortfolioId ? (routeIdResolved ? routeId : null) : selectedPortfolioId;
 
   useEffect(() => {
-    if (routePortfolioId) {
-      const id = Number(routePortfolioId);
-      if (Number.isFinite(id)) selectPortfolio(id);
-    }
-  }, [routePortfolioId, selectPortfolio]);
+    if (!routeIdResolved || routeId === selectedPortfolioId) return;
+    selectPortfolio(routeId);
+  }, [routeIdResolved, routeId, selectedPortfolioId, selectPortfolio]);
 
   useEffect(() => {
     if (!routePortfolioId && selectedPortfolioId != null) {
@@ -363,6 +370,12 @@ export function MyPortfolioPage() {
   const [dataVersion, setDataVersion] = useState(0);
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
   const reload = useCallback(() => setDataVersion((v) => v + 1), []);
+
+  /** Every mutation refreshes the panel, the tab resources and the switcher counts. */
+  const onPortfolioMutated = useCallback(() => {
+    reload();
+    void refreshList();
+  }, [reload, refreshList]);
 
   useEffect(() => {
     const t = searchParams.get("tab");
@@ -528,12 +541,7 @@ export function MyPortfolioPage() {
     );
   }
 
-  if (
-    routePortfolioId &&
-    !portfoliosLoading &&
-    portfolios.length > 0 &&
-    !portfolios.some((p) => p.id === Number(routePortfolioId))
-  ) {
+  if (routePortfolioId && !portfoliosLoading && portfolios.length > 0 && !routeIdResolved) {
     return (
       <section data-testid="my-portfolio-page">
         <PageHeader title="Портфель не найден" description="Такого портфеля нет." />
@@ -618,14 +626,12 @@ export function MyPortfolioPage() {
         ))}
       </div>
 
-      {tab === "holdings" ? (
+      {tab === "holdings" && portfolioId != null ? (
         <div data-testid="tab-holdings-panel">
           <PersonalPortfolioPanel
-            portfolioId={portfolioId!}
-            onChanged={() => {
-              void refreshList();
-              void reload();
-            }}
+            portfolioId={portfolioId}
+            refreshToken={dataVersion}
+            onChanged={onPortfolioMutated}
           />
         </div>
       ) : null}
@@ -1139,12 +1145,14 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      <AddInstrumentModal
-        portfolioId={portfolioId!}
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onAdded={() => void reload()}
-      />
+      {portfolioId != null ? (
+        <AddInstrumentModal
+          portfolioId={portfolioId}
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          onAdded={onPortfolioMutated}
+        />
+      ) : null}
     </section>
   );
 }

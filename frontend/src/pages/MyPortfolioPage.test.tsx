@@ -260,6 +260,34 @@ const personalSummaryDraft = {
   recommendation_disclaimer: "Модельная рекомендация",
 };
 
+const draftSberPosition = {
+  id: 11,
+  instrument_id: 1,
+  secid: "SBER",
+  name: "Сбербанк",
+  asset_class: "equity",
+  units: "10",
+  lots: null,
+  average_price: "250",
+  cost_basis_total_rub: "2500",
+  cost_basis_status: "KNOWN" as const,
+  current_price: "260",
+  price_date: "2026-09-25",
+  market_value: "2600",
+  unrealized_pnl: "100",
+  price_available: true,
+};
+
+const personalSummaryDraftWithSber = {
+  ...personalSummaryDraft,
+  summary: {
+    ...personalSummaryDraft.summary,
+    securities_value_rub: "2600",
+    nav_rub: "2600",
+  },
+  positions: [draftSberPosition],
+};
+
 const personalSummaryActive = {
   ...personalSummaryDraft,
   portfolio: {
@@ -792,6 +820,164 @@ describe("MyPortfolioPage", () => {
     const scope = await screen.findByTestId("fundamental-coverage-scope");
     expect(scope).toHaveTextContent(/исследовательская выборка/i);
     expect(scope).toHaveTextContent(/не покрытие\s+выбранного портфеля/i);
+  });
+
+  it("shows a newly added instrument without remounting the panel", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    let added = false;
+    getPersonalPortfolio.mockImplementation(() =>
+      Promise.resolve(added ? personalSummaryDraftWithSber : personalSummaryDraft),
+    );
+    addDraftPosition.mockImplementation(() => {
+      added = true;
+      return Promise.resolve({ id: 11, portfolio: personalSummaryDraftWithSber });
+    });
+    renderPage();
+
+    const panel = await screen.findByTestId("personal-portfolio-panel");
+    expect(screen.getByText("Пока нет позиций")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("add-instrument-open"));
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "SBER" } });
+    await waitFor(() => expect(screen.getByTestId("add-instrument-hits")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /SBER — Сбербанк/ }));
+    fireEvent.click(screen.getByTestId("add-instrument-submit"));
+
+    await waitFor(() => expect(addDraftPosition).toHaveBeenCalledWith(1, expect.anything()));
+    expect(await screen.findByTestId("draft-positions-table")).toHaveTextContent("SBER");
+    expect(screen.queryByText("Пока нет позиций")).not.toBeInTheDocument();
+    // Same DOM node ⇒ the panel refetched in place instead of being remounted.
+    expect(screen.getByTestId("personal-portfolio-panel")).toBe(panel);
+    await waitFor(() => expect(listPersonalPortfolios).toHaveBeenCalledTimes(2));
+  });
+
+  it("reflects a DRAFT cash edit immediately and refreshes the list", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    const withCash = {
+      ...personalSummaryDraft,
+      summary: { ...personalSummaryDraft.summary, cash_rub: "50000", nav_rub: "50000" },
+    };
+    let saved = false;
+    getPersonalPortfolio.mockImplementation(() =>
+      Promise.resolve(saved ? withCash : personalSummaryDraft),
+    );
+    setDraftCash.mockImplementation(() => {
+      saved = true;
+      return Promise.resolve(withCash);
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("draft-cash-edit-btn"));
+    fireEvent.change(screen.getByTestId("draft-cash-input"), { target: { value: "50000" } });
+    fireEvent.click(screen.getByTestId("draft-cash-submit"));
+
+    await waitFor(() => expect(setDraftCash).toHaveBeenCalledWith(1, 50000));
+    await waitFor(() =>
+      expect(screen.getByTestId("draft-summary").textContent).toMatch(/50[\s\u00a0]?000/),
+    );
+    await waitFor(() => expect(listPersonalPortfolios).toHaveBeenCalledTimes(2));
+  });
+
+  it("reflects a DRAFT position edit immediately", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    const edited = {
+      ...personalSummaryDraftWithSber,
+      positions: [{ ...draftSberPosition, units: "40", market_value: "10400" }],
+    };
+    let saved = false;
+    getPersonalPortfolio.mockImplementation(() =>
+      Promise.resolve(saved ? edited : personalSummaryDraftWithSber),
+    );
+    patchDraftPosition.mockImplementation(() => {
+      saved = true;
+      return Promise.resolve({ id: 11, portfolio: edited });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("draft-position-edit-11"));
+    fireEvent.change(screen.getByTestId("draft-position-units"), { target: { value: "40" } });
+    fireEvent.click(screen.getByTestId("draft-position-submit"));
+
+    await waitFor(() => expect(patchDraftPosition).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByTestId("draft-positions-table").textContent).toMatch(/40/),
+    );
+    await waitFor(() => expect(listPersonalPortfolios).toHaveBeenCalledTimes(2));
+  });
+
+  it("removes a DRAFT position immediately", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    let removed = false;
+    getPersonalPortfolio.mockImplementation(() =>
+      Promise.resolve(removed ? personalSummaryDraft : personalSummaryDraftWithSber),
+    );
+    deleteDraftPosition.mockImplementation(() => {
+      removed = true;
+      return Promise.resolve({ status: "DELETED", id: 11, portfolio: personalSummaryDraft });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("draft-position-remove-11"));
+    await waitFor(() => expect(deleteDraftPosition).toHaveBeenCalledWith(1, 11));
+    expect(await screen.findByText("Пока нет позиций")).toBeInTheDocument();
+    await waitFor(() => expect(listPersonalPortfolios).toHaveBeenCalledTimes(2));
+  });
+
+  it("clears the DRAFT portfolio immediately", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    let cleared = false;
+    getPersonalPortfolio.mockImplementation(() =>
+      Promise.resolve(cleared ? personalSummaryDraft : personalSummaryDraftWithSber),
+    );
+    clearDraftPortfolio.mockImplementation(() => {
+      cleared = true;
+      return Promise.resolve(personalSummaryDraft);
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("clear-draft-btn"));
+    await waitFor(() => expect(clearDraftPortfolio).toHaveBeenCalledWith(1));
+    expect(await screen.findByText("Пока нет позиций")).toBeInTheDocument();
+    await waitFor(() => expect(listPersonalPortfolios).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps the stored selection when the deep link points at an unknown portfolio", async () => {
+    localStorage.setItem("kraken.selectedPortfolioId", "1");
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    renderPage("/portfolio/999999?tab=analysis");
+
+    expect(await screen.findByText("Портфель не найден")).toBeInTheDocument();
+    expect(localStorage.getItem("kraken.selectedPortfolioId")).toBe("1");
+    expect(getPersonalPortfolio).not.toHaveBeenCalled();
+    expect(portfolioApi.getPortfolioAnalysis).not.toHaveBeenCalled();
+    expect(portfolioApi.getPortfolioCompareCandidate).not.toHaveBeenCalled();
+    expect(portfolioApi.getPortfolioRebalance).not.toHaveBeenCalled();
+    expect(portfolioApi.getPortfolioCashflows).not.toHaveBeenCalled();
+  });
+
+  it("does not store a non-numeric deep link id", async () => {
+    localStorage.setItem("kraken.selectedPortfolioId", "1");
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    renderPage("/portfolio/abc");
+
+    expect(await screen.findByText("Портфель не найден")).toBeInTheDocument();
+    expect(localStorage.getItem("kraken.selectedPortfolioId")).toBe("1");
+    expect(getPersonalPortfolio).not.toHaveBeenCalled();
+  });
+
+  it("stores the selection for a valid deep link", async () => {
+    localStorage.setItem("kraken.selectedPortfolioId", "1");
+    listPersonalPortfolios.mockResolvedValue({
+      items: [portfolioCardActive, portfolioCardB],
+      count: 2,
+    });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisPortfolioB as never);
+    renderPage("/portfolio/2");
+
+    await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalled());
+    expect(getPersonalPortfolio.mock.calls.every((call) => call[0] === 2)).toBe(true);
+    await waitFor(() => expect(localStorage.getItem("kraken.selectedPortfolioId")).toBe("2"));
   });
 
   it("has page help for manual portfolio", () => {

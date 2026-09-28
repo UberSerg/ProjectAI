@@ -6,9 +6,13 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { reportClientError } from "./api/system";
 import { PortfolioProvider } from "./portfolio/PortfolioContext";
 import { KrakenRoleProvider } from "./role/KrakenRoleContext";
+import { initKrakenTheme } from "./theme/useKrakenTheme";
 import "./styles.css";
 import "./design-system.css";
 import "./styles/kraken-dark.css";
+
+// Re-applied here so the stored theme also wins when index.html runs without JS-inline init.
+initKrakenTheme();
 
 function installGlobalErrorHandlers() {
   window.addEventListener("error", (event) => {

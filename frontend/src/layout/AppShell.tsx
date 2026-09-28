@@ -4,6 +4,7 @@ import { ToastProvider } from "../components/Toast";
 import { HelpProvider } from "../help";
 import { RoleModeSwitch } from "../role/RoleModeSwitch";
 import { useKrakenRole } from "../role/KrakenRoleContext";
+import { ThemeSwitch } from "../theme/ThemeSwitch";
 import { labels } from "../utils/labels";
 import { KRAKEN_DISPLAY_VERSION } from "../version/manifest";
 import { navGroupsForRole, pathAllowedForRole, type NavItem } from "./navConfig";
@@ -50,7 +51,6 @@ export function AppShell() {
       <HelpProvider>
         <div
           className="layout"
-          data-theme="dark"
           data-product="kraken-personal-v1"
           data-role={role}
         >
@@ -79,6 +79,7 @@ export function AppShell() {
               >
                 {KRAKEN_DISPLAY_VERSION}
               </NavLink>
+              <ThemeSwitch />
               <RoleModeSwitch />
             </div>
           </aside>
