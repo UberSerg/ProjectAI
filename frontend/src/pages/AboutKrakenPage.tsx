@@ -7,6 +7,8 @@ import {
   KRAKEN_VERSION,
   currentRelease,
 } from "../version/manifest";
+import { formatReleaseDate } from "../version/releaseHistory";
+import { ReleaseHistoryPanel } from "../version/ReleaseHistoryPanel";
 
 export function AboutKrakenPage() {
   const { isUser } = useKrakenRole();
@@ -21,7 +23,9 @@ export function AboutKrakenPage() {
         <p className="lead" data-testid="about-release-title">
           {release.title}
         </p>
-        <p className="muted">Дата релиза: {release.date}</p>
+        <p className="muted" data-testid="about-release-date">
+          Дата релиза: {formatReleaseDate(release.date)}
+        </p>
       </header>
 
       <section className="panel" data-testid="about-summary">
@@ -66,23 +70,24 @@ export function AboutKrakenPage() {
               <dd data-testid="about-build-time">{meta.buildTime ?? "не задан в сборке"}</dd>
             </div>
           </dl>
+          {release.technicalNotes && release.technicalNotes.length > 0 ? (
+            <div data-testid="about-current-technical">
+              <h3>Technical Notes текущей версии</h3>
+              <ul>
+                {release.technicalNotes.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
-      <section className="panel" data-testid="about-history">
-        <h2>История версий</h2>
-        <ol className="about-history-list">
-          {KRAKEN_RELEASES.map((r) => (
-            <li key={r.version} data-current={r.version === KRAKEN_VERSION ? "true" : "false"}>
-              <strong>{r.displayVersion}</strong>
-              <span className="muted">
-                {" "}
-                · {r.date} · {r.title}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <ReleaseHistoryPanel
+        releases={KRAKEN_RELEASES}
+        currentVersion={KRAKEN_VERSION}
+        showTechnicalNotes={!isUser}
+      />
 
       <p className="muted">
         <Link to="/">← На обзор</Link>
