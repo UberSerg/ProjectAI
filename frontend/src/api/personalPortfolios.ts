@@ -1,5 +1,7 @@
 import { apiRequest } from "./client";
 
+export type LifecycleState = "DRAFT" | "ACTIVE" | "EMPTY";
+
 export type PersonalOperationType =
   | "DEPOSIT"
   | "WITHDRAWAL"
@@ -9,18 +11,39 @@ export type PersonalOperationType =
   | "OPENING_CASH"
   | "OPENING_POSITION";
 
+export interface PortfolioCard {
+  id: number;
+  name: string;
+  description?: string | null;
+  lifecycle_state: LifecycleState | string;
+  cash_rub: string;
+  positions_count: number;
+  // Collection view is unpriced — NAV and valuation labels come from the
+  // single-portfolio summary, never from the list.
+  known_nav_rub?: string | null;
+  valuation_partial?: boolean;
+  valuation_label?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  is_test?: boolean;
+}
+
 export interface PersonalSummary {
   portfolio: {
     id: number;
     name: string;
+    description?: string | null;
     base_currency: string;
+    lifecycle_state?: LifecycleState | string;
     status: string;
     is_test: boolean;
     note?: string | null;
     version: number;
     has_operations: boolean;
-    journal_state?: "EMPTY" | "LEGACY_PENDING" | "ACTIVE";
+    journal_state?: LifecycleState | "EMPTY" | "LEGACY_PENDING" | "ACTIVE" | "DRAFT";
     journal_cutover_at?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
   };
   summary: {
     cash_rub: string;
@@ -30,6 +53,11 @@ export interface PersonalSummary {
     withdrawn_rub: string;
     investment_pnl_rub: string | null;
     realized_pnl_rub: string;
+    cost_basis_complete?: boolean;
+    cost_basis_incomplete_reason?: string | null;
+    cost_basis_incomplete_history?: boolean;
+    investment_pnl_unavailable_reason?: "MISSING_PRICE" | "COST_BASIS_INCOMPLETE" | null;
+    investment_pnl_message?: string | null;
     valuation_complete: boolean;
     valuation_partial: boolean;
     valuation_as_of: string | null;
@@ -40,6 +68,7 @@ export interface PersonalSummary {
     known_nav_rub?: string;
   };
   positions: Array<{
+    id?: number;
     instrument_id: number;
     secid: string | null;
     name: string | null;
@@ -48,6 +77,8 @@ export interface PersonalSummary {
     lots: string | null;
     lot_size?: number | null;
     average_price: string | null;
+    cost_basis_total_rub?: string | null;
+    cost_basis_status?: "KNOWN" | "UNKNOWN" | string;
     current_price: string | null;
     price_date: string | null;
     market_value: string | null;
@@ -106,30 +137,154 @@ function qs(owner: boolean, test: boolean): string {
   return s ? `?${s}` : "";
 }
 
-export function getPersonalPrimary(opts?: { owner?: boolean; test?: boolean; signal?: AbortSignal }) {
-  return apiRequest<PersonalSummary>(`/personal-portfolios/primary${qs(!!opts?.owner, !!opts?.test)}`, {
+export function listPersonalPortfolios(opts?: { test?: boolean; signal?: AbortSignal }) {
+  return apiRequest<{ items: PortfolioCard[]; count: number }>(
+    `/personal-portfolios${qs(false, !!opts?.test)}`,
+    { signal: opts?.signal },
+  );
+}
+
+export function createPersonalPortfolio(
+  body: { name: string; description?: string },
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<PersonalSummary>(`/personal-portfolios${qs(false, !!opts?.test)}`, {
+    method: "POST",
+    body: JSON.stringify(body),
     signal: opts?.signal,
   });
 }
 
-export function activatePersonalJournal(opts?: { test?: boolean; signal?: AbortSignal }) {
+export function getPersonalPortfolio(
+  portfolioId: number,
+  opts?: { owner?: boolean; test?: boolean; signal?: AbortSignal },
+) {
   return apiRequest<PersonalSummary>(
-    `/personal-portfolios/primary/activate-journal${qs(false, !!opts?.test)}`,
+    `/personal-portfolios/${portfolioId}${qs(!!opts?.owner, !!opts?.test)}`,
+    { signal: opts?.signal },
+  );
+}
+
+export function patchPersonalPortfolio(
+  portfolioId: number,
+  body: { name?: string; description?: string | null },
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<PersonalSummary>(`/personal-portfolios/${portfolioId}${qs(false, !!opts?.test)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+    signal: opts?.signal,
+  });
+}
+
+export function deletePersonalPortfolio(portfolioId: number, opts?: { test?: boolean; signal?: AbortSignal }) {
+  return apiRequest<{ status: string; id: number; name: string }>(
+    `/personal-portfolios/${portfolioId}${qs(false, !!opts?.test)}`,
+    { method: "DELETE", signal: opts?.signal },
+  );
+}
+
+export function setDraftCash(
+  portfolioId: number,
+  cashRub: string | number,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<PersonalSummary>(
+    `/personal-portfolios/${portfolioId}/draft/cash${qs(false, !!opts?.test)}`,
     {
-      method: "POST",
+      method: "PUT",
+      body: JSON.stringify({ cash_rub: cashRub }),
       signal: opts?.signal,
     },
   );
 }
 
+export function addDraftPosition(
+  portfolioId: number,
+  body: {
+    instrument_id: number;
+    units?: string | number;
+    lots?: string | number;
+    average_price?: string | number | null;
+    cost_basis_total_rub?: string | number | null;
+    note?: string;
+    non_standard_lot?: boolean;
+  },
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<{ id: number; portfolio: PersonalSummary }>(
+    `/personal-portfolios/${portfolioId}/draft/positions${qs(false, !!opts?.test)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal: opts?.signal,
+    },
+  );
+}
+
+export function patchDraftPosition(
+  portfolioId: number,
+  positionId: number,
+  body: Record<string, unknown>,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<{ id: number; portfolio: PersonalSummary }>(
+    `/personal-portfolios/${portfolioId}/draft/positions/${positionId}${qs(false, !!opts?.test)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+      signal: opts?.signal,
+    },
+  );
+}
+
+export function deleteDraftPosition(
+  portfolioId: number,
+  positionId: number,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<{ status: string; id: number; portfolio: PersonalSummary }>(
+    `/personal-portfolios/${portfolioId}/draft/positions/${positionId}${qs(false, !!opts?.test)}`,
+    { method: "DELETE", signal: opts?.signal },
+  );
+}
+
+export function clearDraftPortfolio(portfolioId: number, opts?: { test?: boolean; signal?: AbortSignal }) {
+  return apiRequest<PersonalSummary>(
+    `/personal-portfolios/${portfolioId}/draft/clear${qs(false, !!opts?.test)}`,
+    { method: "POST", signal: opts?.signal },
+  );
+}
+
+export function activatePersonalPortfolio(
+  portfolioId: number,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<PersonalSummary>(
+    `/personal-portfolios/${portfolioId}/activate${qs(false, !!opts?.test)}`,
+    { method: "POST", signal: opts?.signal },
+  );
+}
+
+export function resetPersonalPortfolio(
+  portfolioId: number,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<PersonalSummary>(
+    `/personal-portfolios/${portfolioId}/reset${qs(false, !!opts?.test)}`,
+    { method: "POST", signal: opts?.signal },
+  );
+}
+
 export function createPersonalOperation(
+  portfolioId: number,
   body: CreatePersonalOperationBody,
   opts?: { test?: boolean; idempotencyKey?: string; signal?: AbortSignal },
 ) {
   const headers: Record<string, string> = {};
   if (opts?.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
   return apiRequest<{ operation_id: number; portfolio: PersonalSummary }>(
-    `/personal-portfolios/primary/operations${qs(false, !!opts?.test)}`,
+    `/personal-portfolios/${portfolioId}/operations${qs(false, !!opts?.test)}`,
     {
       method: "POST",
       body: JSON.stringify(body),
@@ -139,8 +294,27 @@ export function createPersonalOperation(
   );
 }
 
-export function getPersonalReconciliation(opts?: { test?: boolean; signal?: AbortSignal }) {
-  return apiRequest(`/personal-portfolios/primary/reconciliation${qs(false, !!opts?.test)}`, {
+export function getPersonalReconciliation(
+  portfolioId: number,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest(`/personal-portfolios/${portfolioId}/reconciliation${qs(false, !!opts?.test)}`, {
     signal: opts?.signal,
   });
+}
+
+export function getPortfolioAnalysis(portfolioId: number, opts?: { signal?: AbortSignal }) {
+  return apiRequest(`/personal-portfolios/${portfolioId}/analysis`, { signal: opts?.signal });
+}
+
+export function getPortfolioCompareCandidate(portfolioId: number, opts?: { signal?: AbortSignal }) {
+  return apiRequest(`/personal-portfolios/${portfolioId}/compare-candidate`, { signal: opts?.signal });
+}
+
+export function getPortfolioRebalance(portfolioId: number, opts?: { signal?: AbortSignal }) {
+  return apiRequest(`/personal-portfolios/${portfolioId}/rebalance`, { signal: opts?.signal });
+}
+
+export function getPortfolioCashflows(portfolioId: number, opts?: { signal?: AbortSignal }) {
+  return apiRequest(`/personal-portfolios/${portfolioId}/cashflows`, { signal: opts?.signal });
 }

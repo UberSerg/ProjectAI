@@ -151,20 +151,8 @@ def _bond(session: Session, symbol: str = "DPDLB") -> Instrument:
     return inst
 
 
-def _patch_primary(monkeypatch: pytest.MonkeyPatch, portfolio) -> None:
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.manual_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-
-
-def test_empty_needs_setup(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_empty_needs_setup(pp_db: Session) -> None:
     portfolio = _reset(pp_db, "TEST — DD empty")
-    _patch_primary(monkeypatch, portfolio)
     d = build_daily_personal_decision(pp_db, portfolio=portfolio)
     assert d["status"] == "NEEDS_SETUP"
     assert d["actions"][0]["action"] == "SETUP"
@@ -184,9 +172,8 @@ def test_legacy_pending_activate(pp_db: Session, monkeypatch: pytest.MonkeyPatch
         )
     )
     pp_db.flush()
-    _patch_primary(monkeypatch, portfolio)
     d = build_daily_personal_decision(pp_db, portfolio=portfolio)
-    assert d["status"] == "LEGACY_PENDING"
+    assert d["status"] == "DRAFT_ANALYSIS"
     assert d["actions"][0]["action"] == "ACTIVATE_JOURNAL"
     assert not any(a["action"] in {"CONSIDER_INCREASE", "CONSIDER_REDUCE"} for a in d["actions"])
 
@@ -201,7 +188,6 @@ def test_aligned_no_action(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> N
         amount=Decimal("100000"),
         idempotency_key="dd-aln-dep",
     )
-    _patch_primary(monkeypatch, portfolio)
     # Cash-only book aligned with cash-heavy candidate — no concentration / no deltas.
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.analyze_manual_portfolio",
@@ -284,7 +270,6 @@ def test_concentration_review_priority(pp_db: Session, monkeypatch: pytest.Monke
         non_standard_lot=True,
         idempotency_key="dd-c-buy",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -331,7 +316,6 @@ def test_candidate_mismatch_reduce(pp_db: Session, monkeypatch: pytest.MonkeyPat
         idempotency_key="dd-m-buy",
     )
     # leftover cash so NAV has room; weight of equity ~25k/100k if we only buy 250*100... wait 25000/100000=0.25
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -374,7 +358,6 @@ def test_actual_only_holding_is_review_not_sell(pp_db: Session, monkeypatch: pyt
         non_standard_lot=True,
         idempotency_key="dd-o-buy",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -451,7 +434,6 @@ def test_partial_no_precise_rebalance(pp_db: Session, monkeypatch: pytest.Monkey
         non_standard_lot=True,
         idempotency_key="dd-p-b2",
     )
-    _patch_primary(monkeypatch, portfolio)
     d = build_daily_personal_decision(pp_db, portfolio=portfolio)
     assert d["status"] == "PARTIAL"
     assert d["portfolio"]["investment_pnl_rub"] is None
@@ -477,11 +459,10 @@ def test_bond_safe_and_contribution(pp_db: Session, monkeypatch: pytest.MonkeyPa
             portfolio_id=portfolio.id,
             instrument_id=bond.id,
             units=Decimal("2"),
-            average_price=Decimal("95.5"),
+            average_price=None,
         )
     )
     pp_db.flush()
-    _patch_primary(monkeypatch, portfolio)
     snap = load_personal_snapshot(pp_db, portfolio)
     assert snap.positions
     bond_pos = next(p for p in snap.positions if p.symbol == "DDBND")
@@ -525,7 +506,6 @@ def test_no_contradictory_actions(pp_db: Session, monkeypatch: pytest.MonkeyPatc
         non_standard_lot=True,
         idempotency_key="dd-ct-buy",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -574,7 +554,6 @@ def test_uses_personal_nav_not_hardcoded(pp_db: Session, monkeypatch: pytest.Mon
         non_standard_lot=True,
         idempotency_key="dd-n-buy",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -609,7 +588,6 @@ def test_research_unavailable_graceful(pp_db: Session, monkeypatch: pytest.Monke
         amount=Decimal("10000"),
         idempotency_key="dd-r-dep",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -641,7 +619,6 @@ def test_endpoint_read_only_no_mutation(pp_db: Session, monkeypatch: pytest.Monk
         amount=Decimal("1000"),
         idempotency_key="dd-ro-dep",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
@@ -672,7 +649,6 @@ def test_candidate_unavailable_not_aligned(pp_db: Session, monkeypatch: pytest.M
         amount=Decimal("50000"),
         idempotency_key="dd-nc-dep",
     )
-    _patch_primary(monkeypatch, portfolio)
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.analyze_manual_portfolio",
         lambda session, portfolio=None: {
@@ -722,18 +698,10 @@ def test_candidate_unavailable_not_aligned(pp_db: Session, monkeypatch: pytest.M
 
 
 def test_test_portfolio_isolation_from_primary(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Daily Decision for TEST book B must not mix holdings/NAV from real primary A."""
-    from app.modules.portfolio.application.personal_portfolio_service import get_or_create_primary
+    """Daily Decision for TEST book B must not mix holdings/NAV from another user book A."""
+    from app.modules.portfolio.application.user_portfolio_service import create_user_portfolio
 
-    primary = get_or_create_primary(pp_db)
-    # Wipe primary inside rolled-back test txn only.
-    pp_db.execute(delete(PersonalOperation).where(PersonalOperation.portfolio_id == primary.id))
-    pp_db.execute(delete(ManualPosition).where(ManualPosition.portfolio_id == primary.id))
-    primary.cash_rub = Decimal("0")
-    primary.total_contributed_rub = Decimal("0")
-    primary.total_withdrawn_rub = Decimal("0")
-    primary.realized_pnl_rub = Decimal("0")
-    pp_db.flush()
+    primary = create_user_portfolio(pp_db, name="TEST — DD iso A", is_test=True)
 
     eq_a = _equity(pp_db, "DDPRIMA", close=Decimal("200"))
     create_operation(
@@ -796,7 +764,6 @@ def test_test_portfolio_isolation_from_primary(pp_db: Session, monkeypatch: pyte
         lambda session, **kwargs: {"decision": {"cash_weight": 0.5, "status": "RESEARCH_ONLY"}},
     )
 
-    # Do NOT patch get_or_create_primary — isolation must come from portfolio= argument.
     d = build_daily_personal_decision(pp_db, portfolio=test_book)
     snap_b = load_personal_snapshot(pp_db, test_book)
     assert d["portfolio"]["id"] == test_book.id

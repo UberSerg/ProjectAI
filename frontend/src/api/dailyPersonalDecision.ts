@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+﻿import { apiRequest } from "./client";
 
 export type DailyDecisionStatus =
   | "NEEDS_SETUP"
@@ -90,12 +90,16 @@ export interface DailyPersonalDecision {
   disclaimer: string;
 }
 
-export function getDailyPersonalDecision(options?: {
-  signal?: AbortSignal;
-  test?: boolean;
-}): Promise<DailyPersonalDecision> {
+export function getDailyPersonalDecision(
+  portfolioId: number,
+  options?: {
+    signal?: AbortSignal;
+    test?: boolean;
+  },
+): Promise<DailyPersonalDecision> {
   const qs = options?.test ? "?test=true" : "";
-  return apiRequest<DailyPersonalDecision>(`/personal-portfolios/primary/daily-decision${qs}`, {
+  return apiRequest<DailyPersonalDecision>(`/personal-portfolios/${portfolioId}/daily-decision${qs}`, {
     signal: options?.signal,
   });
 }
+

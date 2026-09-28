@@ -1,87 +1,178 @@
-import { Link } from "react-router-dom";
-import { ExplanationCard, HeroCard, PageHeader } from "../components/Ui";
+import { FormEvent, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { errorMessage } from "../api/client";
+import {
+  createPersonalPortfolio,
+  deletePersonalPortfolio,
+  patchPersonalPortfolio,
+} from "../api/personalPortfolios";
+import { ExplanationCard, HeroCard, PageHeader, PageState } from "../components/Ui";
+import { usePortfolioContext } from "../portfolio/PortfolioContext";
 
-const links = [
-  {
-    to: "/portfolio/mine",
-    title: "Мой портфель",
-    text: "Ручной снимок: позиции, оценка, сравнение с кандидатом Kraken и advisory-ребаланс.",
-  },
-  {
-    to: "/portfolio/candidate",
-    title: "Собрать портфель",
-    text: "Главный сценарий: введите сумму — Kraken покажет lot-aware research-портфель.",
-  },
-  {
-    to: "/investment-decision",
-    title: "Инвестиционное решение",
-    text: "Что делать с капиталом: акции / облигации / деньги и почему.",
-  },
-  {
-    to: "/portfolio-risk",
-    title: "Проверка риска",
-    text: "Можно ли допустить инструмент и размер позиции в кандидат портфеля.",
-  },
-  {
-    to: "/allocation",
-    title: "Распределение капитала",
-    text: "Подробный deep-link: research-allocation. В основной навигации не показан — смотрите через решение / кандидат.",
-  },
-  {
-    to: "/bonds",
-    title: "Облигации",
-    text: "Подходит ли бумага: доходность, срок, кредит, ликвидность.",
-  },
-  {
-    to: "/instruments",
-    title: "Каталог инструментов",
-    text: "MOEX Instrument Master: поиск, support level и покрытие Kraken.",
-  },
-  {
-    to: "/calibration",
-    title: "Качество прогнозов",
-    text: "Насколько можно доверять модели прямо сейчас.",
-  },
-];
+function lifecycleLabel(state: string | undefined): string {
+  if (state === "ACTIVE") return "Учёт включён";
+  return "Настройка";
+}
 
 export function PortfolioPage() {
+  const navigate = useNavigate();
+  const { portfolios, selectedPortfolioId, selectPortfolio, refreshList, loading, error } =
+    usePortfolioContext();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function onCreate(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setFormError(null);
+    try {
+      const summary = await createPersonalPortfolio({
+        name: name.trim(),
+        description: description.trim() || undefined,
+      });
+      await refreshList();
+      selectPortfolio(summary.portfolio.id);
+      setName("");
+      setDescription("");
+      navigate(`/portfolio/${summary.portfolio.id}`);
+    } catch (reason) {
+      setFormError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRename(id: number, current: string) {
+    const next = window.prompt("Новое название портфеля", current);
+    if (!next || !next.trim()) return;
+    try {
+      await patchPersonalPortfolio(id, { name: next.trim() });
+      await refreshList();
+    } catch (reason) {
+      window.alert(errorMessage(reason));
+    }
+  }
+
+  async function onDelete(id: number, label: string) {
+    const ok = window.confirm(
+      `Удалить портфель «${label}»?\nУдаление нельзя отменить. Остальные портфели не изменятся.`,
+    );
+    if (!ok) return;
+    const ok2 = window.confirm(`Подтвердите удаление портфеля «${label}».`);
+    if (!ok2) return;
+    try {
+      await deletePersonalPortfolio(id);
+      const items = await refreshList();
+      if (selectedPortfolioId === id) {
+        const next = items[0]?.id ?? null;
+        selectPortfolio(next);
+        navigate(next != null ? `/portfolio/${next}` : "/portfolio");
+      }
+    } catch (reason) {
+      window.alert(errorMessage(reason));
+    }
+  }
+
+  if (loading && portfolios.length === 0) {
+    return <PageState kind="loading" title="Портфели" />;
+  }
+
   return (
     <section>
       <PageHeader
-        title="Обзор портфеля (хаб)"
-        description="Служебный хаб: мой портфель, кандидат Kraken, решение и риск."
+        title="Портфели"
+        description="Несколько независимых портфелей: выберите один — Kraken анализирует только его."
         helpPageId="portfolio_hub"
       />
-      <p className="page-purpose">
-        «Мой портфель» — ваш ручной снимок. «Собрать портфель» — ответ Kraken. Это разные экраны;
-        брокер не подключается.
-      </p>
 
-      <HeroCard eyebrow="Куда смотреть" headline="Сначала мой портфель или кандидат Kraken">
-        <p style={{ margin: 0 }}>
-          <Link to="/portfolio/mine">Мой портфель</Link> — что у вас сейчас.{" "}
-          <Link to="/portfolio/candidate?capital=100000">Собрать портфель</Link> — что предлагает
-          Kraken на ваш капитал.
-        </p>
-      </HeroCard>
+      {error && <p className="error-text">{error}</p>}
 
-      <div className="portfolio-hub-grid">
-        {links.map((item) => (
-          <Link key={item.to} className="hub-link" to={item.to}>
-            <strong>{item.title}</strong>
-            <span>{item.text}</span>
-          </Link>
-        ))}
-      </div>
+      {portfolios.length === 0 ? (
+        <HeroCard eyebrow="Начало" headline="У вас пока нет портфелей">
+          <p style={{ margin: 0 }}>
+            Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно
+            его. Можно создать несколько портфелей и переключаться между ними.
+          </p>
+        </HeroCard>
+      ) : (
+        <div className="portfolio-hub-grid">
+          {portfolios.map((p) => (
+            <article
+              key={p.id}
+              className={`portfolio-card${selectedPortfolioId === p.id ? " is-selected" : ""}`}
+            >
+              <header className="portfolio-card-header">
+                <strong className="portfolio-card-title">{p.name}</strong>
+                {selectedPortfolioId === p.id ? (
+                  <span className="badge badge-running">выбран</span>
+                ) : null}
+              </header>
+              <p className="portfolio-card-meta">
+                <span>{lifecycleLabel(p.lifecycle_state)}</span>
+                <span>
+                  Кэш {p.cash_rub} ₽ · активов {p.positions_count}
+                </span>
+              </p>
+              <div className="portfolio-card-actions">
+                <Link className="button" to={`/portfolio/${p.id}`}>
+                  Открыть
+                </Link>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => void onRename(p.id, p.name)}
+                >
+                  Переименовать
+                </button>
+                <button
+                  type="button"
+                  className="button quiet-danger"
+                  onClick={() => void onDelete(p.id, p.name)}
+                >
+                  Удалить
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
 
-      <ExplanationCard title="Как читать этот раздел" level={1}>
-        <ol className="plain-list">
-          <li>Откройте «Мой портфель» — ручной состав и оценка.</li>
-          <li>Откройте «Собрать портфель» — research-состав Kraken на вашу сумму.</li>
-          <li>Сравните на вкладке «Сравнение с Kraken» в моём портфеле.</li>
-          <li>Проверьте «Инвестиционное решение» и «Проверку риска».</li>
-        </ol>
+      <ExplanationCard title="Новый портфель" level={1}>
+        <form onSubmit={onCreate} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+          <label>
+            Название *
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Основной"
+              required
+              maxLength={120}
+            />
+          </label>
+          <label>
+            Описание
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Дивидендный / ОФЗ / …"
+              maxLength={500}
+            />
+          </label>
+          {formError && <div className="error-text">{formError}</div>}
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? "Создание…" : "Создать"}
+          </button>
+        </form>
       </ExplanationCard>
+
+      <p className="page-purpose">
+        Кандидат Kraken и Shadow остаются отдельными контурами — это не пользовательские портфели.
+      </p>
+      <p>
+        <Link to="/portfolio/candidate">Собрать портфель (кандидат модели)</Link>
+      </p>
     </section>
   );
 }

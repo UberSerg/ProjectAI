@@ -162,76 +162,25 @@ export interface ManualRebalancePlan {
   cash_safe: boolean;
 }
 
-export interface PositionCreateBody {
-  instrument_id: number;
-  units: number;
-  average_price?: number | null;
-  note?: string | null;
-  non_standard_lot?: boolean;
-}
-
-export interface PositionPatchBody {
-  units?: number;
-  average_price?: number | null;
-  note?: string | null;
-  non_standard_lot?: boolean;
-}
-
-export function getPrimaryManualPortfolio(signal?: AbortSignal): Promise<ManualPortfolio> {
-  return apiRequest("/manual-portfolios/primary", { signal });
-}
-
-export function updatePrimaryCash(cashRub: number, signal?: AbortSignal): Promise<ManualPortfolio> {
-  return apiRequest("/manual-portfolios/primary/cash", {
-    method: "PUT",
-    body: { cash_rub: cashRub },
-    signal,
-  });
-}
-
-export function addPrimaryPosition(
-  body: PositionCreateBody,
+export function getPortfolioAnalysis(
+  portfolioId: number,
   signal?: AbortSignal,
-): Promise<ManualPosition> {
-  return apiRequest("/manual-portfolios/primary/positions", {
-    method: "POST",
-    body,
-    signal,
-  });
+): Promise<ManualPortfolioAnalysis> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/analysis`, { signal });
 }
 
-export function patchPrimaryPosition(
-  positionId: number,
-  body: PositionPatchBody,
+export function getPortfolioCompareCandidate(
+  portfolioId: number,
   signal?: AbortSignal,
-): Promise<ManualPosition> {
-  return apiRequest(`/manual-portfolios/primary/positions/${positionId}`, {
-    method: "PATCH",
-    body,
-    signal,
-  });
+): Promise<ManualCompareCandidate> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/compare-candidate`, { signal });
 }
 
-export function deletePrimaryPosition(
-  positionId: number,
+export function getPortfolioRebalance(
+  portfolioId: number,
   signal?: AbortSignal,
-): Promise<{ status: string; id: number }> {
-  return apiRequest(`/manual-portfolios/primary/positions/${positionId}`, {
-    method: "DELETE",
-    signal,
-  });
-}
-
-export function getPrimaryAnalysis(signal?: AbortSignal): Promise<ManualPortfolioAnalysis> {
-  return apiRequest("/manual-portfolios/primary/analysis", { signal });
-}
-
-export function getPrimaryCompareCandidate(signal?: AbortSignal): Promise<ManualCompareCandidate> {
-  return apiRequest("/manual-portfolios/primary/compare-candidate", { signal });
-}
-
-export function getPrimaryRebalance(signal?: AbortSignal): Promise<ManualRebalancePlan> {
-  return apiRequest("/manual-portfolios/primary/rebalance", { signal });
+): Promise<ManualRebalancePlan> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/rebalance`, { signal });
 }
 
 export interface PortfolioCashflowHorizon {
@@ -280,6 +229,9 @@ export interface PortfolioCashflows {
   note?: string;
 }
 
-export function getPrimaryCashflows(signal?: AbortSignal): Promise<PortfolioCashflows> {
-  return apiRequest("/manual-portfolios/primary/cashflows", { signal });
+export function getPortfolioCashflows(
+  portfolioId: number,
+  signal?: AbortSignal,
+): Promise<PortfolioCashflows> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/cashflows`, { signal });
 }

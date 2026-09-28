@@ -11,14 +11,14 @@ export function RoleModeSwitch() {
         Режим интерфейса
       </span>
       <div
-        className="role-mode-buttons"
+        className="role-mode-buttons switch-segments"
         role="group"
         aria-labelledby="role-mode-label"
         title="Технический переключатель вида. Не смена аккаунта."
       >
         <button
           type="button"
-          className={role === "USER" ? "active" : undefined}
+          className={`switch-segment${role === "USER" ? " active" : ""}`}
           data-testid="role-switch-user"
           aria-pressed={role === "USER"}
           onClick={() => setRole("USER")}
@@ -27,7 +27,7 @@ export function RoleModeSwitch() {
         </button>
         <button
           type="button"
-          className={role === "OWNER" ? "active" : undefined}
+          className={`switch-segment${role === "OWNER" ? " active" : ""}`}
           data-testid="role-switch-owner"
           aria-pressed={role === "OWNER"}
           onClick={() => setRole("OWNER")}

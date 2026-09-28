@@ -52,14 +52,24 @@
   -webkit-font-smoothing: antialiased;
 }
 
+html {
+  background: var(--surface-page);
+}
+
 body {
   margin: 0;
-  background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(0, 113, 227, 0.06), transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, rgba(88, 86, 214, 0.05), transparent 50%),
-    var(--bg);
+  background: var(--page-gradient);
   color: var(--ink);
   min-height: 100vh;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--link);
 }
 
 .layout {
@@ -162,14 +172,15 @@ body {
 }
 
 .nav:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--row-hover);
   color: var(--ink);
 }
 
 .nav.active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--nav-active-ink);
   font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .nav.soon {
@@ -310,9 +321,7 @@ h3 {
 
 .ds-card-hero {
   padding: 1.5rem 1.6rem;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(245, 248, 255, 0.98)),
-    var(--panel);
+  background: var(--surface-hero);
 }
 
 .ds-card-title {
@@ -339,13 +348,13 @@ h3 {
 }
 
 .ds-card-warning {
-  border-color: rgba(184, 110, 0, 0.28);
-  background: linear-gradient(180deg, #fffaf0, #fff);
+  border-color: var(--warning-line);
+  background: var(--warning-bg);
 }
 
 .ds-card-risk {
-  border-color: rgba(201, 52, 0, 0.28);
-  background: linear-gradient(180deg, #fff7f4, #fff);
+  border-color: var(--risk-line);
+  background: var(--risk-bg);
 }
 
 .ds-card-quality {
@@ -353,7 +362,7 @@ h3 {
 }
 
 .ds-card-explanation {
-  background: #fbfbfd;
+  background: var(--surface-raised);
 }
 
 .allocation-bars {
@@ -405,7 +414,7 @@ h3 {
 .why-toggle {
   appearance: none;
   border: 1px solid var(--line-strong);
-  background: #fff;
+  background: var(--surface-elevated);
   color: var(--accent);
   border-radius: 999px;
   padding: 0.45rem 0.95rem;
@@ -447,7 +456,7 @@ h3 {
 
 .portfolio-hub-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
   gap: 0.9rem;
 }
 
@@ -468,6 +477,7 @@ h3 {
 .hub-link:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-soft);
+  color: inherit;
 }
 
 .hub-link strong {
@@ -558,8 +568,8 @@ h3 {
 }
 
 .page-state.error {
-  border-color: rgba(215, 0, 21, 0.2);
-  background: #fff8f8;
+  border-color: var(--error-line);
+  background: var(--error-bg);
 }
 
 .skeleton-grid {
@@ -571,7 +581,7 @@ h3 {
 .skeleton {
   height: 5.5rem;
   border-radius: var(--radius-md);
-  background: linear-gradient(90deg, #ececef 25%, #f7f7f8 50%, #ececef 75%);
+  background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 50%, var(--skeleton-base) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.2s ease-in-out infinite;
 }
@@ -593,7 +603,7 @@ h3 {
   padding: 1.25rem 1.35rem;
   border-radius: var(--radius-md);
   border: 1px dashed var(--line-strong);
-  background: #fbfbfd;
+  background: var(--surface-raised);
 }
 
 .empty-rich strong {
@@ -635,7 +645,7 @@ th {
   letter-spacing: 0.04em;
   color: var(--muted);
   font-weight: 650;
-  background: #fafafa;
+  background: var(--surface-table-head);
   white-space: nowrap;
 }
 
@@ -718,4 +728,328 @@ td {
   .table-wrap table {
     min-width: 720px;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Semantic theme tokens — light baseline.
+   Dark counterparts live in styles/kraken-dark.css under [data-theme="dark"]
+   (imported last, so it wins at equal specificity).
+   Components must reference these instead of literal surface colours.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Page + surfaces */
+  --surface-page: #f5f5f7;
+  --page-gradient:
+    radial-gradient(1200px 600px at 10% -10%, rgba(0, 113, 227, 0.06), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(88, 86, 214, 0.05), transparent 50%),
+    var(--surface-page);
+  --surface-elevated: #ffffff;
+  --surface-panel: var(--panel);
+  --surface-raised: #fbfbfd;
+  --surface-subtle: #f7f9fb;
+  --surface-sunken: #eef2f6;
+  --surface-hero: linear-gradient(160deg, #ffffff 0%, #f5f8ff 55%, #eef3fd 100%);
+  --surface-modal: #ffffff;
+  --surface-toast: #ffffff;
+  --surface-tooltip: #1d1d1f;
+  --ink-tooltip: #ffffff;
+  --sidebar-footer-bg: rgba(0, 0, 0, 0.025);
+
+  /* Form controls */
+  --surface-input: #ffffff;
+  --surface-input-disabled: #f2f3f5;
+
+  /* Tables + rows */
+  --surface-table-head: #fafafa;
+  --row-hover: rgba(0, 0, 0, 0.035);
+
+  /* Chrome */
+  --overlay: rgba(16, 24, 40, 0.35);
+  --link: var(--accent);
+  --link-hover: #0059b3;
+  --nav-active-ink: var(--accent);
+
+  /* Status hairlines (badges already own their bg/fg tokens) */
+  --success-line: rgba(31, 138, 76, 0.28);
+  --warning-line: rgba(184, 110, 0, 0.28);
+  --error-line: rgba(215, 0, 21, 0.2);
+  --risk-line: rgba(201, 52, 0, 0.28);
+  --danger-quiet-bg: rgba(215, 0, 21, 0.06);
+
+  /* Informational surfaces */
+  --info-bg: #eef4f8;
+  --info-line: #c5d5e0;
+  --info-ink: #1a3a55;
+
+  /* Charts + loading */
+  --chart-surface: #f8fafc;
+  --chart-grid: #dbe3ec;
+  --skeleton-base: #ececef;
+  --skeleton-shine: #f7f7f8;
+
+  /* Asset-class accents and the type scale (dark used to declare these alone) */
+  --equity: #0071e3;
+  --fi: #5856d6;
+  --cash: #8e8e93;
+  --accent-text: var(--accent);
+  --text-xs: 0.78rem;
+  --text-sm: 0.88rem;
+  --text-md: 0.95rem;
+  --text-lg: 1.15rem;
+  --text-xl: 1.55rem;
+  --text-hero: clamp(2.4rem, 3.6vw, 3.15rem);
+}
+
+/* ——— Button aliases used across pages (.btn was previously unstyled) ——— */
+.btn,
+a.btn,
+.button,
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.btn:hover,
+a.btn:hover,
+.button:hover,
+a.button:hover {
+  background: var(--accent-hover);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.btn.btn-secondary,
+.btn.secondary,
+.button.secondary,
+a.button.secondary {
+  background: var(--surface-elevated);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.btn.btn-secondary:hover,
+.btn.secondary:hover,
+.button.secondary:hover,
+a.button.secondary:hover {
+  background: var(--row-hover);
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+/* Destructive but unobtrusive — must not compete with the primary action. */
+.btn.quiet-danger,
+.button.quiet-danger,
+button.quiet-danger {
+  background: var(--danger-quiet-bg);
+  color: var(--error);
+  border-color: var(--error-line);
+}
+
+.btn.quiet-danger:hover,
+.button.quiet-danger:hover,
+button.quiet-danger:hover {
+  background: var(--error-bg);
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.error-text {
+  color: var(--error);
+  font-size: 0.88rem;
+}
+
+/* ——— Segmented switches in the sidebar footer (theme + presentation role) ——— */
+.theme-switch {
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem 0.15rem;
+}
+
+.theme-switch-label {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.switch-segments {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.switch-segment {
+  appearance: none;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.42rem 0.35rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-subtle);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.switch-segment:hover {
+  background: var(--row-hover);
+  color: var(--ink);
+}
+
+.switch-segment.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.switch-segment.active:hover {
+  background: var(--accent-hover);
+  color: #ffffff;
+}
+
+/* ——— Portfolio hub cards ——— */
+.portfolio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 1.1rem 1.15rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow);
+}
+
+.portfolio-card.is-selected {
+  border-color: var(--accent);
+}
+
+.portfolio-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.portfolio-card-title {
+  min-width: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.portfolio-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.portfolio-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: auto;
+  padding-top: 0.35rem;
+}
+
+.portfolio-card-actions > * {
+  flex: 0 1 auto;
+  font-size: 0.88rem;
+  padding: 0.42rem 0.75rem;
+}
+
+/* ——— Portfolio switcher dropdown ——— */
+.portfolio-switcher {
+  position: relative;
+}
+
+.portfolio-switcher-menu {
+  position: absolute;
+  z-index: 40;
+  top: 100%;
+  left: 0;
+  margin-top: 0.3rem;
+  min-width: 15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+}
+
+.portfolio-switcher-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.portfolio-switcher-option:hover {
+  background: var(--row-hover);
+  color: var(--ink);
+}
+
+.portfolio-switcher-option.is-active {
+  background: var(--accent-soft);
+  color: var(--nav-active-ink);
+}
+
+.portfolio-switcher-state {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.portfolio-switcher-sep {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0.35rem 0;
+}
+
+.portfolio-switcher-form {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.15rem;
+}
+
+.portfolio-switcher-form input {
+  width: 100%;
 }

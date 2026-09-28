@@ -82,6 +82,7 @@ export function App() {
         <Route path="/portfolio/mine" element={<MyPortfolioPage />} />
         <Route path="/portfolio/candidate" element={<PortfolioCandidatePage />} />
         <Route path="/portfolio/builder" element={<PortfolioCandidatePage />} />
+        <Route path="/portfolio/:portfolioId" element={<MyPortfolioPage />} />
         <Route
           path="/decision-memory"
           element={

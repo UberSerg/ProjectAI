@@ -53,17 +53,54 @@ export function queryString(values: Record<string, string | number | boolean | u
   return query ? `?${query}` : "";
 }
 
+/** USER-facing copy for the retired single-portfolio endpoints. */
+export const PORTFOLIO_RELOAD_MESSAGE =
+  "Не удалось загрузить выбранный портфель. Обновите страницу.";
+
+const RETIRED_PORTFOLIO_PATTERNS = [
+  /PRIMARY_RETIRED/i,
+  /manual-portfolios\/primary/i,
+  /personal-portfolios\/primary/i,
+  /singleton/i,
+  /getPersonalPrimary/i,
+  /activatePersonalJournal/i,
+];
+
+function safeStringify(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function mentionsRetiredPortfolio(raw: string): boolean {
+  return RETIRED_PORTFOLIO_PATTERNS.some((re) => re.test(raw));
+}
+
+/** Retired-endpoint internals must never reach USER copy. */
+function userSafeMessage(raw: string): string {
+  return mentionsRetiredPortfolio(raw) ? PORTFOLIO_RELOAD_MESSAGE : raw;
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    if (mentionsRetiredPortfolio(`${error.message} ${safeStringify(error.details)}`)) {
+      return PORTFOLIO_RELOAD_MESSAGE;
+    }
     const details = error.details;
     if (typeof details === "object" && details !== null && "detail" in details) {
       const detail = (details as { detail: unknown }).detail;
-      if (typeof detail === "object" && detail !== null && "message" in detail) {
-        return String((detail as { message: unknown }).message);
+      if (typeof detail === "object" && detail !== null) {
+        const row = detail as { message?: unknown; code?: unknown };
+        if (typeof row.message === "string" && row.message.trim()) return userSafeMessage(row.message);
+        if (typeof row.code === "string" && row.code.trim()) return userSafeMessage(row.code);
       }
-      if (typeof detail === "string") return detail;
+      if (typeof detail === "string") return userSafeMessage(detail);
     }
-    return error.message;
+    return typeof error.message === "string" ? userSafeMessage(error.message) : "Ошибка запроса";
   }
-  return error instanceof Error ? error.message : "Unexpected error";
+  return userSafeMessage(error instanceof Error ? error.message : "Unexpected error");
 }

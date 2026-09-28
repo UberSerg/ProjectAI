@@ -4,15 +4,17 @@ import { errorMessage } from "../api/client";
 import { getDailyPersonalDecision, type DailyPersonalDecision } from "../api/dailyPersonalDecision";
 import { getHurdle, type HurdleQuote } from "../api/investment";
 import {
-  getPrimaryAnalysis,
+  getPortfolioAnalysis,
   type ManualPortfolioAnalysis,
 } from "../api/manualPortfolios";
 import { getPortfolioRelationsMatrix } from "../api/relations";
 import { getShadowLive, type ShadowLiveResponse } from "../api/shadow";
-import { getPersonalPrimary, type PersonalSummary } from "../api/personalPortfolios";
+import { getPersonalPortfolio, type PersonalSummary } from "../api/personalPortfolios";
+import { PortfolioSwitcher } from "../portfolio/PortfolioSwitcher";
+import { usePortfolioContext } from "../portfolio/PortfolioContext";
 import { getSystemHealth, type HealthResponse } from "../api/system";
 import { getWorkflows, type Workflow } from "../api/workflows";
-import { PageState, StatusBadge } from "../components/Ui";
+import { PageState, StatusBadge, PageHeader } from "../components/Ui";
 import {
   ActionCards,
   AllocationDonut,
@@ -82,6 +84,7 @@ function shadowStatusRu(status: string | undefined): string {
 }
 
 export function DashboardPage() {
+  const { selectedPortfolioId, portfolios, loading: portfoliosLoading } = usePortfolioContext();
   const [data, setData] = useState<CockpitData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,13 +101,27 @@ export function DashboardPage() {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    const analysisReq =
+      selectedPortfolioId != null
+        ? getPortfolioAnalysis(selectedPortfolioId, controller.signal).catch((reason: unknown) => ({
+            __error: errorMessage(reason),
+          }))
+        : Promise.resolve({ __error: "no portfolio" });
+    const dailyReq =
+      selectedPortfolioId != null
+        ? getDailyPersonalDecision(selectedPortfolioId, { signal: controller.signal }).catch(
+            (reason: unknown) => ({
+              __error: errorMessage(reason),
+            }),
+          )
+        : Promise.resolve({ __error: "no portfolio" });
+    const personalReq =
+      selectedPortfolioId != null
+        ? getPersonalPortfolio(selectedPortfolioId, { signal: controller.signal }).catch(() => null)
+        : Promise.resolve(null);
     Promise.all([
-      getPrimaryAnalysis(controller.signal).catch((reason: unknown) => ({
-        __error: errorMessage(reason),
-      })),
-      getDailyPersonalDecision({ signal: controller.signal }).catch((reason: unknown) => ({
-        __error: errorMessage(reason),
-      })),
+      analysisReq,
+      dailyReq,
       getHurdle(controller.signal).catch(() => null),
       getSystemHealth(controller.signal).catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
@@ -112,7 +129,7 @@ export function DashboardPage() {
       }),
       getWorkflows(controller.signal).catch(() => [] as Workflow[]),
       getShadowLive(controller.signal).catch(() => null),
-      getPersonalPrimary({ signal: controller.signal }).catch(() => null),
+      personalReq,
     ])
       .then(([analysisOrErr, dailyOrErr, hurdle, health, workflows, shadow, personal]) => {
           if (controller.signal.aborted) return;
@@ -149,12 +166,17 @@ export function DashboardPage() {
         setLoading(false);
       });
     return () => controller.abort();
-  }, []);
+  }, [selectedPortfolioId]);
 
   useEffect(() => {
+    if (portfoliosLoading) return;
+    if (selectedPortfolioId == null) {
+      setLoading(false);
+      return;
+    }
     const abort = load();
     return abort;
-  }, [load]);
+  }, [load, portfoliosLoading, selectedPortfolioId]);
 
   const symbols = useMemo(() => {
     // Same book as Personal Portfolio — prefer personal holdings for «Ваш портфель» relations.
@@ -204,6 +226,18 @@ export function DashboardPage() {
 
   const { isUser } = useKrakenRole();
 
+
+  if (!portfoliosLoading && portfolios.length === 0) {
+    return (
+      <section>
+        <PortfolioSwitcher />
+        <PageHeader title="Обзор" description="У вас пока нет портфелей" />
+        <p>Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно его.</p>
+        <p><a href="/portfolio">Создать портфель</a></p>
+      </section>
+    );
+  }
+
   if (loading) {
     return <PageState kind="loading" title="Загрузка личного кабинета Kraken…" />;
   }
@@ -225,16 +259,20 @@ export function DashboardPage() {
 
   const analysis = data.analysis;
   const personal = data.personal;
-  const journalState =
-    personal?.portfolio.journal_state ??
-    (personal?.portfolio.has_operations ? "ACTIVE" : personal ? "EMPTY" : null);
+  const lifecycle =
+    personal?.portfolio.lifecycle_state ??
+    (personal?.portfolio.has_operations || personal?.portfolio.journal_state === "ACTIVE"
+      ? "ACTIVE"
+      : personal
+        ? "DRAFT"
+        : null);
   // Single book: Personal summary for money metrics; analysis (same snapshot) for allocation/risk.
   const usePersonalMoney = personal != null;
-  const personalActive = journalState === "ACTIVE" || Boolean(personal?.portfolio.has_operations);
+  const personalActive = lifecycle === "ACTIVE";
   const emptyPortfolio = usePersonalMoney
-    ? Number(personal!.summary.cash_rub) <= 0 &&
-      (personal!.positions?.length ?? 0) === 0 &&
-      journalState !== "LEGACY_PENDING"
+    ? lifecycle === "DRAFT" &&
+      Number(personal!.summary.cash_rub) <= 0 &&
+      (personal!.positions?.length ?? 0) === 0
     : Boolean(analysis) && analysis!.positions.length === 0 && analysis!.cash_rub <= 0;
   const weights = analysis
     ? allocationFromAnalysis(analysis)
@@ -279,6 +317,7 @@ export function DashboardPage() {
 
   return (
     <div className="cockpit" data-testid="kraken-cockpit">
+      <PortfolioSwitcher />
       <header className="cockpit-topbar">
         <div>
           <p className="cockpit-kicker">
@@ -332,7 +371,9 @@ export function DashboardPage() {
             <div className={`cockpit-hero-delta ${deltaClass}`} data-testid="cockpit-pnl">
               {personalActive && personal!.summary.investment_pnl_rub == null ? (
                 <span data-testid="cockpit-pnl-unavailable">
-                  Результат недоступен — не хватает цены по части позиций
+                  Результат недоступен.{" "}
+                  {personal!.summary.investment_pnl_message ??
+                    "Не хватает цены по части позиций."}
                 </span>
               ) : pnl == null ? (
                 <span>Результат: нет себестоимости для расчёта</span>
