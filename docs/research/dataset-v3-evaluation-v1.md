@@ -43,6 +43,15 @@ Fail-hard if historical universe cannot resolve — **no** silent fallback to `c
 
 TD-008 remains OPEN: delisted MOEX coverage incomplete; quality stays PARTIAL.
 
-## Model comparison
+## Model comparison (experimental OOS)
 
-Candidate V0/V1 remain pinned to Dataset V2. Experimental V3 model compare requires an explicit research path and must not persist production Candidate/Shadow state. If infrastructure cannot run identical train/eval on V2 and V3 safely, document the blocker and keep coverage comparison.
+Candidate V0/V1 remain pinned to Dataset V2. Production registry upserts are forbidden on the research path.
+
+Research-only tooling (does **not** touch Candidate pins / ACTIVE DatasetSpec):
+
+- Coverage compare CLI: `python -m app.modules.learning.cli_compare`
+- Explicit v2|v3 loader: `app.modules.prediction.application.research_dataset_loader`
+- Chronological OOS runner: `app.modules.prediction.application.research_runner`
+  (`EXPERIMENTAL_V3_RESEARCH`; identical CatBoost hyperparameters; `persist_registry=False` only)
+
+Side-by-side OOS metrics are factual; they do **not** authorize Candidate promote/rollback or ACTIVE switch.

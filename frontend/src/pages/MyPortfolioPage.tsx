@@ -169,23 +169,28 @@ function AddInstrumentModal({
       if (!debounced) setSearchDone(false);
       return;
     }
+    // Query already moved past this debounce tick — wait for the matching one.
+    if (debounced !== query.trim()) {
+      return;
+    }
     const controller = new AbortController();
+    const searchTerm = debounced;
     setSearchDone(false);
-    searchCatalogInstruments({ search: debounced, active: true, page_size: 12 }, controller.signal)
+    searchCatalogInstruments({ search: searchTerm, active: true, page_size: 12 }, controller.signal)
       .then((resp) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && searchTerm === query.trim()) {
           setHits(resp.items);
           setSearchDone(true);
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && searchTerm === query.trim()) {
           setHits([]);
           setSearchDone(true);
         }
       });
     return () => controller.abort();
-  }, [debounced, open, selected]);
+  }, [debounced, open, selected, query]);
 
   if (!open) return null;
 
@@ -193,12 +198,13 @@ function AddInstrumentModal({
     setQuery(value);
     // Typing after a pick invalidates the previous instrument — Add must not
     // submit a stale selection that no longer matches the query.
-    // Sync debounced immediately so a late SBER response cannot briefly repaint.
     if (selected) {
       setSelected(null);
       setHits([]);
       setSearchDone(false);
-      setDebounced(value.trim());
+      // Drop stale debounced value immediately so we never re-paint old hits
+      // while the visible query has already changed (autocomplete race).
+      setDebounced("");
     }
     setErr(null);
   }

@@ -123,6 +123,11 @@ def collect_watermarks(session: Session) -> dict[str, Any]:
 
 
 def determine_health(watermarks: dict[str, Any], *, running: bool = False, blocked: bool = False) -> str:
+    """Operational health — not the same vocabulary as cycle result status.
+
+    `blocked=True` means a concurrency/prerequisite gate (maps to cycle result
+    `BLOCKED`). A finished cycle with status `FAILED` is not health-`BLOCKED`.
+    """
     if running:
         return "RUNNING"
     if blocked:

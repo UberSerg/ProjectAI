@@ -35,12 +35,31 @@ Celery task: `projectai.daily_research_cycle`
 
 ## Status meanings
 
+### Cycle result (`run_daily_research_cycle` / workflow status)
+
 | Status | Meaning |
 |---|---|
-| `NO_CHANGES` | Second run / no new market data; no duplicates created |
+| `SUCCESS` | Cycle completed; at least one meaningful change applied |
+| `NO_CHANGES` | Cycle completed; second run / no new market data; no duplicates created |
+| `BLOCKED` | Cycle **could not begin** — Redis lock not acquired (`reason=ALREADY_RUNNING`). Prerequisite / concurrency gate unmet. |
+| `FAILED` | Cycle **started** and a required step raised or returned `ERROR` |
+
+Orphan `RUNNING` workflow rows left by a crashed process are **not** `BLOCKED`. After the Redis lock is acquired they are finalized as `FAILED` (`STALE_RUNNING`) and a new cycle proceeds.
+
+### Operational health (`determine_health` / status API)
+
+| Status | Meaning |
+|---|---|
 | `WAITING_FOR_MARKET` | Downstream current enough; waiting for a newer complete market day |
 | `LAGGING` | Raw market ahead of Analytics/Technical/Forward |
-| `BLOCKED` / `ALREADY_RUNNING` | Lock held or required step failed |
+| `IN_SYNC` | Downstream caught up to available market |
+| `RUNNING` | A cycle workflow is currently `RUNNING` |
+| `BLOCKED` | Explicit blocked flag (gate unmet); distinct from cycle `FAILED` |
+
+### Step-level
+
+| Status | Meaning |
+|---|---|
 | `SKIPPED_NOT_DUE` | Relations latest snapshot still acceptable for Forward max age |
 
 ## Schedule

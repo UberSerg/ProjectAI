@@ -71,3 +71,49 @@ def test_compare_reuses_existing_runs_without_activating(core_db, monkeypatch) -
     assert "sample_diff" in artifact
     assert "interpretation" in artifact
     assert not any("wins" in x.lower() for x in artifact["interpretation"])
+
+
+def test_research_loader_allows_v2_v3_not_v1(core_db) -> None:
+    from app.modules.learning.application.seed import seed_dataset_specs
+    from app.modules.prediction.application.research_dataset_loader import (
+        ALLOWED_RESEARCH_VERSIONS,
+        ResearchDatasetError,
+        resolve_research_dataset_run,
+    )
+
+    seed_dataset_specs(core_db)
+    assert ALLOWED_RESEARCH_VERSIONS == frozenset({2, 3})
+    try:
+        resolve_research_dataset_run(core_db, dataset_spec_version=1)
+        raise AssertionError("expected ResearchDatasetError for v1")
+    except ResearchDatasetError as exc:
+        assert "allows versions" in str(exc)
+
+
+def test_research_loader_does_not_touch_candidate_pins() -> None:
+    from app.modules.learning.dataset_config import PIT_DAILY_CORE_V2_VERSION
+    from app.modules.prediction.application.research_runner import (
+        CANDIDATE_V0_LOCKED_VERSION,
+        CANDIDATE_V1_LOCKED_VERSION,
+    )
+    from app.modules.prediction.candidate_config import CANDIDATE_V0_CONFIG
+    from app.modules.prediction.candidate_v1_config import CANDIDATE_V1_RANKER_CONFIG
+
+    assert CANDIDATE_V0_CONFIG.dataset_spec_version == PIT_DAILY_CORE_V2_VERSION
+    assert CANDIDATE_V1_RANKER_CONFIG.dataset_spec_version == PIT_DAILY_CORE_V2_VERSION
+    assert CANDIDATE_V0_LOCKED_VERSION == 2
+    assert CANDIDATE_V1_LOCKED_VERSION == 2
+    assert PIT_DAILY_CORE_ACTIVE_VERSION == 1
+
+
+def test_experimental_oos_forbids_registry_persist(core_db) -> None:
+    import pytest
+
+    from app.modules.prediction.application.research_runner import run_experimental_v2_v3_oos
+
+    with pytest.raises(ValueError, match="must not persist"):
+        run_experimental_v2_v3_oos(
+            core_db,
+            dataset_spec_version=3,
+            persist_registry=True,
+        )

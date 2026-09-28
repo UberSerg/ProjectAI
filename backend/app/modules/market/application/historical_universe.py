@@ -308,19 +308,40 @@ def summarize_historical_universe(
         from_qualities.get(q, 0)
         for q in (QUALITY_MOEX_LISTED_FROM, QUALITY_MOEX_HISTORY_FROM)
     )
+    authoritative_to = sum(
+        to_qualities.get(q, 0)
+        for q in (QUALITY_MOEX_LISTED_TILL, QUALITY_INSTRUMENT_ACTIVE_TO)
+    )
     proxy_from = from_qualities.get(QUALITY_FIRST_CANDLE, 0)
+    proxy_to = to_qualities.get(QUALITY_LAST_CANDLE, 0)
+    unknown_to = to_qualities.get(QUALITY_UNKNOWN, 0)
+    n = len(rows)
+
+    def _pct(num: int, den: int) -> float | None:
+        if den <= 0:
+            return None
+        return round(100.0 * num / den, 2)
+
     return {
         "version": version,
-        "members": len(rows),
-        "instrument_count": len(rows),
+        "members": n,
+        "instrument_count": n,
         "earliest_eligible_from": min(froms).isoformat(),
         "latest_eligible_from": max(froms).isoformat(),
+        "earliest_eligible_to": min(tos).isoformat() if tos else None,
+        "latest_eligible_to": max(tos).isoformat() if tos else None,
         "closed_windows": len(tos),
         "open_ended": sum(1 for r in rows if r.eligible_to is None),
         "eligible_from_quality_counts": from_qualities,
         "eligible_to_quality_counts": to_qualities,
         "authoritative_from_boundaries": authoritative_from,
+        "authoritative_to_boundaries": authoritative_to,
         "proxy_from_boundaries": proxy_from,
+        "proxy_to_boundaries": proxy_to,
+        "unknown_to": unknown_to,
+        "authoritative_from_pct": _pct(authoritative_from, n),
+        "proxy_from_pct": _pct(proxy_from, n),
+        "unknown_to_pct": _pct(unknown_to, n),
         "quality_from": (
             QUALITY_MOEX_LISTED_FROM
             if version == HISTORICAL_EQUITY_UNIVERSE_V2
