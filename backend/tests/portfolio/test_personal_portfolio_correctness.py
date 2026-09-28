@@ -16,7 +16,6 @@ from app.modules.portfolio.application.manual_portfolio_service import (
     add_position,
     update_cash,
 )
-from app.modules.portfolio.application.user_portfolio_service import create_user_portfolio
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
     activate_journal,
@@ -28,6 +27,7 @@ from app.modules.portfolio.application.personal_portfolio_service import (
     journal_operation_count,
     journal_state,
 )
+from app.modules.portfolio.application.user_portfolio_service import create_user_portfolio
 from app.modules.portfolio.domain.personal_ledger import money
 from app.modules.portfolio.infrastructure.models import (
     ManualPortfolio,
@@ -618,7 +618,7 @@ def test_activate_journal_integrity_race_idempotent(pp_db: Session, monkeypatch:
         return real_state(session, p)
 
     monkeypatch.setattr(pps, "journal_state", _race_state)
-    again = activate_journal(pp_db, portfolio)
+    activate_journal(pp_db, portfolio)
     # Mock may force journal_state label; lifecycle status stays ACTIVE.
     assert (portfolio.status or "").upper() == "ACTIVE"
     assert journal_operation_count(pp_db, portfolio.id) == n

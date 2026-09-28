@@ -24,11 +24,11 @@ describe("AppShell investor-first nav", () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
   });
 
-  it("includes research-hub, candidate, bonds, companies/fundamentals", () => {
+  it("includes research-hub, portfolios, candidate, bonds, companies/fundamentals", () => {
     renderShell();
     const nav = screen.getByTestId("primary-nav");
     expect(nav.querySelector('a[href="/research-hub"]')).toBeTruthy();
-    expect(nav.querySelector('a[href="/portfolio/mine"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/portfolio"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/portfolio/candidate"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/instruments"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/bonds"]')).toBeTruthy();
@@ -37,14 +37,14 @@ describe("AppShell investor-first nav", () => {
     expect(nav.querySelector('a[href="/calibration"]')).toBeTruthy();
   });
 
-  it("puts my portfolio first under portfolio group", () => {
+  it("puts portfolios manager first under portfolio group", () => {
     renderShell();
     const nav = screen.getByTestId("primary-nav");
     const links = [...nav.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    const mine = links.indexOf("/portfolio/mine");
+    const portfolios = links.indexOf("/portfolio");
     const candidate = links.indexOf("/portfolio/candidate");
-    expect(mine).toBeGreaterThanOrEqual(0);
-    expect(candidate).toBeGreaterThan(mine);
+    expect(portfolios).toBeGreaterThanOrEqual(0);
+    expect(candidate).toBeGreaterThan(portfolios);
   });
 
   it("does not list analytics, technical, relations, allocation as primary links", () => {
@@ -54,7 +54,6 @@ describe("AppShell investor-first nav", () => {
     expect(nav.querySelector('a[href="/technical"]')).toBeNull();
     expect(nav.querySelector('a[href="/relations"]')).toBeNull();
     expect(nav.querySelector('a[href="/allocation"]')).toBeNull();
-    expect(nav.querySelector('a[href="/portfolio"]')).toBeNull();
   });
 
   it("uses wide main layout without artificial reading max-width", () => {
