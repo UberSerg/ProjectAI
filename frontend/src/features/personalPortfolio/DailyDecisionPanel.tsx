@@ -18,6 +18,18 @@ function money(v: string | number | null | undefined): string {
   return `${n.toLocaleString("ru-RU")} ₽`;
 }
 
+const LIMITATION_COPY: Record<string, string> = {
+  CANDIDATE_STALE: "Сохранённый кандидат устарел.",
+  CANDIDATE_FRESHNESS_UNKNOWN: "Свежесть сохранённого кандидата не подтверждена.",
+  CANDIDATE_OR_VALUATION_UNAVAILABLE: "Нет надёжного сравнения с кандидатом или оценка неполная.",
+  ADVISORY_ONLY_BOND_TRADE: "Только ориентир по fixed-income — учёт облигаций не исполняет сделку.",
+  READ_ONLY_HYPOTHETICAL: "Гипотетический план без записи в журнал.",
+};
+
+function humanLimitation(code: string): string {
+  return LIMITATION_COPY[code] || code;
+}
+
 function statusForBadge(status: string): string {
   if (status === "NO_ACTION" || status === "READY") return "ok";
   if (status === "PARTIAL" || status === "LEGACY_PENDING" || status === "NEEDS_SETUP" || status === "DRAFT_ANALYSIS") {
@@ -35,7 +47,9 @@ function ScenarioCard({ scenario }: { scenario: DecisionScenario }) {
         <strong>{scenario.title}</strong>
         <span className="chip">{scenario.status}</span>
       </div>
-      {unavailable && scenario.reason ? <p className="muted">{scenario.reason}</p> : null}
+      {unavailable && scenario.reason ? (
+        <p className="muted">{humanLimitation(scenario.reason)}</p>
+      ) : null}
       {!unavailable ? (
         <>
           <p className="muted">
@@ -82,7 +96,9 @@ function ScenarioCard({ scenario }: { scenario: DecisionScenario }) {
         </>
       ) : null}
       {scenario.limitations?.length ? (
-        <p className="muted">Ограничения: {scenario.limitations.join(", ")}</p>
+        <p className="muted">
+          Ограничения: {scenario.limitations.map(humanLimitation).join("; ")}
+        </p>
       ) : null}
       {scenario.cbr_context?.wording ? <p className="muted">{scenario.cbr_context.wording}</p> : null}
     </li>

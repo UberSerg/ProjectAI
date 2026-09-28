@@ -38,6 +38,26 @@ def _candidate_stale(compare: dict[str, Any] | None) -> bool:
     return bool(compare.get("candidate_stale"))
 
 
+def _candidate_freshness_known(compare: dict[str, Any] | None) -> bool:
+    if not compare:
+        return False
+    # Older fixtures may omit the field — treat missing as known only when not stale.
+    if "candidate_freshness_known" not in compare:
+        return not bool(compare.get("candidate_stale"))
+    return bool(compare.get("candidate_freshness_known"))
+
+
+def _precise_candidate_blocked(compare: dict[str, Any] | None) -> str | None:
+    """Return limitation code if Candidate cannot drive precise lot plans."""
+    if not compare:
+        return "CANDIDATE_OR_VALUATION_UNAVAILABLE"
+    if _candidate_stale(compare):
+        return "CANDIDATE_STALE"
+    if not _candidate_freshness_known(compare):
+        return "CANDIDATE_FRESHNESS_UNKNOWN"
+    return None
+
+
 def _confidence(
     *,
     snap: PersonalPortfolioSnapshot,
@@ -55,6 +75,8 @@ def _confidence(
         reasons.append("candidate_unavailable")
     if _candidate_stale(compare):
         reasons.append("candidate_stale")
+    if compare is not None and not _candidate_freshness_known(compare):
+        reasons.append("candidate_freshness_unknown")
     if research is None:
         reasons.append("research_decision_unavailable")
     if snap.missing_price_count:
@@ -115,7 +137,14 @@ def build_new_cash_scenarios(
     ]
 
     stale = _candidate_stale(compare)
-    precise_ok = allow_precise and not stale
+    freshness_block: str | None = None
+    if compare is not None:
+        if stale:
+            freshness_block = "CANDIDATE_STALE"
+        elif not _candidate_freshness_known(compare):
+            freshness_block = "CANDIDATE_FRESHNESS_UNKNOWN"
+    # Precise Candidate lots only when freshness is known AND not stale.
+    precise_ok = allow_precise and freshness_block is None
     underweight = _target_underweight_plan(
         session,
         snap=snap,
@@ -123,7 +152,7 @@ def build_new_cash_scenarios(
         hyp_nav=hyp_nav,
         compare=compare,
         allow_precise=precise_ok,
-        stale=stale,
+        block_reason=freshness_block,
         instruments=instruments,
     )
     scenarios.append(underweight)
@@ -136,7 +165,7 @@ def build_new_cash_scenarios(
         compare=compare,
         research=research,
         allow_precise=precise_ok,
-        stale=stale,
+        block_reason=freshness_block,
         instruments=instruments,
     )
     scenarios.append(kraken)
@@ -186,7 +215,8 @@ def _hint_scenario(scenarios: list[dict[str, Any]], confidence: dict[str, Any]) 
         row = next((s for s in scenarios if s["id"] == sid), None)
         if row is None or row.get("status") != "available":
             continue
-        if "CANDIDATE_STALE" in (row.get("limitations") or []):
+        lims = row.get("limitations") or []
+        if "CANDIDATE_STALE" in lims or "CANDIDATE_FRESHNESS_UNKNOWN" in lims:
             continue
         executable = money(row.get("executable_notional_rub") or ZERO)
         if executable > ZERO:
@@ -497,17 +527,17 @@ def _target_underweight_plan(
     hyp_nav: Decimal,
     compare: dict[str, Any] | None,
     allow_precise: bool,
-    stale: bool,
+    block_reason: str | None,
     instruments: dict[str, Instrument],
 ) -> dict[str, Any]:
-    if stale:
+    if block_reason in {"CANDIDATE_STALE", "CANDIDATE_FRESHNESS_UNKNOWN"}:
         return {
             "id": "TARGET_UNDERWEIGHTS",
             "title": "Направить в недовесы",
             "status": "unavailable",
-            "reason": "CANDIDATE_STALE",
+            "reason": block_reason,
             "purchases": [],
-            "limitations": ["CANDIDATE_STALE"],
+            "limitations": [block_reason],
             "target_allocation_rub": "0",
             "executable_notional_rub": "0",
             "advisory_only_rub": "0",
@@ -585,7 +615,7 @@ def _kraken_allocation_plan(
     compare: dict[str, Any] | None,
     research: dict[str, Any] | None,
     allow_precise: bool,
-    stale: bool,
+    block_reason: str | None,
     instruments: dict[str, Instrument],
 ) -> dict[str, Any]:
     if research is None:
@@ -635,8 +665,9 @@ def _kraken_allocation_plan(
     executable = ZERO
     advisory = ZERO
     limitations = ["Гипотетический план; не приказ брокеру."]
-    if stale:
-        limitations.append("CANDIDATE_STALE")
+    blocked = block_reason in {"CANDIDATE_STALE", "CANDIDATE_FRESHNESS_UNKNOWN"}
+    if blocked and block_reason:
+        limitations.append(block_reason)
 
     if deploy_fi > ZERO:
         purchases.append(
@@ -656,7 +687,7 @@ def _kraken_allocation_plan(
         )
         advisory = money(advisory + deploy_fi)
 
-    if allow_precise and compare is not None and not stale and deploy_eq > ZERO:
+    if allow_precise and compare is not None and not blocked and deploy_eq > ZERO:
         equity_items = [
             it
             for it in _shortfalls(snap=snap, compare=compare, hyp_nav=hyp_nav, instruments=instruments)
@@ -668,16 +699,16 @@ def _kraken_allocation_plan(
         purchases.extend(eq_purchases)
         executable = money(executable + eq_exec)
         advisory = money(advisory + eq_adv)
-    elif deploy_eq > ZERO and (stale or not allow_precise or compare is None):
+    elif deploy_eq > ZERO and (blocked or not allow_precise or compare is None):
         limitations.append("EQUITY_INSTRUMENTS_DEGRADED")
 
     residual = money(new_cash - executable - advisory)
     if residual < ZERO:
         residual = ZERO
-    status = "available" if (not stale or deploy_fi > ZERO or keep_cash > ZERO) else "degraded"
-    if stale and executable <= ZERO:
+    status = "available" if (not blocked or deploy_fi > ZERO or keep_cash > ZERO) else "degraded"
+    if blocked and executable <= ZERO:
         status = "degraded"
-        reason = "CANDIDATE_STALE"
+        reason = block_reason
     else:
         reason = None
     return {

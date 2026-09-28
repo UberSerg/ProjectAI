@@ -497,7 +497,8 @@ def build_daily_personal_decision(
         allow_precise = bool(analysis) and not bool((analysis or {}).get("valuation_partial"))
         if allow_precise:
             compare, cerr = _safe_call(
-                "compare", lambda: compare_to_candidate(session, portfolio=snap.portfolio)
+                "compare",
+                lambda: compare_to_candidate(session, portfolio=snap.portfolio, as_of=as_of),
             )
             if cerr:
                 degradations.append(cerr)
@@ -608,7 +609,8 @@ def build_daily_personal_decision(
     rebalance = None
     if allow_precise:
         compare, cerr = _safe_call(
-            "compare", lambda: compare_to_candidate(session, portfolio=book)
+            "compare",
+            lambda: compare_to_candidate(session, portfolio=book, as_of=as_of),
         )
         if cerr:
             degradations.append(cerr)
@@ -856,6 +858,9 @@ def _pack(
             "candidate_id": (compare or {}).get("candidate_id"),
             "candidate_as_of": (compare or {}).get("candidate_as_of"),
             "candidate_stale": (compare or {}).get("candidate_stale"),
+            "candidate_freshness_known": (compare or {}).get("candidate_freshness_known"),
+            "candidate_freshness_reason": (compare or {}).get("candidate_freshness_reason"),
+            "candidate_age_days": (compare or {}).get("candidate_age_days"),
             "rebalance_available": rebalance is not None,
             "research_decision_status": (decision_block or {}).get("status") if decision_block else None,
             "research_equity_weight": (decision_block or {}).get("equity_weight") if decision_block else None,

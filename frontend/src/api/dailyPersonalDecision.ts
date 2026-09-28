@@ -140,6 +140,9 @@ export interface DailyPersonalDecision {
     candidate_id?: string | null;
     candidate_as_of?: string | null;
     candidate_stale?: boolean | null;
+    candidate_freshness_known?: boolean | null;
+    candidate_freshness_reason?: string | null;
+    candidate_age_days?: number | null;
     rebalance_available?: boolean;
     research_decision_status?: string | null;
     research_equity_weight?: number | null;

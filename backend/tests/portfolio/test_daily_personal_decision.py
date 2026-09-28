@@ -210,10 +210,12 @@ def test_aligned_no_action(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> N
     )
     monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.compare_to_candidate",
-        lambda session, portfolio=None: {
+        lambda session, portfolio=None, as_of=None, **kwargs: {
             "actual_source": "personal_portfolio",
             "candidate_source": "preview",
             "candidate_id": "cash",
+            "candidate_stale": False,
+            "candidate_freshness_known": True,
             "comparisons": [],
             "nav": 100000.0,
         },
@@ -669,10 +671,10 @@ def test_candidate_unavailable_not_aligned(pp_db: Session, monkeypatch: pytest.M
         },
     )
 
-    def boom_compare(session, portfolio=None):
+    def boom_compare(session, portfolio=None, as_of=None, **kwargs):
         raise RuntimeError("candidate down")
 
-    def boom_rebalance(session, portfolio=None):
+    def boom_rebalance(session, portfolio=None, **kwargs):
         raise RuntimeError("rebalance down")
 
     monkeypatch.setattr(
@@ -1411,3 +1413,417 @@ def test_decision_v2_confidence_parentheses(pp_db):
     )
     assert partial["status"] == "PARTIAL"
 
+
+def test_evaluate_candidate_freshness_age_overrides_stored_false():
+    from app.modules.portfolio.application.manual_portfolio_service import (
+        evaluate_candidate_freshness,
+    )
+
+    aged = evaluate_candidate_freshness(
+        candidate_source="snapshot",
+        freshness={
+            "stale": False,
+            "stale_after_days": 7,
+            "market_as_of": "2026-09-01",
+        },
+        snapshot_status="READY",
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert aged["candidate_stale"] is True
+    assert aged["candidate_freshness_known"] is True
+    assert aged["candidate_freshness_reason"] == "AGE_EXCEEDED"
+    assert aged["age_days"] == 19
+
+    fresh = evaluate_candidate_freshness(
+        candidate_source="snapshot",
+        freshness={
+            "stale": False,
+            "stale_after_days": 7,
+            "market_as_of": "2026-09-18",
+        },
+        snapshot_status="READY",
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert fresh["candidate_stale"] is False
+    assert fresh["candidate_freshness_known"] is True
+    assert fresh["age_days"] == 2
+
+    # Boundary: age == threshold remains fresh (same as Candidate creation: days > stale_days).
+    boundary = evaluate_candidate_freshness(
+        candidate_source="snapshot",
+        freshness={
+            "stale": False,
+            "stale_after_days": 7,
+            "market_as_of": "2026-09-13",
+        },
+        snapshot_status="READY",
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert boundary["age_days"] == 7
+    assert boundary["candidate_stale"] is False
+    assert boundary["candidate_freshness_reason"] == "FRESH"
+
+    stored_true = evaluate_candidate_freshness(
+        candidate_source="snapshot",
+        freshness={
+            "stale": True,
+            "stale_after_days": 7,
+            "market_as_of": "2026-09-19",
+        },
+        snapshot_status="READY",
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert stored_true["candidate_stale"] is True
+    assert stored_true["candidate_freshness_reason"] == "STORED_STALE"
+
+    status_stale = evaluate_candidate_freshness(
+        candidate_source="snapshot",
+        freshness={
+            "stale": False,
+            "stale_after_days": 7,
+            "market_as_of": "2026-09-19",
+        },
+        snapshot_status="STALE",
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert status_stale["candidate_stale"] is True
+    assert status_stale["candidate_freshness_reason"] == "SNAPSHOT_STATUS_STALE"
+
+    unknown = evaluate_candidate_freshness(
+        candidate_source="snapshot",
+        freshness={"stale": False, "stale_after_days": 7},
+        snapshot_status="READY",
+        candidate_as_of=None,
+        generated_at=None,
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert unknown["candidate_freshness_known"] is False
+    assert unknown["candidate_stale"] is False
+    assert unknown["candidate_freshness_reason"] == "CANDIDATE_FRESHNESS_UNKNOWN"
+
+    live = evaluate_candidate_freshness(
+        candidate_source="live_preview",
+        freshness={},
+        snapshot_status=None,
+        evaluation_date=date(2026, 9, 20),
+    )
+    assert live["candidate_stale"] is False
+    assert live["candidate_freshness_known"] is True
+    assert live["candidate_freshness_reason"] == "LIVE_PREVIEW"
+
+
+def test_decision_v2_aged_stored_false_blocks_precise_lots(pp_db, monkeypatch):
+    """Stored stale=false must not stay fresh forever after stale_after_days."""
+    portfolio = _reset(pp_db, "dd-v2-age")
+    eq = _equity(pp_db, "DDV2AGE", close=Decimal("100"))
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="dd-age-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("100"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="dd-age-buy",
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
+        lambda session: {
+            "candidate_id": "aged-1",
+            "as_of": "2026-09-01",
+            "generated_at": "2026-09-01T12:00:00+00:00",
+            "status": "READY",
+            "payload": {
+                "candidate_id": "aged-1",
+                "as_of": "2026-09-01",
+                "positions": [
+                    {
+                        "symbol": "DDV2AGE",
+                        "weight": 0.5,
+                        "instrument_id": eq.id,
+                        "asset_class": "equity",
+                    }
+                ],
+                "freshness": {
+                    "stale": False,
+                    "stale_after_days": 7,
+                    "market_as_of": "2026-09-01",
+                    "generated_at": "2026-09-01T12:00:00+00:00",
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "app.modules.investment.application.risk_opportunity_service.run_investment_decision",
+        lambda session, **kwargs: {
+            "decision": {"cash_weight": 0.2, "equity_weight": 0.8, "status": "RESEARCH_ONLY"}
+        },
+    )
+    d = build_daily_personal_decision(
+        pp_db,
+        portfolio=portfolio,
+        as_of=date(2026, 9, 20),
+        new_cash_rub=Decimal("30000"),
+    )
+    assert d["context"]["candidate_stale"] is True
+    assert d["context"]["candidate_freshness_known"] is True
+    assert d["context"]["candidate_age_days"] == 19
+    uw = _scenario(d, "TARGET_UNDERWEIGHTS")
+    assert uw["status"] != "available"
+    assert "CANDIDATE_STALE" in (uw.get("limitations") or [])
+    assert uw.get("purchases") == []
+    kraken = _scenario(d, "KRAKEN_ALLOCATION")
+    assert not any(p.get("lots") for p in kraken.get("purchases") or [] if p.get("symbol"))
+
+
+def test_decision_v2_fresh_within_threshold(pp_db, monkeypatch):
+    portfolio = _reset(pp_db, "dd-v2-fr")
+    eq = _equity(pp_db, "DDV2FR", close=Decimal("100"))
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="dd-fr-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("100"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="dd-fr-buy",
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
+        lambda session: {
+            "candidate_id": "fresh-1",
+            "as_of": "2026-09-18",
+            "generated_at": "2026-09-18T12:00:00+00:00",
+            "status": "READY",
+            "payload": {
+                "candidate_id": "fresh-1",
+                "positions": [
+                    {
+                        "symbol": "DDV2FR",
+                        "weight": 0.4,
+                        "instrument_id": eq.id,
+                        "asset_class": "equity",
+                    }
+                ],
+                "freshness": {
+                    "stale": False,
+                    "stale_after_days": 7,
+                    "market_as_of": "2026-09-18",
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "app.modules.investment.application.risk_opportunity_service.run_investment_decision",
+        lambda session, **kwargs: {
+            "decision": {"cash_weight": 0.2, "equity_weight": 0.8, "status": "RESEARCH_ONLY"}
+        },
+    )
+    d = build_daily_personal_decision(
+        pp_db,
+        portfolio=portfolio,
+        as_of=date(2026, 9, 20),
+        new_cash_rub=Decimal("30000"),
+    )
+    assert d["context"]["candidate_stale"] is False
+    assert d["context"]["candidate_freshness_known"] is True
+    uw = _scenario(d, "TARGET_UNDERWEIGHTS")
+    assert uw["status"] == "available"
+    assert "CANDIDATE_STALE" not in (uw.get("limitations") or [])
+
+
+def test_decision_v2_unknown_freshness_blocks_precise_lots(pp_db, monkeypatch):
+    portfolio = _reset(pp_db, "dd-v2-unk")
+    eq = _equity(pp_db, "DDV2UNK", close=Decimal("100"))
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="dd-unk-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("100"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="dd-unk-buy",
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
+        lambda session: {
+            "candidate_id": "unk-1",
+            "as_of": None,
+            "generated_at": None,
+            "status": "READY",
+            "payload": {
+                "candidate_id": "unk-1",
+                "positions": [
+                    {
+                        "symbol": "DDV2UNK",
+                        "weight": 0.5,
+                        "instrument_id": eq.id,
+                        "asset_class": "equity",
+                    }
+                ],
+                "freshness": {"stale": False, "stale_after_days": 7},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "app.modules.investment.application.risk_opportunity_service.run_investment_decision",
+        lambda session, **kwargs: {
+            "decision": {"cash_weight": 0.2, "equity_weight": 0.8, "status": "RESEARCH_ONLY"}
+        },
+    )
+    d = build_daily_personal_decision(
+        pp_db,
+        portfolio=portfolio,
+        as_of=date(2026, 9, 20),
+        new_cash_rub=Decimal("30000"),
+    )
+    assert d["context"]["candidate_freshness_known"] is False
+    assert d["context"]["candidate_stale"] is False
+    uw = _scenario(d, "TARGET_UNDERWEIGHTS")
+    assert uw["status"] != "available"
+    assert "CANDIDATE_FRESHNESS_UNKNOWN" in (uw.get("limitations") or [])
+    assert uw.get("purchases") == []
+
+
+def test_decision_v2_live_preview_not_falsely_stale(pp_db, monkeypatch):
+    portfolio = _reset(pp_db, "dd-v2-lp")
+    eq = _equity(pp_db, "DDV2LP", close=Decimal("100"))
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="dd-lp-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("100"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="dd-lp-buy",
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
+        lambda session: None,
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.preview_portfolio_candidate",
+        lambda session, **kwargs: {
+            "candidate_id": "live",
+            "positions": [
+                {
+                    "symbol": "DDV2LP",
+                    "weight": 0.4,
+                    "instrument_id": eq.id,
+                    "asset_class": "equity",
+                }
+            ],
+            "freshness": {"stale": False, "stale_after_days": 7},
+        },
+    )
+    monkeypatch.setattr(
+        "app.modules.investment.application.risk_opportunity_service.run_investment_decision",
+        lambda session, **kwargs: {
+            "decision": {"cash_weight": 0.2, "equity_weight": 0.8, "status": "RESEARCH_ONLY"}
+        },
+    )
+    d = build_daily_personal_decision(
+        pp_db,
+        portfolio=portfolio,
+        as_of=date(2026, 9, 20),
+        new_cash_rub=Decimal("30000"),
+    )
+    assert d["context"]["candidate_source"] == "live_preview"
+    assert d["context"]["candidate_stale"] is False
+    assert d["context"]["candidate_freshness_known"] is True
+    uw = _scenario(d, "TARGET_UNDERWEIGHTS")
+    assert uw["status"] == "available"
+
+
+def test_compare_preserves_zero_candidate_weight(pp_db, monkeypatch):
+    portfolio = _reset(pp_db, "dd-v2-zw")
+    eq = _equity(pp_db, "DDV2ZW", close=Decimal("100"))
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="dd-zw-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("100"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="dd-zw-buy",
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
+        lambda session: {
+            "candidate_id": "zw-1",
+            "as_of": "2026-09-18",
+            "status": "READY",
+            "payload": {
+                "candidate_id": "zw-1",
+                "positions": [
+                    {
+                        "symbol": "DDV2ZW",
+                        "weight": 0,
+                        "instrument_id": eq.id,
+                        "asset_class": "equity",
+                    }
+                ],
+                "freshness": {
+                    "stale": False,
+                    "stale_after_days": 7,
+                    "market_as_of": "2026-09-18",
+                },
+            },
+        },
+    )
+    from app.modules.portfolio.application.manual_portfolio_service import compare_to_candidate
+
+    compare = compare_to_candidate(pp_db, portfolio=portfolio, as_of=date(2026, 9, 20))
+    row = next(r for r in compare["comparisons"] if r["symbol"] == "DDV2ZW")
+    assert row["candidate_weight"] == 0.0
+    assert row["status"] == "BOTH"
+    assert row["status"] != "NOT_IN_CANDIDATE"
