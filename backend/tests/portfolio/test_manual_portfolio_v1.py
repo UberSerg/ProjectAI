@@ -351,7 +351,9 @@ def test_outside_research_can_value_not_predict(mp_db) -> None:
     assert val.market_value == Decimal("200")
 
 
-def test_intraday_universe_includes_manual_positions(mp_db) -> None:
+def test_intraday_universe_includes_manual_positions(mp_db, monkeypatch) -> None:
+    book = _isolated_draft_book(mp_db, label="Intraday Manual Book")
+    _bind_legacy_primary(monkeypatch, book)
     inst = _equity(mp_db, "MPINTR", lot=1)
     add_position(mp_db, instrument_id=inst.id, units=Decimal("1"))
     members = resolve_intraday_universe(mp_db)
