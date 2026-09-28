@@ -188,8 +188,11 @@ def test_compare_reuses_existing_runs_without_activating(core_db, monkeypatch) -
         return
 
     # Temporary non-default active fixture: V2 active.
+    # Deactivate first (unique one-active-per-code constraint).
     for spec in core_db.scalars(select(DatasetSpec)).all():
-        spec.is_active = spec.id == v2_spec.id
+        spec.is_active = False
+    core_db.flush()
+    v2_spec.is_active = True
     core_db.flush()
     before_v2 = snapshot_dataset_spec_flags(core_db)
     assert any(r["version"] == 2 and r["is_active"] for r in before_v2 if r["code"] == "pit_daily_core")
