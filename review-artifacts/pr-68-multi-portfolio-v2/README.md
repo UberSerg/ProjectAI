@@ -34,3 +34,4 @@ Test data created during E2E is marked / cleaned; market candles and instruments
 - TWR/XIRR not introduced.
 - No IAM / multi-tenancy.
 - Dataset V3 / Candidate / Shadow unchanged by this PR.
+
