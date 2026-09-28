@@ -13,6 +13,78 @@ export class ApiError extends Error {
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown };
 
+const FIELD_LABELS: Record<string, string> = {
+  name: "Название",
+  description: "Описание",
+  cash_rub: "Кэш",
+  instrument_id: "Инструмент",
+  units: "Количество",
+  lots: "Лоты",
+  average_price: "Средняя цена",
+  amount: "Сумма",
+  price: "Цена",
+  operation_type: "Тип операции",
+  occurred_at: "Дата операции",
+};
+
+function fieldLabel(loc: unknown): string | null {
+  if (!Array.isArray(loc) || loc.length === 0) return null;
+  const leaf = loc[loc.length - 1];
+  if (typeof leaf !== "string" || leaf === "body") return null;
+  return FIELD_LABELS[leaf] ?? leaf;
+}
+
+function formatValidationItem(item: unknown): string | null {
+  if (typeof item !== "object" || item === null) return null;
+  const row = item as { loc?: unknown; msg?: unknown };
+  const msg = typeof row.msg === "string" ? row.msg.trim() : "";
+  if (!msg) return null;
+  const label = fieldLabel(row.loc);
+  return label ? `${label}: ${msg}` : msg;
+}
+
+/**
+ * Extract a human-readable message from a FastAPI / domain error payload.
+ * Never returns JS object coercion like "[object Object]".
+ */
+export function extractBackendErrorMessage(payload: unknown, status?: number): string {
+  const fallback = typeof status === "number" && status > 0 ? `Ошибка запроса (${status})` : "Ошибка запроса";
+
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    return trimmed || fallback;
+  }
+
+  if (typeof payload !== "object" || payload === null) {
+    return fallback;
+  }
+
+  const detail =
+    "detail" in payload ? (payload as { detail: unknown }).detail : payload;
+
+  if (typeof detail === "string") {
+    const trimmed = detail.trim();
+    return trimmed || fallback;
+  }
+
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => formatValidationItem(item))
+      .filter((part): part is string => !!part);
+    if (parts.length > 0) return parts.join("; ");
+    return fallback;
+  }
+
+  if (typeof detail === "object" && detail !== null) {
+    const row = detail as { message?: unknown; code?: unknown };
+    if (typeof row.message === "string" && row.message.trim()) return row.message.trim();
+    if (typeof row.code === "string" && row.code.trim()) return row.code.trim();
+    return fallback;
+  }
+
+  return fallback;
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
@@ -35,11 +107,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     : await response.text();
 
   if (!response.ok) {
-    const message =
-      typeof payload === "object" && payload !== null && "detail" in payload
-        ? String(payload.detail)
-        : `Request failed (${response.status})`;
-    throw new ApiError(message, response.status, payload);
+    throw new ApiError(extractBackendErrorMessage(payload, response.status), response.status, payload);
   }
   return payload as T;
 }
@@ -90,17 +158,14 @@ export function errorMessage(error: unknown): string {
     if (mentionsRetiredPortfolio(`${error.message} ${safeStringify(error.details)}`)) {
       return PORTFOLIO_RELOAD_MESSAGE;
     }
-    const details = error.details;
-    if (typeof details === "object" && details !== null && "detail" in details) {
-      const detail = (details as { detail: unknown }).detail;
-      if (typeof detail === "object" && detail !== null) {
-        const row = detail as { message?: unknown; code?: unknown };
-        if (typeof row.message === "string" && row.message.trim()) return userSafeMessage(row.message);
-        if (typeof row.code === "string" && row.code.trim()) return userSafeMessage(row.code);
+    if (error.details !== undefined) {
+      const extracted = extractBackendErrorMessage(error.details, error.status);
+      if (extracted && !extracted.includes("[object Object]")) {
+        return userSafeMessage(extracted);
       }
-      if (typeof detail === "string") return userSafeMessage(detail);
     }
-    return typeof error.message === "string" ? userSafeMessage(error.message) : "Ошибка запроса";
+    const message = typeof error.message === "string" ? error.message : "Ошибка запроса";
+    return userSafeMessage(message.includes("[object Object]") ? `Ошибка запроса (${error.status || "?"})` : message);
   }
   return userSafeMessage(error instanceof Error ? error.message : "Unexpected error");
 }

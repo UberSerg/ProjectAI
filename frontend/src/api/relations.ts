@@ -160,7 +160,7 @@ export function startRelationsBackfill(body: {
   as_of_to?: string;
   cadence?: string;
 }): Promise<{ workflow_id: number; status: string }> {
-  return apiRequest("/relations/backfill", { method: "POST", body: JSON.stringify(body) });
+  return apiRequest("/relations/backfill", { method: "POST", body });
 }
 
 export interface PortfolioRelationCell {
