@@ -30,7 +30,7 @@ class ManualPortfolio(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False, default="MANUAL")
     base_currency: Mapped[str] = mapped_column(Text, nullable=False, default="RUB")
     cash_rub: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False, default=Decimal("0"))
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="ACTIVE")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="DRAFT")
     note: Mapped[str | None] = mapped_column(Text)
     is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     total_contributed_rub: Mapped[Decimal] = mapped_column(

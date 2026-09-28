@@ -13,9 +13,12 @@ from app.infrastructure.market.models import Instrument
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
     create_operation,
-    get_or_create_test_portfolio,
     get_personal_summary,
     reconcile,
+)
+from app.modules.portfolio.application.user_portfolio_service import (
+    activate_portfolio,
+    create_user_portfolio,
 )
 from app.modules.portfolio.domain.personal_ledger import money
 from app.modules.portfolio.infrastructure.models import (
@@ -30,7 +33,14 @@ TEST_NAME = "TEST — Personal Portfolio V1 pytest"
 @pytest.fixture()
 def test_portfolio_id() -> int:
     with core_session() as session:
-        portfolio = get_or_create_test_portfolio(session, name=TEST_NAME)
+        portfolio = session.scalar(
+            select(ManualPortfolio).where(
+                ManualPortfolio.is_test.is_(True),
+                ManualPortfolio.name == TEST_NAME,
+            )
+        )
+        if portfolio is None:
+            portfolio = create_user_portfolio(session, name=TEST_NAME, is_test=True)
         session.execute(
             delete(PersonalOperation).where(PersonalOperation.portfolio_id == portfolio.id)
         )
@@ -40,7 +50,9 @@ def test_portfolio_id() -> int:
         portfolio.total_withdrawn_rub = Decimal("0")
         portfolio.realized_pnl_rub = Decimal("0")
         portfolio.version = 1
+        portfolio.status = "DRAFT"
         session.flush()
+        activate_portfolio(session, portfolio)
         return int(portfolio.id)
 
 

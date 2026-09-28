@@ -177,61 +177,70 @@ export interface PositionPatchBody {
   non_standard_lot?: boolean;
 }
 
-export function getPrimaryManualPortfolio(signal?: AbortSignal): Promise<ManualPortfolio> {
-  return apiRequest("/manual-portfolios/primary", { signal });
+export function getPrimaryManualPortfolio(_signal?: AbortSignal): Promise<ManualPortfolio> {
+  return Promise.reject(new Error("/manual-portfolios/primary retired"));
 }
 
-export function updatePrimaryCash(cashRub: number, signal?: AbortSignal): Promise<ManualPortfolio> {
-  return apiRequest("/manual-portfolios/primary/cash", {
-    method: "PUT",
-    body: { cash_rub: cashRub },
-    signal,
-  });
+export function updatePrimaryCash(_cashRub: number, _signal?: AbortSignal): Promise<ManualPortfolio> {
+  return Promise.reject(new Error("/manual-portfolios/primary retired"));
 }
 
 export function addPrimaryPosition(
-  body: PositionCreateBody,
-  signal?: AbortSignal,
+  _body: PositionCreateBody,
+  _signal?: AbortSignal,
 ): Promise<ManualPosition> {
-  return apiRequest("/manual-portfolios/primary/positions", {
-    method: "POST",
-    body,
-    signal,
-  });
+  return Promise.reject(new Error("Use addDraftPosition(portfolioId, ...)"));
 }
 
 export function patchPrimaryPosition(
-  positionId: number,
-  body: PositionPatchBody,
-  signal?: AbortSignal,
+  _positionId: number,
+  _body: PositionPatchBody,
+  _signal?: AbortSignal,
 ): Promise<ManualPosition> {
-  return apiRequest(`/manual-portfolios/primary/positions/${positionId}`, {
-    method: "PATCH",
-    body,
-    signal,
-  });
+  return Promise.reject(new Error("Use patchDraftPosition(portfolioId, ...)"));
 }
 
 export function deletePrimaryPosition(
-  positionId: number,
-  signal?: AbortSignal,
+  _positionId: number,
+  _signal?: AbortSignal,
 ): Promise<{ status: string; id: number }> {
-  return apiRequest(`/manual-portfolios/primary/positions/${positionId}`, {
-    method: "DELETE",
-    signal,
-  });
+  return Promise.reject(new Error("Use deleteDraftPosition(portfolioId, ...)"));
 }
 
-export function getPrimaryAnalysis(signal?: AbortSignal): Promise<ManualPortfolioAnalysis> {
-  return apiRequest("/manual-portfolios/primary/analysis", { signal });
+export function getPortfolioAnalysis(
+  portfolioId: number,
+  signal?: AbortSignal,
+): Promise<ManualPortfolioAnalysis> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/analysis`, { signal });
 }
 
-export function getPrimaryCompareCandidate(signal?: AbortSignal): Promise<ManualCompareCandidate> {
-  return apiRequest("/manual-portfolios/primary/compare-candidate", { signal });
+/** @deprecated use getPortfolioAnalysis(portfolioId) */
+export function getPrimaryAnalysis(portfolioId: number, signal?: AbortSignal) {
+  return getPortfolioAnalysis(portfolioId, signal);
 }
 
-export function getPrimaryRebalance(signal?: AbortSignal): Promise<ManualRebalancePlan> {
-  return apiRequest("/manual-portfolios/primary/rebalance", { signal });
+export function getPortfolioCompareCandidate(
+  portfolioId: number,
+  signal?: AbortSignal,
+): Promise<ManualCompareCandidate> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/compare-candidate`, { signal });
+}
+
+/** @deprecated use getPortfolioCompareCandidate(portfolioId) */
+export function getPrimaryCompareCandidate(portfolioId: number, signal?: AbortSignal) {
+  return getPortfolioCompareCandidate(portfolioId, signal);
+}
+
+export function getPortfolioRebalance(
+  portfolioId: number,
+  signal?: AbortSignal,
+): Promise<ManualRebalancePlan> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/rebalance`, { signal });
+}
+
+/** @deprecated use getPortfolioRebalance(portfolioId) */
+export function getPrimaryRebalance(portfolioId: number, signal?: AbortSignal) {
+  return getPortfolioRebalance(portfolioId, signal);
 }
 
 export interface PortfolioCashflowHorizon {
@@ -280,6 +289,14 @@ export interface PortfolioCashflows {
   note?: string;
 }
 
-export function getPrimaryCashflows(signal?: AbortSignal): Promise<PortfolioCashflows> {
-  return apiRequest("/manual-portfolios/primary/cashflows", { signal });
+export function getPortfolioCashflows(
+  portfolioId: number,
+  signal?: AbortSignal,
+): Promise<PortfolioCashflows> {
+  return apiRequest(`/personal-portfolios/${portfolioId}/cashflows`, { signal });
+}
+
+/** @deprecated use getPortfolioCashflows(portfolioId) */
+export function getPrimaryCashflows(portfolioId: number, signal?: AbortSignal) {
+  return getPortfolioCashflows(portfolioId, signal);
 }

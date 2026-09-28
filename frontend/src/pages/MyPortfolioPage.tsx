@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { PortfolioSwitcher } from "../portfolio/PortfolioSwitcher";
+import { usePortfolioContext } from "../portfolio/PortfolioContext";
 import { errorMessage } from "../api/client";
 import {
   getCatalogInstrument,
@@ -9,11 +11,10 @@ import {
 } from "../api/instruments";
 import { getDailyPersonalDecision, type DailyPersonalDecision } from "../api/dailyPersonalDecision";
 import {
-  addPrimaryPosition,
-  getPrimaryAnalysis,
-  getPrimaryCashflows,
-  getPrimaryCompareCandidate,
-  getPrimaryRebalance,
+  getPortfolioAnalysis,
+  getPortfolioCashflows,
+  getPortfolioCompareCandidate,
+  getPortfolioRebalance,
   type ManualCompareCandidate,
   type ManualPortfolioAnalysis,
   type ManualRebalancePlan,
@@ -43,21 +44,47 @@ import {
   getPortfolioFundamentalCoverage,
   type PortfolioFundamentalCoverage,
 } from "../api/fundamentals";
+import {
+  addDraftPosition,
+  deletePersonalPortfolio,
+  getPersonalPortfolio,
+  patchPersonalPortfolio,
+  type PersonalOperationType,
+  type PersonalSummary,
+} from "../api/personalPortfolios";
 import { DailyDecisionPanel } from "../features/personalPortfolio/DailyDecisionPanel";
-import { PersonalPortfolioPanel } from "../features/personalPortfolio/PersonalPortfolioPanel";
+import {
+  OP_LABELS,
+  PersonalPortfolioPanel,
+  portfolioLifecycleState,
+} from "../features/personalPortfolio/PersonalPortfolioPanel";
 import { useKrakenRole } from "../role/KrakenRoleContext";
 
-type Tab = "holdings" | "decision" | "analysis" | "payments" | "compare" | "rebalance";
+type Tab = "holdings" | "history" | "decision" | "analysis" | "payments" | "compare" | "rebalance";
+
+function lifecycleHeaderLabel(state: string | undefined): string {
+  if (state === "ACTIVE") return "Учёт включён";
+  return "Настройка";
+}
+
+function money(v: string | null | undefined): string {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v;
+  return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽`;
+}
 
 
 function AddInstrumentModal({
   open,
   onClose,
   onAdded,
+  portfolioId,
 }: {
   open: boolean;
   onClose: () => void;
   onAdded: () => void;
+  portfolioId: number;
 }) {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -65,6 +92,7 @@ function AddInstrumentModal({
   const [selected, setSelected] = useState<CatalogInstrument | null>(null);
   const [units, setUnits] = useState("10");
   const [avgPrice, setAvgPrice] = useState("");
+  const [costBasisTotal, setCostBasisTotal] = useState("");
   const [nonStandardLot, setNonStandardLot] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -98,21 +126,30 @@ function AddInstrumentModal({
       setErr("Количество должно быть больше нуля");
       return;
     }
+    const isBond = (selected.asset_class || "").toLowerCase() === "bond";
     setBusy(true);
     setErr(null);
     try {
-      await addPrimaryPosition({
+      const body: Parameters<typeof addDraftPosition>[1] = {
         instrument_id: selected.id,
         units: unitsNum,
-        average_price: avgPrice === "" ? null : Number(avgPrice),
         non_standard_lot: nonStandardLot,
-      });
+      };
+      if (isBond) {
+        if (costBasisTotal.trim() !== "") {
+          body.cost_basis_total_rub = Number(costBasisTotal);
+        }
+      } else {
+        body.average_price = avgPrice === "" ? null : Number(avgPrice);
+      }
+      await addDraftPosition(portfolioId, body);
       onAdded();
       onClose();
       setQuery("");
       setSelected(null);
       setUnits("10");
       setAvgPrice("");
+      setCostBasisTotal("");
       setNonStandardLot(false);
     } catch (reason) {
       setErr(errorMessage(reason));
@@ -160,6 +197,7 @@ function AddInstrumentModal({
         {selected ? (
           <p className="muted">
             Выбрано: <strong className="mono">{selected.symbol}</strong> ({selected.name})
+            {(selected.asset_class || "").toLowerCase() === "bond" ? " · облигация" : ""}
           </p>
         ) : null}
         <div className="filters" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -167,16 +205,33 @@ function AddInstrumentModal({
             Количество (шт.)
             <input data-testid="add-instrument-units" value={units} onChange={(e) => setUnits(e.target.value)} />
           </label>
-          <label>
-            Средняя цена покупки (опц.)
-            <input
-              data-testid="add-instrument-avg"
-              value={avgPrice}
-              onChange={(e) => setAvgPrice(e.target.value)}
-              placeholder="необязательно"
-            />
-          </label>
+          {(selected?.asset_class || "").toLowerCase() === "bond" ? (
+            <label>
+              Сколько всего было потрачено на позицию, ₽ — необязательно
+              <input
+                data-testid="add-instrument-cost-basis"
+                value={costBasisTotal}
+                onChange={(e) => setCostBasisTotal(e.target.value)}
+                placeholder="необязательно"
+              />
+            </label>
+          ) : (
+            <label>
+              Себестоимость позиции / средняя цена, ₽
+              <input
+                data-testid="add-instrument-avg"
+                value={avgPrice}
+                onChange={(e) => setAvgPrice(e.target.value)}
+                placeholder="необязательно"
+              />
+            </label>
+          )}
         </div>
+        {(selected?.asset_class || "").toLowerCase() === "bond" ? (
+          <p className="muted" data-testid="bond-cost-basis-hint">
+            Если себестоимость не указана, Kraken покажет позицию без расчёта P&amp;L.
+          </p>
+        ) : null}
         <label className="checkbox-row">
           <input
             type="checkbox"
@@ -204,6 +259,31 @@ function AddInstrumentModal({
 }
 
 export function MyPortfolioPage() {
+  const { portfolioId: routePortfolioId } = useParams();
+  const navigate = useNavigate();
+  const {
+    selectedPortfolioId,
+    selectPortfolio,
+    portfolios,
+    loading: portfoliosLoading,
+    refreshList,
+    selectedPortfolio,
+  } = usePortfolioContext();
+  const portfolioId = routePortfolioId ? Number(routePortfolioId) : selectedPortfolioId;
+
+  useEffect(() => {
+    if (routePortfolioId) {
+      const id = Number(routePortfolioId);
+      if (Number.isFinite(id)) selectPortfolio(id);
+    }
+  }, [routePortfolioId, selectPortfolio]);
+
+  useEffect(() => {
+    if (!routePortfolioId && selectedPortfolioId != null) {
+      navigate(`/portfolio/${selectedPortfolioId}${window.location.search}`, { replace: true });
+    }
+  }, [routePortfolioId, selectedPortfolioId, navigate]);
+
   const { isUser } = useKrakenRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
@@ -213,9 +293,12 @@ export function MyPortfolioPage() {
     tabFromUrl === "compare" ||
     tabFromUrl === "rebalance" ||
     tabFromUrl === "decision" ||
+    tabFromUrl === "history" ||
     tabFromUrl === "holdings"
       ? tabFromUrl
       : "holdings";
+  const [personalJournal, setPersonalJournal] = useState<PersonalSummary | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ManualPortfolioAnalysis | null>(null);
   const [catalogBySymbol, setCatalogBySymbol] = useState<Record<string, CatalogInstrumentDetail>>({});
   const [compare, setCompare] = useState<ManualCompareCandidate | null>(null);
@@ -237,11 +320,17 @@ export function MyPortfolioPage() {
       t === "compare" ||
       t === "rebalance" ||
       t === "decision" ||
+      t === "history" ||
       t === "holdings"
     ) {
       setTab(t);
     }
   }, [searchParams]);
+
+  const lifecycle =
+    selectedPortfolio?.lifecycle_state ??
+    (personalJournal ? portfolioLifecycleState(personalJournal) : "DRAFT");
+  const isDraft = lifecycle !== "ACTIVE";
 
   function selectTab(next: Tab) {
     setTab(next);
@@ -251,7 +340,8 @@ export function MyPortfolioPage() {
   }
 
   const reload = useCallback(async (signal?: AbortSignal) => {
-    const next = await getPrimaryAnalysis(signal);
+    if (portfolioId == null) return;
+    const next = await getPortfolioAnalysis(portfolioId, signal);
     setAnalysis(next);
     const symbols = [...new Set(next.positions.map((p) => p.symbol))];
     const details = await Promise.all(
@@ -262,7 +352,7 @@ export function MyPortfolioPage() {
       if (d) map[d.symbol.toUpperCase()] = d;
     });
     setCatalogBySymbol(map);
-  }, []);
+  }, [portfolioId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -276,7 +366,7 @@ export function MyPortfolioPage() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [reload]);
+  }, [reload, portfolioId]);
 
   useEffect(() => {
     if (tab !== "analysis") return;
@@ -289,12 +379,16 @@ export function MyPortfolioPage() {
         }
       });
     return () => controller.abort();
-  }, [tab]);
+  }, [tab, portfolioId]);
 
   useEffect(() => {
     if (tab !== "decision") return;
     const controller = new AbortController();
-    getDailyPersonalDecision({ signal: controller.signal })
+    const req =
+      portfolioId != null
+        ? getDailyPersonalDecision(portfolioId, { signal: controller.signal })
+        : Promise.reject(new Error("no portfolio"));
+    req
       .then(setDailyDecision)
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -303,12 +397,12 @@ export function MyPortfolioPage() {
         }
       });
     return () => controller.abort();
-  }, [tab]);
+  }, [tab, portfolioId]);
 
   useEffect(() => {
     if (tab !== "compare" || !analysis) return;
     const controller = new AbortController();
-    getPrimaryCompareCandidate(controller.signal)
+    getPortfolioCompareCandidate(portfolioId!, controller.signal)
       .then(setCompare)
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -321,7 +415,7 @@ export function MyPortfolioPage() {
   useEffect(() => {
     if (tab !== "rebalance" || !analysis) return;
     const controller = new AbortController();
-    getPrimaryRebalance(controller.signal)
+    getPortfolioRebalance(portfolioId!, controller.signal)
       .then(setRebalance)
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -334,7 +428,7 @@ export function MyPortfolioPage() {
   useEffect(() => {
     if (tab !== "payments" || !analysis) return;
     const controller = new AbortController();
-    getPrimaryCashflows(controller.signal)
+    getPortfolioCashflows(portfolioId!, controller.signal)
       .then(setCashflows)
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
@@ -344,6 +438,50 @@ export function MyPortfolioPage() {
     return () => controller.abort();
   }, [tab, analysis]);
 
+  useEffect(() => {
+    if (tab !== "history" || portfolioId == null) return;
+    const controller = new AbortController();
+    setHistoryLoading(true);
+    getPersonalPortfolio(portfolioId, { owner: !isUser, signal: controller.signal })
+      .then(setPersonalJournal)
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setError(errorMessage(reason));
+        }
+      })
+      .finally(() => setHistoryLoading(false));
+    return () => controller.abort();
+  }, [tab, portfolioId, isUser]);
+
+  async function onRenamePortfolio() {
+    if (portfolioId == null) return;
+    const current = selectedPortfolio?.name ?? "Портфель";
+    const next = window.prompt("Новое название портфеля", current);
+    if (!next?.trim()) return;
+    try {
+      await patchPersonalPortfolio(portfolioId, { name: next.trim() });
+      await refreshList();
+      void reload();
+    } catch (reason) {
+      window.alert(errorMessage(reason));
+    }
+  }
+
+  async function onDeletePortfolio() {
+    if (portfolioId == null) return;
+    const label = selectedPortfolio?.name ?? "Портфель";
+    if (!window.confirm(`Удалить портфель «${label}»?\nУдаление нельзя отменить.`)) return;
+    if (!window.confirm(`Подтвердите удаление портфеля «${label}».`)) return;
+    try {
+      await deletePersonalPortfolio(portfolioId);
+      const items = await refreshList();
+      const nextId = items[0]?.id ?? null;
+      selectPortfolio(nextId);
+      navigate(nextId != null ? `/portfolio/${nextId}` : "/portfolio");
+    } catch (reason) {
+      window.alert(errorMessage(reason));
+    }
+  }
 
   const allocationWeights = useMemo(() => {
     if (!analysis) return { equity: 0, fixedIncome: 0, cash: 0 };
@@ -366,17 +504,78 @@ export function MyPortfolioPage() {
 
 
 
-  if (loading && tab !== "holdings") return <PageState kind="loading" title="Загрузка портфеля…" />;
-  if (error && !analysis && tab !== "holdings") return <PageState kind="error">{error}</PageState>;
+  if (!portfoliosLoading && portfolios.length === 0) {
+    return (
+      <section data-testid="my-portfolio-page">
+        <PageHeader
+          title="Мой портфель"
+          description="У вас пока нет портфелей"
+          helpPageId="manual_portfolio"
+        />
+        <p>
+          Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно его.
+        </p>
+        <p>
+          <Link to="/portfolio">Создать портфель</Link>
+        </p>
+      </section>
+    );
+  }
+
+  if (
+    routePortfolioId &&
+    !portfoliosLoading &&
+    portfolios.length > 0 &&
+    !portfolios.some((p) => p.id === Number(routePortfolioId))
+  ) {
+    return (
+      <section data-testid="my-portfolio-page">
+        <PageHeader title="Портфель не найден" description="Такого портфеля нет." />
+        <p>
+          <Link to="/portfolio">К списку портфелей</Link>
+        </p>
+      </section>
+    );
+  }
+
+  if (loading && tab !== "holdings" && tab !== "history") {
+    return <PageState kind="loading" title="Загрузка портфеля…" />;
+  }
+  if (error && !analysis && tab !== "holdings" && tab !== "history") {
+    return <PageState kind="error">{error}</PageState>;
+  }
+
+  const portfolioTitle = selectedPortfolio?.name ?? analysis?.portfolio.name ?? "Мой портфель";
+  const portfolioLifecycleLabel = lifecycleHeaderLabel(lifecycle);
 
 
   return (
     <section data-testid="my-portfolio-page">
+      <PortfolioSwitcher />
       <PageHeader
-        title="Мой портфель"
-        description="Реальные операции и оценка по рыночным данным. Без брокера и без исполнения сделок."
+        title={portfolioTitle}
+        description={`${portfolioLifecycleLabel} · Реальные операции и оценка по рыночным данным. Без брокера и без исполнения сделок.`}
         helpPageId="manual_portfolio"
       />
+      <div className="page-header-row" style={{ marginBottom: "0.75rem" }} data-testid="portfolio-header-actions">
+        <StatusBadge
+          status={isDraft ? "warning" : "ok"}
+          label={portfolioLifecycleLabel}
+        />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {isDraft ? (
+            <button type="button" className="btn secondary" onClick={() => setModalOpen(true)} data-testid="add-instrument-open">
+              Добавить инструмент
+            </button>
+          ) : null}
+          <button type="button" className="btn ghost" onClick={() => void onRenamePortfolio()} data-testid="rename-portfolio-btn">
+            Переименовать
+          </button>
+          <button type="button" className="btn ghost" onClick={() => void onDeletePortfolio()} data-testid="delete-portfolio-btn">
+            Удалить
+          </button>
+        </div>
+      </div>
 
       {error && tab !== "holdings" ? (
         <WarningCard title="Сообщение">
@@ -392,6 +591,7 @@ export function MyPortfolioPage() {
         {(
           [
             ["holdings", "Состав"],
+            ["history", "История"],
             ["decision", "Что делать"],
             ["analysis", "Анализ"],
             ["payments", "Выплаты"],
@@ -405,6 +605,11 @@ export function MyPortfolioPage() {
             className={`tab${tab === id ? " active" : ""}`}
             onClick={() => selectTab(id)}
             data-testid={`tab-${id}`}
+            title={
+              isDraft && (id === "compare" || id === "rebalance")
+                ? "История операций ещё не начата — сравнение приблизительное"
+                : undefined
+            }
           >
             {label}
           </button>
@@ -413,7 +618,59 @@ export function MyPortfolioPage() {
 
       {tab === "holdings" ? (
         <div data-testid="tab-holdings-panel">
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel
+            portfolioId={portfolioId!}
+            onChanged={() => {
+              void refreshList();
+              void reload();
+            }}
+          />
+        </div>
+      ) : null}
+
+      {tab === "history" ? (
+        <div data-testid="tab-history-panel" style={{ marginTop: "0.75rem" }}>
+          {historyLoading && !personalJournal ? (
+            <PageState kind="loading" title="Загрузка истории…" />
+          ) : !personalJournal ? (
+            <p className="muted">Нет данных журнала.</p>
+          ) : personalJournal.operations.filter((o) => o.status === "ACTIVE").length === 0 ? (
+            <p className="muted">Операций пока нет — начните учёт на вкладке «Состав».</p>
+          ) : (
+            <article className="panel">
+              <h2>Журнал операций</h2>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Дата</th>
+                      <th>Тип</th>
+                      <th>Детали</th>
+                      <th>Комментарий</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {personalJournal.operations
+                      .filter((o) => o.status === "ACTIVE")
+                      .map((o) => (
+                        <tr key={o.id}>
+                          <td>{o.occurred_at?.slice(0, 19).replace("T", " ") ?? "—"}</td>
+                          <td>
+                            {OP_LABELS[o.operation_type as PersonalOperationType] || o.operation_type}
+                          </td>
+                          <td>
+                            {o.amount ? money(o.amount) : null}
+                            {o.units && o.price ? ` · ${o.units} × ${money(o.price)}` : null}
+                            {o.commission && o.commission !== "0" ? ` · комиссия ${money(o.commission)}` : null}
+                          </td>
+                          <td>{o.note || "—"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          )}
         </div>
       ) : null}
 
@@ -423,7 +680,18 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "analysis" && analysis ? (
+      {tab === "analysis" && isDraft ? (
+        <div data-testid="tab-analysis-panel" style={{ marginTop: "0.75rem" }}>
+          <WarningCard title="Анализ после начала учёта">
+            <p style={{ margin: 0 }}>
+              Сначала зафиксируйте текущее состояние и нажмите «Начать учёт» на вкладке «Состав».
+              Рекомендации «Что делать» доступны уже сейчас.
+            </p>
+          </WarningCard>
+        </div>
+      ) : null}
+
+      {tab === "analysis" && analysis && !isDraft ? (
         <div data-testid="tab-analysis-panel" style={{ marginTop: "0.75rem" }}>
           <ExplanationCard title="Распределение" level={1}>
             <AllocationBars
@@ -857,6 +1125,7 @@ export function MyPortfolioPage() {
       ) : null}
 
       <AddInstrumentModal
+        portfolioId={portfolioId!}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onAdded={() => void reload()}

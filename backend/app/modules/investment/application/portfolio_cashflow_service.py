@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.infrastructure.market.models import Instrument
 from app.modules.investment.domain.cashflow_timeline import (
@@ -15,7 +15,8 @@ from app.modules.investment.domain.cashflow_timeline import (
     project_portfolio_cashflows,
 )
 from app.modules.investment.infrastructure.models import BondCashflow, BondTerm
-from app.modules.portfolio.application.personal_portfolio_service import get_or_create_primary
+from app.modules.portfolio.application.personal_portfolio_service import PersonalPortfolioError
+from app.modules.portfolio.infrastructure.models import ManualPortfolio
 
 
 def _load_cashflow_rows(
@@ -38,16 +39,34 @@ def build_manual_portfolio_cashflows(
     session: Session,
     *,
     as_of: date | None = None,
+    portfolio: ManualPortfolio | None = None,
 ) -> dict[str, Any]:
     as_of = as_of or date.today()
-    portfolio = get_or_create_primary(session)
+    if portfolio is None:
+        raise PersonalPortfolioError(
+            "PORTFOLIO_NOT_FOUND",
+            "Портфель не указан.",
+            http_status=404,
+        )
+    book = session.scalar(
+        select(ManualPortfolio)
+        .options(selectinload(ManualPortfolio.positions))
+        .where(ManualPortfolio.id == portfolio.id)
+    )
+    if book is None:
+        raise PersonalPortfolioError(
+            "PORTFOLIO_NOT_FOUND",
+            "Портфель не найден.",
+            http_status=404,
+        )
+
     events = []
     per_position: list[dict[str, Any]] = []
     maturity_ladder: dict[str, int] = {"<1y": 0, "1-3y": 0, "3-5y": 0, "5y+": 0, "unknown": 0}
     gov = 0
     corp = 0
 
-    for pos in portfolio.positions or []:
+    for pos in book.positions or []:
         instrument = session.get(Instrument, pos.instrument_id)
         if instrument is None or (instrument.asset_class or "").lower() != "bond":
             continue
@@ -118,7 +137,7 @@ def build_manual_portfolio_cashflows(
     projection = project_portfolio_cashflows(events=events, as_of=as_of)
     return {
         **projection,
-        "portfolio_id": portfolio.id,
+        "portfolio_id": book.id,
         "positions": per_position,
         "analysis": {
             "maturity_ladder": maturity_ladder,

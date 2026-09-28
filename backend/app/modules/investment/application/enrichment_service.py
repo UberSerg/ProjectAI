@@ -143,17 +143,30 @@ def enqueue_new_bond_from_master(session: Session, instrument: Instrument) -> li
 
 
 def enqueue_p0_portfolio_positions(session: Session) -> dict[str, int]:
-    """Enqueue P0 for Manual Portfolio + Shadow bond positions (startup / catch-up)."""
-    from app.modules.portfolio.application.manual_portfolio_service import get_or_create_primary
+    """Enqueue P0 for all user portfolio bond positions + Shadow (startup / catch-up).
+
+    Multi-Portfolio V2: never auto-create a primary book — only enqueue existing holdings.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.modules.portfolio.infrastructure.models import ManualPortfolio
 
     count = 0
-    portfolio = get_or_create_primary(session)
-    for pos in portfolio.positions or []:
-        instrument = session.get(Instrument, pos.instrument_id)
-        if instrument is None or (instrument.asset_class or "").lower() != "bond":
-            continue
-        enqueue_fi_kinds(session, int(instrument.id), EnrichmentPriority.P0_PORTFOLIO)
-        count += 1
+    portfolios = list(
+        session.scalars(
+            select(ManualPortfolio)
+            .options(selectinload(ManualPortfolio.positions))
+            .where(ManualPortfolio.is_test.is_(False))
+        ).all()
+    )
+    for portfolio in portfolios:
+        for pos in portfolio.positions or []:
+            instrument = session.get(Instrument, pos.instrument_id)
+            if instrument is None or (instrument.asset_class or "").lower() != "bond":
+                continue
+            enqueue_fi_kinds(session, int(instrument.id), EnrichmentPriority.P0_PORTFOLIO)
+            count += 1
 
     # Shadow positions if table exists (SAVEPOINT so missing schema cannot abort txn).
     try:

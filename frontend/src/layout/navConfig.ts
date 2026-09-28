@@ -17,9 +17,9 @@ const userNav: NavGroupDef[] = [
   {
     items: [
       { to: "/", label: labels.nav.overview, end: true },
-      { to: "/portfolio/mine", label: "Портфель" },
+      { to: "/portfolio", label: "Портфель" },
       { to: "/investment-decision", label: "Решения" },
-      { to: "/portfolio/mine?tab=analysis", label: "История" },
+      { to: "/portfolio/mine?tab=history", label: "История" },
     ],
   },
 ];
@@ -29,7 +29,7 @@ const ownerNav: NavGroupDef[] = [
   {
     title: labels.nav.portfolioGroup,
     items: [
-      { to: "/portfolio/mine", label: labels.nav.myPortfolio },
+      { to: "/portfolio", label: "Портфели" },
       { to: "/portfolio/candidate", label: labels.nav.portfolioCandidate },
       { to: "/investment-decision", label: labels.nav.investmentDecision },
       { to: "/portfolio-risk", label: labels.nav.portfolioRisk },
@@ -66,6 +66,7 @@ const ownerNav: NavGroupDef[] = [
 /** Paths that stay available in USER presentation (soft gate, not security). */
 export const USER_ALLOWED_PATH_PREFIXES = [
   "/",
+  "/portfolio",
   "/portfolio/mine",
   "/investment-decision",
   "/portfolio-risk",
@@ -76,18 +77,17 @@ export function navGroupsForRole(role: KrakenPresentationRole): NavGroupDef[] {
   return role === "USER" ? userNav : ownerNav;
 }
 
+function pathMatchesAllowedPrefix(pathname: string, prefix: string): boolean {
+  if (prefix === "/") return pathname === "/";
+  return pathname === prefix || pathname.startsWith(`${prefix}/`) || pathname.startsWith(`${prefix}?`);
+}
+
 export function isOwnerOnlyPath(pathname: string): boolean {
   if (pathname === "/" || pathname === "") return false;
-  return !USER_ALLOWED_PATH_PREFIXES.some(
-    (p) => p !== "/" && (pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(`${p}?`)),
-  ) && pathname !== "/portfolio/mine";
+  return !USER_ALLOWED_PATH_PREFIXES.some((p) => pathMatchesAllowedPrefix(pathname, p));
 }
 
 export function pathAllowedForRole(pathname: string, role: KrakenPresentationRole): boolean {
   if (role === "OWNER") return true;
-  if (pathname === "/") return true;
-  return USER_ALLOWED_PATH_PREFIXES.some((p) => {
-    if (p === "/") return pathname === "/";
-    return pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(`${p}?`);
-  });
+  return USER_ALLOWED_PATH_PREFIXES.some((p) => pathMatchesAllowedPrefix(pathname, p));
 }

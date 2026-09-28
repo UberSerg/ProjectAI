@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Instrument
 from app.modules.fundamentals.infrastructure.models import Issuer, SecurityIssuerMapping
@@ -33,28 +33,12 @@ def _d(value: object) -> Decimal:
 
 
 def get_or_create_primary(session: Session) -> ManualPortfolio:
-    row = session.scalar(
-        select(ManualPortfolio)
-        .options(selectinload(ManualPortfolio.positions))
-        .where(ManualPortfolio.is_test.is_(False))
-        .order_by(ManualPortfolio.id.asc())
-        .limit(1)
+    """No auto-primary (Multi-Portfolio V2). Returns oldest non-test book or raises."""
+    from app.modules.portfolio.application.personal_portfolio_service import (
+        get_or_create_primary as _pp_get,
     )
-    if row is not None:
-        if row.name == "Primary Manual Portfolio":
-            row.name = "Основной портфель"
-        return row
-    row = ManualPortfolio(
-        name="Основной портфель",
-        source="MANUAL",
-        base_currency="RUB",
-        cash_rub=Decimal("0"),
-        is_test=False,
-        version=1,
-    )
-    session.add(row)
-    session.flush()
-    return row
+
+    return _pp_get(session)
 
 
 def portfolio_to_dict(portfolio: ManualPortfolio) -> dict[str, Any]:
@@ -250,16 +234,22 @@ def analyze_manual_portfolio(
     session: Session,
     portfolio: ManualPortfolio | None = None,
 ) -> dict[str, Any]:
-    """Allocation / concentration / risk / credit for the Personal Portfolio book.
+    """Allocation / concentration / risk / credit for a selected user portfolio.
 
     Holdings and marks come from ``load_personal_snapshot`` (Personal read boundary).
-    Optional ``portfolio`` keeps test/isolated books from leaking into primary analytics.
-    Candidate / Shadow / Research paths are not altered here.
+    ``portfolio`` is required for Multi-Portfolio V2 (no auto-primary).
     """
     from app.modules.portfolio.application.personal_portfolio_service import (
+        PersonalPortfolioError,
         load_personal_snapshot,
     )
 
+    if portfolio is None:
+        raise PersonalPortfolioError(
+            "PORTFOLIO_NOT_FOUND",
+            "Портфель не указан.",
+            http_status=404,
+        )
     snap = load_personal_snapshot(session, portfolio)
     portfolio = snap.portfolio
     cash = snap.cash_rub

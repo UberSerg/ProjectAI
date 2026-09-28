@@ -56,7 +56,7 @@ def units_q(value: object) -> Decimal:
 @dataclass
 class PositionBook:
     units: Decimal = ZERO
-    average_cost: Decimal = ZERO  # per unit
+    average_cost: Decimal | None = None  # per unit RUB; None = unknown basis
 
 
 @dataclass
@@ -66,6 +66,7 @@ class LedgerState:
     withdrawn: Decimal = ZERO
     realized_pnl: Decimal = ZERO
     positions: dict[int, PositionBook] = field(default_factory=dict)
+    cost_basis_incomplete: bool = False
 
     def clone(self) -> LedgerState:
         return LedgerState(
@@ -77,6 +78,7 @@ class LedgerState:
                 iid: PositionBook(units=p.units, average_cost=p.average_cost)
                 for iid, p in self.positions.items()
             },
+            cost_basis_incomplete=self.cost_basis_incomplete,
         )
 
 
@@ -85,7 +87,7 @@ class LedgerEvent:
     operation_type: OperationType
     instrument_id: int | None = None
     units: Decimal = ZERO
-    price: Decimal = ZERO
+    price: Decimal | None = ZERO
     amount: Decimal = ZERO
     commission: Decimal = ZERO
 
@@ -145,29 +147,41 @@ def apply_event(state: LedgerState, event: LedgerEvent) -> LedgerState:
         if event.instrument_id is None:
             raise LedgerError("INSTRUMENT_REQUIRED", "Нужно указать инструмент")
         u = units_q(event.units)
-        px = money(event.price)
         if u <= ZERO:
             raise LedgerError("INVALID_UNITS", "Количество бумаг должно быть больше нуля")
-        if px < ZERO:
+        cost_known = event.price is not None
+        px = money(event.price) if cost_known else None
+        if cost_known and px is not None and px < ZERO:
             raise LedgerError("INVALID_PRICE", "Цена не может быть отрицательной")
         book = out.positions.get(event.instrument_id) or PositionBook()
         if book.units > ZERO:
-            # Merge into weighted average as additional opening cost.
-            total_cost = money(book.units * book.average_cost + u * px)
-            new_units = units_q(book.units + u)
-            book.average_cost = money(total_cost / new_units) if new_units > ZERO else ZERO
-            book.units = new_units
+            if book.average_cost is None or px is None:
+                # Any unknown side → keep units, mark basis unknown.
+                book.units = units_q(book.units + u)
+                book.average_cost = None
+                out.cost_basis_incomplete = True
+            else:
+                total_cost = money(book.units * book.average_cost + u * px)
+                new_units = units_q(book.units + u)
+                book.average_cost = money(total_cost / new_units) if new_units > ZERO else None
+                book.units = new_units
+                out.contributed = money(out.contributed + money(u * px))
         else:
             book.units = u
             book.average_cost = px
+            if px is None:
+                out.cost_basis_incomplete = True
+            else:
+                out.contributed = money(out.contributed + money(u * px))
         out.positions[event.instrument_id] = book
-        out.contributed = money(out.contributed + money(u * px))
         return out
 
     if op == OperationType.BUY:
         if event.instrument_id is None:
             raise LedgerError("INSTRUMENT_REQUIRED", "Нужно указать инструмент")
         u = units_q(event.units)
+        if event.price is None:
+            raise LedgerError("INVALID_PRICE", "Цена покупки должна быть больше нуля")
         px = money(event.price)
         if u <= ZERO:
             raise LedgerError("INVALID_UNITS", "Количество бумаг должно быть больше нуля")
@@ -178,10 +192,17 @@ def apply_event(state: LedgerState, event: LedgerEvent) -> LedgerState:
         if out.cash < cash_out:
             raise LedgerError("INSUFFICIENT_CASH", "Недостаточно свободных денег")
         book = out.positions.get(event.instrument_id) or PositionBook()
-        total_cost = money(book.units * book.average_cost + notional + commission)
-        new_units = units_q(book.units + u)
-        book.average_cost = money(total_cost / new_units)
-        book.units = new_units
+        if book.average_cost is None and book.units > ZERO:
+            # Mixing known BUY into unknown opening → basis stays incomplete.
+            book.units = units_q(book.units + u)
+            book.average_cost = None
+            out.cost_basis_incomplete = True
+        else:
+            prior_cost = money((book.units * book.average_cost) if book.average_cost is not None else ZERO)
+            total_cost = money(prior_cost + notional + commission)
+            new_units = units_q(book.units + u)
+            book.average_cost = money(total_cost / new_units)
+            book.units = new_units
         out.positions[event.instrument_id] = book
         out.cash = money(out.cash - cash_out)
         return out
@@ -190,6 +211,8 @@ def apply_event(state: LedgerState, event: LedgerEvent) -> LedgerState:
         if event.instrument_id is None:
             raise LedgerError("INSTRUMENT_REQUIRED", "Нужно указать инструмент")
         u = units_q(event.units)
+        if event.price is None:
+            raise LedgerError("INVALID_PRICE", "Цена продажи должна быть больше нуля")
         px = money(event.price)
         if u <= ZERO:
             raise LedgerError("INVALID_UNITS", "Количество бумаг должно быть больше нуля")
@@ -204,16 +227,20 @@ def apply_event(state: LedgerState, event: LedgerEvent) -> LedgerState:
         proceeds = money(money(u * px) - commission)
         if proceeds < ZERO:
             raise LedgerError("INVALID_COMMISSION", "Комиссия превышает сумму сделки")
-        cost = money(u * book.average_cost)
-        realized = money(proceeds - cost)
         remaining = units_q(book.units - u)
+        if book.average_cost is None:
+            out.cost_basis_incomplete = True
+            # Units/cash move; realized P&L not invented from unknown basis.
+        else:
+            cost = money(u * book.average_cost)
+            realized = money(proceeds - cost)
+            out.realized_pnl = money(out.realized_pnl + realized)
         if remaining == ZERO:
             del out.positions[event.instrument_id]
         else:
             book.units = remaining
             out.positions[event.instrument_id] = book
         out.cash = money(out.cash + proceeds)
-        out.realized_pnl = money(out.realized_pnl + realized)
         return out
 
     raise LedgerError("UNSUPPORTED_OPERATION", f"Операция {op} пока не поддерживается")

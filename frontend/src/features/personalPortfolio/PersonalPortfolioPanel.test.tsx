@@ -5,15 +5,19 @@ import { KrakenRoleProvider } from "../../role/KrakenRoleContext";
 import { ROLE_STORAGE_KEY } from "../../role/types";
 import { PersonalPortfolioPanel } from "./PersonalPortfolioPanel";
 
-const getPersonalPrimary = vi.fn();
+const getPersonalPortfolio = vi.fn();
 const createPersonalOperation = vi.fn();
-const activatePersonalJournal = vi.fn();
+const activatePersonalPortfolio = vi.fn();
+const clearDraftPortfolio = vi.fn();
+const resetPersonalPortfolio = vi.fn();
 const searchCatalogInstruments = vi.fn();
 
 vi.mock("../../api/personalPortfolios", () => ({
-  getPersonalPrimary: (...args: unknown[]) => getPersonalPrimary(...args),
+  getPersonalPortfolio: (...args: unknown[]) => getPersonalPortfolio(...args),
   createPersonalOperation: (...args: unknown[]) => createPersonalOperation(...args),
-  activatePersonalJournal: (...args: unknown[]) => activatePersonalJournal(...args),
+  activatePersonalPortfolio: (...args: unknown[]) => activatePersonalPortfolio(...args),
+  clearDraftPortfolio: (...args: unknown[]) => clearDraftPortfolio(...args),
+  resetPersonalPortfolio: (...args: unknown[]) => resetPersonalPortfolio(...args),
 }));
 
 vi.mock("../../api/instruments", () => ({
@@ -30,6 +34,7 @@ const emptySummary = {
     id: 1,
     name: "Основной портфель",
     base_currency: "RUB",
+    lifecycle_state: "DRAFT" as const,
     status: "ACTIVE",
     is_test: false,
     version: 1,
@@ -59,36 +64,37 @@ const emptySummary = {
 describe("PersonalPortfolioPanel", () => {
   beforeEach(() => {
     localStorage.clear();
-    getPersonalPrimary.mockReset();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    getPersonalPortfolio.mockReset();
     createPersonalOperation.mockReset();
-    activatePersonalJournal.mockReset();
+    activatePersonalPortfolio.mockReset();
+    clearDraftPortfolio.mockReset();
+    resetPersonalPortfolio.mockReset();
     searchCatalogInstruments.mockReset();
     searchCatalogInstruments.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 });
   });
 
-  it("shows onboarding when empty", async () => {
+  it("shows draft setup when portfolio not activated", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue(emptySummary);
+    getPersonalPortfolio.mockResolvedValue(emptySummary);
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.getByText(/Личный портфель ещё пуст/i)).toBeInTheDocument());
-    expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("draft-setup-banner")).toBeInTheDocument());
+    expect(screen.getByText(/История операций ещё не начата/i)).toBeInTheDocument();
+    expect(screen.getByTestId("activate-journal-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("add-operation-btn")).not.toBeInTheDocument();
   });
 
-  it("shows legacy cutover and hides normal add-operation CTA", async () => {
+  it("shows draft metrics and activate CTA", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       ...emptySummary,
-      portfolio: {
-        ...emptySummary.portfolio,
-        journal_state: "LEGACY_PENDING",
-        has_operations: false,
-      },
+      portfolio: { ...emptySummary.portfolio, lifecycle_state: "DRAFT" },
       summary: {
         ...emptySummary.summary,
         cash_rub: "50000",
@@ -103,6 +109,7 @@ describe("PersonalPortfolioPanel", () => {
           units: "100",
           lots: null,
           average_price: "250",
+          cost_basis_status: "KNOWN",
           current_price: "260",
           price_date: "2026-09-25",
           market_value: "26000",
@@ -114,27 +121,27 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.getByTestId("legacy-cutover-panel")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("draft-summary")).toBeInTheDocument());
     expect(screen.getByTestId("activate-journal-btn")).toBeInTheDocument();
     expect(screen.queryByTestId("add-operation-btn")).not.toBeInTheDocument();
-    expect(screen.getByText(/начальное состояние/i)).toBeInTheDocument();
   });
 
   it("activation success enters ACTIVE mode", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       ...emptySummary,
-      portfolio: { ...emptySummary.portfolio, journal_state: "LEGACY_PENDING" },
-      summary: { ...emptySummary.summary, cash_rub: "50000" },
+      portfolio: { ...emptySummary.portfolio, lifecycle_state: "DRAFT" },
+      summary: { ...emptySummary.summary, cash_rub: "50000", nav_rub: "50000" },
     });
-    activatePersonalJournal.mockResolvedValue({
+    activatePersonalPortfolio.mockResolvedValue({
       ...emptySummary,
       portfolio: {
         ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
         journal_state: "ACTIVE",
         has_operations: true,
         journal_cutover_at: "2026-09-27T12:00:00+00:00",
@@ -166,7 +173,7 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
@@ -174,13 +181,19 @@ describe("PersonalPortfolioPanel", () => {
     fireEvent.click(screen.getByTestId("activate-journal-btn"));
     await waitFor(() => expect(screen.getByTestId("personal-summary")).toBeInTheDocument());
     expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument();
+    expect(activatePersonalPortfolio).toHaveBeenCalledWith(1);
   });
 
   it("shows contribution vs investment pnl and owner reconciliation", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       ...emptySummary,
-      portfolio: { ...emptySummary.portfolio, has_operations: true, journal_state: "ACTIVE" },
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
       summary: {
         ...emptySummary.summary,
         cash_rub: "130000",
@@ -194,7 +207,7 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
@@ -205,9 +218,14 @@ describe("PersonalPortfolioPanel", () => {
 
   it("shows bond P&L unavailable", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       ...emptySummary,
-      portfolio: { ...emptySummary.portfolio, has_operations: true, journal_state: "ACTIVE" },
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
       summary: {
         ...emptySummary.summary,
         cash_rub: "0",
@@ -227,6 +245,7 @@ describe("PersonalPortfolioPanel", () => {
           units: "2",
           lots: "2",
           average_price: null,
+          cost_basis_status: "UNKNOWN",
           current_price: "967.5",
           price_date: "2026-09-20",
           market_value: "1935",
@@ -240,21 +259,29 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId("personal-positions")).toBeInTheDocument());
-    expect(screen.getByText("Недоступно")).toBeInTheDocument();
+    expect(screen.getByText(/P&L недоступен/i)).toBeInTheDocument();
   });
 
   it("opens add operation modal with datetime-local", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue(emptySummary);
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
@@ -264,12 +291,13 @@ describe("PersonalPortfolioPanel", () => {
     expect(screen.getByTestId("op-occurred-at")).toHaveAttribute("type", "datetime-local");
   });
 
-  it("uses second-precision datetime-local for post-cutover ops", async () => {
+  it("uses second-precision datetime-local for post-activation ops", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       ...emptySummary,
       portfolio: {
         ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
         has_operations: true,
         journal_state: "ACTIVE",
         journal_cutover_at: "2026-09-27T13:11:37.123456+00:00",
@@ -277,7 +305,6 @@ describe("PersonalPortfolioPanel", () => {
     });
     const { defaultOccurredLocal, toIsoOccurredAt } = await import("./PersonalPortfolioPanel");
     const cutover = new Date("2026-09-27T13:11:37.123456Z");
-    // Simulate UI default taken one second after cutover (step=1, no minute wait).
     const justAfter = new Date(cutover.getTime() + 1000);
     const local = defaultOccurredLocal(justAfter);
     expect(local).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
@@ -287,7 +314,7 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
@@ -296,7 +323,6 @@ describe("PersonalPortfolioPanel", () => {
     const input = screen.getByTestId("op-occurred-at");
     expect(input).toHaveAttribute("type", "datetime-local");
     expect(input).toHaveAttribute("step", "1");
-    // jsdom may normalize to fractional seconds; require at least HH:mm:ss precision.
     expect((input as HTMLInputElement).value).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/,
     );
@@ -304,9 +330,14 @@ describe("PersonalPortfolioPanel", () => {
 
   it("shows unavailable investment result when pnl is null", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       ...emptySummary,
-      portfolio: { ...emptySummary.portfolio, has_operations: true, journal_state: "ACTIVE" },
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
       summary: {
         ...emptySummary.summary,
         cash_rub: "60000",
@@ -323,7 +354,7 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
@@ -334,14 +365,22 @@ describe("PersonalPortfolioPanel", () => {
 
   it("reuses idempotency key on same payload network retry", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue(emptySummary);
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
     createPersonalOperation
       .mockRejectedValueOnce(new Error("Failed to fetch"))
       .mockResolvedValueOnce({ operation_id: 1, portfolio: emptySummary });
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
@@ -361,7 +400,15 @@ describe("PersonalPortfolioPanel", () => {
 
   it("blocks bond trade confirmation in UI", async () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
-    getPersonalPrimary.mockResolvedValue(emptySummary);
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
     searchCatalogInstruments.mockResolvedValue({
       items: [
         {
@@ -386,7 +433,7 @@ describe("PersonalPortfolioPanel", () => {
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <PersonalPortfolioPanel />
+          <PersonalPortfolioPanel portfolioId={1} />
         </KrakenRoleProvider>
       </MemoryRouter>,
     );

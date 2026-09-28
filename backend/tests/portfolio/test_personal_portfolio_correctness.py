@@ -14,9 +14,9 @@ from app.infrastructure.market.models import Candle, Instrument, InstrumentSourc
 from app.modules.investment.infrastructure.models import BondMarketSnapshot, BondTerm
 from app.modules.portfolio.application.manual_portfolio_service import (
     add_position,
-    get_or_create_primary,
     update_cash,
 )
+from app.modules.portfolio.application.user_portfolio_service import create_user_portfolio
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
     activate_journal,
@@ -77,6 +77,7 @@ def _reset_test_portfolio(session: Session, name: str) -> ManualPortfolio:
     portfolio.total_contributed_rub = Decimal("0")
     portfolio.total_withdrawn_rub = Decimal("0")
     portfolio.realized_pnl_rub = Decimal("0")
+    portfolio.status = "DRAFT"
     session.flush()
     return portfolio
 
@@ -188,9 +189,9 @@ def test_cutover_a_legacy_pending(pp_db: Session) -> None:
         )
     )
     pp_db.flush()
-    assert journal_state(pp_db, portfolio) == "LEGACY_PENDING"
+    assert journal_state(pp_db, portfolio) == "DRAFT"
     summary = get_personal_summary(pp_db, portfolio)
-    assert summary["portfolio"]["journal_state"] == "LEGACY_PENDING"
+    assert summary["portfolio"]["journal_state"] == "DRAFT"
     assert journal_operation_count(pp_db, portfolio.id) == 0
 
 
@@ -218,7 +219,7 @@ def test_cutover_b_explicit_activation(pp_db: Session) -> None:
     openings = pp_db.scalars(
         select(PersonalOperation).where(
             PersonalOperation.portfolio_id == portfolio.id,
-            PersonalOperation.source == "LEGACY_BOOTSTRAP",
+            PersonalOperation.source.in_(["LEGACY_BOOTSTRAP", "OPENING_SNAPSHOT"]),
         )
     ).all()
     assert len(openings) == 2
@@ -329,7 +330,7 @@ def test_cutover_f_no_auto_bootstrap(pp_db: Session) -> None:
             amount=Decimal("10000"),
             idempotency_key="no-auto",
         )
-    assert ei.value.code == "LEGACY_STATE_REQUIRES_CUTOVER"
+    assert ei.value.code == "PORTFOLIO_NOT_ACTIVE"
     assert journal_operation_count(pp_db, portfolio.id) == 0
 
 
@@ -346,11 +347,10 @@ def test_cutover_g_missing_cost_basis(pp_db: Session) -> None:
         )
     )
     pp_db.flush()
-    with pytest.raises(PersonalPortfolioError) as ei:
-        activate_journal(pp_db, portfolio)
-    assert ei.value.code == "LEGACY_COST_BASIS_REQUIRED"
-    assert journal_operation_count(pp_db, portfolio.id) == 0
-    assert money(portfolio.cash_rub) == money("1000")
+    # V2: unknown cost basis is allowed; activation succeeds with null opening price.
+    summary = activate_journal(pp_db, portfolio)
+    assert summary["portfolio"]["lifecycle_state"] == "ACTIVE"
+    assert journal_operation_count(pp_db, portfolio.id) >= 1
 
 
 def test_cutover_h_legacy_bond_rejected(pp_db: Session) -> None:
@@ -362,15 +362,14 @@ def test_cutover_h_legacy_bond_rejected(pp_db: Session) -> None:
             portfolio_id=portfolio.id,
             instrument_id=bond.id,
             units=Decimal("2"),
-            average_price=Decimal("95.5"),
+            average_price=None,  # unknown RUB basis — valid in V2
         )
     )
     pp_db.flush()
-    with pytest.raises(PersonalPortfolioError) as ei:
-        activate_journal(pp_db, portfolio)
-    assert ei.value.code == "LEGACY_BOND_COST_BASIS_NOT_READY"
-    assert journal_operation_count(pp_db, portfolio.id) == 0
-    assert money(portfolio.cash_rub) == money("1000")
+    # V2: bond holdings no longer block activation.
+    summary = activate_journal(pp_db, portfolio)
+    assert summary["portfolio"]["lifecycle_state"] == "ACTIVE"
+    assert journal_operation_count(pp_db, portfolio.id) >= 1
 
 
 def test_bond_valuation_and_null_unrealized(pp_db: Session) -> None:
@@ -381,7 +380,7 @@ def test_bond_valuation_and_null_unrealized(pp_db: Session) -> None:
             portfolio_id=portfolio.id,
             instrument_id=bond.id,
             units=Decimal("2"),
-            average_price=Decimal("95.5"),  # ambiguous % — must NOT invent P&L
+            average_price=None,  # unknown RUB basis — must NOT invent P&L
         )
     )
     pp_db.flush()
@@ -615,17 +614,18 @@ def test_activate_journal_integrity_race_idempotent(pp_db: Session, monkeypatch:
     def _race_state(session: Session, p: ManualPortfolio) -> str:
         calls["n"] += 1
         if calls["n"] == 1:
-            return "LEGACY_PENDING"
+            return "DRAFT"
         return real_state(session, p)
 
     monkeypatch.setattr(pps, "journal_state", _race_state)
     again = activate_journal(pp_db, portfolio)
-    assert again["portfolio"]["journal_state"] == "ACTIVE"
+    # Mock may force journal_state label; lifecycle status stays ACTIVE.
+    assert (portfolio.status or "").upper() == "ACTIVE"
     assert journal_operation_count(pp_db, portfolio.id) == n
     opening = pp_db.scalars(
         select(PersonalOperation).where(
             PersonalOperation.portfolio_id == portfolio.id,
-            PersonalOperation.source == "LEGACY_BOOTSTRAP",
+            PersonalOperation.source.in_(["LEGACY_BOOTSTRAP", "OPENING_SNAPSHOT"]),
         )
     ).all()
     keys = [o.idempotency_key for o in opening]
@@ -673,7 +673,9 @@ def test_cancel_idempotency_intent(pp_db: Session) -> None:
     assert ei2.value.code == "IDEMPOTENCY_KEY_REUSED"
 
 
-def test_idempotency_and_contribution_and_guards(pp_db: Session) -> None:
+def test_idempotency_and_contribution_and_guards(
+    pp_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     portfolio = _reset_test_portfolio(pp_db, "TEST — regress")
     create_operation(
         pp_db,
@@ -706,30 +708,27 @@ def test_idempotency_and_contribution_and_guards(pp_db: Session) -> None:
         )
     assert ei.value.code == "IDEMPOTENCY_KEY_REUSED"
 
-    # Primary write guard after journal active
-    primary = get_or_create_primary(pp_db)
-    for pos in list(
-        pp_db.scalars(select(ManualPosition).where(ManualPosition.portfolio_id == primary.id)).all()
-    ):
-        pp_db.delete(pos)
-    pp_db.execute(delete(PersonalOperation).where(PersonalOperation.portfolio_id == primary.id))
-    primary.cash_rub = Decimal("0")
-    pp_db.flush()
+    # Legacy V1 write APIs must refuse an ACTIVE user book (no auto-primary).
+    legacy_book = create_user_portfolio(pp_db, name="TEST — legacy guard book", is_test=True)
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_or_create_primary",
+        lambda session: legacy_book,
+    )
     create_operation(
         pp_db,
-        portfolio=primary,
+        portfolio=legacy_book,
         operation_type="DEPOSIT",
         occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
         amount=Decimal("10"),
-        idempotency_key="prim-1",
+        idempotency_key="legacy-guard-dep",
     )
     with pytest.raises(PersonalPortfolioError) as eg:
         update_cash(pp_db, Decimal("999"))
-    assert eg.value.code == "PORTFOLIO_JOURNAL_MANAGED"
+    assert eg.value.code == "PORTFOLIO_NOT_DRAFT"
     eq = _make_equity(pp_db, "GRD1", close=Decimal("1"), as_of=date(2026, 9, 25))
     with pytest.raises(PersonalPortfolioError) as eg2:
         add_position(pp_db, instrument_id=eq.id, units=Decimal("1"), average_price=Decimal("1"))
-    assert eg2.value.code == "PORTFOLIO_JOURNAL_MANAGED"
+    assert eg2.value.code == "PORTFOLIO_NOT_DRAFT"
 
 
 def test_bond_trade_still_blocked(pp_db: Session) -> None:

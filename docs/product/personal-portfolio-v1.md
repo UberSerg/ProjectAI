@@ -1,5 +1,10 @@
 # Personal Portfolio V1
 
+> **Superseded by Multi-Portfolio V2** — see `docs/product/multi-portfolio-v2.md`.
+> Singleton `/primary` and auto-create «Основной портфель» are retired.
+> This document remains as historical design notes for the journal/projection model
+> that V2 reuses under portfolio-id scoping.
+
 ## Decision
 
 Extend **Manual Portfolio** (`portfolio.manual_*`) with an authoritative **operation journal**.

@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { reportClientError } from "./api/system";
+import { PortfolioProvider } from "./portfolio/PortfolioContext";
 import { KrakenRoleProvider } from "./role/KrakenRoleContext";
 import "./styles.css";
 import "./design-system.css";
@@ -38,7 +39,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <ErrorBoundary>
         <KrakenRoleProvider>
-          <App />
+          <PortfolioProvider>
+            <App />
+          </PortfolioProvider>
         </KrakenRoleProvider>
       </ErrorBoundary>
     </BrowserRouter>

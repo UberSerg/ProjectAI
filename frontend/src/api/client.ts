@@ -58,12 +58,14 @@ export function errorMessage(error: unknown): string {
     const details = error.details;
     if (typeof details === "object" && details !== null && "detail" in details) {
       const detail = (details as { detail: unknown }).detail;
-      if (typeof detail === "object" && detail !== null && "message" in detail) {
-        return String((detail as { message: unknown }).message);
+      if (typeof detail === "object" && detail !== null) {
+        const row = detail as { message?: unknown; code?: unknown };
+        if (typeof row.message === "string" && row.message.trim()) return row.message;
+        if (typeof row.code === "string" && row.code.trim()) return row.code;
       }
       if (typeof detail === "string") return detail;
     }
-    return error.message;
+    return typeof error.message === "string" ? error.message : "Ошибка запроса";
   }
   return error instanceof Error ? error.message : "Unexpected error";
 }

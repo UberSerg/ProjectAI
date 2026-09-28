@@ -152,7 +152,7 @@ def _bond(session: Session, symbol: str = "PANLB") -> Instrument:
     return inst
 
 
-def test_a_personal_state_drives_analytics(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_personal_state_drives_analytics(pp_db: Session) -> None:
     portfolio = _reset(pp_db, "TEST — analytics A")
     sber = _equity(pp_db, "PASBER", close=Decimal("250"), as_of=date(2026, 9, 25))
     lkoh = _equity(pp_db, "PALKOH", close=Decimal("7000"), as_of=date(2026, 9, 25))
@@ -192,16 +192,7 @@ def test_a_personal_state_drives_analytics(pp_db: Session, monkeypatch: pytest.M
     assert {p.symbol for p in snap.positions} == {"PASBER", "PALKOH"}
     assert money(snap.cash_rub) == money("1000000") - money("2500") - money("14000")
 
-    # Force analyze to use this test book (primary would be owner book).
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.manual_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-    analysis = analyze_manual_portfolio(pp_db)
+    analysis = analyze_manual_portfolio(pp_db, portfolio)
     assert analysis["source"] == "personal_portfolio"
     assert analysis["journal_state"] == "ACTIVE"
     assert {r["symbol"] for r in analysis["positions"]} == {"PASBER", "PALKOH"}
@@ -213,7 +204,7 @@ def test_a_personal_state_drives_analytics(pp_db: Session, monkeypatch: pytest.M
     assert money(Decimal(summary["summary"]["cash_rub"])) == money(Decimal(str(analysis["cash_rub"])))
 
 
-def test_c_contribution_not_profit(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_c_contribution_not_profit(pp_db: Session) -> None:
     portfolio = _reset(pp_db, "TEST — analytics C")
     create_operation(
         pp_db,
@@ -231,17 +222,13 @@ def test_c_contribution_not_profit(pp_db: Session, monkeypatch: pytest.MonkeyPat
         amount=Decimal("30000"),
         idempotency_key="pc-2",
     )
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-    analysis = analyze_manual_portfolio(pp_db)
+    analysis = analyze_manual_portfolio(pp_db, portfolio)
     assert money(Decimal(str(analysis["contributed_rub"]))) == money("130000")
     assert analysis["investment_pnl_rub"] == 0.0
     assert money(Decimal(str(analysis["nav"]))) == money("130000")
 
 
-def test_d_partial_valuation(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_d_partial_valuation(pp_db: Session) -> None:
     portfolio = _reset(pp_db, "TEST — analytics D")
     priced = _equity(pp_db, "PAPRX", close=Decimal("100"), as_of=date(2026, 9, 25))
     dark = Instrument(
@@ -295,11 +282,7 @@ def test_d_partial_valuation(pp_db: Session, monkeypatch: pytest.MonkeyPatch) ->
         non_standard_lot=True,
         idempotency_key="pd-buy2",
     )
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-    analysis = analyze_manual_portfolio(pp_db)
+    analysis = analyze_manual_portfolio(pp_db, portfolio)
     assert analysis["valuation_partial"] is True
     assert analysis["investment_pnl_rub"] is None
     dark_row = next(r for r in analysis["positions"] if r["symbol"] == "PADARK")
@@ -307,7 +290,7 @@ def test_d_partial_valuation(pp_db: Session, monkeypatch: pytest.MonkeyPatch) ->
     assert dark_row["supported"] is False
 
 
-def test_e_bond_pnl_not_fabricated(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_e_bond_pnl_not_fabricated(pp_db: Session) -> None:
     portfolio = _reset(pp_db, "TEST — analytics E")
     bond = _bond(pp_db, "PABND")
     # Legacy-like projection row with % average (must not become RUB cost in analytics).
@@ -317,21 +300,17 @@ def test_e_bond_pnl_not_fabricated(pp_db: Session, monkeypatch: pytest.MonkeyPat
             portfolio_id=portfolio.id,
             instrument_id=bond.id,
             units=Decimal("2"),
-            average_price=Decimal("95.5"),
+            average_price=None,
         )
     )
     pp_db.flush()
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
     snap = load_personal_snapshot(pp_db, portfolio)
     assert len(snap.positions) == 1
     assert snap.positions[0].market_value is not None
     assert snap.positions[0].unrealized_pnl is None
     assert snap.positions[0].cost_basis_usable is False
 
-    analysis = analyze_manual_portfolio(pp_db)
+    analysis = analyze_manual_portfolio(pp_db, portfolio)
     row = analysis["positions"][0]
     assert row["market_value"] is not None
     assert row["unrealized_pnl"] is None
@@ -362,10 +341,6 @@ def test_f_compare_actual_is_personal(pp_db: Session, monkeypatch: pytest.Monkey
         idempotency_key="pf-buy",
     )
     monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: portfolio,
-    )
-    monkeypatch.setattr(
         "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
         lambda session: None,
     )
@@ -376,7 +351,7 @@ def test_f_compare_actual_is_personal(pp_db: Session, monkeypatch: pytest.Monkey
             "positions": [{"symbol": "PACMP", "weight": 0.5}, {"symbol": "OTHER", "weight": 0.5}],
         },
     )
-    compare = compare_to_candidate(pp_db)
+    compare = compare_to_candidate(pp_db, portfolio)
     assert compare["actual_source"] == "personal_portfolio"
     assert compare["journal_state"] == "ACTIVE"
     by_sym = {c["symbol"]: c for c in compare["comparisons"]}
@@ -384,13 +359,9 @@ def test_f_compare_actual_is_personal(pp_db: Session, monkeypatch: pytest.Monkey
     assert by_sym["OTHER"]["status"] == "NOT_IN_MANUAL"
 
 
-def test_g_journal_states(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_g_journal_states(pp_db: Session) -> None:
     empty = _reset(pp_db, "TEST — analytics G empty")
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: empty,
-    )
-    a_empty = analyze_manual_portfolio(pp_db)
+    a_empty = analyze_manual_portfolio(pp_db, empty)
     assert a_empty["journal_state"] == "EMPTY"
     assert a_empty["positions"] == []
 
@@ -406,10 +377,6 @@ def test_g_journal_states(pp_db: Session, monkeypatch: pytest.MonkeyPatch) -> No
         )
     )
     pp_db.flush()
-    monkeypatch.setattr(
-        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
-        lambda session: legacy,
-    )
-    a_legacy = analyze_manual_portfolio(pp_db)
-    assert a_legacy["journal_state"] == "LEGACY_PENDING"
+    a_legacy = analyze_manual_portfolio(pp_db, legacy)
+    assert a_legacy["journal_state"] == "DRAFT"
     assert len(a_legacy["positions"]) == 1

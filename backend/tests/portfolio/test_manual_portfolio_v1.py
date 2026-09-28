@@ -26,13 +26,13 @@ from app.modules.portfolio.application.manual_portfolio_service import (
     analyze_manual_portfolio,
     compare_to_candidate,
     delete_position,
-    get_or_create_primary,
     patch_position,
     update_cash,
 )
+from app.modules.portfolio.application.user_portfolio_service import create_user_portfolio
 from app.modules.portfolio.domain.lots import assert_lot_compatible
 from app.modules.portfolio.domain.valuation import bond_dirty_value, value_position
-from app.modules.portfolio.infrastructure.models import ManualPosition
+from app.modules.portfolio.infrastructure.models import ManualPortfolio, ManualPosition
 from app.modules.shadow.application.intraday_universe import resolve_intraday_universe
 
 
@@ -46,15 +46,19 @@ def _schema_ready(session: Session) -> bool:
         return False
 
 
-def _reset_primary_portfolio(session: Session) -> None:
-    """Isolate analysis assertions from live primary holdings (txn rolls back)."""
-    portfolio = get_or_create_primary(session)
-    for pos in list(portfolio.positions or []):
-        session.delete(pos)
-    portfolio.cash_rub = Decimal("0")
-    portfolio.updated_at = datetime.now(UTC)
-    session.flush()
-    session.expire(portfolio, ["positions"])
+def _bind_legacy_primary(monkeypatch: pytest.MonkeyPatch, portfolio: ManualPortfolio) -> None:
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_or_create_primary",
+        lambda session: portfolio,
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.personal_portfolio_service.get_or_create_primary",
+        lambda session: portfolio,
+    )
+
+
+def _isolated_draft_book(session: Session, *, label: str) -> ManualPortfolio:
+    return create_user_portfolio(session, name=label, is_test=True)
 
 
 @pytest.fixture
@@ -78,7 +82,6 @@ def mp_db() -> Generator[Session, None, None]:
             pytest.skip(f"core database unavailable: {exc}")
         if not _schema_ready(session):
             pytest.skip("alembic 20260908_0021 not applied")
-        _reset_primary_portfolio(session)
         yield session
     finally:
         session.close()
@@ -209,9 +212,10 @@ def test_lot_validation_unit() -> None:
     assert_lot_compatible(Decimal("15"), 10, non_standard_lot=True)
 
 
-def test_manual_crud_and_lot_validation(mp_db) -> None:
+def test_manual_crud_and_lot_validation(mp_db, monkeypatch: pytest.MonkeyPatch) -> None:
     inst = _equity(mp_db, "MPCRUD", lot=10)
-    portfolio = get_or_create_primary(mp_db)
+    portfolio = _isolated_draft_book(mp_db, label="TEST — V1 CRUD")
+    _bind_legacy_primary(monkeypatch, portfolio)
     assert portfolio.id > 0
     update_cash(mp_db, Decimal("50000"))
     with pytest.raises(LotValidationError):
@@ -236,7 +240,7 @@ def test_equity_and_bond_valuation(mp_db) -> None:
     assert bval.detail["clean_price_percent"] == 95.5
 
 
-def test_unsupported_not_zero(mp_db) -> None:
+def test_unsupported_not_zero(mp_db, monkeypatch: pytest.MonkeyPatch) -> None:
     inst = Instrument(
         symbol="NOSRC",
         name="No source",
@@ -248,6 +252,8 @@ def test_unsupported_not_zero(mp_db) -> None:
     )
     mp_db.add(inst)
     mp_db.flush()
+    portfolio = _isolated_draft_book(mp_db, label="TEST — V1 unsupported")
+    _bind_legacy_primary(monkeypatch, portfolio)
     add_position(
         mp_db,
         instrument_id=inst.id,
@@ -255,7 +261,7 @@ def test_unsupported_not_zero(mp_db) -> None:
         non_standard_lot=True,
     )
     update_cash(mp_db, Decimal("1000"))
-    analysis = analyze_manual_portfolio(mp_db)
+    analysis = analyze_manual_portfolio(mp_db, portfolio)
     assert analysis["unsupported_count"] >= 1
     assert analysis["nav"] == 1000.0
     row = next(r for r in analysis["positions"] if r["symbol"] == "NOSRC")
@@ -263,7 +269,7 @@ def test_unsupported_not_zero(mp_db) -> None:
     assert row["supported"] is False
 
 
-def test_concentration_by_issuer(mp_db) -> None:
+def test_concentration_by_issuer(mp_db, monkeypatch: pytest.MonkeyPatch) -> None:
     try:
         mp_db.execute(text("SELECT 1 FROM fundamentals.issuers LIMIT 0"))
     except Exception:
@@ -283,10 +289,12 @@ def test_concentration_by_issuer(mp_db) -> None:
                 mapping_status="MAPPED",
             )
         )
+    portfolio = _isolated_draft_book(mp_db, label="TEST — V1 concentration")
+    _bind_legacy_primary(monkeypatch, portfolio)
     update_cash(mp_db, Decimal("0"))
     add_position(mp_db, instrument_id=a.id, units=Decimal("10"))
     add_position(mp_db, instrument_id=b.id, units=Decimal("10"))
-    analysis = analyze_manual_portfolio(mp_db)
+    analysis = analyze_manual_portfolio(mp_db, portfolio)
     assert analysis["concentration_by_issuer"]
     top = analysis["concentration_by_issuer"][0]
     assert top["weight"] >= 0.99
@@ -295,6 +303,8 @@ def test_concentration_by_issuer(mp_db) -> None:
 
 def test_compare_and_rebalance_cash_safe(mp_db, monkeypatch) -> None:
     eq = _equity(mp_db, "MPCMP1", lot=10)
+    portfolio = _isolated_draft_book(mp_db, label="TEST — V1 compare")
+    _bind_legacy_primary(monkeypatch, portfolio)
     update_cash(mp_db, Decimal("100000"))
     add_position(mp_db, instrument_id=eq.id, units=Decimal("10"))
 
@@ -315,12 +325,12 @@ def test_compare_and_rebalance_cash_safe(mp_db, monkeypatch) -> None:
         "app.modules.portfolio.application.manual_portfolio_service.preview_portfolio_candidate",
         fake_candidate,
     )
-    compare = compare_to_candidate(mp_db)
+    compare = compare_to_candidate(mp_db, portfolio)
     by_sym = {c["symbol"]: c for c in compare["comparisons"]}
     assert by_sym["MISSING"]["status"] == "NOT_IN_MANUAL"
     assert by_sym["MISSING"]["suggested_action"] != "SELL"
 
-    plan = advisory_rebalance(mp_db)
+    plan = advisory_rebalance(mp_db, portfolio)
     assert plan["advisory"] is True
     assert plan["persisted_orders"] is False
     assert plan["cash_safe"] is True

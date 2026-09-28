@@ -38,15 +38,17 @@ from app.modules.portfolio.infrastructure.models import (
 PRIMARY_NAME = "Основной портфель"
 TEST_NAME_PREFIX = "TEST — "
 LEGACY_BOOTSTRAP_SOURCE = "LEGACY_BOOTSTRAP"
+OPENING_SOURCE = "OPENING_SNAPSHOT"
 JOURNAL_MANAGED_MESSAGE = (
-    "Этот портфель уже ведётся через журнал операций. "
+    "Этот портфель уже ведёт историю операций. "
     "Добавьте покупку, продажу, пополнение или корректировку через «Добавить операцию»."
 )
 BOND_TRADE_MESSAGE = (
-    "Операции с облигациями пока нельзя вносить через обычную цену: "
-    "биржевая цена облигации указывается в процентах от номинала. "
-    "Kraken не будет считать её рублёвой ценой."
+    "Kraken пока не умеет корректно учитывать новую сделку с облигацией. "
+    "Текущую позицию можно хранить и анализировать."
 )
+LIFECYCLE_DRAFT = "DRAFT"
+LIFECYCLE_ACTIVE = "ACTIVE"
 
 
 class PersonalPortfolioError(Exception):
@@ -62,6 +64,13 @@ def _d(value: object) -> Decimal:
 
 
 def get_or_create_primary(session: Session) -> ManualPortfolio:
+    """REMOVED as product source of truth (Multi-Portfolio V2).
+
+    Does **not** auto-create. Returns the oldest non-test book if one exists,
+    otherwise raises ``PersonalPortfolioError(PORTFOLIO_NOT_FOUND)``.
+
+    Prefer ``create_user_portfolio`` / ``get_portfolio``.
+    """
     row = session.scalar(
         select(ManualPortfolio)
         .options(selectinload(ManualPortfolio.positions))
@@ -70,21 +79,12 @@ def get_or_create_primary(session: Session) -> ManualPortfolio:
         .limit(1)
     )
     if row is not None:
-        if row.name == "Primary Manual Portfolio":
-            row.name = PRIMARY_NAME
         return row
-    row = ManualPortfolio(
-        name=PRIMARY_NAME,
-        source="MANUAL",
-        base_currency="RUB",
-        cash_rub=ZERO,
-        status="ACTIVE",
-        is_test=False,
-        version=1,
+    raise PersonalPortfolioError(
+        "PORTFOLIO_NOT_FOUND",
+        "Портфель не найден. Создайте портфель явно.",
+        http_status=404,
     )
-    session.add(row)
-    session.flush()
-    return row
 
 
 def get_or_create_test_portfolio(session: Session, *, name: str | None = None) -> ManualPortfolio:
@@ -103,7 +103,7 @@ def get_or_create_test_portfolio(session: Session, *, name: str | None = None) -
         source="MANUAL",
         base_currency="RUB",
         cash_rub=ZERO,
-        status="ACTIVE",
+        status=LIFECYCLE_DRAFT,
         is_test=True,
         note="Isolated test portfolio — not the owner's real book",
         version=1,
@@ -128,10 +128,17 @@ def is_journal_managed(session: Session, portfolio_id: int) -> bool:
     return journal_operation_count(session, portfolio_id) > 0
 
 
+def lifecycle_state(portfolio: ManualPortfolio) -> str:
+    status = (portfolio.status or LIFECYCLE_DRAFT).upper()
+    if status == LIFECYCLE_ACTIVE:
+        return LIFECYCLE_ACTIVE
+    return LIFECYCLE_DRAFT
+
+
 def assert_legacy_writes_allowed(session: Session, portfolio: ManualPortfolio) -> None:
-    if is_journal_managed(session, int(portfolio.id)):
+    if lifecycle_state(portfolio) == LIFECYCLE_ACTIVE or is_journal_managed(session, int(portfolio.id)):
         raise PersonalPortfolioError(
-            "PORTFOLIO_JOURNAL_MANAGED",
+            "PORTFOLIO_NOT_DRAFT",
             JOURNAL_MANAGED_MESSAGE,
             http_status=409,
         )
@@ -159,7 +166,7 @@ def rebuild_ledger_from_journal(session: Session, portfolio_id: int) -> LedgerSt
                 operation_type=OperationType(op.operation_type),
                 instrument_id=op.instrument_id,
                 units=_d(op.units or ZERO),
-                price=_d(op.price or ZERO),
+                price=_d(op.price) if op.price is not None else None,
                 amount=_d(op.amount or ZERO),
                 commission=_d(op.commission or ZERO),
             ),
@@ -335,20 +342,27 @@ def _has_legacy_snapshot(session: Session, portfolio: ManualPortfolio) -> bool:
 
 
 def journal_state(session: Session, portfolio: ManualPortfolio) -> str:
-    """EMPTY | LEGACY_PENDING | ACTIVE — derived, no schema."""
-    if journal_operation_count(session, int(portfolio.id)) > 0:
-        return "ACTIVE"
+    """Product lifecycle for V2: DRAFT | ACTIVE.
+
+    Legacy EMPTY / LEGACY_PENDING are mapped for older callers:
+    - ACTIVE lifecycle → ACTIVE
+    - DRAFT with no cash/positions → EMPTY (setup)
+    - DRAFT with snapshot → DRAFT (ready to activate)
+    """
+    life = lifecycle_state(portfolio)
+    if life == LIFECYCLE_ACTIVE or journal_operation_count(session, int(portfolio.id)) > 0:
+        return LIFECYCLE_ACTIVE
     if _has_legacy_snapshot(session, portfolio):
-        return "LEGACY_PENDING"
+        return LIFECYCLE_DRAFT
     return "EMPTY"
 
 
 def journal_cutover_at(session: Session, portfolio_id: int) -> datetime | None:
-    """Cutover timestamp = MIN(occurred_at) of LEGACY_BOOTSTRAP rows, if any."""
+    """Activation timestamp = MIN(occurred_at) of opening/bootstrap rows, if any."""
     return session.scalar(
         select(func.min(PersonalOperation.occurred_at)).where(
             PersonalOperation.portfolio_id == portfolio_id,
-            PersonalOperation.source == LEGACY_BOOTSTRAP_SOURCE,
+            PersonalOperation.source.in_([LEGACY_BOOTSTRAP_SOURCE, OPENING_SOURCE]),
         )
     )
 
@@ -359,118 +373,10 @@ def _fmt_cutover_human(ts: datetime) -> str:
 
 
 def activate_journal(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
-    """Explicit one-time cutover: legacy Manual snapshot → OPENING_* journal rows."""
-    state = journal_state(session, portfolio)
-    if state == "ACTIVE":
-        # Idempotent: already journal-managed.
-        rebuilt = rebuild_ledger_from_journal(session, int(portfolio.id))
-        project_portfolio(session, portfolio, rebuilt)
-        return get_personal_summary(session, portfolio, owner=True)
-    if state == "EMPTY":
-        # Nothing to bootstrap — leave EMPTY (caller may start with DEPOSIT).
-        return get_personal_summary(session, portfolio, owner=True)
+    """Activate DRAFT → ACTIVE via opening journal (Multi-Portfolio V2)."""
+    from app.modules.portfolio.application.user_portfolio_service import activate_portfolio
 
-    positions = _legacy_positions(session, int(portfolio.id))
-    missing_cost = [p for p in positions if p.average_price is None]
-    if missing_cost:
-        labels = ", ".join(str(p.instrument_id) for p in missing_cost)
-        raise PersonalPortfolioError(
-            "LEGACY_COST_BASIS_REQUIRED",
-            (
-                "Перед активацией журнала укажите себестоимость для позиций без average_price "
-                f"(instrument_id: {labels}). Нулевая себестоимость не подставляется."
-            ),
-            http_status=409,
-        )
-
-    for pos in positions:
-        instrument = session.get(Instrument, pos.instrument_id)
-        if instrument is not None and (instrument.asset_class or "").lower() == "bond":
-            raise PersonalPortfolioError(
-                "LEGACY_BOND_COST_BASIS_NOT_READY",
-                (
-                    "В текущем портфеле есть облигации. Kraken пока не может безопасно "
-                    "перенести их себестоимость в новый журнал и поэтому не будет выполнять переход частично."
-                ),
-                http_status=409,
-            )
-
-    cutover_at = datetime.now(UTC)
-    try:
-        with session.begin_nested():
-            cash = money(portfolio.cash_rub)
-            if cash > ZERO:
-                key = f"legacy-bootstrap:{portfolio.id}:cash"
-                if (
-                    session.scalar(
-                        select(PersonalOperation.id).where(
-                            PersonalOperation.portfolio_id == portfolio.id,
-                            PersonalOperation.idempotency_key == key,
-                        )
-                    )
-                    is None
-                ):
-                    session.add(
-                        PersonalOperation(
-                            portfolio_id=portfolio.id,
-                            operation_type=OperationType.OPENING_CASH.value,
-                            status="ACTIVE",
-                            occurred_at=cutover_at,
-                            amount=cash,
-                            commission=ZERO,
-                            currency="RUB",
-                            source=LEGACY_BOOTSTRAP_SOURCE,
-                            note="Legacy Manual cash bootstrap",
-                            idempotency_key=key,
-                        )
-                    )
-
-            for pos in positions:
-                key = f"legacy-bootstrap:{portfolio.id}:position:{pos.id}"
-                if (
-                    session.scalar(
-                        select(PersonalOperation.id).where(
-                            PersonalOperation.portfolio_id == portfolio.id,
-                            PersonalOperation.idempotency_key == key,
-                        )
-                    )
-                    is not None
-                ):
-                    continue
-                session.add(
-                    PersonalOperation(
-                        portfolio_id=portfolio.id,
-                        operation_type=OperationType.OPENING_POSITION.value,
-                        status="ACTIVE",
-                        occurred_at=cutover_at,
-                        instrument_id=int(pos.instrument_id),
-                        units=units_q(pos.units),
-                        price=money(pos.average_price),
-                        commission=ZERO,
-                        currency="RUB",
-                        source=LEGACY_BOOTSTRAP_SOURCE,
-                        note=f"Legacy Manual position bootstrap #{pos.id}",
-                        idempotency_key=key,
-                    )
-                )
-            session.flush()
-            rebuilt = rebuild_ledger_from_journal(session, int(portfolio.id))
-            project_portfolio(session, portfolio, rebuilt)
-    except LedgerError as exc:
-        raise PersonalPortfolioError(exc.code, exc.message) from exc
-    except IntegrityError as exc:
-        # Concurrent activate-journal: peer already inserted deterministic bootstrap keys.
-        if journal_operation_count(session, int(portfolio.id)) == 0:
-            raise PersonalPortfolioError(
-                "IDEMPOTENCY_CONFLICT",
-                "Конфликт активации журнала. Повторите запрос.",
-                http_status=409,
-            ) from exc
-        rebuilt = rebuild_ledger_from_journal(session, int(portfolio.id))
-        project_portfolio(session, portfolio, rebuilt)
-        return get_personal_summary(session, portfolio, owner=True)
-
-    return get_personal_summary(session, portfolio, owner=True)
+    return activate_portfolio(session, portfolio)
 
 
 def create_operation(
@@ -504,14 +410,20 @@ def create_operation(
     except ValueError as exc:
         raise PersonalPortfolioError("UNSUPPORTED_OPERATION", "Неизвестный тип операции") from exc
 
-    # Never silently migrate legacy Manual into journal on a random trade.
+    # Operations require ACTIVE lifecycle. Empty DRAFT may start with the first
+    # journal operation (implicit empty activate) — a DRAFT with setup snapshot must
+    # call activate explicitly.
     jstate = journal_state(session, portfolio)
-    if jstate == "LEGACY_PENDING":
-        raise PersonalPortfolioError(
-            "LEGACY_STATE_REQUIRES_CUTOVER",
-            "Сначала зафиксируйте текущий портфель как начальное состояние.",
-            http_status=409,
-        )
+    if jstate != LIFECYCLE_ACTIVE:
+        if jstate == "EMPTY" and not _has_legacy_snapshot(session, portfolio):
+            portfolio.status = LIFECYCLE_ACTIVE
+            session.flush()
+        else:
+            raise PersonalPortfolioError(
+                "PORTFOLIO_NOT_ACTIVE",
+                "Сначала начните учёт для этого портфеля.",
+                http_status=409,
+            )
 
     occurred_dt = _parse_occurred_at(occurred_at)
     today = datetime.now(UTC).date()
@@ -749,13 +661,20 @@ def reconcile(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
     realized_ok = money(portfolio.realized_pnl_rub or ZERO) == money(state.realized_pnl)
 
     projected = {
-        int(p.instrument_id): (units_q(p.units), money(p.average_price or ZERO))
+        int(p.instrument_id): (
+            units_q(p.units),
+            money(p.average_price) if p.average_price is not None else None,
+        )
         for p in session.scalars(
             select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
         ).all()
     }
     ledger_pos = {
-        iid: (units_q(book.units), money(book.average_cost)) for iid, book in state.positions.items()
+        iid: (
+            units_q(book.units),
+            money(book.average_cost) if book.average_cost is not None else None,
+        )
+        for iid, book in state.positions.items()
     }
     positions_ok = projected == ledger_pos
     ok = cash_ok and contributed_ok and withdrawn_ok and realized_ok and positions_ok
@@ -769,10 +688,18 @@ def reconcile(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
         "ledger_cash": str(money(state.cash)),
         "projected_cash": str(money(portfolio.cash_rub)),
         "ledger_positions": {
-            str(k): {"units": str(v[0]), "average_cost": str(v[1])} for k, v in ledger_pos.items()
+            str(k): {
+                "units": str(v[0]),
+                "average_cost": str(v[1]) if v[1] is not None else None,
+            }
+            for k, v in ledger_pos.items()
         },
         "projected_positions": {
-            str(k): {"units": str(v[0]), "average_cost": str(v[1])} for k, v in projected.items()
+            str(k): {
+                "units": str(v[0]),
+                "average_cost": str(v[1]) if v[1] is not None else None,
+            }
+            for k, v in projected.items()
         },
     }
 
@@ -896,14 +823,21 @@ def load_personal_snapshot(
 ) -> PersonalPortfolioSnapshot:
     """Load current Personal Portfolio state for downstream analytics.
 
-    Always reads the projected primary (or given) book through Personal valuation rules.
-    Does not invent bond cost basis or treat missing marks as zero.
+    Requires an explicit portfolio for Multi-Portfolio V2. Passing None raises —
+    there is no auto-primary.
     """
-    book = portfolio or get_or_create_primary(session)
+    if portfolio is None:
+        raise PersonalPortfolioError(
+            "PORTFOLIO_NOT_FOUND",
+            "Портфель не указан.",
+            http_status=404,
+        )
+    book = portfolio
     positions_out: list[PersonalPositionSnapshot] = []
     securities_mv = ZERO
     missing_prices = 0
     price_dates: list[str] = []
+    cost_incomplete = False
 
     for pos in session.scalars(
         select(ManualPosition).where(ManualPosition.portfolio_id == book.id)
@@ -911,6 +845,7 @@ def load_personal_snapshot(
         instrument = session.get(Instrument, pos.instrument_id)
         if instrument is None:
             missing_prices += 1
+            cost_incomplete = True
             positions_out.append(
                 PersonalPositionSnapshot(
                     position_id=int(pos.id),
@@ -926,6 +861,7 @@ def load_personal_snapshot(
                     price_date=None,
                     price_available=False,
                     unrealized_pnl=None,
+                    pnl_unavailable_reason="Инструмент не найден",
                 )
             )
             continue
@@ -940,8 +876,14 @@ def load_personal_snapshot(
         )
         asset = asset_hint or asset
         unrealized = None
-        cost_usable = asset != "bond" and pos.average_price is not None
+        # V2: average_price stores RUB per unit for equities/funds AND bonds (from total RUB).
+        cost_usable = pos.average_price is not None
         average_cost = money(pos.average_price) if cost_usable else None
+        if not cost_usable:
+            cost_incomplete = True
+        pnl_reason = None
+        if not cost_usable:
+            pnl_reason = "Себестоимость не указана — прибыль по этой позиции пока не рассчитывается."
         if unit_price is not None and market_value is not None:
             securities_mv = money(securities_mv + market_value)
             if price_date:
@@ -967,21 +909,26 @@ def load_personal_snapshot(
                 unrealized_pnl=unrealized,
                 lot_size=lot_size,
                 lots=lots_display,
-                pnl_unavailable_reason=(
-                    "Для облигаций расчёт результата будет доступен после отдельного учёта цены покупки и НКД."
-                    if asset == "bond"
-                    else None
-                ),
+                pnl_unavailable_reason=pnl_reason,
             )
         )
 
     cash = money(book.cash_rub)
     contributed = money(book.total_contributed_rub or ZERO)
     withdrawn = money(book.total_withdrawn_rub or ZERO)
+    # DRAFT before journal: provisional contribution = cash + known position costs
+    # so investment P&L is not inflated by treating setup cash as profit.
+    if lifecycle_state(book) == LIFECYCLE_DRAFT and journal_operation_count(session, int(book.id)) == 0:
+        provisional = cash
+        for p in positions_out:
+            if p.cost_basis_usable and p.average_cost_rub is not None:
+                provisional = money(provisional + money(p.units * p.average_cost_rub))
+        contributed = provisional
+        withdrawn = ZERO
     valuation_complete = missing_prices == 0
     known_nav = money(cash + securities_mv)
     inv_pnl: Decimal | None
-    if valuation_complete:
+    if valuation_complete and not cost_incomplete:
         inv_pnl = investment_pnl(nav=known_nav, contributed=contributed, withdrawn=withdrawn)
     else:
         inv_pnl = None
@@ -1013,10 +960,15 @@ def load_personal_snapshot(
 
 def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner: bool = False) -> dict[str, Any]:
     snap = load_personal_snapshot(session, portfolio)
+    cost_complete = all(p.cost_basis_usable for p in snap.positions) if snap.positions else True
     positions_out: list[dict[str, Any]] = []
     for p in snap.positions:
+        cost_total = None
+        if p.average_cost_rub is not None:
+            cost_total = money(p.units * p.average_cost_rub)
         positions_out.append(
             {
+                "id": p.position_id,
                 "instrument_id": p.instrument_id,
                 "secid": p.symbol,
                 "name": p.name,
@@ -1025,6 +977,8 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
                 "lots": str(p.lots) if p.lots is not None else None,
                 "lot_size": p.lot_size,
                 "average_price": str(p.average_cost_rub) if p.average_cost_rub is not None else None,
+                "cost_basis_total_rub": str(cost_total) if cost_total is not None else None,
+                "cost_basis_status": "KNOWN" if p.cost_basis_usable else "UNKNOWN",
                 "current_price": str(p.unit_price) if p.unit_price is not None else None,
                 "price_date": p.price_date,
                 "market_value": str(p.market_value) if p.market_value is not None else None,
@@ -1045,12 +999,15 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
     )
     has_ops = journal_operation_count(session, int(snap.portfolio.id)) > 0
     cutover = snap.journal_cutover_at
+    life = lifecycle_state(snap.portfolio)
 
     payload: dict[str, Any] = {
         "portfolio": {
             "id": snap.portfolio.id,
             "name": snap.portfolio.name,
+            "description": snap.portfolio.note,
             "base_currency": snap.portfolio.base_currency,
+            "lifecycle_state": life,
             "status": snap.portfolio.status,
             "is_test": bool(snap.portfolio.is_test),
             "note": snap.portfolio.note,
@@ -1058,6 +1015,8 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "has_operations": has_ops,
             "journal_state": snap.journal_state,
             "journal_cutover_at": cutover.isoformat() if cutover else None,
+            "created_at": snap.portfolio.created_at.isoformat() if snap.portfolio.created_at else None,
+            "updated_at": snap.portfolio.updated_at.isoformat() if snap.portfolio.updated_at else None,
         },
         "summary": {
             "cash_rub": str(snap.cash_rub),
@@ -1070,6 +1029,12 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
                 str(snap.investment_pnl_rub) if snap.investment_pnl_rub is not None else None
             ),
             "realized_pnl_rub": str(snap.realized_pnl_rub),
+            "cost_basis_complete": cost_complete,
+            "cost_basis_incomplete_reason": (
+                None
+                if cost_complete
+                else "Не хватает себестоимости для части позиций."
+            ),
             "valuation_complete": snap.valuation_complete,
             "valuation_partial": snap.valuation_partial,
             "valuation_as_of": snap.valuation_as_of,

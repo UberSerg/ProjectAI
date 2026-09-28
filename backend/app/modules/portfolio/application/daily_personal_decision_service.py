@@ -119,6 +119,22 @@ def _dedupe_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out[:MAX_ACTIONS]
 
 
+def _bind_action_hrefs(actions: list[dict[str, Any]], portfolio_id: int) -> list[dict[str, Any]]:
+    """Rewrite portfolio-scoped href placeholders to the selected portfolio id."""
+    out: list[dict[str, Any]] = []
+    for row in actions:
+        href = row.get("href")
+        if isinstance(href, str) and "{pid}" in href:
+            row = {**row, "href": href.replace("{pid}", str(portfolio_id))}
+        elif isinstance(href, str) and href.startswith("/portfolio/mine"):
+            row = {
+                **row,
+                "href": href.replace("/portfolio/mine", f"/portfolio/{portfolio_id}", 1),
+            }
+        out.append(row)
+    return out
+
+
 def _risk_actions(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for finding in analysis.get("risk_findings") or []:
@@ -150,7 +166,7 @@ def _risk_actions(analysis: dict[str, Any]) -> list[dict[str, Any]]:
                 rationale=msg,
                 reason_codes=[code],
                 facts=facts,
-                href="/portfolio/mine?tab=decision",
+                href="/portfolio/{pid}?tab=decision",
                 current_weight=float(finding["weight"]) if finding.get("weight") is not None else None,
             )
         )
@@ -179,7 +195,7 @@ def _bond_review_actions(snap: PersonalPortfolioSnapshot) -> list[dict[str, Any]
                     f"Рыночная стоимость: {pos.market_value} ₽" if pos.market_value is not None else "Цена недоступна",
                     "P&L по облигации не рассчитывается",
                 ],
-                href="/portfolio/mine?tab=holdings",
+                href="/portfolio/{pid}?tab=holdings",
                 limitations=["BOND_TRADE_ACCOUNTING_NOT_READY"],
             )
         )
@@ -229,7 +245,7 @@ def _compare_rebalance_actions(
                     ],
                     current_weight=float(mw) if mw is not None else None,
                     target_weight=None,
-                    href="/portfolio/mine?tab=compare",
+                    href="/portfolio/{pid}?tab=compare",
                 )
             )
             continue
@@ -250,7 +266,7 @@ def _compare_rebalance_actions(
                     ],
                     current_weight=float(mw) if mw is not None else None,
                     target_weight=float(cw) if cw is not None else None,
-                    href="/portfolio/mine?tab=compare",
+                    href="/portfolio/{pid}?tab=compare",
                     limitations=["BOND_TRADE_ACCOUNTING_NOT_READY"],
                 )
             )
@@ -275,7 +291,7 @@ def _compare_rebalance_actions(
                     ],
                     current_weight=float(mw) if mw is not None else None,
                     target_weight=float(cw) if cw is not None else None,
-                    href="/portfolio/mine?tab=rebalance",
+                    href="/portfolio/{pid}?tab=rebalance",
                 )
             )
         elif suggested in {"INCREASE", "BUY"} or (
@@ -298,7 +314,7 @@ def _compare_rebalance_actions(
                     ],
                     current_weight=float(mw) if mw is not None else None,
                     target_weight=float(cw) if cw is not None else None,
-                    href="/portfolio/mine?tab=rebalance",
+                    href="/portfolio/{pid}?tab=rebalance",
                 )
             )
 
@@ -347,7 +363,7 @@ def _cash_action(
             ),
             reason_codes=["STRATEGIC_CASH"],
             facts=[f"Кэш сейчас {_pct(cash_share)}", f"Контекст {_pct(tc)}"],
-            href="/portfolio/mine?tab=decision",
+            href="/portfolio/{pid}?tab=decision",
         )
     return None
 
@@ -385,14 +401,14 @@ def build_daily_personal_decision(
             title=_ACTION_TITLE_RU["SETUP"],
             rationale="Добавьте текущий портфель, чтобы Kraken мог анализировать его.",
             reason_codes=["PORTFOLIO_EMPTY"],
-            facts=["Журнал пуст", "Позиций нет"],
-            href="/portfolio/mine?tab=holdings",
+            facts=["Портфель пуст", "Позиций нет"],
+            href=f"/portfolio/{snap.portfolio.id}?tab=holdings",
         )
         return _pack(
             snap=snap,
             as_of=as_of,
             status="NEEDS_SETUP",
-            headline="Сначала добавьте портфель",
+            headline="Сначала добавьте активы",
             summary="Пока нет денег и позиций — персональных действий нет.",
             actions=[setup],
             risks=[],
@@ -403,36 +419,71 @@ def build_daily_personal_decision(
             degradations=degradations,
         )
 
-    if snap.journal_state == "LEGACY_PENDING":
+    if snap.journal_state == "DRAFT":
+        activate = _action(
+            action="ACTIVATE_JOURNAL",
+            priority="HIGH",
+            title="Начать учёт",
+            rationale=(
+                "Состав портфеля готов к анализу. "
+                "Начните учёт, чтобы вести историю операций. "
+                "История операций ещё не начата."
+            ),
+            reason_codes=["PORTFOLIO_DRAFT"],
+            facts=[
+                f"Кэш: {snap.cash_rub} ₽",
+                f"Позиций: {len(snap.positions)}",
+            ],
+            href=f"/portfolio/{snap.portfolio.id}?tab=holdings",
+            limitations=["История операций ещё не начата."],
+        )
+        analysis, err = _safe_call("analysis", lambda: analyze_manual_portfolio(session, snap.portfolio))
+        if err:
+            degradations.append(err)
+        return _pack(
+            snap=snap,
+            as_of=as_of,
+            status="DRAFT_ANALYSIS",
+            headline="Настройка портфеля",
+            summary="История операций ещё не начата. Можно анализировать текущий состав.",
+            actions=[activate],
+            risks=[],
+            analysis=analysis,
+            compare=None,
+            rebalance=None,
+            research=None,
+            degradations=degradations,
+        )
+
+    if snap.journal_state in ("DRAFT", "EMPTY", "LEGACY_PENDING"):
         activate = _action(
             action="ACTIVATE_JOURNAL",
             priority="HIGH",
             title=_ACTION_TITLE_RU["ACTIVATE_JOURNAL"],
             rationale=(
-                "Kraken видит текущие деньги и позиции, добавленные до журнала. "
-                "Зафиксируйте их как начальное состояние — иначе нельзя безопасно "
-                "строить персональные действия по истории."
+                "История операций ещё не начата. "
+                "Зафиксируйте текущий состав как начальное состояние, чтобы вести учёт."
             ),
-            reason_codes=["LEGACY_STATE_REQUIRES_CUTOVER"],
+            reason_codes=["DRAFT_REQUIRES_ACTIVATION"],
             facts=[
                 f"Кэш: {snap.cash_rub} ₽",
                 f"Позиций: {len(snap.positions)}",
             ],
-            href="/portfolio/mine?tab=holdings",
+            href=f"/portfolio/{snap.portfolio.id}?tab=holdings",
         )
         return _pack(
             snap=snap,
             as_of=as_of,
-            status="LEGACY_PENDING",
-            headline="Зафиксируйте текущее состояние",
-            summary="До активации журнала точный персональный ребаланс недоступен.",
+            status="DRAFT_ANALYSIS",
+            headline="Настройка портфеля",
+            summary="История операций ещё не начата. Анализ состава доступен; журнал — после «Начать учёт».",
             actions=[activate],
             risks=[],
             analysis=None,
             compare=None,
             rebalance=None,
             research=None,
-            degradations=degradations,
+            degradations=degradations + ["DRAFT_NO_JOURNAL"],
         )
 
     book = snap.portfolio
@@ -456,7 +507,7 @@ def build_daily_personal_decision(
                     rationale="Аналитика портфеля недоступна.",
                     reason_codes=["ANALYSIS_UNAVAILABLE"],
                     facts=degradations[:3] or ["Ошибка анализа"],
-                    href="/portfolio/mine?tab=decision",
+                    href="/portfolio/{pid}?tab=decision",
                 )
             ],
             risks=[],
@@ -522,7 +573,7 @@ def build_daily_personal_decision(
                     snap.valuation_label or "Частичная оценка",
                     "investment_pnl недоступен",
                 ],
-                href="/portfolio/mine?tab=decision",
+                href="/portfolio/{pid}?tab=decision",
                 limitations=["NO_PRECISE_REBALANCE"],
             )
         )
@@ -585,7 +636,7 @@ def build_daily_personal_decision(
                     snap.valuation_label or "Оценка полная",
                     "Кандидат/compare: недоступен",
                 ],
-                href="/portfolio/mine?tab=decision",
+                href="/portfolio/{pid}?tab=decision",
                 limitations=["NO_CANDIDATE_ALIGNMENT"],
             )
         ]
@@ -608,7 +659,7 @@ def build_daily_personal_decision(
                     snap.valuation_label or "Оценка полная",
                     f"Кандидат: {compare.get('candidate_source')}",
                 ],
-                href="/portfolio/mine?tab=decision",
+                href="/portfolio/{pid}?tab=decision",
             )
         ]
     else:
@@ -649,6 +700,7 @@ def _pack(
     degradations: list[str],
 ) -> dict[str, Any]:
     decision_block = (research or {}).get("decision") if research else None
+    bound_actions = _bind_action_hrefs(actions, int(snap.portfolio.id))
     return {
         "as_of": as_of.isoformat(),
         "status": status,
@@ -656,7 +708,11 @@ def _pack(
         "summary": summary,
         "portfolio": {
             "id": snap.portfolio.id,
+            "portfolio_id": snap.portfolio.id,
+            "name": snap.portfolio.name,
+            "portfolio_name": snap.portfolio.name,
             "journal_state": snap.journal_state,
+            "lifecycle_state": snap.journal_state,
             "cash_rub": str(snap.cash_rub),
             "securities_value_rub": str(snap.securities_value_rub),
             "nav_rub": str(snap.known_nav_rub),
@@ -667,7 +723,7 @@ def _pack(
             ),
             "symbols": snap.symbols,
         },
-        "actions": actions,
+        "actions": bound_actions,
         "risks": risks,
         "data_quality": {
             "valuation_complete": snap.valuation_complete,

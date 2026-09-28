@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpProvider } from "../help";
 import { getPageHelp } from "../help/registry";
+import { PortfolioProvider } from "../portfolio/PortfolioContext";
 import { MyPortfolioPage } from "./MyPortfolioPage";
 
 const analysisEmpty = {
@@ -157,46 +158,82 @@ const rebalanceSample = {
 };
 
 vi.mock("../api/manualPortfolios", () => ({
-  getPrimaryAnalysis: vi.fn(),
-  getPrimaryCompareCandidate: vi.fn(),
-  getPrimaryRebalance: vi.fn(),
+  getPortfolioAnalysis: vi.fn(),
+  getPortfolioCompareCandidate: vi.fn(),
+  getPortfolioRebalance: vi.fn(),
+  getPortfolioCashflows: vi.fn(),
   updatePrimaryCash: vi.fn(),
   addPrimaryPosition: vi.fn(),
   deletePrimaryPosition: vi.fn(),
-  getPrimaryCashflows: vi.fn(),
 }));
 
-vi.mock("../api/personalPortfolios", () => ({
-  getPersonalPrimary: vi.fn().mockResolvedValue({
-    portfolio: {
-      id: 1,
-      name: "Основной портфель",
-      base_currency: "RUB",
-      status: "ACTIVE",
-      is_test: false,
-      version: 1,
-      has_operations: false,
-    },
-    summary: {
-      cash_rub: "0",
-      securities_value_rub: "0",
-      nav_rub: "0",
-      contributed_rub: "0",
-      withdrawn_rub: "0",
-      investment_pnl_rub: "0",
-      realized_pnl_rub: "0",
-      valuation_complete: true,
-      valuation_partial: false,
-      valuation_as_of: null,
-      valuation_label: "Оценка недоступна — нет цен",
-      missing_price_count: 0,
-    },
-    positions: [],
-    operations: [],
-    recommendation_disclaimer: "Модельная рекомендация",
-  }),
-  createPersonalOperation: vi.fn(),
-}));
+const listPersonalPortfolios = vi.fn();
+const getPersonalPortfolio = vi.fn();
+const addDraftPosition = vi.fn();
+
+vi.mock("../api/personalPortfolios", async () => {
+  const actual = await vi.importActual<typeof import("../api/personalPortfolios")>(
+    "../api/personalPortfolios",
+  );
+  return {
+    ...actual,
+    listPersonalPortfolios: (...args: unknown[]) => listPersonalPortfolios(...args),
+    getPersonalPortfolio: (...args: unknown[]) => getPersonalPortfolio(...args),
+    addDraftPosition: (...args: unknown[]) => addDraftPosition(...args),
+    patchPersonalPortfolio: vi.fn(),
+    deletePersonalPortfolio: vi.fn(),
+    createPersonalOperation: vi.fn(),
+  };
+});
+
+const portfolioCardDraft = {
+  id: 1,
+  name: "Основной портфель",
+  lifecycle_state: "DRAFT" as const,
+  cash_rub: "0",
+  known_nav_rub: "0",
+  positions_count: 0,
+  valuation_partial: false,
+};
+
+const portfolioCardActive = {
+  ...portfolioCardDraft,
+  lifecycle_state: "ACTIVE" as const,
+  cash_rub: "10000",
+  known_nav_rub: "40000",
+  positions_count: 1,
+};
+
+const personalSummaryDraft = {
+  portfolio: {
+    id: 1,
+    name: "Основной портфель",
+    base_currency: "RUB",
+    lifecycle_state: "DRAFT" as const,
+    status: "ACTIVE",
+    is_test: false,
+    version: 1,
+    has_operations: false,
+    journal_state: "EMPTY" as const,
+  },
+  summary: {
+    cash_rub: "0",
+    securities_value_rub: "0",
+    nav_rub: "0",
+    contributed_rub: "0",
+    withdrawn_rub: "0",
+    investment_pnl_rub: "0",
+    realized_pnl_rub: "0",
+    valuation_complete: true,
+    valuation_partial: false,
+    valuation_as_of: null,
+    valuation_label: "Оценка недоступна — нет цен",
+    missing_price_count: 0,
+  },
+  positions: [],
+  operations: [],
+  recommendation_disclaimer: "Модельная рекомендация",
+};
 
 vi.mock("../api/dailyPersonalDecision", () => ({
   getDailyPersonalDecision: vi.fn().mockResolvedValue({
@@ -282,11 +319,16 @@ vi.mock("../api/fundamentals", async () => {
 import * as instrumentsApi from "../api/instruments";
 import * as portfolioApi from "../api/manualPortfolios";
 
-function renderPage() {
+function renderPage(initial = "/portfolio/1") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initial]}>
       <HelpProvider>
-        <MyPortfolioPage />
+        <PortfolioProvider>
+          <Routes>
+            <Route path="/portfolio/:portfolioId" element={<MyPortfolioPage />} />
+            <Route path="/portfolio/mine" element={<MyPortfolioPage />} />
+          </Routes>
+        </PortfolioProvider>
       </HelpProvider>
     </MemoryRouter>,
   );
@@ -295,6 +337,8 @@ function renderPage() {
 describe("MyPortfolioPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardDraft], count: 1 });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryDraft);
     vi.mocked(instrumentsApi.getCatalogInstrument).mockResolvedValue({
       id: 1,
       symbol: "SBER",
@@ -352,7 +396,7 @@ describe("MyPortfolioPage", () => {
       page: 1,
       page_size: 12,
     });
-    vi.mocked(portfolioApi.getPrimaryCashflows).mockResolvedValue({
+    vi.mocked(portfolioApi.getPortfolioCashflows).mockResolvedValue({
       as_of: "2026-09-07",
       windows: {
         "30d": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
@@ -367,30 +411,78 @@ describe("MyPortfolioPage", () => {
     } as never);
   });
 
-  it("shows empty state with CTA", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisEmpty as never);
+  it("shows draft setup on holdings tab", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
     renderPage();
-    expect(await screen.findByText(/Личный портфель ещё пуст/i)).toBeInTheDocument();
-    expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument();
+    expect(await screen.findByTestId("draft-setup-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("add-instrument-open")).toBeInTheDocument();
   });
 
-  it("opens add operation modal from holdings", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisEmpty as never);
+  it("opens add instrument modal in draft mode", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
     renderPage();
-    fireEvent.click(await screen.findByTestId("add-operation-btn"));
-    expect(screen.getByTestId("add-operation-modal")).toBeInTheDocument();
-    expect(screen.getByTestId("op-type")).toBeInTheDocument();
+    fireEvent.click(await screen.findByTestId("add-instrument-open"));
+    expect(screen.getByTestId("add-instrument-modal")).toBeInTheDocument();
+  });
+
+  it("sends cost_basis_total_rub for bond draft position", async () => {
+    addDraftPosition.mockResolvedValue({ id: 1, portfolio: personalSummaryDraft });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    vi.mocked(instrumentsApi.searchCatalogInstruments).mockResolvedValue({
+      items: [
+        {
+          id: 2,
+          symbol: "OFZ",
+          name: "ОФЗ",
+          asset_class: "bond",
+          instrument_subtype: null,
+          support_level: "PARTIAL",
+          primary_board: "TQOB",
+          exchange: "MOEX",
+          currency: "RUB",
+          isin: null,
+          is_active: true,
+          sources: ["MOEX"],
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 12,
+    });
+    renderPage();
+    fireEvent.click(await screen.findByTestId("add-instrument-open"));
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "OFZ" } });
+    await waitFor(() => expect(screen.getByTestId("add-instrument-hits")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /OFZ/i }));
+    expect(screen.getByTestId("add-instrument-cost-basis")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("add-instrument-cost-basis"), { target: { value: "100000" } });
+    fireEvent.click(screen.getByTestId("add-instrument-submit"));
+    await waitFor(() => expect(addDraftPosition).toHaveBeenCalled());
+    const body = addDraftPosition.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.cost_basis_total_rub).toBe(100000);
+    expect(body.average_price).toBeUndefined();
   });
 
   it("renders personal portfolio panel for holdings", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    getPersonalPortfolio.mockResolvedValue({
+      ...personalSummaryDraft,
+      portfolio: {
+        ...personalSummaryDraft.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
     renderPage();
     expect(await screen.findByTestId("personal-portfolio-panel")).toBeInTheDocument();
     expect(screen.getByTestId("model-recommendation-disclaimer")).toBeInTheDocument();
   });
 
   it("loads decision tab with daily personal decision", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
     renderPage();
     await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-decision"));
@@ -400,8 +492,9 @@ describe("MyPortfolioPage", () => {
   });
 
   it("loads compare tab", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
-    vi.mocked(portfolioApi.getPrimaryCompareCandidate).mockResolvedValue(compareSample as never);
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    vi.mocked(portfolioApi.getPortfolioCompareCandidate).mockResolvedValue(compareSample as never);
     renderPage();
     await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-compare"));
@@ -410,8 +503,9 @@ describe("MyPortfolioPage", () => {
   });
 
   it("loads rebalance tab with disclaimer", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
-    vi.mocked(portfolioApi.getPrimaryRebalance).mockResolvedValue(rebalanceSample as never);
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    vi.mocked(portfolioApi.getPortfolioRebalance).mockResolvedValue(rebalanceSample as never);
     renderPage();
     await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-rebalance"));
@@ -420,13 +514,21 @@ describe("MyPortfolioPage", () => {
   });
 
   it("shows portfolio credit intelligence on analysis tab", async () => {
-    vi.mocked(portfolioApi.getPrimaryAnalysis).mockResolvedValue(analysisFilled as never);
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
     renderPage();
     await screen.findByTestId("personal-portfolio-panel");
     fireEvent.click(screen.getByTestId("tab-analysis"));
     expect(await screen.findByTestId("portfolio-credit-intelligence")).toBeInTheDocument();
     expect(screen.getByText(/Кредитный риск облигаций/i)).toBeInTheDocument();
     expect(screen.getByText(/Минфин РФ/i)).toBeInTheDocument();
+  });
+
+  it("shows no-portfolios onboarding", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
+    renderPage("/portfolio/mine");
+    expect(await screen.findByText(/У вас пока нет портфелей/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Создать портфель/i })).toHaveAttribute("href", "/portfolio");
   });
 
   it("has page help for manual portfolio", () => {

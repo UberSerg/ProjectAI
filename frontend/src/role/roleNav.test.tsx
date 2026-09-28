@@ -22,6 +22,8 @@ describe("role presentation nav", () => {
     expect(pathAllowedForRole("/shadow", "USER")).toBe(false);
     expect(pathAllowedForRole("/system", "USER")).toBe(false);
     expect(pathAllowedForRole("/portfolio/mine", "USER")).toBe(true);
+    expect(pathAllowedForRole("/portfolio/12", "USER")).toBe(true);
+    expect(pathAllowedForRole("/portfolio", "USER")).toBe(true);
     expect(pathAllowedForRole("/about", "USER")).toBe(true);
   });
 

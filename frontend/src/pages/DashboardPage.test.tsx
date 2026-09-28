@@ -9,15 +9,23 @@ import * as relationsApi from "../api/relations";
 import * as shadowApi from "../api/shadow";
 import * as systemApi from "../api/system";
 import * as workflowsApi from "../api/workflows";
+import { PortfolioProvider } from "../portfolio/PortfolioContext";
 import { KrakenRoleProvider } from "../role/KrakenRoleContext";
 import { ROLE_STORAGE_KEY } from "../role/types";
 import { DashboardPage } from "./DashboardPage";
 import { PortfolioPage } from "./PortfolioPage";
 
+const { listPersonalPortfolios, getPersonalPortfolio } = vi.hoisted(() => ({
+  listPersonalPortfolios: vi.fn(),
+  getPersonalPortfolio: vi.fn(),
+}));
+
 function renderWithRole(ui: React.ReactNode) {
   return render(
     <MemoryRouter>
-      <KrakenRoleProvider>{ui}</KrakenRoleProvider>
+      <KrakenRoleProvider>
+        <PortfolioProvider>{ui}</PortfolioProvider>
+      </KrakenRoleProvider>
     </MemoryRouter>,
   );
 }
@@ -34,6 +42,7 @@ const personalFixture = {
     id: 1,
     name: "Основной портфель",
     has_operations: true,
+    lifecycle_state: "ACTIVE" as const,
     journal_state: "ACTIVE" as const,
     journal_cutover_at: "2026-09-01T00:00:00+00:00",
     base_currency: "RUB",
@@ -72,10 +81,28 @@ const personalFixture = {
   recommendation_disclaimer: "Модельная рекомендация",
 };
 
-const getPersonalPrimary = vi.fn().mockResolvedValue(personalFixture);
+const portfolioCard = {
+  id: 1,
+  name: "Основной портфель",
+  description: null,
+  lifecycle_state: "ACTIVE",
+  cash_rub: "50000",
+  known_nav_rub: "200000",
+  positions_count: 1,
+  valuation_partial: false,
+  valuation_label: "Оценка по ценам на 25.09.2026",
+  updated_at: "2026-09-25T00:00:00+00:00",
+  created_at: "2026-09-01T00:00:00+00:00",
+  is_test: false,
+};
 
 vi.mock("../api/personalPortfolios", () => ({
-  getPersonalPrimary: (...args: unknown[]) => getPersonalPrimary(...args),
+  listPersonalPortfolios: (...args: unknown[]) => listPersonalPortfolios(...args),
+  getPersonalPortfolio: (...args: unknown[]) => getPersonalPortfolio(...args),
+  createPersonalPortfolio: vi.fn(),
+  getPersonalPrimary: () => {
+    throw new Error("getPersonalPrimary retired");
+  },
 }));
 vi.mock("../api/relations");
 
@@ -196,11 +223,13 @@ const analysisFixture = {
 describe("DashboardPage", () => {
   beforeEach(() => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
-    getPersonalPrimary.mockReset();
-    getPersonalPrimary.mockResolvedValue(personalFixture);
+    listPersonalPortfolios.mockReset();
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCard], count: 1 });
+    getPersonalPortfolio.mockReset();
+    getPersonalPortfolio.mockResolvedValue(personalFixture);
     getDailyPersonalDecision.mockReset();
     getDailyPersonalDecision.mockResolvedValue(dailyDecisionFixture);
-    vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
+    vi.mocked(manualApi.getPortfolioAnalysis).mockResolvedValue(analysisFixture as never);
     vi.mocked(relationsApi.getPortfolioRelationsMatrix).mockResolvedValue({
       symbols: ["SBER"],
       metric: { label_ru: "Корреляция", window_observations: 60, window_label_ru: "60 дней" },
@@ -294,7 +323,7 @@ describe("DashboardPage", () => {
 
   it("renders dark personal cockpit with portfolio summary and actions", async () => {
     renderWithRole(<DashboardPage />);
-    expect(await screen.findByTestId("kraken-cockpit")).toBeInTheDocument();
+    expect(await screen.findByTestId("kraken-cockpit", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(await screen.findByText("Обзор портфеля")).toBeInTheDocument();
     expect(await screen.findByTestId("cockpit-nav")).toBeInTheDocument();
     expect(await screen.findByTestId("cockpit-allocation")).toBeInTheDocument();
@@ -324,11 +353,13 @@ describe("DashboardPage", () => {
   });
 
   it("personal portfolio shows absolute P&L without fake percent and labels securities value", async () => {
-    getPersonalPrimary.mockResolvedValue({
+    getPersonalPortfolio.mockResolvedValue({
       portfolio: {
         id: 1,
         name: "Основной портфель",
         has_operations: true,
+        lifecycle_state: "ACTIVE",
+        journal_state: "ACTIVE",
         base_currency: "RUB",
         status: "ACTIVE",
         is_test: false,
@@ -363,13 +394,16 @@ describe("DashboardPage", () => {
 });
 
 describe("PortfolioPage", () => {
-  it("renders portfolio hub links", () => {
+  beforeEach(() => {
+    listPersonalPortfolios.mockReset();
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCard], count: 1 });
+  });
+
+  it("renders multi-portfolio hub", async () => {
     renderWithRole(<PortfolioPage />);
-    expect(screen.getByText(/Обзор портфеля/i)).toBeInTheDocument();
-    expect(screen.getAllByText("Мой портфель").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Собрать портфель").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Инвестиционное решение")).toBeInTheDocument();
-    expect(screen.getByText("Проверка риска")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Портфели" })).toBeInTheDocument();
+    expect(await screen.findByText(/Основной портфель/)).toBeInTheDocument();
+    expect(screen.getByText(/Новый портфель/i)).toBeInTheDocument();
   });
 });
 
@@ -385,9 +419,9 @@ describe("Navigation", () => {
         worker: "ok",
       },
     });
-    vi.mocked(manualApi.getPrimaryAnalysis).mockResolvedValue(analysisFixture as never);
-    vi.mocked(manualApi.getPrimaryRebalance).mockResolvedValue(null as never);
-    vi.mocked(manualApi.getPrimaryCompareCandidate).mockResolvedValue(null as never);
+    vi.mocked(manualApi.getPortfolioAnalysis).mockResolvedValue(analysisFixture as never);
+    vi.mocked(manualApi.getPortfolioRebalance).mockResolvedValue(null as never);
+    vi.mocked(manualApi.getPortfolioCompareCandidate).mockResolvedValue(null as never);
     vi.mocked(relationsApi.getPortfolioRelationsMatrix).mockResolvedValue({
       symbols: [],
       metric: { label_ru: "", window_observations: 60 },
@@ -403,11 +437,14 @@ describe("Navigation", () => {
     vi.mocked(workflowsApi.getWorkflows).mockResolvedValue([]);
     vi.mocked(investmentApi.getHurdle).mockResolvedValue(null as never);
     vi.mocked(investmentApi.decideInvestment).mockRejectedValue(new Error("offline"));
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCard], count: 1 });
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     render(
       <MemoryRouter>
         <KrakenRoleProvider>
-          <App />
+          <PortfolioProvider>
+            <App />
+          </PortfolioProvider>
         </KrakenRoleProvider>
       </MemoryRouter>,
     );

@@ -5,9 +5,11 @@ import {
   type CatalogInstrument,
 } from "../../api/instruments";
 import {
-  activatePersonalJournal,
+  activatePersonalPortfolio,
+  clearDraftPortfolio,
   createPersonalOperation,
-  getPersonalPrimary,
+  getPersonalPortfolio,
+  resetPersonalPortfolio,
   type CreatePersonalOperationBody,
   type PersonalOperationType,
   type PersonalSummary,
@@ -15,7 +17,7 @@ import {
 import { EmptyState, MetricCard, PageState, StatusBadge } from "../../components/Ui";
 import { useKrakenRole } from "../../role/KrakenRoleContext";
 
-const OP_LABELS: Record<PersonalOperationType, string> = {
+export const OP_LABELS: Record<PersonalOperationType, string> = {
   DEPOSIT: "Пополнение",
   WITHDRAWAL: "Вывод",
   BUY: "Покупка",
@@ -57,7 +59,98 @@ function canonicalPayloadKey(body: CreatePersonalOperationBody): string {
 const BOND_TRADE_USER_MSG =
   "Операции с облигациями пока нельзя вносить через обычную цену: биржевая цена облигации указывается в процентах от номинала. Kraken не будет считать её рублёвой ценой.";
 
-/** Local wall time for datetime-local; second precision matches backend cutover (`<= cutover` rejected). */
+export function portfolioLifecycleState(data: PersonalSummary): "DRAFT" | "ACTIVE" {
+  const lc = data.portfolio.lifecycle_state;
+  if (lc === "DRAFT" || lc === "ACTIVE") return lc;
+  const js = data.portfolio.journal_state;
+  if (js === "ACTIVE" || (data.portfolio.has_operations && js !== "EMPTY")) return "ACTIVE";
+  return "DRAFT";
+}
+
+function costBasisCounts(positions: PersonalSummary["positions"]): {
+  known: number;
+  unknown: number;
+} {
+  let known = 0;
+  let unknown = 0;
+  for (const p of positions) {
+    if ((p.asset_class || "").toLowerCase() === "bond" && p.cost_basis_status !== "KNOWN") {
+      unknown += 1;
+      continue;
+    }
+    if (p.cost_basis_status === "KNOWN") known += 1;
+    else if (p.cost_basis_status === "UNKNOWN") unknown += 1;
+    else if (p.average_price != null || p.cost_basis_total_rub != null) known += 1;
+    else unknown += 1;
+  }
+  return { known, unknown };
+}
+
+function PositionsTable({ positions }: { positions: PersonalSummary["positions"] }) {
+  return (
+    <table className="data-table">
+      <thead>
+        <tr>
+          <th>Тикер</th>
+          <th>Кол-во</th>
+          <th>Средняя</th>
+          <th>Цена</th>
+          <th>Стоимость</th>
+          <th>P&amp;L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {positions.map((p) => {
+          const isBond = (p.asset_class || "").toLowerCase() === "bond";
+          const basisUnknown = p.cost_basis_status === "UNKNOWN" || (!isBond && p.average_price == null);
+          return (
+            <tr key={p.instrument_id}>
+              <td>
+                <strong>{p.secid}</strong>
+                <div className="muted">{p.name}</div>
+              </td>
+              <td>
+                {p.units}
+                {p.lots ? <div className="muted">{p.lots} лот(ов)</div> : null}
+              </td>
+              <td>
+                {isBond || p.average_price == null ? (
+                  <span className="muted">—</span>
+                ) : (
+                  money(p.average_price)
+                )}
+              </td>
+              <td>
+                {p.price_available ? money(p.current_price) : "Цена недоступна"}
+                {p.price_date ? <div className="muted">{p.price_date}</div> : null}
+              </td>
+              <td>{p.market_value != null ? money(p.market_value) : "—"}</td>
+              <td>
+                {isBond && p.cost_basis_status !== "KNOWN" ? (
+                  <span className="muted" title={p.pnl_unavailable_reason || undefined}>
+                    Нет себестоимости — P&amp;L недоступен
+                  </span>
+                ) : basisUnknown ? (
+                  <span className="muted">Нет себестоимости — P&amp;L недоступен</span>
+                ) : p.unrealized_pnl != null ? (
+                  money(p.unrealized_pnl)
+                ) : isBond ? (
+                  <span className="muted" title={p.pnl_unavailable_reason || undefined}>
+                    Недоступно
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** Local wall time for datetime-local; second precision for post-activation operations. */
 export function defaultOccurredLocal(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
@@ -75,10 +168,12 @@ function AddOperationModal({
   open,
   onClose,
   onSaved,
+  portfolioId,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  portfolioId: number;
 }) {
   const titleId = useId();
   const [type, setType] = useState<PersonalOperationType>("DEPOSIT");
@@ -169,7 +264,7 @@ function AddOperationModal({
           : newIdempotencyKey();
       setLastAttempt({ payloadKey, key });
       body.idempotency_key = key;
-      await createPersonalOperation(body, { idempotencyKey: key });
+      await createPersonalOperation(portfolioId, body, { idempotencyKey: key });
       setLastAttempt(null);
       onSaved();
       onClose();
@@ -346,7 +441,13 @@ function AddOperationModal({
   );
 }
 
-export function PersonalPortfolioPanel() {
+export function PersonalPortfolioPanel({
+  portfolioId,
+  onChanged,
+}: {
+  portfolioId: number;
+  onChanged?: () => void;
+}) {
   const { isUser } = useKrakenRole();
   const [data, setData] = useState<PersonalSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -354,30 +455,53 @@ export function PersonalPortfolioPanel() {
   const [modalOpen, setModalOpen] = useState(false);
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const row = await getPersonalPrimary({ owner: !isUser });
+      const row = await getPersonalPortfolio(portfolioId, { owner: !isUser });
       setData(row);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [isUser]);
+  }, [isUser, portfolioId]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
+  const notifyChanged = () => {
+    onChanged?.();
+  };
+
   async function onActivate() {
+    if (!data) return;
+    const { known, unknown } = costBasisCounts(data.positions);
+    const lines = [
+      "Начать учёт операций с текущего состояния?",
+      "",
+      `Кэш: ${money(data.summary.cash_rub)}`,
+      `Позиций: ${data.positions.length}`,
+      `С известной себестоимостью: ${known}`,
+      `Без себестоимости: ${unknown}`,
+    ];
+    if (unknown > 0) {
+      lines.push("", "Позиции без себестоимости останутся без P&L — это не блокирует начало учёта.");
+    }
+    if (!window.confirm(lines.join("\n"))) return;
+
     setActivating(true);
     setActivateError(null);
     try {
-      const row = await activatePersonalJournal();
+      const row = await activatePersonalPortfolio(portfolioId);
       setData(row);
+      notifyChanged();
     } catch (e) {
       const msg = errorMessage(e);
       try {
@@ -391,6 +515,46 @@ export function PersonalPortfolioPanel() {
     }
   }
 
+  async function onClearDraft() {
+    if (!data) return;
+    if (!window.confirm("Очистить портфель?\nВсе черновые позиции и кэш будут сброшены.")) return;
+    setClearing(true);
+    setActionError(null);
+    try {
+      const row = await clearDraftPortfolio(portfolioId);
+      setData(row);
+      notifyChanged();
+    } catch (e) {
+      setActionError(errorMessage(e));
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function onResetPortfolio() {
+    if (!data) return;
+    const name = data.portfolio.name;
+    if (
+      !window.confirm(
+        `Сбросить портфель «${name}» и начать заново?\nЖурнал операций будет удалён, портфель вернётся в режим настройки.`,
+      )
+    ) {
+      return;
+    }
+    if (!window.confirm(`Подтвердите сброс портфеля «${name}». Это необратимо.`)) return;
+    setResetting(true);
+    setActionError(null);
+    try {
+      const row = await resetPersonalPortfolio(portfolioId);
+      setData(row);
+      notifyChanged();
+    } catch (e) {
+      setActionError(errorMessage(e));
+    } finally {
+      setResetting(false);
+    }
+  }
+
   if (loading && !data) return <PageState kind="loading" title="Портфель" />;
   if (error && !data)
     return (
@@ -400,10 +564,9 @@ export function PersonalPortfolioPanel() {
     );
   if (!data) return null;
 
-  const journalState = data.portfolio.journal_state ?? (data.portfolio.has_operations ? "ACTIVE" : "EMPTY");
-  const legacyPending = journalState === "LEGACY_PENDING";
-  const empty = journalState === "EMPTY";
-  const active = journalState === "ACTIVE";
+  const lifecycle = portfolioLifecycleState(data);
+  const draft = lifecycle === "DRAFT";
+  const active = lifecycle === "ACTIVE";
 
   return (
     <div className="personal-portfolio-panel" data-testid="personal-portfolio-panel">
@@ -424,54 +587,60 @@ export function PersonalPortfolioPanel() {
         ) : null}
       </div>
 
-      {legacyPending ? (
-        <div className="panel" data-testid="legacy-cutover-panel">
-          <h3>Найден текущий портфель</h3>
-          <p>
-            Kraken уже видит текущие деньги и позиции. Чтобы начать вести историю операций,
-            зафиксируйте их как начальное состояние.
-          </p>
-          <p className="muted">
-            Старые сделки отдельно добавлять после этого не нужно — они уже отражены в текущих
-            позициях.
-          </p>
-          <div className="metric-grid" data-testid="legacy-cutover-summary">
-            <MetricCard label="Кэш сейчас" value={money(data.summary.cash_rub)} />
+      {draft ? (
+        <>
+          <div className="warning-banner" data-testid="draft-setup-banner">
+            <strong>Настройка</strong>
+            <span> · История операций ещё не начата.</span>
+          </div>
+          <div className="metric-grid" data-testid="draft-summary">
+            <MetricCard label="Кэш" value={money(data.summary.cash_rub)} />
+            <MetricCard label="Бумаги" value={money(data.summary.securities_value_rub)} />
+            <MetricCard label="Текущая стоимость" value={money(data.summary.nav_rub)} />
             <MetricCard label="Позиций" value={String(data.positions.length)} />
-            <MetricCard label="Бумаги (оценка)" value={money(data.summary.securities_value_rub)} />
           </div>
           {activateError ? (
             <p className="form-error" data-testid="activate-error">
               {activateError}
             </p>
           ) : null}
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => void onActivate()}
-            disabled={activating}
-            data-testid="activate-journal-btn"
-          >
-            {activating ? "Фиксация…" : "Начать учёт с текущего состояния"}
-          </button>
-        </div>
-      ) : null}
-
-      {empty ? (
-        <EmptyState
-          title="Личный портфель ещё пуст"
-          reason="Добавьте первое пополнение или текущие позиции — без выдуманных сделок."
-          action={
+          {actionError ? (
+            <p className="form-error" data-testid="portfolio-action-error">
+              {actionError}
+            </p>
+          ) : null}
+          <div className="modal-actions" style={{ marginBottom: "1rem" }}>
             <button
               type="button"
               className="btn primary"
-              onClick={() => setModalOpen(true)}
-              data-testid="add-operation-btn"
+              onClick={() => void onActivate()}
+              disabled={activating}
+              data-testid="activate-journal-btn"
             >
-              Добавить операцию
+              {activating ? "Запуск…" : "Начать учёт"}
             </button>
-          }
-        />
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => void onClearDraft()}
+              disabled={clearing}
+              data-testid="clear-draft-btn"
+            >
+              {clearing ? "Очистка…" : "Очистить портфель"}
+            </button>
+          </div>
+          <section className="panel" data-testid="personal-positions">
+            <h3>Позиции</h3>
+            {data.positions.length === 0 ? (
+              <EmptyState
+                title="Пока нет позиций"
+                reason="Добавьте кэш и инструменты на вкладке «Состав» — затем начните учёт."
+              />
+            ) : (
+              <PositionsTable positions={data.positions} />
+            )}
+          </section>
+        </>
       ) : null}
 
       {active ? (
@@ -503,88 +672,58 @@ export function PersonalPortfolioPanel() {
             {data.positions.length === 0 ? (
               <p className="muted">Нет позиций</p>
             ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Тикер</th>
-                    <th>Кол-во</th>
-                    <th>Средняя</th>
-                    <th>Цена</th>
-                    <th>Стоимость</th>
-                    <th>P&amp;L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.positions.map((p) => {
-                    const isBond = (p.asset_class || "").toLowerCase() === "bond";
-                    return (
-                      <tr key={p.instrument_id}>
-                        <td>
-                          <strong>{p.secid}</strong>
-                          <div className="muted">{p.name}</div>
-                        </td>
-                        <td>
-                          {p.units}
-                          {p.lots ? <div className="muted">{p.lots} лот(ов)</div> : null}
-                        </td>
-                        <td>
-                          {isBond || p.average_price == null ? (
-                            <span className="muted">—</span>
-                          ) : (
-                            money(p.average_price)
-                          )}
-                        </td>
-                        <td>
-                          {p.price_available ? money(p.current_price) : "Цена недоступна"}
-                          {p.price_date ? <div className="muted">{p.price_date}</div> : null}
-                        </td>
-                        <td>{p.market_value != null ? money(p.market_value) : "—"}</td>
-                        <td>
-                          {isBond ? (
-                            <span className="muted" title={p.pnl_unavailable_reason || undefined}>
-                              Недоступно
-                            </span>
-                          ) : p.unrealized_pnl != null ? (
-                            money(p.unrealized_pnl)
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <PositionsTable positions={data.positions} />
             )}
           </section>
 
           <section className="panel" data-testid="personal-operations">
             <h3>Недавние операции</h3>
-            <ul className="ops-list">
-              {data.operations
-                .filter((o) => o.status === "ACTIVE")
-                .slice(0, 20)
-                .map((o) => (
-                  <li key={o.id}>
-                    <strong>
-                      {OP_LABELS[o.operation_type as PersonalOperationType] || o.operation_type}
-                    </strong>
-                    <span className="muted">
-                      {" "}
-                      · {o.occurred_at?.slice(0, 10)}
-                      {o.amount ? ` · ${money(o.amount)}` : ""}
-                      {o.units && o.price ? ` · ${o.units} × ${money(o.price)}` : ""}
-                    </span>
-                    {!isUser && o.idempotency_key ? (
-                      <div className="muted owner-meta">
-                        #{o.id} · {o.source}
-                        {o.occurred_at ? ` · ${o.occurred_at}` : ""}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-            </ul>
+            {data.operations.filter((o) => o.status === "ACTIVE").length === 0 ? (
+              <p className="muted">Пока нет операций — полный журнал на вкладке «История».</p>
+            ) : (
+              <ul className="ops-list">
+                {data.operations
+                  .filter((o) => o.status === "ACTIVE")
+                  .slice(0, 8)
+                  .map((o) => (
+                    <li key={o.id}>
+                      <strong>
+                        {OP_LABELS[o.operation_type as PersonalOperationType] || o.operation_type}
+                      </strong>
+                      <span className="muted">
+                        {" "}
+                        · {o.occurred_at?.slice(0, 10)}
+                        {o.amount ? ` · ${money(o.amount)}` : ""}
+                        {o.units && o.price ? ` · ${o.units} × ${money(o.price)}` : ""}
+                      </span>
+                      {!isUser && o.idempotency_key ? (
+                        <div className="muted owner-meta">
+                          #{o.id} · {o.source}
+                          {o.occurred_at ? ` · ${o.occurred_at}` : ""}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+              </ul>
+            )}
           </section>
+
+          {actionError ? (
+            <p className="form-error" data-testid="portfolio-action-error">
+              {actionError}
+            </p>
+          ) : null}
+          <p style={{ marginTop: "1rem" }}>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => void onResetPortfolio()}
+              disabled={resetting}
+              data-testid="reset-portfolio-btn"
+            >
+              {resetting ? "Сброс…" : "Сбросить портфель и начать заново"}
+            </button>
+          </p>
 
           {!isUser && data.reconciliation ? (
             <section className="panel" data-testid="owner-reconciliation">
@@ -598,7 +737,15 @@ export function PersonalPortfolioPanel() {
         </>
       ) : null}
 
-      <AddOperationModal open={modalOpen} onClose={() => setModalOpen(false)} onSaved={() => void reload()} />
+      <AddOperationModal
+        portfolioId={portfolioId}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSaved={() => {
+          void reload();
+          notifyChanged();
+        }}
+      />
     </div>
   );
 }
