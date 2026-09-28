@@ -539,8 +539,10 @@ function AddOperationModal({
   const [note, setNote] = useState("");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<CatalogInstrument[]>([]);
+  const [searchDone, setSearchDone] = useState(false);
   const [instrumentId, setInstrumentId] = useState<number | null>(null);
   const [instrumentLabel, setInstrumentLabel] = useState("");
+  const [instrumentSymbol, setInstrumentSymbol] = useState("");
   const [instrumentAssetClass, setInstrumentAssetClass] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -558,21 +560,35 @@ function AddOperationModal({
   }, [open, type]);
 
   useEffect(() => {
-    if (!open || query.trim().length < 1) {
-      setHits([]);
+    if (!open || query.trim().length < 1 || instrumentId != null) {
+      if (!query.trim() || instrumentId != null) {
+        setHits([]);
+        setSearchDone(false);
+      }
       return;
     }
     const ctrl = new AbortController();
+    setSearchDone(false);
     const t = window.setTimeout(() => {
       searchCatalogInstruments({ search: query.trim(), page_size: 8 }, ctrl.signal)
-        .then((page) => setHits(page.items ?? []))
-        .catch(() => setHits([]));
+        .then((page) => {
+          if (!ctrl.signal.aborted) {
+            setHits(page.items ?? []);
+            setSearchDone(true);
+          }
+        })
+        .catch(() => {
+          if (!ctrl.signal.aborted) {
+            setHits([]);
+            setSearchDone(true);
+          }
+        });
     }, 200);
     return () => {
       ctrl.abort();
       window.clearTimeout(t);
     };
-  }, [open, query]);
+  }, [open, query, instrumentId]);
 
   const tradePreview = useMemo(() => {
     const u = Number(units || (lots && lotSize ? Number(lots) * lotSize : NaN));
@@ -683,15 +699,22 @@ function AddOperationModal({
             <label className="field">
               <span>Инструмент</span>
               <input
-                value={query || instrumentLabel}
+                value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
-                  setInstrumentId(null);
-                  setInstrumentLabel("");
-                  setInstrumentAssetClass(null);
-                  setLotSize(null);
+                  // Editing after a pick invalidates the previous instrument.
+                  if (instrumentId != null) {
+                    setInstrumentId(null);
+                    setInstrumentLabel("");
+                    setInstrumentSymbol("");
+                    setInstrumentAssetClass(null);
+                    setLotSize(null);
+                    setHits([]);
+                    setSearchDone(false);
+                  }
                 }}
                 placeholder="SBER, GAZP…"
+                autoComplete="off"
                 data-testid="op-instrument"
               />
             </label>
@@ -700,27 +723,45 @@ function AddOperationModal({
                 {BOND_TRADE_USER_MSG}
               </p>
             ) : null}
-            {hits.length > 0 && !instrumentId ? (
-              <ul className="search-hits" data-testid="op-instrument-hits">
+            {hits.length > 0 && instrumentId == null ? (
+              <ul className="search-hits" data-testid="op-instrument-hits" role="listbox">
                 {hits.map((h) => (
-                  <li key={h.id}>
+                  <li key={h.id} role="option">
                     <button
                       type="button"
+                      className="instrument-search-result-button"
                       onClick={() => {
                         setInstrumentId(h.id);
-                        setInstrumentLabel(`${h.symbol} · ${h.name || ""}`);
+                        setInstrumentSymbol(h.symbol);
+                        setInstrumentLabel(h.name || "");
                         setInstrumentAssetClass(h.asset_class || null);
-                        setQuery("");
+                        setQuery(h.symbol);
                         setHits([]);
+                        setSearchDone(false);
                         setLotSize(null);
+                        setError(null);
                       }}
                     >
-                      {h.symbol} — {h.name}
-                      {(h.asset_class || "").toLowerCase() === "bond" ? " · облигация" : ""}
+                      <span className="instrument-search-result-ticker">{h.symbol}</span>
+                      <span className="instrument-search-result-name">
+                        {h.name}
+                        {(h.asset_class || "").toLowerCase() === "bond" ? " · облигация" : ""}
+                      </span>
                     </button>
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {instrumentId == null && searchDone && query.trim().length > 0 && hits.length === 0 ? (
+              <p className="muted instrument-search-empty" data-testid="op-instrument-empty">
+                Ничего не найдено
+              </p>
+            ) : null}
+            {instrumentId != null ? (
+              <p className="muted instrument-search-selected" data-testid="op-instrument-selected">
+                Выбрано: <strong className="mono">{instrumentSymbol}</strong>
+                {instrumentLabel ? ` — ${instrumentLabel}` : ""}
+              </p>
             ) : null}
             <div className="field-row">
               <label className="field">

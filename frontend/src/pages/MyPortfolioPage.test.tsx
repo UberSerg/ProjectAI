@@ -840,7 +840,7 @@ describe("MyPortfolioPage", () => {
     fireEvent.click(screen.getByTestId("add-instrument-open"));
     fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "SBER" } });
     await waitFor(() => expect(screen.getByTestId("add-instrument-hits")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /SBER — Сбербанк/ }));
+    fireEvent.click(screen.getByRole("button", { name: /SBER/i }));
     fireEvent.click(screen.getByTestId("add-instrument-submit"));
 
     await waitFor(() => expect(addDraftPosition).toHaveBeenCalledWith(1, expect.anything()));
@@ -978,6 +978,113 @@ describe("MyPortfolioPage", () => {
     await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalled());
     expect(getPersonalPortfolio.mock.calls.every((call) => call[0] === 2)).toBe(true);
     await waitFor(() => expect(localStorage.getItem("kraken.selectedPortfolioId")).toBe("2"));
+  });
+
+  it("shows not-found for an unknown explicit id even when the collection is empty", async () => {
+    localStorage.setItem("kraken.selectedPortfolioId", "1");
+    listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
+    renderPage("/portfolio/999999");
+
+    expect(await screen.findByText("Портфель не найден")).toBeInTheDocument();
+    expect(screen.queryByText(/У вас пока нет портфелей/i)).not.toBeInTheDocument();
+    expect(localStorage.getItem("kraken.selectedPortfolioId")).not.toBe("999999");
+    expect(getPersonalPortfolio).not.toHaveBeenCalled();
+    expect(portfolioApi.getPortfolioAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("keeps onboarding on /portfolio/mine when the collection is empty", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
+    renderPage("/portfolio/mine");
+
+    expect(await screen.findByText(/У вас пока нет портфелей/i)).toBeInTheDocument();
+    expect(screen.queryByText("Портфель не найден")).not.toBeInTheDocument();
+    expect(getPersonalPortfolio).not.toHaveBeenCalled();
+  });
+
+  it("uses a dedicated search-results list without plain-list bullets", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    renderPage();
+    fireEvent.click(await screen.findByTestId("add-instrument-open"));
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "SB" } });
+    const hits = await screen.findByTestId("add-instrument-hits");
+    expect(hits).toHaveClass("instrument-search-results");
+    expect(hits).not.toHaveClass("plain-list");
+    expect(hits.querySelector(".instrument-search-result-button")).toBeTruthy();
+    expect(screen.getByTestId("add-instrument-modal").querySelector(".modal-actions")).toBeTruthy();
+  });
+
+  it("hides hits after selection and blocks stale submit after the query changes", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    vi.mocked(instrumentsApi.searchCatalogInstruments).mockImplementation(async (params) => {
+      const search = String((params as { search?: string })?.search || "").toUpperCase();
+      if (search.startsWith("GAZ")) {
+        return {
+          items: [
+            {
+              id: 7,
+              symbol: "GAZP",
+              name: "Газпром",
+              asset_class: "equity",
+              instrument_subtype: "equity_common",
+              support_level: "FULL",
+              primary_board: "TQBR",
+              exchange: "MOEX",
+              currency: "RUB",
+              isin: null,
+              is_active: true,
+              sources: ["MOEX"],
+            },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 12,
+        };
+      }
+      return {
+        items: [
+          {
+            id: 1,
+            symbol: "SBER",
+            name: "Сбербанк",
+            asset_class: "equity",
+            instrument_subtype: "equity_common",
+            support_level: "FULL",
+            primary_board: "TQBR",
+            exchange: "MOEX",
+            currency: "RUB",
+            isin: null,
+            is_active: true,
+            sources: ["MOEX"],
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 12,
+      };
+    });
+    renderPage();
+    fireEvent.click(await screen.findByTestId("add-instrument-open"));
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "SBER" } });
+    await waitFor(() => expect(screen.getByTestId("add-instrument-hits")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /SBER/i }));
+    expect(screen.queryByTestId("add-instrument-hits")).not.toBeInTheDocument();
+    expect(screen.getByTestId("add-instrument-selected")).toHaveTextContent(/SBER/);
+
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "GAZP" } });
+    expect(screen.queryByTestId("add-instrument-selected")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("add-instrument-submit"));
+    expect(await screen.findByText("Выберите инструмент")).toBeInTheDocument();
+    expect(addDraftPosition).not.toHaveBeenCalled();
+
+    const gazpHit = await screen.findByRole("button", { name: /GAZP/i });
+    fireEvent.click(gazpHit);
+    fireEvent.click(screen.getByTestId("add-instrument-submit"));
+    await waitFor(() =>
+      expect(addDraftPosition).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ instrument_id: 7 }),
+      ),
+    );
   });
 
   it("has page help for manual portfolio", () => {

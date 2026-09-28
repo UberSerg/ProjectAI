@@ -149,6 +149,7 @@ function AddInstrumentModal({
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [hits, setHits] = useState<CatalogInstrument[]>([]);
+  const [searchDone, setSearchDone] = useState(false);
   const [selected, setSelected] = useState<CatalogInstrument | null>(null);
   const [units, setUnits] = useState("10");
   const [avgPrice, setAvgPrice] = useState("");
@@ -163,18 +164,50 @@ function AddInstrumentModal({
   }, [query]);
 
   useEffect(() => {
-    if (!open || !debounced) {
-      setHits([]);
+    if (!open || !debounced || selected) {
+      if (!debounced || selected) setHits([]);
+      if (!debounced) setSearchDone(false);
       return;
     }
     const controller = new AbortController();
+    setSearchDone(false);
     searchCatalogInstruments({ search: debounced, active: true, page_size: 12 }, controller.signal)
-      .then((resp) => setHits(resp.items))
-      .catch(() => setHits([]));
+      .then((resp) => {
+        if (!controller.signal.aborted) {
+          setHits(resp.items);
+          setSearchDone(true);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setHits([]);
+          setSearchDone(true);
+        }
+      });
     return () => controller.abort();
-  }, [debounced, open]);
+  }, [debounced, open, selected]);
 
   if (!open) return null;
+
+  function onSearchChange(value: string) {
+    setQuery(value);
+    // Typing after a pick invalidates the previous instrument — Add must not
+    // submit a stale selection that no longer matches the query.
+    if (selected) {
+      setSelected(null);
+      setHits([]);
+      setSearchDone(false);
+    }
+    setErr(null);
+  }
+
+  function pickHit(hit: CatalogInstrument) {
+    setSelected(hit);
+    setQuery(hit.symbol);
+    setHits([]);
+    setSearchDone(false);
+    setErr(null);
+  }
 
   async function submit() {
     if (!selected) {
@@ -207,6 +240,7 @@ function AddInstrumentModal({
       onClose();
       setQuery("");
       setSelected(null);
+      setHits([]);
       setUnits("10");
       setAvgPrice("");
       setCostBasisTotal("");
@@ -217,6 +251,9 @@ function AddInstrumentModal({
       setBusy(false);
     }
   }
+
+  const showHits = !selected && hits.length > 0;
+  const showEmpty = !selected && searchDone && debounced.length > 0 && hits.length === 0;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -234,33 +271,40 @@ function AddInstrumentModal({
           <input
             data-testid="add-instrument-search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
             placeholder="SBER, ОФЗ, ISIN…"
             autoFocus
+            autoComplete="off"
           />
         </label>
-        {hits.length > 0 ? (
-          <ul className="plain-list" data-testid="add-instrument-hits" style={{ maxHeight: 180, overflow: "auto" }}>
+        {showHits ? (
+          <ul className="instrument-search-results" data-testid="add-instrument-hits" role="listbox">
             {hits.map((hit) => (
-              <li key={hit.id}>
+              <li key={hit.id} role="option">
                 <button
                   type="button"
-                  className={selected?.id === hit.id ? "secondary" : "linkish"}
-                  onClick={() => setSelected(hit)}
+                  className="instrument-search-result-button"
+                  onClick={() => pickHit(hit)}
                 >
-                  <strong className="mono">{hit.symbol}</strong> — {hit.name}
+                  <span className="instrument-search-result-ticker">{hit.symbol}</span>
+                  <span className="instrument-search-result-name">{hit.name}</span>
                 </button>
               </li>
             ))}
           </ul>
         ) : null}
+        {showEmpty ? (
+          <p className="muted instrument-search-empty" data-testid="add-instrument-empty">
+            Ничего не найдено
+          </p>
+        ) : null}
         {selected ? (
-          <p className="muted">
-            Выбрано: <strong className="mono">{selected.symbol}</strong> ({selected.name})
+          <p className="muted instrument-search-selected" data-testid="add-instrument-selected">
+            Выбрано: <strong className="mono">{selected.symbol}</strong> — {selected.name}
             {(selected.asset_class || "").toLowerCase() === "bond" ? " · облигация" : ""}
           </p>
         ) : null}
-        <div className="filters" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="modal-field-grid">
           <label>
             Количество (шт.)
             <input data-testid="add-instrument-units" value={units} onChange={(e) => setUnits(e.target.value)} />
@@ -523,6 +567,20 @@ export function MyPortfolioPage() {
 
 
 
+  // Explicit `/portfolio/{id}` is a resource lookup: missing id → not found
+  // even when the collection is empty. `/portfolio/mine` has no route id and
+  // correctly falls through to onboarding when there are zero portfolios.
+  if (routePortfolioId && !portfoliosLoading && !routeIdResolved) {
+    return (
+      <section data-testid="my-portfolio-page">
+        <PageHeader title="Портфель не найден" description="Такого портфеля нет." />
+        <p>
+          <Link to="/portfolio">К списку портфелей</Link>
+        </p>
+      </section>
+    );
+  }
+
   if (!portfoliosLoading && portfolios.length === 0) {
     return (
       <section data-testid="my-portfolio-page">
@@ -536,17 +594,6 @@ export function MyPortfolioPage() {
         </p>
         <p>
           <Link to="/portfolio">Создать портфель</Link>
-        </p>
-      </section>
-    );
-  }
-
-  if (routePortfolioId && !portfoliosLoading && portfolios.length > 0 && !routeIdResolved) {
-    return (
-      <section data-testid="my-portfolio-page">
-        <PageHeader title="Портфель не найден" description="Такого портфеля нет." />
-        <p>
-          <Link to="/portfolio">К списку портфелей</Link>
         </p>
       </section>
     );

@@ -733,4 +733,100 @@ describe("PersonalPortfolioPanel", () => {
     expect(screen.getByTestId("bond-trade-blocked")).toBeInTheDocument();
     expect(screen.getByTestId("op-submit")).toBeDisabled();
   });
+
+  it("clears operation instrument selection when the search query changes", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
+    createPersonalOperation.mockResolvedValue({ operation_id: 42, portfolio: emptySummary });
+    searchCatalogInstruments.mockImplementation(async (params) => {
+      const search = String((params as { search?: string })?.search || "").toUpperCase();
+      if (search.startsWith("GAZ")) {
+        return {
+          items: [
+            {
+              id: 7,
+              symbol: "GAZP",
+              name: "Газпром",
+              asset_class: "equity",
+              instrument_subtype: "equity_common",
+              support_level: "FULL",
+              primary_board: "TQBR",
+              exchange: "MOEX",
+              currency: "RUB",
+              isin: null,
+              is_active: true,
+              sources: ["MOEX"],
+            },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 8,
+        };
+      }
+      return {
+        items: [
+          {
+            id: 1,
+            symbol: "SBER",
+            name: "Сбербанк",
+            asset_class: "equity",
+            instrument_subtype: "equity_common",
+            support_level: "FULL",
+            primary_board: "TQBR",
+            exchange: "MOEX",
+            currency: "RUB",
+            isin: null,
+            is_active: true,
+            sources: ["MOEX"],
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 8,
+      };
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={1} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("add-operation-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("add-operation-btn"));
+    fireEvent.change(screen.getByTestId("op-type"), { target: { value: "BUY" } });
+    fireEvent.change(screen.getByTestId("op-instrument"), { target: { value: "SBER" } });
+    await waitFor(() => expect(screen.getByTestId("op-instrument-hits")).toBeInTheDocument());
+    expect(screen.getByTestId("op-instrument-hits")).toHaveClass("search-hits");
+    fireEvent.click(screen.getByRole("button", { name: /SBER/i }));
+    expect(screen.queryByTestId("op-instrument-hits")).not.toBeInTheDocument();
+    expect(screen.getByTestId("op-instrument-selected")).toHaveTextContent(/SBER/);
+
+    fireEvent.change(screen.getByTestId("op-instrument"), { target: { value: "GAZP" } });
+    expect(screen.queryByTestId("op-instrument-selected")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("op-units"), { target: { value: "10" } });
+    fireEvent.change(screen.getByTestId("op-price"), { target: { value: "100" } });
+    fireEvent.click(screen.getByTestId("op-submit"));
+    expect(await screen.findByTestId("op-error")).toHaveTextContent(/Выберите инструмент/i);
+    expect(createPersonalOperation).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.getByTestId("op-instrument-hits")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /GAZP/i }));
+    fireEvent.click(screen.getByTestId("op-submit"));
+    await waitFor(() =>
+      expect(createPersonalOperation).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ instrument_id: 7, operation_type: "BUY" }),
+        expect.anything(),
+      ),
+    );
+  });
 });
