@@ -43,6 +43,25 @@ Do not keep independent version numbers that can drift.
 
 Tag must point at verified `main`, not an intermediate feature tip.
 
+## In-app release history (mandatory)
+
+Каждый официальный release обязан иметь **immutable** запись в
+`frontend/src/version/manifest.ts` (`KRAKEN_RELEASES`) с полями:
+
+- `displayVersion` (e.g. `Kraken V1.0`);
+- `version` SemVer;
+- `gitTag` (e.g. `v1.0.0`);
+- **`date`** — фактическая дата релиза `YYYY-MM-DD` из GitHub Release / tag metadata
+  (не дата следующего билда, не «сегодня»);
+- human `summary` + `whatsNew` («что изменилось — зачем пользователю»);
+- optional `technicalNotes` только для OWNER;
+- optional `releaseCommitSha`.
+
+Missing release date or historical USER notes = **incomplete release**.
+
+История в UI («О Kraken») должна позволять открыть прошлый релиз и увидеть
+его собственные notes. Не подменять старые записи текущим changelog.
+
 ## Safety
 
 - Never force-push `main` for a release.
