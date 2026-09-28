@@ -380,9 +380,15 @@ def build_daily_personal_decision(
     *,
     portfolio: ManualPortfolio | None = None,
     as_of: date | None = None,
+    new_cash_rub: Decimal | None = None,
 ) -> dict[str, Any]:
-    """Build advisory Daily Personal Decision for the real user book (read-only)."""
+    """Build advisory Daily Personal Decision for the real user book (read-only).
+
+    ``new_cash_rub`` is a Decision V2 hypothetical input only — it must never write
+    journal, cash, contributed capital, or operations.
+    """
     from app.modules.investment.application.risk_opportunity_service import run_investment_decision
+    from app.modules.portfolio.application.decision_new_cash import build_new_cash_scenarios
     from app.modules.portfolio.application.manual_portfolio_service import (
         advisory_rebalance,
         analyze_manual_portfolio,
@@ -392,9 +398,54 @@ def build_daily_personal_decision(
     as_of = as_of or datetime.now(UTC).date()
     snap = load_personal_snapshot(session, portfolio)
     degradations: list[str] = []
+    requested_new_cash = money(new_cash_rub) if new_cash_rub is not None else ZERO
+    if requested_new_cash < ZERO:
+        raise ValueError("new_cash_rub must be >= 0")
 
     # --- Portfolio state gates ---
     if snap.journal_state == "EMPTY" and snap.cash_rub == ZERO and not snap.positions:
+        if requested_new_cash > ZERO:
+            plan, scenarios, conf, lims = build_new_cash_scenarios(
+                session,
+                snap=snap,
+                new_cash_rub=requested_new_cash,
+                compare=None,
+                research=None,
+                allow_precise=False,
+                degradations=["EMPTY_PORTFOLIO_PRELIMINARY"],
+            )
+            return _pack(
+                snap=snap,
+                as_of=as_of,
+                status="NEEDS_SETUP",
+                headline="Предварительный план на новый капитал",
+                summary=(
+                    "Предварительный план — состав портфеля ещё не зафиксирован. "
+                    "Добавьте активы или активируйте учёт, чтобы опираться на реальный портфель."
+                ),
+                actions=[
+                    _action(
+                        action="SETUP",
+                        priority="HIGH",
+                        title=_ACTION_TITLE_RU["SETUP"],
+                        rationale="Сначала зафиксируйте состав портфеля.",
+                        reason_codes=["PORTFOLIO_EMPTY"],
+                        facts=[f"Гипотетический капитал: {requested_new_cash} ₽"],
+                        href=f"/portfolio/{snap.portfolio.id}?tab=holdings",
+                    )
+                ],
+                risks=[],
+                analysis=None,
+                compare=None,
+                rebalance=None,
+                research=None,
+                degradations=degradations,
+                new_cash_rub=requested_new_cash,
+                new_cash_plan=plan,
+                scenario_comparison=scenarios,
+                data_confidence=conf,
+                limitations=lims,
+            )
         setup = _action(
             action="SETUP",
             priority="HIGH",
@@ -417,6 +468,7 @@ def build_daily_personal_decision(
             rebalance=None,
             research=None,
             degradations=degradations,
+            new_cash_rub=requested_new_cash,
         )
 
     if snap.journal_state == "DRAFT":
@@ -440,6 +492,32 @@ def build_daily_personal_decision(
         analysis, err = _safe_call("analysis", lambda: analyze_manual_portfolio(session, snap.portfolio))
         if err:
             degradations.append(err)
+        compare = None
+        research = None
+        allow_precise = bool(analysis) and not bool((analysis or {}).get("valuation_partial"))
+        if allow_precise:
+            compare, cerr = _safe_call(
+                "compare", lambda: compare_to_candidate(session, portfolio=snap.portfolio)
+            )
+            if cerr:
+                degradations.append(cerr)
+            if snap.known_nav_rub > ZERO:
+                research, res_err = _safe_call(
+                    "research",
+                    lambda: run_investment_decision(session, capital=money(snap.known_nav_rub)),
+                )
+                if res_err:
+                    degradations.append(res_err)
+        plan, scenarios, conf, lims = build_new_cash_scenarios(
+            session,
+            snap=snap,
+            new_cash_rub=requested_new_cash,
+            compare=compare,
+            research=research,
+            allow_precise=allow_precise,
+            degradations=degradations,
+        )
+        lims = list(lims) + ["Предварительный план — состав портфеля ещё не зафиксирован."]
         return _pack(
             snap=snap,
             as_of=as_of,
@@ -449,10 +527,15 @@ def build_daily_personal_decision(
             actions=[activate],
             risks=[],
             analysis=analysis,
-            compare=None,
+            compare=compare,
             rebalance=None,
-            research=None,
+            research=research,
             degradations=degradations,
+            new_cash_rub=requested_new_cash,
+            new_cash_plan=plan,
+            scenario_comparison=scenarios,
+            data_confidence=conf,
+            limitations=lims,
         )
 
     if snap.journal_state in ("DRAFT", "EMPTY", "LEGACY_PENDING"):
@@ -668,6 +751,21 @@ def build_daily_personal_decision(
         headline = top["title"]
         summary = top["rationale"]
 
+    plan, scenarios, conf, lims = build_new_cash_scenarios(
+        session,
+        snap=snap,
+        new_cash_rub=requested_new_cash,
+        compare=compare,
+        research=research,
+        allow_precise=allow_precise,
+        degradations=degradations,
+    )
+    if requested_new_cash > ZERO:
+        summary = (
+            f"{summary} Гипотетический новый капитал {requested_new_cash} ₽ "
+            "разобран по сценариям ниже (без записи в журнал)."
+        )
+
     return _pack(
         snap=snap,
         as_of=as_of,
@@ -681,6 +779,11 @@ def build_daily_personal_decision(
         rebalance=rebalance,
         research=research,
         degradations=degradations,
+        new_cash_rub=requested_new_cash,
+        new_cash_plan=plan,
+        scenario_comparison=scenarios,
+        data_confidence=conf,
+        limitations=lims,
     )
 
 
@@ -698,10 +801,21 @@ def _pack(
     rebalance: dict[str, Any] | None,
     research: dict[str, Any] | None,
     degradations: list[str],
+    new_cash_rub: Decimal = ZERO,
+    new_cash_plan: dict[str, Any] | None = None,
+    scenario_comparison: list[dict[str, Any]] | None = None,
+    data_confidence: dict[str, Any] | None = None,
+    limitations: list[str] | None = None,
 ) -> dict[str, Any]:
     decision_block = (research or {}).get("decision") if research else None
     bound_actions = _bind_action_hrefs(actions, int(snap.portfolio.id))
+    conf = data_confidence or {
+        "status": "PARTIAL" if degradations else "SUFFICIENT",
+        "reasons": list(degradations[:5]),
+        "note": "Qualitative confidence from data completeness — not a probability.",
+    }
     return {
+        "engine_version": "2",
         "as_of": as_of.isoformat(),
         "status": status,
         "headline": headline,
@@ -752,7 +866,15 @@ def _pack(
                 "новый Portfolio Candidate",
                 "изменение состава Personal Portfolio",
                 "обновление Risk & Opportunity / research context",
+                "гипотетический new_cash_rub (Decision V2, без записи в журнал)",
             ],
+            "dataset_v3_drives_decision": False,
         },
+        "new_cash_rub": str(money(new_cash_rub)),
+        "new_cash_plan": new_cash_plan,
+        "scenario_comparison": scenario_comparison or [],
+        "data_confidence": conf,
+        "limitations": limitations or [],
+        "degradations": degradations,
         "disclaimer": DISCLAIMER,
     }

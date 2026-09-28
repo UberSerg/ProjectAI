@@ -38,6 +38,13 @@ Do not read this document as “any Dataset V3 is forbidden to build.”
 ## Isolation
 
 - Active DatasetSpec remains `pit_daily_core` v1
+- Candidate V1 remains on Dataset V2
+- V3 Core builds are explicit research-only
+- See also: `docs/research/dataset-v3-evaluation-v1.md` (V2↔V3 fair compare, research_quality grade)
+
+## Brain Foundation V2 note
+
+V3 semantic contract is frozen after successful DatasetRuns. Evaluation tooling must not mutate V3 feature/label/universe semantics; only additive diagnostics and compare artifacts are allowed.
 - Candidate V1 remains pinned to Dataset V2
 - Shadow / production prediction unchanged by Core seeding
 - Dividend safety gate not weakened

@@ -19,9 +19,21 @@ PIT_DAILY_CORE_V2_VERSION = 2
 PIT_DAILY_CORE_V3_VERSION = 3
 # Released contract stays active; V2/V3 are buildable but not auto-activated.
 PIT_DAILY_CORE_ACTIVE_VERSION = 1
+# Additive alias: research builds may pin V3 explicitly; NEVER changes ACTIVE=1.
+PIT_DAILY_CORE_RESEARCH_VERSION = PIT_DAILY_CORE_V3_VERSION
 
 UNIVERSE_POLICY_CURRENT_ACTIVE = "current_active_instruments"
 UNIVERSE_POLICY_HISTORICAL_V2 = HISTORICAL_EQUITY_UNIVERSE_V2
+
+# Research-only CORE measurement grades (never production / never auto-activate).
+RESEARCH_CORE_GRADE_READY = "READY_FOR_RESEARCH"
+RESEARCH_CORE_GRADE_PARTIAL = "PARTIAL"
+RESEARCH_CORE_GRADE_NOT_READY = "NOT_READY"
+# Thresholds for grade_v3_core_research_quality (docs/research/dataset-v3-evaluation-v1.md).
+RESEARCH_CORE_READY_MIN_SAMPLES = 1
+RESEARCH_CORE_READY_MIN_YEARS_WITH_SAMPLES = 1
+# Above this proxy share of eligible_from boundaries → at best PARTIAL.
+RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT = 50.0
 
 # Dataset V0: Relations PIT join is part of X(t). Pin is basic_relations v1 only.
 RELATIONS_JOIN_ENABLED = True

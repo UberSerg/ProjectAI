@@ -591,6 +591,7 @@ def advisory_rebalance(
     portfolio: ManualPortfolio | None = None,
 ) -> dict[str, Any]:
     from app.modules.portfolio.application.personal_portfolio_service import (
+        PersonalPositionSnapshot,
         load_personal_snapshot,
     )
 
@@ -612,22 +613,12 @@ def advisory_rebalance(
 
     plan_instruments: list[PlanInstrument] = []
     review_rows: list[dict[str, Any]] = []
-    # Actual side = Personal Portfolio projection (via snapshot), not a separate legacy book.
+    # Actual side = Personal snapshot positions only (no second ManualPosition ORM scan).
     snap = load_personal_snapshot(session, portfolio)
     portfolio = snap.portfolio
-    pos_by_symbol: dict[str, ManualPosition] = {}
-    pos_rows = {
-        int(p.instrument_id): p
-        for p in session.scalars(
-            select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
-        ).all()
+    pos_by_symbol: dict[str, PersonalPositionSnapshot] = {
+        p.symbol.upper(): p for p in snap.positions if p.symbol
     }
-    for p in snap.positions:
-        if not p.symbol:
-            continue
-        row = pos_rows.get(int(p.instrument_id))
-        if row is not None:
-            pos_by_symbol[p.symbol.upper()] = row
 
     symbols = sorted(set(scaled) | set(pos_by_symbol))
     for idx, symbol in enumerate(symbols):

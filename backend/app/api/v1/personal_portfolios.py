@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -320,11 +320,30 @@ def get_reconciliation(portfolio_id: int, test: bool = Query(False)) -> dict[str
 
 
 @router.get("/{portfolio_id}/daily-decision")
-def get_daily_decision(portfolio_id: int, test: bool = Query(False)) -> dict[str, Any]:
+def get_daily_decision(
+    portfolio_id: int,
+    test: Annotated[bool, Query()] = False,
+    new_cash_rub: Annotated[
+        Decimal | None,
+        Query(
+            ge=0,
+            description=(
+                "Optional Decision V2 hypothetical new capital in RUB. "
+                "Read-only — does not create DEPOSIT, mutate cash, contributed, or journal."
+            ),
+        ),
+    ] = None,
+) -> dict[str, Any]:
     with core_session() as session:
         try:
             portfolio = _resolve(session, portfolio_id, test=test)
-            return build_daily_personal_decision(session, portfolio=portfolio)
+            return build_daily_personal_decision(
+                session,
+                portfolio=portfolio,
+                new_cash_rub=new_cash_rub if new_cash_rub is not None else Decimal("0"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except PersonalPortfolioError as exc:
             raise _http(exc) from exc
 

@@ -193,10 +193,12 @@ function AddInstrumentModal({
     setQuery(value);
     // Typing after a pick invalidates the previous instrument — Add must not
     // submit a stale selection that no longer matches the query.
+    // Sync debounced immediately so a late SBER response cannot briefly repaint.
     if (selected) {
       setSelected(null);
       setHits([]);
       setSearchDone(false);
+      setDebounced(value.trim());
     }
     setErr(null);
   }
@@ -732,7 +734,13 @@ export function MyPortfolioPage() {
       {tab === "decision" ? (
         <div data-testid="tab-decision-panel" style={{ marginTop: "0.75rem" }}>
           <TabLoadState resource={decisionRes} loadingTitle="Загрузка рекомендаций…" />
-          {decisionRes.data ? <DailyDecisionPanel decision={decisionRes.data} owner={!isUser} /> : null}
+          {decisionRes.data ? (
+            <DailyDecisionPanel
+              decision={decisionRes.data}
+              owner={!isUser}
+              portfolioId={portfolioId}
+            />
+          ) : null}
         </div>
       ) : null}
 

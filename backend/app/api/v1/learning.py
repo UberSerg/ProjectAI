@@ -339,6 +339,40 @@ def get_sample(run_id: int, sample_id: int) -> DatasetSampleResponse:
         )
 
 
+class CompareV2V3Request(BaseModel):
+    date_from: date
+    date_to: date
+    v2_run_id: int | None = None
+    v3_run_id: int | None = None
+    rebuild: bool = False
+    instrument_ids: list[int] | None = None
+
+
+@router.post("/datasets/compare-v2-v3")
+def compare_v2_v3(body: CompareV2V3Request) -> dict[str, Any]:
+    """OWNER/research: fair V2↔V3 coverage comparison. Does not activate DatasetSpec."""
+    from app.modules.learning.application.compare_v2_v3 import (
+        CompareContractError,
+        compare_v2_v3_builds,
+    )
+
+    if body.date_to < body.date_from:
+        raise HTTPException(status_code=400, detail="date_to must be >= date_from")
+    with core_session() as session:
+        try:
+            return compare_v2_v3_builds(
+                session,
+                date_from=body.date_from,
+                date_to=body.date_to,
+                instrument_ids=body.instrument_ids,
+                v2_run_id=body.v2_run_id,
+                v3_run_id=body.v3_run_id,
+                rebuild=body.rebuild,
+            )
+        except CompareContractError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/datasets/build", response_model=WorkflowStartResponse)
 def start_build(body: BuildRequest) -> WorkflowStartResponse:
     if body.date_to is not None and body.date_to < body.date_from:

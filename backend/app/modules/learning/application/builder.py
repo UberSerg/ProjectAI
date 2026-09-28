@@ -59,7 +59,15 @@ from app.modules.learning.application.validator import PITDatasetValidator, asse
 from app.modules.learning.dataset_config import (
     DATASET_BUILD_STEPS,
     PIT_DAILY_CORE_CODE,
+    PIT_DAILY_CORE_RESEARCH_VERSION,
+    PIT_DAILY_CORE_V3_VERSION,
     PIT_DAILY_CORE_VERSION,
+    RESEARCH_CORE_GRADE_NOT_READY,
+    RESEARCH_CORE_GRADE_PARTIAL,
+    RESEARCH_CORE_GRADE_READY,
+    RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT,
+    RESEARCH_CORE_READY_MIN_SAMPLES,
+    RESEARCH_CORE_READY_MIN_YEARS_WITH_SAMPLES,
     is_horizon_training_eligible,
     is_sample_relation_missing,
     relation_feature_names,
@@ -136,14 +144,23 @@ def _invalidate_labels_past_eligible_to(
     return rejected
 
 
+def _pct_or_none(numerator: int, denominator: int | None) -> float | None:
+    """Coverage percentage; None when denominator unknown/empty (never invent 0/100)."""
+    if denominator is None or denominator <= 0:
+        return None
+    return round(100.0 * numerator / denominator, 2)
+
+
 def _build_year_coverage(
     *,
     by_year: dict[str, Any],
     eligibility_by_id: dict[int, HistoricalEligibility],
     date_from: date,
     date_to: date,
+    horizons: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Bounded per-year summary for Dataset V3 coverage diagnostics."""
+    hs = list(horizons or [1, 5, 10, 20])
     years = sorted({y for y in range(date_from.year, date_to.year + 1)} | {int(k) for k in by_year})
     out: list[dict[str, Any]] = []
     for year in years:
@@ -153,30 +170,125 @@ def _build_year_coverage(
         window_end = min(date_to, y_end)
         if window_start > window_end:
             continue
-        eligible = 0
+        eligible: int | None
         if eligibility_by_id:
+            eligible = 0
             for elig in eligibility_by_id.values():
                 # Any overlap of eligibility window with the year slice.
                 e_to = elig.eligible_to or window_end
                 if elig.eligible_from <= window_end and e_to >= window_start:
                     eligible += 1
+        else:
+            # Unknown universe eligibility — do not zero-fill or invent coverage.
+            eligible = None
         bucket = by_year.get(str(year), {})
         sampled_ids = bucket.get("sampled_instruments") or set()
         inactive_ids = bucket.get("inactive_now_instruments") or set()
         samples_n = int(bucket.get("samples") or 0)
         sampled_n = len(sampled_ids)
-        denom = eligible if eligibility_by_id else max(sampled_n, 1)
-        out.append(
-            {
-                "year": year,
-                "eligible_instruments": eligible if eligibility_by_id else None,
-                "sampled_instruments": sampled_n,
-                "samples": samples_n,
-                "inactive_now_instruments_represented": len(inactive_ids),
-                "coverage_pct": round(100.0 * sampled_n / max(denom, 1), 2),
-            }
-        )
+        te = bucket.get("training_eligible") or {}
+        lv = bucket.get("label_valid") or {}
+        training_eligible = {f"{h}d": int(te.get(f"{h}d") or 0) for h in hs}
+        label_valid = {f"{h}d": int(lv.get(f"{h}d") or 0) for h in hs}
+        label_coverage_pct = {
+            key: _pct_or_none(label_valid[key], samples_n if samples_n > 0 else None)
+            for key in label_valid
+        }
+        training_eligible_pct = {
+            key: _pct_or_none(training_eligible[key], samples_n if samples_n > 0 else None)
+            for key in training_eligible
+        }
+        row: dict[str, Any] = {
+            "year": year,
+            "eligible_instruments": eligible,
+            "sampled_instruments": sampled_n,
+            "samples": samples_n,
+            "inactive_now_instruments_represented": len(inactive_ids),
+            # Prefer explicit sample_coverage_pct; keep coverage_pct alias.
+            "sample_coverage_pct": _pct_or_none(sampled_n, eligible),
+            "coverage_pct": _pct_or_none(sampled_n, eligible),
+            "label_coverage_pct": label_coverage_pct,
+            "training_eligible_pct": training_eligible_pct,
+        }
+        for h in hs:
+            key = f"{h}d"
+            row[f"training_eligible_{key}"] = training_eligible[key]
+            row[f"label_valid_{key}"] = label_valid[key]
+        out.append(row)
     return out
+
+
+def grade_v3_core_research_quality(
+    *,
+    samples_total: int,
+    apply_date_eligibility: bool,
+    resolved_universe: dict[str, Any],
+    universe_cov: dict[str, Any],
+    by_year: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """RESEARCH-ONLY grade from measurable CORE evidence. Never production-ready."""
+    reasons: list[str] = []
+    proxy_from_pct = resolved_universe.get("proxy_from_pct")
+    authoritative_from_pct = resolved_universe.get("authoritative_from_pct")
+    inactive_now = int(resolved_universe.get("inactive_now") or 0)
+    inactive_with_samples = int(universe_cov.get("inactive_instruments_with_samples") or 0)
+    years_with_samples = sum(1 for y in by_year if int(y.get("samples") or 0) > 0)
+
+    if not apply_date_eligibility:
+        reasons.append("date_eligibility_not_applied")
+    if samples_total < RESEARCH_CORE_READY_MIN_SAMPLES:
+        reasons.append("insufficient_samples")
+    if years_with_samples < RESEARCH_CORE_READY_MIN_YEARS_WITH_SAMPLES:
+        reasons.append("no_year_coverage")
+
+    if reasons:
+        grade = RESEARCH_CORE_GRADE_NOT_READY
+    else:
+        grade = RESEARCH_CORE_GRADE_READY
+        if (
+            isinstance(proxy_from_pct, int | float)
+            and float(proxy_from_pct) > RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT
+        ):
+            grade = RESEARCH_CORE_GRADE_PARTIAL
+            reasons.append(
+                f"proxy_from_pct>{RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT}"
+            )
+        if inactive_now > 0 and inactive_with_samples <= 0:
+            grade = RESEARCH_CORE_GRADE_PARTIAL
+            reasons.append("inactive_now_present_but_not_represented_in_samples")
+        if resolved_universe.get("universe_quality") == "PARTIAL" and grade == RESEARCH_CORE_GRADE_READY:
+            # HU completeness is PARTIAL by contract; still READY_FOR_RESEARCH when
+            # measurable CORE evidence is otherwise adequate — note the limitation.
+            reasons.append("historical_universe_completeness_partial_td008")
+
+    return {
+        "grade": grade,
+        "scope": "research_only",
+        "production_ready": False,
+        "activated": False,
+        "dataset_research_version": PIT_DAILY_CORE_RESEARCH_VERSION,
+        "thresholds": {
+            "min_samples": RESEARCH_CORE_READY_MIN_SAMPLES,
+            "min_years_with_samples": RESEARCH_CORE_READY_MIN_YEARS_WITH_SAMPLES,
+            "partial_proxy_from_pct": RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT,
+        },
+        "evidence": {
+            "samples_total": samples_total,
+            "years_with_samples": years_with_samples,
+            "inactive_now": inactive_now,
+            "inactive_instruments_with_samples": inactive_with_samples,
+            "proxy_from_pct": proxy_from_pct,
+            "authoritative_from_pct": authoritative_from_pct,
+            "universe_quality": resolved_universe.get("universe_quality"),
+            "apply_date_eligibility": apply_date_eligibility,
+        },
+        "reasons": reasons,
+        "notes": [
+            "READY_FOR_RESEARCH means measurable CORE evidence is usable for research builds.",
+            "Never interpret as production-ready, Candidate/Shadow switch, or auto-activation.",
+            "Historical universe completeness remains PARTIAL (TD-008).",
+        ],
+    }
 
 
 class PITDatasetBuilder:
@@ -247,6 +359,7 @@ class PITDatasetBuilder:
             self._mark(workflow, "Resolve pinned source versions", "SUCCESS")
 
             self._mark(workflow, "Resolve universe", "RUNNING")
+            t_universe = time.perf_counter()
             try:
                 universe = resolve_dataset_universe(
                     self.session,
@@ -266,10 +379,28 @@ class PITDatasetBuilder:
                     trace_id=(workflow.meta or {}).get("trace_id"),
                 )
                 raise
+            # V3 contract: never silently resolve to current_active / no date eligibility.
+            if int(spec.version) == PIT_DAILY_CORE_V3_VERSION and not universe.apply_date_eligibility:
+                self._mark(workflow, "Resolve universe", "FAILED")
+                err = HistoricalUniverseResolutionError(
+                    "pit_daily_core v3 requires historical_equity_universe_v2 date eligibility; "
+                    "refusing current_active_instruments fallback"
+                )
+                write_event(
+                    self.session,
+                    level="ERROR",
+                    component="dataset",
+                    event_type="dataset.universe_failed",
+                    message=str(err),
+                    workflow_id=workflow.id,
+                    trace_id=(workflow.meta or {}).get("trace_id"),
+                )
+                raise err
             instruments = universe.instruments
             resolved_universe = dict(universe.resolved_universe)
             eligibility_by_id = universe.eligibility_by_id
             apply_date_eligibility = universe.apply_date_eligibility
+            universe_sec = round(time.perf_counter() - t_universe, 3)
             self._mark(workflow, "Resolve universe", "SUCCESS")
 
             effective_to = date_to or self.session.scalar(select(func.max(Candle.timestamp)))
@@ -491,11 +622,19 @@ class PITDatasetBuilder:
                 counters["rel_context_available"][ctx["key"]] = 0
                 counters["rel_context_hits"][ctx["key"]] = 0
             timings = {
+                "universe_sec": universe_sec,
+                "analytics_sec": load_analytics_sec,
+                "technical_sec": load_technical_sec,
+                "relations_sec": load_relations_sec,
                 "load_analytics_sec": load_analytics_sec,
                 "load_technical_sec": load_technical_sec,
                 "load_relations_sec": load_relations_sec,
+                "labels_sec": 0.0,
+                "validation_sec": 0.0,
+                "persistence_sec": 0.0,
             }
             t_build = time.perf_counter()
+            labels_sec_acc = 0.0
             value_hashes: list[str] = []
 
             total = len(instruments)
@@ -625,6 +764,7 @@ class PITDatasetBuilder:
                     label_prices = prices
                     if apply_date_eligibility and elig is not None:
                         label_prices = _clip_prices_to_eligibility(prices, elig)
+                    t_label = time.perf_counter()
                     label_result = label_calc.calculate(
                         label_prices,
                         as_of=as_of,
@@ -645,6 +785,7 @@ class PITDatasetBuilder:
                             horizons=horizons,
                         )
                         counters["labels_rejected_after_eligible_to"] += n_rejected
+                    labels_sec_acc += time.perf_counter() - t_label
 
                     core_valid = bool(basic and basic.is_valid)
                     tech_available = bool(
@@ -796,12 +937,24 @@ class PITDatasetBuilder:
                             "samples": 0,
                             "sampled_instruments": set(),
                             "inactive_now_instruments": set(),
+                            "training_eligible": {"1d": 0, "5d": 0, "10d": 0, "20d": 0},
+                            "label_valid": {"1d": 0, "5d": 0, "10d": 0, "20d": 0},
                         },
                     )
                     year_bucket["samples"] += 1
                     year_bucket["sampled_instruments"].add(inst.id)
                     if not inst.is_active:
                         year_bucket["inactive_now_instruments"].add(inst.id)
+                    for h in horizons:
+                        key = f"{h}d"
+                        if bool(label_result.label_valid.get(key)):
+                            year_bucket["label_valid"][key] = (
+                                year_bucket["label_valid"].get(key, 0) + 1
+                            )
+                        if training_eligible.get(f"training_eligible_{key}"):
+                            year_bucket["training_eligible"][key] = (
+                                year_bucket["training_eligible"].get(key, 0) + 1
+                            )
 
                     features_dict = sample.features.to_dict()
                     labels_dict = sample.labels.to_dict()
@@ -1025,6 +1178,23 @@ class PITDatasetBuilder:
                     counters["feature_missing"].items(), key=lambda x: -x[1]
                 )[:15],
             }
+            if apply_date_eligibility and int(spec.version) == PIT_DAILY_CORE_V3_VERSION:
+                year_rows = coverage["by_year"]
+                coverage["research_quality"] = grade_v3_core_research_quality(
+                    samples_total=len(samples),
+                    apply_date_eligibility=True,
+                    resolved_universe=resolved_universe,
+                    universe_cov=coverage["universe"],
+                    by_year=year_rows,
+                )
+                # Align stage timing keys for research diagnostics (additive).
+                timings.setdefault("universe_sec", timings.get("load_universe_sec"))
+                timings.setdefault("analytics_sec", timings.get("load_analytics_sec"))
+                timings.setdefault("technical_sec", timings.get("load_technical_sec"))
+                timings.setdefault("relations_sec", timings.get("load_relations_sec"))
+                timings.setdefault("labels_sec", timings.get("build_sec"))
+                timings.setdefault("validation_sec", None)
+                timings.setdefault("persistence_sec", timings.get("persist_sec"))
 
             manifest = {
                 "dataset_code": spec.code,
