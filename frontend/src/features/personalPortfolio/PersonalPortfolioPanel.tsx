@@ -8,8 +8,11 @@ import {
   activatePersonalPortfolio,
   clearDraftPortfolio,
   createPersonalOperation,
+  deleteDraftPosition,
   getPersonalPortfolio,
+  patchDraftPosition,
   resetPersonalPortfolio,
+  setDraftCash,
   type CreatePersonalOperationBody,
   type PersonalOperationType,
   type PersonalSummary,
@@ -23,8 +26,8 @@ export const OP_LABELS: Record<PersonalOperationType, string> = {
   BUY: "Покупка",
   SELL: "Продажа",
   COMMISSION: "Комиссия",
-  OPENING_CASH: "Открытие: кэш",
-  OPENING_POSITION: "Открытие: позиция",
+  OPENING_CASH: "Начальное состояние · деньги",
+  OPENING_POSITION: "Начальное состояние · позиция",
 };
 
 function money(v: string | null | undefined): string {
@@ -84,6 +87,343 @@ function costBasisCounts(positions: PersonalSummary["positions"]): {
     else unknown += 1;
   }
   return { known, unknown };
+}
+
+type PersonalPosition = PersonalSummary["positions"][number];
+
+function isBondPosition(p: PersonalPosition): boolean {
+  return (p.asset_class || "").toLowerCase() === "bond";
+}
+
+/** Total RUB spent on the position; MOEX % quotes are never treated as RUB. */
+function costBasisTotalRub(p: PersonalPosition): string | null {
+  if (p.cost_basis_status === "UNKNOWN") return null;
+  if (p.cost_basis_total_rub != null && p.cost_basis_total_rub !== "") return p.cost_basis_total_rub;
+  if (p.average_price == null) return null;
+  const units = Number(p.units);
+  const avg = Number(p.average_price);
+  if (!Number.isFinite(units) || !Number.isFinite(avg)) return null;
+  return String(units * avg);
+}
+
+function DraftCashModal({
+  portfolioId,
+  currentCash,
+  onClose,
+  onSaved,
+}: {
+  portfolioId: number;
+  currentCash: string;
+  onClose: () => void;
+  onSaved: (next: PersonalSummary) => void;
+}) {
+  const titleId = useId();
+  const [value, setValue] = useState(currentCash === "" ? "0" : currentCash);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    const amount = Number(value.replace(",", "."));
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError("Укажите сумму — 0 тоже допустим.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await setDraftCash(portfolioId, amount);
+      onSaved(next);
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal panel"
+        role="dialog"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+        data-testid="draft-cash-modal"
+      >
+        <h2 id={titleId}>Свободные деньги</h2>
+        <label className="field">
+          <span>Свободные деньги, ₽</span>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            inputMode="decimal"
+            data-testid="draft-cash-input"
+            autoFocus
+          />
+        </label>
+        <p className="muted">Если свободных денег нет — оставьте 0.</p>
+        {error ? (
+          <p className="form-error" data-testid="draft-cash-error">
+            {error}
+          </p>
+        ) : null}
+        <div className="modal-actions">
+          <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void submit()}
+            disabled={busy}
+            data-testid="draft-cash-submit"
+          >
+            {busy ? "Сохранение…" : "Сохранить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraftPositionModal({
+  portfolioId,
+  position,
+  onClose,
+  onSaved,
+}: {
+  portfolioId: number;
+  position: PersonalPosition;
+  onClose: () => void;
+  onSaved: (next: PersonalSummary) => void;
+}) {
+  const titleId = useId();
+  const bond = isBondPosition(position);
+  const [units, setUnits] = useState(position.units ?? "");
+  const [avgPrice, setAvgPrice] = useState(position.average_price ?? "");
+  const [costTotal, setCostTotal] = useState(bond ? (costBasisTotalRub(position) ?? "") : "");
+  const [clearCost, setClearCost] = useState(false);
+  const [note, setNote] = useState("");
+  const [nonStandardLot, setNonStandardLot] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    const unitsNum = Number(String(units).replace(",", "."));
+    if (!Number.isFinite(unitsNum) || unitsNum <= 0) {
+      setError("Количество должно быть больше нуля.");
+      return;
+    }
+    const body: Record<string, unknown> = { units: String(unitsNum) };
+    if (clearCost) {
+      body.clear_cost_basis = true;
+    } else if (bond) {
+      if (String(costTotal).trim() !== "") body.cost_basis_total_rub = String(costTotal).replace(",", ".");
+    } else if (String(avgPrice).trim() !== "") {
+      body.average_price = String(avgPrice).replace(",", ".");
+    }
+    if (note.trim() !== "") body.note = note.trim();
+    if (!bond) body.non_standard_lot = nonStandardLot;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await patchDraftPosition(portfolioId, position.id!, body);
+      onSaved(res.portfolio);
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal panel"
+        role="dialog"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+        data-testid="draft-position-modal"
+      >
+        <h2 id={titleId}>{position.secid ?? "Позиция"}</h2>
+        <p className="muted">{position.name}</p>
+        <label className="field">
+          <span>Количество, шт.</span>
+          <input
+            value={units}
+            onChange={(e) => setUnits(e.target.value)}
+            inputMode="decimal"
+            data-testid="draft-position-units"
+          />
+        </label>
+        {bond ? (
+          <>
+            <label className="field">
+              <span>Общая себестоимость позиции, ₽</span>
+              <input
+                value={costTotal}
+                onChange={(e) => setCostTotal(e.target.value)}
+                inputMode="decimal"
+                placeholder="Не указана"
+                disabled={clearCost}
+                data-testid="draft-position-cost-total"
+              />
+            </label>
+            <p className="muted">
+              Укажите, сколько всего рублей было потрачено на эту позицию. Биржевая цена облигации
+              публикуется в процентах от номинала и не является рублёвой себестоимостью.
+            </p>
+          </>
+        ) : (
+          <label className="field">
+            <span>Себестоимость за штуку, ₽</span>
+            <input
+              value={avgPrice}
+              onChange={(e) => setAvgPrice(e.target.value)}
+              inputMode="decimal"
+              placeholder="Не указана"
+              disabled={clearCost}
+              data-testid="draft-position-avg-price"
+            />
+          </label>
+        )}
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={clearCost}
+            onChange={(e) => setClearCost(e.target.checked)}
+            data-testid="draft-position-clear-cost"
+          />
+          Очистить себестоимость
+        </label>
+        {!bond ? (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={nonStandardLot}
+              onChange={(e) => setNonStandardLot(e.target.checked)}
+              data-testid="draft-position-non-standard-lot"
+            />
+            Нестандартный лот (дробный остаток или неизвестный размер лота)
+          </label>
+        ) : null}
+        <label className="field">
+          <span>Комментарий — необязательно</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} data-testid="draft-position-note" />
+        </label>
+        {error ? (
+          <p className="form-error" data-testid="draft-position-error">
+            {error}
+          </p>
+        ) : null}
+        <div className="modal-actions">
+          <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void submit()}
+            disabled={busy}
+            data-testid="draft-position-submit"
+          >
+            {busy ? "Сохранение…" : "Сохранить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraftPositionsTable({
+  positions,
+  onEdit,
+  onRemove,
+  busyId,
+}: {
+  positions: PersonalSummary["positions"];
+  onEdit: (position: PersonalPosition) => void;
+  onRemove: (position: PersonalPosition) => void;
+  busyId: number | null;
+}) {
+  return (
+    <table className="data-table" data-testid="draft-positions-table">
+      <thead>
+        <tr>
+          <th>Тикер</th>
+          <th>Кол-во</th>
+          <th>Себестоимость</th>
+          <th>Текущая цена</th>
+          <th>Текущая стоимость</th>
+          <th>Результат</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {positions.map((p) => {
+          const basis = costBasisTotalRub(p);
+          return (
+            <tr key={p.id ?? p.instrument_id}>
+              <td>
+                <strong>{p.secid}</strong>
+                <div className="muted">{p.name}</div>
+              </td>
+              <td>
+                {p.units}
+                {p.lots ? <div className="muted">{p.lots} лот(ов)</div> : null}
+              </td>
+              <td>{basis != null ? money(basis) : <span className="muted">Не указана</span>}</td>
+              <td>
+                {p.price_available ? money(p.current_price) : "Цена недоступна"}
+                {p.price_date ? <div className="muted">{p.price_date}</div> : null}
+              </td>
+              <td>{p.market_value != null ? money(p.market_value) : "—"}</td>
+              <td>
+                {basis == null ? (
+                  <span className="muted" title={p.pnl_unavailable_reason || undefined}>
+                    Себестоимость не указана
+                  </span>
+                ) : p.unrealized_pnl != null ? (
+                  money(p.unrealized_pnl)
+                ) : (
+                  <span className="muted" title={p.pnl_unavailable_reason || undefined}>
+                    {p.price_available ? "Недоступно" : "Нет текущей цены"}
+                  </span>
+                )}
+              </td>
+              <td>
+                {p.id == null ? (
+                  <span className="muted">—</span>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => onEdit(p)}
+                      data-testid={`draft-position-edit-${p.id}`}
+                    >
+                      Изменить
+                    </button>{" "}
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => onRemove(p)}
+                      disabled={busyId === p.id}
+                      data-testid={`draft-position-remove-${p.id}`}
+                    >
+                      {busyId === p.id ? "Удаление…" : "Убрать"}
+                    </button>
+                  </>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 }
 
 function PositionsTable({ positions }: { positions: PersonalSummary["positions"] }) {
@@ -458,6 +798,9 @@ export function PersonalPortfolioPanel({
   const [clearing, setClearing] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [cashModalOpen, setCashModalOpen] = useState(false);
+  const [editPosition, setEditPosition] = useState<PersonalPosition | null>(null);
+  const [removingPositionId, setRemovingPositionId] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -512,6 +855,28 @@ export function PersonalPortfolioPanel({
       }
     } finally {
       setActivating(false);
+    }
+  }
+
+  function onDraftSaved(next: PersonalSummary) {
+    setData(next);
+    setActionError(null);
+    notifyChanged();
+  }
+
+  async function onRemoveDraftPosition(position: PersonalPosition) {
+    if (position.id == null) return;
+    if (!window.confirm(`Убрать ${position.secid ?? "позицию"} из портфеля?`)) return;
+    setRemovingPositionId(position.id);
+    setActionError(null);
+    try {
+      const res = await deleteDraftPosition(portfolioId, position.id);
+      setData(res.portfolio);
+      notifyChanged();
+    } catch (e) {
+      setActionError(errorMessage(e));
+    } finally {
+      setRemovingPositionId(null);
     }
   }
 
@@ -594,11 +959,21 @@ export function PersonalPortfolioPanel({
             <span> · История операций ещё не начата.</span>
           </div>
           <div className="metric-grid" data-testid="draft-summary">
-            <MetricCard label="Кэш" value={money(data.summary.cash_rub)} />
-            <MetricCard label="Бумаги" value={money(data.summary.securities_value_rub)} />
-            <MetricCard label="Текущая стоимость" value={money(data.summary.nav_rub)} />
+            <MetricCard label="Свободные деньги" value={money(data.summary.cash_rub)} />
+            <MetricCard label="Текущая стоимость бумаг" value={money(data.summary.securities_value_rub)} />
+            <MetricCard label="Текущая стоимость портфеля" value={money(data.summary.nav_rub)} />
             <MetricCard label="Позиций" value={String(data.positions.length)} />
           </div>
+          <p>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setCashModalOpen(true)}
+              data-testid="draft-cash-edit-btn"
+            >
+              Изменить кэш
+            </button>
+          </p>
           {activateError ? (
             <p className="form-error" data-testid="activate-error">
               {activateError}
@@ -634,13 +1009,36 @@ export function PersonalPortfolioPanel({
             {data.positions.length === 0 ? (
               <EmptyState
                 title="Пока нет позиций"
-                reason="Добавьте кэш и инструменты на вкладке «Состав» — затем начните учёт."
+                reason="Добавьте свободные деньги и инструменты — затем начните учёт."
               />
             ) : (
-              <PositionsTable positions={data.positions} />
+              <DraftPositionsTable
+                positions={data.positions}
+                onEdit={setEditPosition}
+                onRemove={(position) => void onRemoveDraftPosition(position)}
+                busyId={removingPositionId}
+              />
             )}
           </section>
         </>
+      ) : null}
+
+      {draft && cashModalOpen ? (
+        <DraftCashModal
+          portfolioId={portfolioId}
+          currentCash={data.summary.cash_rub}
+          onClose={() => setCashModalOpen(false)}
+          onSaved={onDraftSaved}
+        />
+      ) : null}
+
+      {draft && editPosition ? (
+        <DraftPositionModal
+          portfolioId={portfolioId}
+          position={editPosition}
+          onClose={() => setEditPosition(null)}
+          onSaved={onDraftSaved}
+        />
       ) : null}
 
       {active ? (
@@ -655,7 +1053,10 @@ export function PersonalPortfolioPanel({
               label="Инвестиционный результат"
               value={
                 data.summary.investment_pnl_rub == null
-                  ? "Результат недоступен — не хватает цены по части позиций"
+                  ? `Результат недоступен. ${
+                      data.summary.investment_pnl_message ??
+                      "Не хватает цены по части позиций."
+                    }`
                   : money(data.summary.investment_pnl_rub)
               }
               hint="Без учёта пополнений и выводов как «прибыли»"

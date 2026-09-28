@@ -10,6 +10,9 @@ const createPersonalOperation = vi.fn();
 const activatePersonalPortfolio = vi.fn();
 const clearDraftPortfolio = vi.fn();
 const resetPersonalPortfolio = vi.fn();
+const setDraftCash = vi.fn();
+const patchDraftPosition = vi.fn();
+const deleteDraftPosition = vi.fn();
 const searchCatalogInstruments = vi.fn();
 
 vi.mock("../../api/personalPortfolios", () => ({
@@ -18,6 +21,9 @@ vi.mock("../../api/personalPortfolios", () => ({
   activatePersonalPortfolio: (...args: unknown[]) => activatePersonalPortfolio(...args),
   clearDraftPortfolio: (...args: unknown[]) => clearDraftPortfolio(...args),
   resetPersonalPortfolio: (...args: unknown[]) => resetPersonalPortfolio(...args),
+  setDraftCash: (...args: unknown[]) => setDraftCash(...args),
+  patchDraftPosition: (...args: unknown[]) => patchDraftPosition(...args),
+  deleteDraftPosition: (...args: unknown[]) => deleteDraftPosition(...args),
 }));
 
 vi.mock("../../api/instruments", () => ({
@@ -61,6 +67,182 @@ const emptySummary = {
   recommendation_disclaimer: "Модельная рекомендация",
 };
 
+const draftEquityPosition = {
+  id: 11,
+  instrument_id: 1,
+  secid: "SBER",
+  name: "Сбербанк",
+  asset_class: "equity",
+  units: "100",
+  lots: "10",
+  average_price: "250",
+  cost_basis_total_rub: "25000",
+  cost_basis_status: "KNOWN" as const,
+  current_price: "260",
+  price_date: "2026-09-25",
+  market_value: "26000",
+  unrealized_pnl: "1000",
+  price_available: true,
+};
+
+const draftBondPosition = {
+  id: 12,
+  instrument_id: 9,
+  secid: "OFZ",
+  name: "ОФЗ 26240",
+  asset_class: "bond",
+  units: "2",
+  lots: "2",
+  average_price: null,
+  cost_basis_total_rub: null,
+  cost_basis_status: "UNKNOWN" as const,
+  current_price: "967.5",
+  price_date: "2026-09-20",
+  market_value: "1935",
+  unrealized_pnl: null,
+  price_available: true,
+  pnl_unavailable_reason: "Себестоимость не указана — прибыль пока не рассчитывается.",
+};
+
+const draftSummary = {
+  ...emptySummary,
+  summary: {
+    ...emptySummary.summary,
+    cash_rub: "50000",
+    securities_value_rub: "27935",
+    nav_rub: "77935",
+  },
+  positions: [draftEquityPosition, draftBondPosition],
+};
+
+function renderPanel() {
+  return render(
+    <MemoryRouter>
+      <KrakenRoleProvider>
+        <PersonalPortfolioPanel portfolioId={1} />
+      </KrakenRoleProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("PersonalPortfolioPanel DRAFT manager", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    getPersonalPortfolio.mockReset();
+    setDraftCash.mockReset();
+    patchDraftPosition.mockReset();
+    deleteDraftPosition.mockReset();
+    clearDraftPortfolio.mockReset();
+    resetPersonalPortfolio.mockReset();
+    searchCatalogInstruments.mockReset();
+    searchCatalogInstruments.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 });
+    getPersonalPortfolio.mockResolvedValue(draftSummary);
+  });
+
+  it("edits DRAFT cash and allows zero", async () => {
+    setDraftCash.mockResolvedValue({
+      ...draftSummary,
+      summary: { ...draftSummary.summary, cash_rub: "0" },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("draft-cash-edit-btn"));
+    expect(screen.getByTestId("draft-cash-modal")).toBeInTheDocument();
+    expect(screen.getByText("Свободные деньги, ₽")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("draft-cash-input"), { target: { value: "0" } });
+    fireEvent.click(screen.getByTestId("draft-cash-submit"));
+    await waitFor(() => expect(setDraftCash).toHaveBeenCalledWith(1, 0));
+  });
+
+  it("uses draft wording instead of journal wording", async () => {
+    renderPanel();
+    await screen.findByTestId("draft-summary");
+    expect(screen.getByText("Свободные деньги")).toBeInTheDocument();
+    expect(screen.getByText("Текущая стоимость портфеля")).toBeInTheDocument();
+    expect(screen.queryByText("Внесено")).not.toBeInTheDocument();
+  });
+
+  it("edits a DRAFT equity position", async () => {
+    patchDraftPosition.mockResolvedValue({ id: 11, portfolio: draftSummary });
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("draft-position-edit-11"));
+    expect(screen.getByTestId("draft-position-modal")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("draft-position-units"), { target: { value: "120" } });
+    fireEvent.change(screen.getByTestId("draft-position-avg-price"), { target: { value: "240" } });
+    fireEvent.change(screen.getByTestId("draft-position-note"), { target: { value: "докупил" } });
+    fireEvent.click(screen.getByTestId("draft-position-submit"));
+    await waitFor(() => expect(patchDraftPosition).toHaveBeenCalled());
+    expect(patchDraftPosition.mock.calls[0][0]).toBe(1);
+    expect(patchDraftPosition.mock.calls[0][1]).toBe(11);
+    expect(patchDraftPosition.mock.calls[0][2]).toMatchObject({
+      units: "120",
+      average_price: "240",
+      note: "докупил",
+    });
+  });
+
+  it("clears the cost basis of a DRAFT position", async () => {
+    patchDraftPosition.mockResolvedValue({ id: 11, portfolio: draftSummary });
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("draft-position-edit-11"));
+    fireEvent.click(screen.getByTestId("draft-position-clear-cost"));
+    fireEvent.click(screen.getByTestId("draft-position-submit"));
+    await waitFor(() => expect(patchDraftPosition).toHaveBeenCalled());
+    const body = patchDraftPosition.mock.calls[0][2] as Record<string, unknown>;
+    expect(body.clear_cost_basis).toBe(true);
+    expect(body.average_price).toBeUndefined();
+  });
+
+  it("asks for a RUB total and never a MOEX percent for a bond", async () => {
+    renderPanel();
+    await screen.findByTestId("draft-positions-table");
+    expect(screen.getByTestId("draft-positions-table")).toHaveTextContent("Не указана");
+    fireEvent.click(screen.getByTestId("draft-position-edit-12"));
+    expect(screen.getByText("Общая себестоимость позиции, ₽")).toBeInTheDocument();
+    expect((screen.getByTestId("draft-position-cost-total") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByTestId("draft-position-avg-price")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("draft-position-cost-total"), { target: { value: "1900" } });
+    patchDraftPosition.mockResolvedValue({ id: 12, portfolio: draftSummary });
+    fireEvent.click(screen.getByTestId("draft-position-submit"));
+    await waitFor(() => expect(patchDraftPosition).toHaveBeenCalled());
+    expect(patchDraftPosition.mock.calls[0][2]).toMatchObject({ cost_basis_total_rub: "1900" });
+  });
+
+  it("removes a DRAFT position after confirmation", async () => {
+    deleteDraftPosition.mockResolvedValue({ status: "DELETED", id: 12, portfolio: emptySummary });
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("draft-position-remove-12"));
+    expect(window.confirm).toHaveBeenCalledWith("Убрать OFZ из портфеля?");
+    await waitFor(() => expect(deleteDraftPosition).toHaveBeenCalledWith(1, 12));
+  });
+
+  it("clears the whole DRAFT portfolio", async () => {
+    clearDraftPortfolio.mockResolvedValue(emptySummary);
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("clear-draft-btn"));
+    await waitFor(() => expect(clearDraftPortfolio).toHaveBeenCalledWith(1));
+    expect(await screen.findByText("Пока нет позиций")).toBeInTheDocument();
+  });
+
+  it("resets an ACTIVE portfolio only after two confirmations", async () => {
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+    });
+    resetPersonalPortfolio.mockResolvedValue(emptySummary);
+    renderPanel();
+    fireEvent.click(await screen.findByTestId("reset-portfolio-btn"));
+    await waitFor(() => expect(resetPersonalPortfolio).toHaveBeenCalledWith(1));
+    expect(window.confirm).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("PersonalPortfolioPanel", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -70,6 +252,9 @@ describe("PersonalPortfolioPanel", () => {
     activatePersonalPortfolio.mockReset();
     clearDraftPortfolio.mockReset();
     resetPersonalPortfolio.mockReset();
+    setDraftCash.mockReset();
+    patchDraftPosition.mockReset();
+    deleteDraftPosition.mockReset();
     searchCatalogInstruments.mockReset();
     searchCatalogInstruments.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 });
   });

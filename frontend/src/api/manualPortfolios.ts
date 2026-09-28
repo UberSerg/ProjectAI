@@ -162,61 +162,11 @@ export interface ManualRebalancePlan {
   cash_safe: boolean;
 }
 
-export interface PositionCreateBody {
-  instrument_id: number;
-  units: number;
-  average_price?: number | null;
-  note?: string | null;
-  non_standard_lot?: boolean;
-}
-
-export interface PositionPatchBody {
-  units?: number;
-  average_price?: number | null;
-  note?: string | null;
-  non_standard_lot?: boolean;
-}
-
-export function getPrimaryManualPortfolio(_signal?: AbortSignal): Promise<ManualPortfolio> {
-  return Promise.reject(new Error("/manual-portfolios/primary retired"));
-}
-
-export function updatePrimaryCash(_cashRub: number, _signal?: AbortSignal): Promise<ManualPortfolio> {
-  return Promise.reject(new Error("/manual-portfolios/primary retired"));
-}
-
-export function addPrimaryPosition(
-  _body: PositionCreateBody,
-  _signal?: AbortSignal,
-): Promise<ManualPosition> {
-  return Promise.reject(new Error("Use addDraftPosition(portfolioId, ...)"));
-}
-
-export function patchPrimaryPosition(
-  _positionId: number,
-  _body: PositionPatchBody,
-  _signal?: AbortSignal,
-): Promise<ManualPosition> {
-  return Promise.reject(new Error("Use patchDraftPosition(portfolioId, ...)"));
-}
-
-export function deletePrimaryPosition(
-  _positionId: number,
-  _signal?: AbortSignal,
-): Promise<{ status: string; id: number }> {
-  return Promise.reject(new Error("Use deleteDraftPosition(portfolioId, ...)"));
-}
-
 export function getPortfolioAnalysis(
   portfolioId: number,
   signal?: AbortSignal,
 ): Promise<ManualPortfolioAnalysis> {
   return apiRequest(`/personal-portfolios/${portfolioId}/analysis`, { signal });
-}
-
-/** @deprecated use getPortfolioAnalysis(portfolioId) */
-export function getPrimaryAnalysis(portfolioId: number, signal?: AbortSignal) {
-  return getPortfolioAnalysis(portfolioId, signal);
 }
 
 export function getPortfolioCompareCandidate(
@@ -226,21 +176,11 @@ export function getPortfolioCompareCandidate(
   return apiRequest(`/personal-portfolios/${portfolioId}/compare-candidate`, { signal });
 }
 
-/** @deprecated use getPortfolioCompareCandidate(portfolioId) */
-export function getPrimaryCompareCandidate(portfolioId: number, signal?: AbortSignal) {
-  return getPortfolioCompareCandidate(portfolioId, signal);
-}
-
 export function getPortfolioRebalance(
   portfolioId: number,
   signal?: AbortSignal,
 ): Promise<ManualRebalancePlan> {
   return apiRequest(`/personal-portfolios/${portfolioId}/rebalance`, { signal });
-}
-
-/** @deprecated use getPortfolioRebalance(portfolioId) */
-export function getPrimaryRebalance(portfolioId: number, signal?: AbortSignal) {
-  return getPortfolioRebalance(portfolioId, signal);
 }
 
 export interface PortfolioCashflowHorizon {
@@ -294,9 +234,4 @@ export function getPortfolioCashflows(
   signal?: AbortSignal,
 ): Promise<PortfolioCashflows> {
   return apiRequest(`/personal-portfolios/${portfolioId}/cashflows`, { signal });
-}
-
-/** @deprecated use getPortfolioCashflows(portfolioId) */
-export function getPrimaryCashflows(portfolioId: number, signal?: AbortSignal) {
-  return getPortfolioCashflows(portfolioId, signal);
 }

@@ -106,6 +106,14 @@ const analysisFilled = {
   },
 };
 
+const analysisPortfolioB = {
+  ...analysisFilled,
+  portfolio: { ...analysisFilled.portfolio, id: 2, name: "Второй портфель" },
+  concentration_by_issuer: [
+    { issuer_key: "issuer:2", issuer_title: "Лукойл", market_value: 20000, weight: 0.5 },
+  ],
+};
+
 const compareSample = {
   nav: 40000,
   candidate_source: "live_preview",
@@ -162,14 +170,19 @@ vi.mock("../api/manualPortfolios", () => ({
   getPortfolioCompareCandidate: vi.fn(),
   getPortfolioRebalance: vi.fn(),
   getPortfolioCashflows: vi.fn(),
-  updatePrimaryCash: vi.fn(),
-  addPrimaryPosition: vi.fn(),
-  deletePrimaryPosition: vi.fn(),
 }));
 
 const listPersonalPortfolios = vi.fn();
 const getPersonalPortfolio = vi.fn();
 const addDraftPosition = vi.fn();
+const patchPersonalPortfolio = vi.fn();
+const deletePersonalPortfolio = vi.fn();
+const setDraftCash = vi.fn();
+const patchDraftPosition = vi.fn();
+const deleteDraftPosition = vi.fn();
+const clearDraftPortfolio = vi.fn();
+const activatePersonalPortfolio = vi.fn();
+const resetPersonalPortfolio = vi.fn();
 
 vi.mock("../api/personalPortfolios", async () => {
   const actual = await vi.importActual<typeof import("../api/personalPortfolios")>(
@@ -180,8 +193,14 @@ vi.mock("../api/personalPortfolios", async () => {
     listPersonalPortfolios: (...args: unknown[]) => listPersonalPortfolios(...args),
     getPersonalPortfolio: (...args: unknown[]) => getPersonalPortfolio(...args),
     addDraftPosition: (...args: unknown[]) => addDraftPosition(...args),
-    patchPersonalPortfolio: vi.fn(),
-    deletePersonalPortfolio: vi.fn(),
+    patchPersonalPortfolio: (...args: unknown[]) => patchPersonalPortfolio(...args),
+    deletePersonalPortfolio: (...args: unknown[]) => deletePersonalPortfolio(...args),
+    setDraftCash: (...args: unknown[]) => setDraftCash(...args),
+    patchDraftPosition: (...args: unknown[]) => patchDraftPosition(...args),
+    deleteDraftPosition: (...args: unknown[]) => deleteDraftPosition(...args),
+    clearDraftPortfolio: (...args: unknown[]) => clearDraftPortfolio(...args),
+    activatePersonalPortfolio: (...args: unknown[]) => activatePersonalPortfolio(...args),
+    resetPersonalPortfolio: (...args: unknown[]) => resetPersonalPortfolio(...args),
     createPersonalOperation: vi.fn(),
   };
 });
@@ -202,6 +221,12 @@ const portfolioCardActive = {
   cash_rub: "10000",
   known_nav_rub: "40000",
   positions_count: 1,
+};
+
+const portfolioCardB = {
+  ...portfolioCardActive,
+  id: 2,
+  name: "Второй портфель",
 };
 
 const personalSummaryDraft = {
@@ -233,6 +258,39 @@ const personalSummaryDraft = {
   positions: [],
   operations: [],
   recommendation_disclaimer: "Модельная рекомендация",
+};
+
+const personalSummaryActive = {
+  ...personalSummaryDraft,
+  portfolio: {
+    ...personalSummaryDraft.portfolio,
+    lifecycle_state: "ACTIVE" as const,
+    has_operations: true,
+    journal_state: "ACTIVE" as const,
+  },
+  summary: {
+    ...personalSummaryDraft.summary,
+    cash_rub: "10000",
+    securities_value_rub: "30000",
+    nav_rub: "40000",
+    contributed_rub: "40000",
+  },
+  operations: [
+    {
+      id: 7,
+      operation_type: "OPENING_CASH",
+      status: "ACTIVE",
+      occurred_at: "2026-09-20T10:00:00+00:00",
+      instrument_id: null,
+      lots: null,
+      units: null,
+      price: null,
+      amount: "10000",
+      commission: "0",
+      currency: "RUB",
+      note: null,
+    },
+  ],
 };
 
 vi.mock("../api/dailyPersonalDecision", () => ({
@@ -316,8 +374,17 @@ vi.mock("../api/fundamentals", async () => {
   };
 });
 
+import { ApiError } from "../api/client";
 import * as instrumentsApi from "../api/instruments";
 import * as portfolioApi from "../api/manualPortfolios";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 function renderPage(initial = "/portfolio/1") {
   return render(
@@ -337,6 +404,9 @@ function renderPage(initial = "/portfolio/1") {
 describe("MyPortfolioPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal("alert", vi.fn());
     listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardDraft], count: 1 });
     getPersonalPortfolio.mockResolvedValue(personalSummaryDraft);
     vi.mocked(instrumentsApi.getCatalogInstrument).mockResolvedValue({
@@ -398,16 +468,21 @@ describe("MyPortfolioPage", () => {
     });
     vi.mocked(portfolioApi.getPortfolioCashflows).mockResolvedValue({
       as_of: "2026-09-07",
-      windows: {
-        "30d": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
-        "90d": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
-        "12m": { coupons: 0, amortizations: 0, redemptions: 0, total: 0 },
+      portfolio_id: 1,
+      horizons: {
+        "30d": { days: 30, gross: 0, coupon: 0, amortization: 0, redemption: 0, event_count: 0 },
+        "90d": { days: 90, gross: 0, coupon: 0, amortization: 0, redemption: 0, event_count: 0 },
+        "12m": { days: 365, gross: 0, coupon: 0, amortization: 0, redemption: 0, event_count: 0 },
       },
       events: [],
-      maturity_ladder: {},
-      gov_corp: { government: 0, corporate: 0 },
-      disclaimer:
-        "Выплаты рассчитаны по текущему опубликованному графику облигации и могут измениться.",
+      next_payment: null,
+      positions: [],
+      analysis: {
+        maturity_ladder: {},
+        gov_vs_corp: { government: 0, corporate_or_other: 0 },
+        bond_position_count: 0,
+      },
+      note: "Выплаты рассчитаны по текущему опубликованному графику облигации и могут измениться.",
     } as never);
   });
 
@@ -529,6 +604,194 @@ describe("MyPortfolioPage", () => {
     renderPage("/portfolio/mine");
     expect(await screen.findByText(/У вас пока нет портфелей/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Создать портфель/i })).toHaveAttribute("href", "/portfolio");
+  });
+
+  it("renders the portfolio from the deep link", async () => {
+    listPersonalPortfolios.mockResolvedValue({
+      items: [portfolioCardActive, portfolioCardB],
+      count: 2,
+    });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    renderPage("/portfolio/2");
+    await screen.findByTestId("my-portfolio-page");
+    await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalled());
+    expect(getPersonalPortfolio.mock.calls.every((call) => call[0] === 2)).toBe(true);
+    expect(screen.getByRole("heading", { level: 1, name: "Второй портфель" })).toBeInTheDocument();
+  });
+
+  it("passes the selected portfolio id to every tab request", async () => {
+    listPersonalPortfolios.mockResolvedValue({
+      items: [portfolioCardActive, portfolioCardB],
+      count: 2,
+    });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisPortfolioB as never);
+    vi.mocked(portfolioApi.getPortfolioCompareCandidate).mockResolvedValue(compareSample as never);
+    vi.mocked(portfolioApi.getPortfolioRebalance).mockResolvedValue(rebalanceSample as never);
+    renderPage("/portfolio/2");
+    await screen.findByTestId("my-portfolio-page");
+
+    fireEvent.click(screen.getByTestId("tab-analysis"));
+    await waitFor(() => expect(portfolioApi.getPortfolioAnalysis).toHaveBeenCalledWith(2, expect.anything()));
+    fireEvent.click(screen.getByTestId("tab-compare"));
+    await waitFor(() =>
+      expect(portfolioApi.getPortfolioCompareCandidate).toHaveBeenCalledWith(2, expect.anything()),
+    );
+    fireEvent.click(screen.getByTestId("tab-rebalance"));
+    await waitFor(() => expect(portfolioApi.getPortfolioRebalance).toHaveBeenCalledWith(2, expect.anything()));
+    fireEvent.click(screen.getByTestId("tab-payments"));
+    await waitFor(() => expect(portfolioApi.getPortfolioCashflows).toHaveBeenCalledWith(2, expect.anything()));
+  });
+
+  it("exposes no retired single-portfolio helpers", async () => {
+    const manual = await vi.importActual<Record<string, unknown>>("../api/manualPortfolios");
+    const personal = await vi.importActual<Record<string, unknown>>("../api/personalPortfolios");
+    const retired = [
+      "getPrimaryManualPortfolio",
+      "updatePrimaryCash",
+      "addPrimaryPosition",
+      "patchPrimaryPosition",
+      "deletePrimaryPosition",
+      "getPrimaryAnalysis",
+      "getPrimaryCompareCandidate",
+      "getPrimaryRebalance",
+      "getPrimaryCashflows",
+      "getPersonalPrimary",
+      "activatePersonalJournal",
+    ];
+    for (const name of retired) {
+      expect(manual).not.toHaveProperty(name);
+      expect(personal).not.toHaveProperty(name);
+    }
+    expect(Object.keys(manual).filter((k) => k.startsWith("getPrimary"))).toEqual([]);
+    expect(Object.keys(personal).filter((k) => k.startsWith("getPrimary"))).toEqual([]);
+  });
+
+  it("reloads analysis when switching from portfolio A to portfolio B", async () => {
+    listPersonalPortfolios.mockResolvedValue({
+      items: [portfolioCardActive, portfolioCardB],
+      count: 2,
+    });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockImplementation((id: number) =>
+      Promise.resolve((id === 2 ? analysisPortfolioB : analysisFilled) as never),
+    );
+    renderPage("/portfolio/1?tab=analysis");
+    expect(await screen.findByText("Сбер")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Основной портфель ▾/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Второй портфель/ }));
+
+    expect(await screen.findByText("Лукойл")).toBeInTheDocument();
+    expect(screen.queryByText("Сбер")).not.toBeInTheDocument();
+    expect(portfolioApi.getPortfolioAnalysis).toHaveBeenCalledWith(2, expect.anything());
+  });
+
+  it("ignores a late portfolio A analysis response after switching to B", async () => {
+    listPersonalPortfolios.mockResolvedValue({
+      items: [portfolioCardActive, portfolioCardB],
+      count: 2,
+    });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    const pendingA = deferred<never>();
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockImplementation((id: number) =>
+      id === 1 ? (pendingA.promise as never) : Promise.resolve(analysisPortfolioB as never),
+    );
+    renderPage("/portfolio/1?tab=analysis");
+    expect(await screen.findByText(/Загрузка анализа…/)).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Основной портфель ▾/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Второй портфель/ }));
+    expect(await screen.findByText("Лукойл")).toBeInTheDocument();
+
+    pendingA.resolve(analysisFilled as never);
+    await waitFor(() => expect(screen.getByText("Лукойл")).toBeInTheDocument());
+    expect(screen.queryByText("Сбер")).not.toBeInTheDocument();
+  });
+
+  it("shows a preliminary analysis for a DRAFT portfolio", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    renderPage("/portfolio/1?tab=analysis");
+    expect(await screen.findByTestId("draft-preliminary-analysis-note")).toHaveTextContent(
+      /История операций ещё не начата\. Анализ относится к текущему составу портфеля\./,
+    );
+    expect(screen.getByText("Предварительный анализ")).toBeInTheDocument();
+    expect(screen.queryByText(/Анализ после начала учёта/i)).not.toBeInTheDocument();
+    expect(await screen.findByText("Сбер")).toBeInTheDocument();
+  });
+
+  it("marks DRAFT compare and rebalance as preliminary", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    vi.mocked(portfolioApi.getPortfolioCompareCandidate).mockResolvedValue(compareSample as never);
+    vi.mocked(portfolioApi.getPortfolioRebalance).mockResolvedValue(rebalanceSample as never);
+    renderPage("/portfolio/1?tab=compare");
+    expect(await screen.findByTestId("draft-preliminary-compare-note")).toHaveTextContent(
+      "Предварительный расчёт по текущему составу.",
+    );
+    fireEvent.click(screen.getByTestId("tab-rebalance"));
+    expect(await screen.findByTestId("draft-preliminary-rebalance-note")).toHaveTextContent(
+      "Предварительный расчёт по текущему составу.",
+    );
+  });
+
+  it("keeps Состав usable when analysis fails", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockRejectedValue(
+      new ApiError("Request failed (500)", 500),
+    );
+    renderPage("/portfolio/1?tab=analysis");
+    expect(await screen.findByText(/Не удалось загрузить данные/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("tab-holdings"));
+    expect(await screen.findByTestId("draft-setup-banner")).toBeInTheDocument();
+  });
+
+  it("never shows raw retired-endpoint wording to USER", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockRejectedValue(
+      new ApiError("/manual-portfolios/primary retired", 410, { detail: { code: "PRIMARY_RETIRED" } }),
+    );
+    renderPage("/portfolio/1?tab=analysis");
+    expect(
+      await screen.findByText("Не удалось загрузить выбранный портфель. Обновите страницу."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/PRIMARY_RETIRED/i);
+    expect(document.body.textContent).not.toMatch(/singleton/i);
+  });
+
+  it("renders the ACTIVE journal with a readable opening label", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    renderPage("/portfolio/1?tab=history");
+    expect(await screen.findByText("Журнал операций")).toBeInTheDocument();
+    expect(screen.getByText("Начальное состояние · деньги")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/cutover|bootstrap|projection/i);
+  });
+
+  it("deletes the portfolio after two confirmations", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    deletePersonalPortfolio.mockResolvedValue({ status: "DELETED", id: 1, name: "Основной портфель" });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    renderPage();
+    fireEvent.click(await screen.findByTestId("delete-portfolio-btn"));
+    await waitFor(() => expect(deletePersonalPortfolio).toHaveBeenCalledWith(1));
+    expect(window.confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows not-found for an id outside the portfolio list", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    renderPage("/portfolio/999");
+    expect(await screen.findByText("Портфель не найден")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /К списку портфелей/i })).toBeInTheDocument();
+  });
+
+  it("labels fundamental coverage as a research cohort, not the selected portfolio", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+    renderPage("/portfolio/1?tab=analysis");
+    const scope = await screen.findByTestId("fundamental-coverage-scope");
+    expect(scope).toHaveTextContent(/исследовательская выборка/i);
+    expect(scope).toHaveTextContent(/не покрытие\s+выбранного портфеля/i);
   });
 
   it("has page help for manual portfolio", () => {

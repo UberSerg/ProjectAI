@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
@@ -100,9 +100,6 @@ vi.mock("../api/personalPortfolios", () => ({
   listPersonalPortfolios: (...args: unknown[]) => listPersonalPortfolios(...args),
   getPersonalPortfolio: (...args: unknown[]) => getPersonalPortfolio(...args),
   createPersonalPortfolio: vi.fn(),
-  getPersonalPrimary: () => {
-    throw new Error("getPersonalPrimary retired");
-  },
 }));
 vi.mock("../api/relations");
 
@@ -222,6 +219,7 @@ const analysisFixture = {
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    localStorage.clear();
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     listPersonalPortfolios.mockReset();
     listPersonalPortfolios.mockResolvedValue({ items: [portfolioCard], count: 1 });
@@ -390,6 +388,18 @@ describe("DashboardPage", () => {
     expect(screen.queryByText(/% к вложенному/)).not.toBeInTheDocument();
     expect(screen.getByText("В бумагах")).toBeInTheDocument();
     expect(screen.getByTestId("cockpit-securities-value")).toBeInTheDocument();
+  });
+
+  it("loads the stored selected portfolio instead of a fixed first one", async () => {
+    const portfolioB = { ...portfolioCard, id: 2, name: "Второй портфель" };
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCard, portfolioB], count: 2 });
+    localStorage.setItem("kraken.selectedPortfolioId", "2");
+    renderWithRole(<DashboardPage />);
+    await screen.findByTestId("kraken-cockpit", {}, { timeout: 5000 });
+    await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalled());
+    expect(getPersonalPortfolio.mock.calls.every((call) => call[0] === 2)).toBe(true);
+    expect(manualApi.getPortfolioAnalysis).toHaveBeenCalledWith(2, expect.anything());
+    expect(await screen.findByRole("button", { name: /Второй портфель ▾/ })).toBeInTheDocument();
   });
 });
 

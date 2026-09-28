@@ -104,9 +104,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
           description: summary.portfolio.description,
           lifecycle_state: summary.portfolio.lifecycle_state ?? "DRAFT",
           cash_rub: summary.summary.cash_rub,
-          known_nav_rub: summary.summary.known_nav_rub ?? summary.summary.nav_rub,
           positions_count: summary.positions.length,
-          valuation_partial: summary.summary.valuation_partial,
         } satisfies PortfolioCard);
       selectPortfolio(created.id);
       return created;

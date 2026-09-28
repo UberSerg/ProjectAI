@@ -14,7 +14,7 @@ from app.infrastructure.market.models import Instrument
 from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
     get_personal_summary,
-    load_personal_snapshot,
+    lock_portfolio,
     project_portfolio,
     rebuild_ledger_from_journal,
 )
@@ -105,6 +105,11 @@ def require_active(portfolio: ManualPortfolio) -> None:
 
 
 def list_user_portfolios(session: Session, *, include_test: bool = False) -> list[dict[str, Any]]:
+    """Collection view: two cheap queries, no valuation and no ledger rebuild.
+
+    Market marks are deliberately absent — NAV and valuation labels belong to the
+    single-portfolio read model, where pricing one book is affordable.
+    """
     q = select(ManualPortfolio).order_by(
         ManualPortfolio.updated_at.desc().nullslast(),
         ManualPortfolio.id.desc(),
@@ -112,27 +117,30 @@ def list_user_portfolios(session: Session, *, include_test: bool = False) -> lis
     if not include_test:
         q = q.where(ManualPortfolio.is_test.is_(False))
     rows = list(session.scalars(q).all())
-    cards: list[dict[str, Any]] = []
-    for row in rows:
-        snap = load_personal_snapshot(session, row)
-        pos_count = len(snap.positions)
-        cards.append(
-            {
-                "id": int(row.id),
-                "name": row.name,
-                "description": row.note,
-                "lifecycle_state": (row.status or LIFECYCLE_DRAFT).upper(),
-                "cash_rub": str(snap.cash_rub),
-                "known_nav_rub": str(snap.known_nav_rub),
-                "positions_count": pos_count,
-                "valuation_partial": snap.valuation_partial,
-                "valuation_label": snap.valuation_label,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "is_test": bool(row.is_test),
-            }
-        )
-    return cards
+    if not rows:
+        return []
+    ids = [int(row.id) for row in rows]
+    counts = dict(
+        session.execute(
+            select(ManualPosition.portfolio_id, func.count(ManualPosition.id))
+            .where(ManualPosition.portfolio_id.in_(ids))
+            .group_by(ManualPosition.portfolio_id)
+        ).all()
+    )
+    return [
+        {
+            "id": int(row.id),
+            "name": row.name,
+            "description": row.note,
+            "lifecycle_state": (row.status or LIFECYCLE_DRAFT).upper(),
+            "cash_rub": str(money(row.cash_rub or ZERO)),
+            "positions_count": int(counts.get(int(row.id), 0)),
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "is_test": bool(row.is_test),
+        }
+        for row in rows
+    ]
 
 
 def create_user_portfolio(
@@ -192,6 +200,7 @@ def rename_user_portfolio(
 
 
 def delete_user_portfolio(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
+    portfolio = lock_portfolio(session, portfolio)
     pid = int(portfolio.id)
     name = portfolio.name
     # Explicit child deletes then portfolio (CASCADE would also work).
@@ -207,6 +216,7 @@ def delete_user_portfolio(session: Session, portfolio: ManualPortfolio) -> dict[
 
 
 def set_draft_cash(session: Session, portfolio: ManualPortfolio, cash_rub: Decimal) -> ManualPortfolio:
+    portfolio = lock_portfolio(session, portfolio)
     require_draft(portfolio)
     if cash_rub < ZERO:
         raise PersonalPortfolioError("INVALID_AMOUNT", "Кэш не может быть отрицательным")
@@ -241,6 +251,7 @@ def add_draft_position(
     Bonds: optional ``cost_basis_total_rub`` = total RUB spent (never MOEX %).
     Stored as per-unit ``average_price`` when known; ``None`` when unknown.
     """
+    portfolio = lock_portfolio(session, portfolio)
     require_draft(portfolio)
     instrument = session.get(Instrument, instrument_id)
     if instrument is None:
@@ -327,6 +338,7 @@ def patch_draft_position(
     note: str | None = ...,  # type: ignore[assignment]
     non_standard_lot: bool | None = None,
 ) -> ManualPosition:
+    portfolio = lock_portfolio(session, portfolio)
     require_draft(portfolio)
     pos = session.get(ManualPosition, position_id)
     if pos is None or pos.portfolio_id != portfolio.id:
@@ -385,6 +397,7 @@ def patch_draft_position(
 
 
 def delete_draft_position(session: Session, portfolio: ManualPortfolio, position_id: int) -> dict[str, Any]:
+    portfolio = lock_portfolio(session, portfolio)
     require_draft(portfolio)
     pos = session.get(ManualPosition, position_id)
     if pos is None or pos.portfolio_id != portfolio.id:
@@ -398,6 +411,7 @@ def delete_draft_position(session: Session, portfolio: ManualPortfolio, position
 
 
 def clear_draft_portfolio(session: Session, portfolio: ManualPortfolio) -> ManualPortfolio:
+    portfolio = lock_portfolio(session, portfolio)
     require_draft(portfolio)
     session.execute(
         ManualPosition.__table__.delete().where(ManualPosition.portfolio_id == portfolio.id)
@@ -414,6 +428,7 @@ def clear_draft_portfolio(session: Session, portfolio: ManualPortfolio) -> Manua
 
 def activate_portfolio(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
     """DRAFT snapshot → OPENING_* journal → ACTIVE. Allows unknown / bond basis."""
+    portfolio = lock_portfolio(session, portfolio)
     if (portfolio.status or "").upper() == LIFECYCLE_ACTIVE:
         # Idempotent
         if session.scalar(
@@ -511,6 +526,7 @@ def activate_portfolio(session: Session, portfolio: ManualPortfolio) -> dict[str
 
 def reset_portfolio(session: Session, portfolio: ManualPortfolio) -> dict[str, Any]:
     """Destructive: wipe journal + positions, cash→0, lifecycle→DRAFT. Idempotent."""
+    portfolio = lock_portfolio(session, portfolio)
     pid = int(portfolio.id)
     session.execute(
         PersonalOperation.__table__.delete().where(PersonalOperation.portfolio_id == pid)

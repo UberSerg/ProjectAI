@@ -49,6 +49,12 @@ BOND_TRADE_MESSAGE = (
 )
 LIFECYCLE_DRAFT = "DRAFT"
 LIFECYCLE_ACTIVE = "ACTIVE"
+MISSING_PRICE_MESSAGE = "Не хватает текущей цены для части позиций."
+COST_BASIS_INCOMPLETE_MESSAGE = "Не хватает себестоимости для части позиций или истории."
+INVESTMENT_PNL_MESSAGES = {
+    "MISSING_PRICE": MISSING_PRICE_MESSAGE,
+    "COST_BASIS_INCOMPLETE": COST_BASIS_INCOMPLETE_MESSAGE,
+}
 
 
 class PersonalPortfolioError(Exception):
@@ -111,6 +117,44 @@ def get_or_create_test_portfolio(session: Session, *, name: str | None = None) -
     session.add(row)
     session.flush()
     return row
+
+
+def get_portfolio_for_update(
+    session: Session,
+    portfolio_id: int,
+    *,
+    allow_test: bool = False,
+) -> ManualPortfolio:
+    """Re-read the book by id with ``SELECT ... FOR UPDATE``.
+
+    Every financial mutation must start here: the row lock serializes concurrent
+    writers on the same book so the journal decision, idempotency check, ledger
+    rebuild and projection all observe one consistent state. ``populate_existing``
+    refreshes the identity-map instance — a stale ORM object must never drive a
+    money decision.
+    """
+    row = session.scalar(
+        select(ManualPortfolio)
+        .where(ManualPortfolio.id == portfolio_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if row is None or (row.is_test and not allow_test):
+        raise PersonalPortfolioError(
+            "PORTFOLIO_NOT_FOUND",
+            "Портфель не найден.",
+            http_status=404,
+        )
+    return row
+
+
+def lock_portfolio(session: Session, portfolio: ManualPortfolio) -> ManualPortfolio:
+    """Row-lock an already-resolved book, preserving its test visibility."""
+    return get_portfolio_for_update(
+        session,
+        int(portfolio.id),
+        allow_test=bool(portfolio.is_test),
+    )
 
 
 def journal_operation_count(session: Session, portfolio_id: int) -> int:
@@ -397,6 +441,7 @@ def create_operation(
     supersedes_operation_id: int | None = None,
     correction_reason: str | None = None,
 ) -> PersonalOperation:
+    portfolio = lock_portfolio(session, portfolio)
     key = (idempotency_key or "").strip() or str(uuid4())
     existing = session.scalar(
         select(PersonalOperation).where(
@@ -574,6 +619,7 @@ def cancel_operation(
     idempotency_key: str | None = None,
 ) -> PersonalOperation:
     """Soft-cancel: mark CANCELLED and reproject. Returns original op. Atomic."""
+    portfolio = lock_portfolio(session, portfolio)
     key = (idempotency_key or "").strip() or f"cancel:{operation_id}:{uuid4()}"
     expected = _cancel_fingerprint(operation_id=operation_id, reason=reason)
     existing = session.scalar(
@@ -811,6 +857,9 @@ class PersonalPortfolioSnapshot:
     valuation_to: str | None = None
     valuation_label: str | None = None
     missing_price_count: int = 0
+    cost_basis_complete: bool = True
+    cost_basis_incomplete_history: bool = False
+    investment_pnl_unavailable_reason: str | None = None
 
     @property
     def symbols(self) -> list[str]:
@@ -916,19 +965,39 @@ def load_personal_snapshot(
     cash = money(book.cash_rub)
     contributed = money(book.total_contributed_rub or ZERO)
     withdrawn = money(book.total_withdrawn_rub or ZERO)
+    journal_ops = journal_operation_count(session, int(book.id))
     # DRAFT before journal: provisional contribution = cash + known position costs
     # so investment P&L is not inflated by treating setup cash as profit.
-    if lifecycle_state(book) == LIFECYCLE_DRAFT and journal_operation_count(session, int(book.id)) == 0:
+    if lifecycle_state(book) == LIFECYCLE_DRAFT and journal_ops == 0:
         provisional = cash
         for p in positions_out:
             if p.cost_basis_usable and p.average_cost_rub is not None:
                 provisional = money(provisional + money(p.units * p.average_cost_rub))
         contributed = provisional
         withdrawn = ZERO
+
+    # History matters even when nothing unknown is held today: an unknown basis that
+    # was already sold leaves `contributed` understated, so NAV − contributed would
+    # report the missing cost as profit. The ledger flag is the only witness.
+    history_incomplete = False
+    if journal_ops > 0 or lifecycle_state(book) == LIFECYCLE_ACTIVE:
+        try:
+            history_incomplete = rebuild_ledger_from_journal(
+                session, int(book.id)
+            ).cost_basis_incomplete
+        except LedgerError:
+            history_incomplete = True
+    cost_incomplete = cost_incomplete or history_incomplete
+
     valuation_complete = missing_prices == 0
     known_nav = money(cash + securities_mv)
     inv_pnl: Decimal | None
-    if valuation_complete and not cost_incomplete:
+    inv_pnl_reason: str | None = None
+    if cost_incomplete:
+        inv_pnl_reason = "COST_BASIS_INCOMPLETE"
+    elif not valuation_complete:
+        inv_pnl_reason = "MISSING_PRICE"
+    if inv_pnl_reason is None:
         inv_pnl = investment_pnl(nav=known_nav, contributed=contributed, withdrawn=withdrawn)
     else:
         inv_pnl = None
@@ -955,12 +1024,17 @@ def load_personal_snapshot(
         valuation_to=as_of_to,
         valuation_label=_valuation_label(price_dates=price_dates, missing_prices=missing_prices),
         missing_price_count=missing_prices,
+        cost_basis_complete=not cost_incomplete,
+        cost_basis_incomplete_history=history_incomplete,
+        investment_pnl_unavailable_reason=inv_pnl_reason,
     )
 
 
 def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner: bool = False) -> dict[str, Any]:
     snap = load_personal_snapshot(session, portfolio)
-    cost_complete = all(p.cost_basis_usable for p in snap.positions) if snap.positions else True
+    cost_complete = snap.cost_basis_complete
+    pnl_reason = snap.investment_pnl_unavailable_reason
+    pnl_message = INVESTMENT_PNL_MESSAGES.get(pnl_reason or "")
     positions_out: list[dict[str, Any]] = []
     for p in snap.positions:
         cost_total = None
@@ -1031,10 +1105,11 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "realized_pnl_rub": str(snap.realized_pnl_rub),
             "cost_basis_complete": cost_complete,
             "cost_basis_incomplete_reason": (
-                None
-                if cost_complete
-                else "Не хватает себестоимости для части позиций."
+                None if cost_complete else COST_BASIS_INCOMPLETE_MESSAGE
             ),
+            "cost_basis_incomplete_history": snap.cost_basis_incomplete_history,
+            "investment_pnl_unavailable_reason": pnl_reason,
+            "investment_pnl_message": pnl_message,
             "valuation_complete": snap.valuation_complete,
             "valuation_partial": snap.valuation_partial,
             "valuation_as_of": snap.valuation_as_of,

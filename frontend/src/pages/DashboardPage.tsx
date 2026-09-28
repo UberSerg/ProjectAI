@@ -371,7 +371,9 @@ export function DashboardPage() {
             <div className={`cockpit-hero-delta ${deltaClass}`} data-testid="cockpit-pnl">
               {personalActive && personal!.summary.investment_pnl_rub == null ? (
                 <span data-testid="cockpit-pnl-unavailable">
-                  Результат недоступен — не хватает цены по части позиций
+                  Результат недоступен.{" "}
+                  {personal!.summary.investment_pnl_message ??
+                    "Не хватает цены по части позиций."}
                 </span>
               ) : pnl == null ? (
                 <span>Результат: нет себестоимости для расчёта</span>

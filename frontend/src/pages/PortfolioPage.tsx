@@ -106,9 +106,8 @@ export function PortfolioPage() {
               </strong>
               <span>{lifecycleLabel(p.lifecycle_state)}</span>
               <span>
-                NAV {p.known_nav_rub} ₽ · кэш {p.cash_rub} ₽ · активов {p.positions_count}
+                Кэш {p.cash_rub} ₽ · активов {p.positions_count}
               </span>
-              {p.valuation_partial && <span>Оценка неполная</span>}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Link className="btn btn-primary" to={`/portfolio/${p.id}`}>
                   Открыть

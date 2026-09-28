@@ -17,9 +17,11 @@ export interface PortfolioCard {
   description?: string | null;
   lifecycle_state: LifecycleState | string;
   cash_rub: string;
-  known_nav_rub: string;
   positions_count: number;
-  valuation_partial: boolean;
+  // Collection view is unpriced — NAV and valuation labels come from the
+  // single-portfolio summary, never from the list.
+  known_nav_rub?: string | null;
+  valuation_partial?: boolean;
   valuation_label?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
@@ -53,6 +55,9 @@ export interface PersonalSummary {
     realized_pnl_rub: string;
     cost_basis_complete?: boolean;
     cost_basis_incomplete_reason?: string | null;
+    cost_basis_incomplete_history?: boolean;
+    investment_pnl_unavailable_reason?: "MISSING_PRICE" | "COST_BASIS_INCOMPLETE" | null;
+    investment_pnl_message?: string | null;
     valuation_complete: boolean;
     valuation_partial: boolean;
     valuation_as_of: string | null;
@@ -312,14 +317,4 @@ export function getPortfolioRebalance(portfolioId: number, opts?: { signal?: Abo
 
 export function getPortfolioCashflows(portfolioId: number, opts?: { signal?: AbortSignal }) {
   return apiRequest(`/personal-portfolios/${portfolioId}/cashflows`, { signal: opts?.signal });
-}
-
-/** @deprecated removed — use getPersonalPortfolio */
-export function getPersonalPrimary(_opts?: { owner?: boolean; test?: boolean; signal?: AbortSignal }) {
-  throw new Error("getPersonalPrimary retired — use getPersonalPortfolio(id)");
-}
-
-/** @deprecated removed — use activatePersonalPortfolio */
-export function activatePersonalJournal(_opts?: { test?: boolean; signal?: AbortSignal }) {
-  throw new Error("activatePersonalJournal retired — use activatePersonalPortfolio(id)");
 }

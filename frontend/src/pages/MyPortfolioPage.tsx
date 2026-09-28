@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PortfolioSwitcher } from "../portfolio/PortfolioSwitcher";
 import { usePortfolioContext } from "../portfolio/PortfolioContext";
@@ -62,9 +62,69 @@ import { useKrakenRole } from "../role/KrakenRoleContext";
 
 type Tab = "holdings" | "history" | "decision" | "analysis" | "payments" | "compare" | "rebalance";
 
+const DRAFT_PRELIMINARY_NOTE =
+  "История операций ещё не начата. Анализ относится к текущему составу портфеля.";
+const DRAFT_PRELIMINARY_CALC_NOTE = "Предварительный расчёт по текущему составу.";
+
 function lifecycleHeaderLabel(state: string | undefined): string {
   if (state === "ACTIVE") return "Учёт включён";
   return "Настройка";
+}
+
+type Resource<T> = { data: T | null; loading: boolean; error: string | null };
+
+const EMPTY_RESOURCE: Resource<never> = { data: null, loading: false, error: null };
+
+/**
+ * Tab-local resource: reloads on `key` change, drops responses from superseded
+ * keys so a slow portfolio A answer can never land on portfolio B.
+ */
+function useTabResource<T>(
+  active: boolean,
+  key: string,
+  loader: (signal: AbortSignal) => Promise<T>,
+): Resource<T> {
+  const [state, setState] = useState<Resource<T>>(EMPTY_RESOURCE);
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
+  const seq = useRef(0);
+
+  useEffect(() => {
+    seq.current += 1;
+    const mine = seq.current;
+    if (!active) {
+      setState(EMPTY_RESOURCE);
+      return;
+    }
+    const controller = new AbortController();
+    setState({ data: null, loading: true, error: null });
+    loaderRef
+      .current(controller.signal)
+      .then((data) => {
+        if (seq.current !== mine) return;
+        setState({ data, loading: false, error: null });
+      })
+      .catch((reason: unknown) => {
+        if (seq.current !== mine) return;
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        setState({ data: null, loading: false, error: errorMessage(reason) });
+      });
+    return () => controller.abort();
+  }, [active, key]);
+
+  return state;
+}
+
+function TabLoadState({ resource, loadingTitle }: { resource: Resource<unknown>; loadingTitle: string }) {
+  if (resource.loading) return <PageState kind="loading" title={loadingTitle} />;
+  if (resource.error) {
+    return (
+      <WarningCard title="Не удалось загрузить данные">
+        <p style={{ margin: 0 }}>{resource.error}</p>
+      </WarningCard>
+    );
+  }
+  return null;
 }
 
 function money(v: string | null | undefined): string {
@@ -297,20 +357,12 @@ export function MyPortfolioPage() {
     tabFromUrl === "holdings"
       ? tabFromUrl
       : "holdings";
-  const [personalJournal, setPersonalJournal] = useState<PersonalSummary | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [analysis, setAnalysis] = useState<ManualPortfolioAnalysis | null>(null);
   const [catalogBySymbol, setCatalogBySymbol] = useState<Record<string, CatalogInstrumentDetail>>({});
-  const [compare, setCompare] = useState<ManualCompareCandidate | null>(null);
-  const [rebalance, setRebalance] = useState<ManualRebalancePlan | null>(null);
-  const [dailyDecision, setDailyDecision] = useState<DailyPersonalDecision | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [cashflows, setCashflows] = useState<PortfolioCashflows | null>(null);
-  const [fundCoverage, setFundCoverage] = useState<PortfolioFundamentalCoverage | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
+  const reload = useCallback(() => setDataVersion((v) => v + 1), []);
 
   useEffect(() => {
     const t = searchParams.get("tab");
@@ -327,11 +379,6 @@ export function MyPortfolioPage() {
     }
   }, [searchParams]);
 
-  const lifecycle =
-    selectedPortfolio?.lifecycle_state ??
-    (personalJournal ? portfolioLifecycleState(personalJournal) : "DRAFT");
-  const isDraft = lifecycle !== "ACTIVE";
-
   function selectTab(next: Tab) {
     setTab(next);
     const params = new URLSearchParams(searchParams);
@@ -339,119 +386,78 @@ export function MyPortfolioPage() {
     setSearchParams(params, { replace: true });
   }
 
-  const reload = useCallback(async (signal?: AbortSignal) => {
-    if (portfolioId == null) return;
-    const next = await getPortfolioAnalysis(portfolioId, signal);
-    setAnalysis(next);
-    const symbols = [...new Set(next.positions.map((p) => p.symbol))];
-    const details = await Promise.all(
-      symbols.map((symbol) => getCatalogInstrument(symbol, signal).catch(() => null)),
-    );
-    const map: Record<string, CatalogInstrumentDetail> = {};
-    details.forEach((d) => {
-      if (d) map[d.symbol.toUpperCase()] = d;
-    });
-    setCatalogBySymbol(map);
-  }, [portfolioId]);
+  // Core: the personal summary alone is enough to render «Состав» and «История».
+  const summaryRes = useTabResource<PersonalSummary>(
+    portfolioId != null,
+    `summary:${portfolioId}:${isUser}:${dataVersion}`,
+    (signal) => getPersonalPortfolio(portfolioId!, { owner: !isUser, signal }),
+  );
+  const personalJournal = summaryRes.data;
 
+  const analysisRes = useTabResource<ManualPortfolioAnalysis>(
+    portfolioId != null && tab === "analysis",
+    `analysis:${portfolioId}:${dataVersion}`,
+    (signal) => getPortfolioAnalysis(portfolioId!, signal),
+  );
+  const analysis = analysisRes.data;
+
+  const decisionRes = useTabResource<DailyPersonalDecision>(
+    portfolioId != null && tab === "decision",
+    `decision:${portfolioId}:${dataVersion}`,
+    (signal) => getDailyPersonalDecision(portfolioId!, { signal }),
+  );
+
+  const cashflowsRes = useTabResource<PortfolioCashflows>(
+    portfolioId != null && tab === "payments",
+    `cashflows:${portfolioId}:${dataVersion}`,
+    (signal) => getPortfolioCashflows(portfolioId!, signal),
+  );
+
+  const compareRes = useTabResource<ManualCompareCandidate>(
+    portfolioId != null && tab === "compare",
+    `compare:${portfolioId}:${dataVersion}`,
+    (signal) => getPortfolioCompareCandidate(portfolioId!, signal),
+  );
+
+  const rebalanceRes = useTabResource<ManualRebalancePlan>(
+    portfolioId != null && tab === "rebalance",
+    `rebalance:${portfolioId}:${dataVersion}`,
+    (signal) => getPortfolioRebalance(portfolioId!, signal),
+  );
+
+  const coverageRes = useTabResource<PortfolioFundamentalCoverage>(
+    tab === "analysis",
+    `coverage:${dataVersion}`,
+    (signal) => getPortfolioFundamentalCoverage(signal),
+  );
+  const fundCoverage = coverageRes.data;
+  const cashflows = cashflowsRes.data;
+  const compare = compareRes.data;
+  const rebalance = rebalanceRes.data;
+
+  const lifecycle =
+    selectedPortfolio?.lifecycle_state ??
+    (personalJournal ? portfolioLifecycleState(personalJournal) : "DRAFT");
+  const isDraft = lifecycle !== "ACTIVE";
+
+  // Asset-class hints for the allocation split; failures degrade to equity-only.
   useEffect(() => {
+    setCatalogBySymbol({});
+    if (!analysis) return;
     const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-    reload(controller.signal)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(errorMessage(reason));
-        }
+    const symbols = [...new Set(analysis.positions.map((p) => p.symbol))];
+    Promise.all(symbols.map((symbol) => getCatalogInstrument(symbol, controller.signal).catch(() => null)))
+      .then((details) => {
+        if (controller.signal.aborted) return;
+        const map: Record<string, CatalogInstrumentDetail> = {};
+        details.forEach((d) => {
+          if (d) map[d.symbol.toUpperCase()] = d;
+        });
+        setCatalogBySymbol(map);
       })
-      .finally(() => setLoading(false));
+      .catch(() => undefined);
     return () => controller.abort();
-  }, [reload, portfolioId]);
-
-  useEffect(() => {
-    if (tab !== "analysis") return;
-    const controller = new AbortController();
-    getPortfolioFundamentalCoverage(controller.signal)
-      .then((payload) => setFundCoverage(payload))
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setFundCoverage(null);
-        }
-      });
-    return () => controller.abort();
-  }, [tab, portfolioId]);
-
-  useEffect(() => {
-    if (tab !== "decision") return;
-    const controller = new AbortController();
-    const req =
-      portfolioId != null
-        ? getDailyPersonalDecision(portfolioId, { signal: controller.signal })
-        : Promise.reject(new Error("no portfolio"));
-    req
-      .then(setDailyDecision)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setDailyDecision(null);
-          setError(errorMessage(reason));
-        }
-      });
-    return () => controller.abort();
-  }, [tab, portfolioId]);
-
-  useEffect(() => {
-    if (tab !== "compare" || !analysis) return;
-    const controller = new AbortController();
-    getPortfolioCompareCandidate(portfolioId!, controller.signal)
-      .then(setCompare)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(errorMessage(reason));
-        }
-      });
-    return () => controller.abort();
-  }, [tab, analysis]);
-
-  useEffect(() => {
-    if (tab !== "rebalance" || !analysis) return;
-    const controller = new AbortController();
-    getPortfolioRebalance(portfolioId!, controller.signal)
-      .then(setRebalance)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(errorMessage(reason));
-        }
-      });
-    return () => controller.abort();
-  }, [tab, analysis]);
-
-  useEffect(() => {
-    if (tab !== "payments" || !analysis) return;
-    const controller = new AbortController();
-    getPortfolioCashflows(portfolioId!, controller.signal)
-      .then(setCashflows)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(errorMessage(reason));
-        }
-      });
-    return () => controller.abort();
-  }, [tab, analysis]);
-
-  useEffect(() => {
-    if (tab !== "history" || portfolioId == null) return;
-    const controller = new AbortController();
-    setHistoryLoading(true);
-    getPersonalPortfolio(portfolioId, { owner: !isUser, signal: controller.signal })
-      .then(setPersonalJournal)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(errorMessage(reason));
-        }
-      })
-      .finally(() => setHistoryLoading(false));
-    return () => controller.abort();
-  }, [tab, portfolioId, isUser]);
+  }, [analysis]);
 
   async function onRenamePortfolio() {
     if (portfolioId == null) return;
@@ -538,14 +544,8 @@ export function MyPortfolioPage() {
     );
   }
 
-  if (loading && tab !== "holdings" && tab !== "history") {
-    return <PageState kind="loading" title="Загрузка портфеля…" />;
-  }
-  if (error && !analysis && tab !== "holdings" && tab !== "history") {
-    return <PageState kind="error">{error}</PageState>;
-  }
-
-  const portfolioTitle = selectedPortfolio?.name ?? analysis?.portfolio.name ?? "Мой портфель";
+  const portfolioTitle =
+    selectedPortfolio?.name ?? personalJournal?.portfolio.name ?? analysis?.portfolio.name ?? "Мой портфель";
   const portfolioLifecycleLabel = lifecycleHeaderLabel(lifecycle);
 
 
@@ -577,9 +577,11 @@ export function MyPortfolioPage() {
         </div>
       </div>
 
-      {error && tab !== "holdings" ? (
-        <WarningCard title="Сообщение">
-          <p style={{ margin: 0 }}>{error}</p>
+      {summaryRes.error ? (
+        <WarningCard title="Не удалось загрузить портфель">
+          <p style={{ margin: 0 }} data-testid="portfolio-core-error">
+            {summaryRes.error}
+          </p>
         </WarningCard>
       ) : null}
 
@@ -630,7 +632,7 @@ export function MyPortfolioPage() {
 
       {tab === "history" ? (
         <div data-testid="tab-history-panel" style={{ marginTop: "0.75rem" }}>
-          {historyLoading && !personalJournal ? (
+          {summaryRes.loading && !personalJournal ? (
             <PageState kind="loading" title="Загрузка истории…" />
           ) : !personalJournal ? (
             <p className="muted">Нет данных журнала.</p>
@@ -676,23 +678,26 @@ export function MyPortfolioPage() {
 
       {tab === "decision" ? (
         <div data-testid="tab-decision-panel" style={{ marginTop: "0.75rem" }}>
-          <DailyDecisionPanel decision={dailyDecision} owner={!isUser} />
+          <TabLoadState resource={decisionRes} loadingTitle="Загрузка рекомендаций…" />
+          {decisionRes.data ? <DailyDecisionPanel decision={decisionRes.data} owner={!isUser} /> : null}
         </div>
       ) : null}
 
-      {tab === "analysis" && isDraft ? (
+      {tab === "analysis" && !analysis ? (
         <div data-testid="tab-analysis-panel" style={{ marginTop: "0.75rem" }}>
-          <WarningCard title="Анализ после начала учёта">
-            <p style={{ margin: 0 }}>
-              Сначала зафиксируйте текущее состояние и нажмите «Начать учёт» на вкладке «Состав».
-              Рекомендации «Что делать» доступны уже сейчас.
-            </p>
-          </WarningCard>
+          <TabLoadState resource={analysisRes} loadingTitle="Загрузка анализа…" />
         </div>
       ) : null}
 
-      {tab === "analysis" && analysis && !isDraft ? (
+      {tab === "analysis" && analysis ? (
         <div data-testid="tab-analysis-panel" style={{ marginTop: "0.75rem" }}>
+          {isDraft ? (
+            <WarningCard title="Предварительный анализ">
+              <p style={{ margin: 0 }} data-testid="draft-preliminary-analysis-note">
+                {DRAFT_PRELIMINARY_NOTE}
+              </p>
+            </WarningCard>
+          ) : null}
           <ExplanationCard title="Распределение" level={1}>
             <AllocationBars
               equity={allocationWeights.equity}
@@ -828,16 +833,16 @@ export function MyPortfolioPage() {
             data-testid="portfolio-fundamental-coverage"
           >
             <h2>
-              Фундаментальное покрытие (RAS / FNS){" "}
+              Фундаментальное покрытие: исследовательская выборка{" "}
               <MetricHelp metricId="fundamental_data" />
             </h2>
-            <p className="muted">
-              Read-only coverage research cohort. Sync только через{" "}
-              <code>sync_fundamentals_fns</code> / Celery — не при рендере страницы.{" "}
+            <p className="muted" data-testid="fundamental-coverage-scope">
+              Общая исследовательская выборка Kraken по отчётности (РСБУ / ФНС), а не покрытие
+              выбранного портфеля. Данные только для чтения и обновляются фоновой задачей.{" "}
               <MetricHelp metricId="fns_gir_bo" />
             </p>
             {!fundCoverage ? (
-              <p className="muted">Загрузка coverage…</p>
+              <p className="muted">Загрузка данных по отчётности…</p>
             ) : (
               <>
                 <div className="card-grid">
@@ -900,10 +905,10 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "payments" && analysis ? (
+      {tab === "payments" ? (
         <div data-testid="tab-payments-panel" style={{ marginTop: "0.75rem" }}>
           {!cashflows ? (
-            <PageState kind="loading" title="Загрузка выплат…" />
+            <TabLoadState resource={cashflowsRes} loadingTitle="Загрузка выплат…" />
           ) : (
             <>
               <p className="muted">
@@ -913,11 +918,11 @@ export function MyPortfolioPage() {
               <div className="card-grid">
                 <MetricCard
                   label="30 дней"
-                  value={moneyRub(cashflows.horizons["30d"]?.gross ?? 0)}
+                  value={moneyRub(cashflows.horizons?.["30d"]?.gross ?? 0)}
                   helpId="portfolio_cashflows"
                 />
-                <MetricCard label="90 дней" value={moneyRub(cashflows.horizons["90d"]?.gross ?? 0)} />
-                <MetricCard label="12 месяцев" value={moneyRub(cashflows.horizons["12m"]?.gross ?? 0)} />
+                <MetricCard label="90 дней" value={moneyRub(cashflows.horizons?.["90d"]?.gross ?? 0)} />
+                <MetricCard label="12 месяцев" value={moneyRub(cashflows.horizons?.["12m"]?.gross ?? 0)} />
               </div>
               <article className="panel" style={{ marginTop: "1rem" }}>
                 <h2>Облигации: ближайшая выплата</h2>
@@ -933,14 +938,14 @@ export function MyPortfolioPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {cashflows.positions.length === 0 ? (
+                      {(cashflows.positions ?? []).length === 0 ? (
                         <tr>
                           <td colSpan={5} className="muted">
                             Нет облигационных позиций
                           </td>
                         </tr>
                       ) : (
-                        cashflows.positions.map((p) => (
+                        (cashflows.positions ?? []).map((p) => (
                           <tr key={p.instrument_id}>
                             <td className="mono">{p.symbol}</td>
                             <td>{p.next_payment?.event_date ?? "—"}</td>
@@ -979,7 +984,7 @@ export function MyPortfolioPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {cashflows.events
+                      {(cashflows.events ?? [])
                         .filter((e) => !e.informational)
                         .slice(0, 40)
                         .map((e, idx) => (
@@ -999,12 +1004,17 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "compare" && analysis ? (
+      {tab === "compare" ? (
         <div data-testid="tab-compare-panel" style={{ marginTop: "0.75rem" }}>
           {!compare ? (
-            <PageState kind="loading" title="Сравнение…" />
+            <TabLoadState resource={compareRes} loadingTitle="Сравнение…" />
           ) : (
             <>
+              {isDraft ? (
+                <p className="muted" data-testid="draft-preliminary-compare-note">
+                  {DRAFT_PRELIMINARY_CALC_NOTE}
+                </p>
+              ) : null}
               <p className="muted">
                 Источник кандидата: {compare.candidate_source}
                 {compare.candidate_id ? ` · ${compare.candidate_id}` : ""}. «Нет у Kraken» ≠ сигнал продать.
@@ -1041,7 +1051,7 @@ export function MyPortfolioPage() {
         </div>
       ) : null}
 
-      {tab === "rebalance" && analysis ? (
+      {tab === "rebalance" ? (
         <div data-testid="tab-rebalance-panel" style={{ marginTop: "0.75rem" }}>
           <WarningCard title="Расчётный план, не заявки">
             <p style={{ margin: 0 }}>
@@ -1050,9 +1060,14 @@ export function MyPortfolioPage() {
             </p>
           </WarningCard>
           {!rebalance ? (
-            <PageState kind="loading" title="План ребаланса…" />
+            <TabLoadState resource={rebalanceRes} loadingTitle="План ребаланса…" />
           ) : (
             <>
+              {isDraft ? (
+                <p className="muted" data-testid="draft-preliminary-rebalance-note">
+                  {DRAFT_PRELIMINARY_CALC_NOTE}
+                </p>
+              ) : null}
               <div className="card-grid" style={{ marginTop: "0.75rem" }}>
                 <MetricCard label="NAV" value={moneyRub(rebalance.nav)} />
                 <MetricCard label="Кэш сейчас" value={moneyRub(rebalance.cash)} />
