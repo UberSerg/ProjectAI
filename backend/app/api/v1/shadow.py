@@ -27,6 +27,7 @@ from app.modules.shadow.config import (
     SHADOW_KIND,
     operational_shadow_configs,
     realism_v2_shadow_configs,
+    realism_v3_shadow_configs,
 )
 from app.modules.shadow.domain.open_execution import POLICY_NAME, can_fill_with_session_open
 from app.modules.shadow.infrastructure.models import (
@@ -817,13 +818,18 @@ def get_shadow_portfolio_current(portfolio_id: int) -> dict[str, Any]:
 
 @router.post("/init")
 def init_shadow(
-    group: Annotated[str, Query(description="operational | realism-v2")] = "operational",
+    group: Annotated[
+        str, Query(description="operational | realism-v2 | realism-v3")
+    ] = "operational",
 ) -> dict[str, Any]:
-    if group not in ("operational", "realism-v2"):
-        raise HTTPException(400, "group must be operational or realism-v2")
-    configs = (
-        list(realism_v2_shadow_configs()) if group == "realism-v2" else list(operational_shadow_configs())
-    )
+    if group not in ("operational", "realism-v2", "realism-v3"):
+        raise HTTPException(400, "group must be operational, realism-v2, or realism-v3")
+    if group == "realism-v3":
+        configs = list(realism_v3_shadow_configs())
+    elif group == "realism-v2":
+        configs = list(realism_v2_shadow_configs())
+    else:
+        configs = list(operational_shadow_configs())
     with core_session() as session:
         results = initialize_shadow_portfolios(session, configs=configs)
         session.commit()

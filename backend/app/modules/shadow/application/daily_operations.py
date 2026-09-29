@@ -26,7 +26,7 @@ from app.modules.shadow.application.pipeline_status import (
     build_pipeline_status,
     next_session_date_from_eod,
 )
-from app.modules.shadow.config import EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2
+from app.modules.shadow.config import EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2, EXPERIMENT_GROUP_V3
 from app.modules.shadow.infrastructure.models import (
     ShadowDecision,
     ShadowOrder,
@@ -186,7 +186,11 @@ def _has_active_shadow(session: Session) -> bool:
     row = session.execute(
         select(ShadowPortfolio.id)
         .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
-        .where(ShadowPortfolioSpec.experiment_group.in_([EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2]))
+        .where(
+            ShadowPortfolioSpec.experiment_group.in_(
+                [EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2, EXPERIMENT_GROUP_V3]
+            )
+        )
         .limit(1)
     ).first()
     return row is not None
@@ -254,7 +258,11 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
         session.execute(
             select(ShadowPortfolio, ShadowPortfolioSpec)
             .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
-            .where(ShadowPortfolioSpec.experiment_group.in_([EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2]))
+            .where(
+                ShadowPortfolioSpec.experiment_group.in_(
+                    [EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2, EXPERIMENT_GROUP_V3]
+                )
+            )
             .order_by(ShadowPortfolio.id)
         ).all()
     )

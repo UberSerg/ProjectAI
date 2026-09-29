@@ -34,6 +34,15 @@ PORTFOLIO_A_V2_NAME = "SHADOW_HYSTERESIS_V2"
 PORTFOLIO_B_V2_NAME = "SHADOW_HYSTERESIS_DD_V2"
 EXECUTION_VERSION_LOT_AWARE_V2 = "LOT_AWARE_V2"
 
+# Realism V3 — lot-aware + sell economics / FeeProfile; V2 history frozen.
+EXPERIMENT_GROUP_V3 = "SHADOW_PORTFOLIO_REALISM_V3"
+PORTFOLIO_A_V3_NAME = "SHADOW_HYSTERESIS_V3"
+PORTFOLIO_B_V3_NAME = "SHADOW_HYSTERESIS_DD_V3"
+EXECUTION_VERSION_SELL_ECONOMICS_V3 = "LOT_AWARE_SELL_ECONOMICS_V3"
+# Built-in broker fee profile code for the personal/default Kraken experiment.
+FEE_PROFILE_CODE_SBER_INVESTMENT = "SBER_INVESTMENT"
+DEFAULT_MIN_NET_ROTATION_EDGE_BPS = 0.0
+
 # Prospective Model A/B V0 shadows. Same policy, same risk, same capital — only the
 # Prediction Candidate differs, so any NAV gap is attributable to the model.
 MODEL_AB_EXPERIMENT_GROUP = "PROSPECTIVE_MODEL_AB_V0"
@@ -72,6 +81,9 @@ class ShadowSpecConfig:
     kind: str = SHADOW_KIND
     execution_version: str | None = None
     strategic_cash_reserve: float = 0.0
+    # V3 sell economics — omitted from V1/V2 config hashes when unset for that execution.
+    fee_profile_code: str | None = None
+    min_net_rotation_edge_bps: float = DEFAULT_MIN_NET_ROTATION_EDGE_BPS
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -81,6 +93,10 @@ class ShadowSpecConfig:
         if self.risk_name != RISK_DD_GUARD_V1:
             for key in ("dd_trigger", "dd_recovery", "dd_risk_off_gross", "dd_normal_gross"):
                 payload.pop(key, None)
+        # Preserve V1/V2 hashes: drop V3-only keys unless this is sell-economics V3.
+        if self.execution_version != EXECUTION_VERSION_SELL_ECONOMICS_V3:
+            payload.pop("fee_profile_code", None)
+            payload.pop("min_net_rotation_edge_bps", None)
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -198,6 +214,52 @@ def realism_v2_shadow_configs() -> tuple[ShadowSpecConfig, ShadowSpecConfig]:
     return realism_v2_portfolio_a_config(), realism_v2_portfolio_b_config()
 
 
+def realism_v3_portfolio_a_config() -> ShadowSpecConfig:
+    """Realism V3 A — lot-aware + sell economics; baseline risk (no DD guard)."""
+    return ShadowSpecConfig(
+        experiment_group=EXPERIMENT_GROUP_V3,
+        name=PORTFOLIO_A_V3_NAME,
+        version="v3",
+        candidate_name=CANDIDATE_V0_CONFIG.candidate_name,
+        candidate_version=CANDIDATE_V0_CONFIG.candidate_version,
+        candidate_config_hash=EXPECTED_CANDIDATE_CONFIG_HASH,
+        dataset_values_hash=EXPECTED_DATASET_VALUES_HASH,
+        policy_name=POLICY_HYSTERESIS_V1,
+        risk_name=RISK_NAME,
+        fractional_shares=False,
+        execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        min_net_rotation_edge_bps=DEFAULT_MIN_NET_ROTATION_EDGE_BPS,
+    )
+
+
+def realism_v3_portfolio_b_config() -> ShadowSpecConfig:
+    """Realism V3 B — same sell economics as A; Drawdown Guard risk arm."""
+    return ShadowSpecConfig(
+        experiment_group=EXPERIMENT_GROUP_V3,
+        name=PORTFOLIO_B_V3_NAME,
+        version="v3",
+        candidate_name=CANDIDATE_V0_CONFIG.candidate_name,
+        candidate_version=CANDIDATE_V0_CONFIG.candidate_version,
+        candidate_config_hash=EXPECTED_CANDIDATE_CONFIG_HASH,
+        dataset_values_hash=EXPECTED_DATASET_VALUES_HASH,
+        policy_name=POLICY_HYSTERESIS_V1,
+        risk_name=RISK_DD_GUARD_V1,
+        dd_trigger=V1_DD_TRIGGER,
+        dd_recovery=V1_DD_RECOVERY,
+        dd_risk_off_gross=V1_DD_RISK_OFF_GROSS,
+        dd_normal_gross=V1_DD_NORMAL_GROSS,
+        fractional_shares=False,
+        execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        min_net_rotation_edge_bps=DEFAULT_MIN_NET_ROTATION_EDGE_BPS,
+    )
+
+
+def realism_v3_shadow_configs() -> tuple[ShadowSpecConfig, ShadowSpecConfig]:
+    return realism_v3_portfolio_a_config(), realism_v3_portfolio_b_config()
+
+
 def operational_experiment_groups() -> tuple[str, ...]:
     """Groups advanced by the Daily Research Cycle Shadow stage."""
-    return (EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2)
+    return (EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2, EXPERIMENT_GROUP_V3)

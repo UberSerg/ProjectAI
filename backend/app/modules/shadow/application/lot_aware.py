@@ -8,21 +8,54 @@ from typing import Any
 from app.modules.shadow.domain.accounting import PositionState, apply_buy, apply_sell
 
 EXECUTION_VERSION_LOT_AWARE_V2 = "LOT_AWARE_V2"
+EXECUTION_VERSION_SELL_ECONOMICS_V3 = "LOT_AWARE_SELL_ECONOMICS_V3"
+
+_LOT_AWARE_EXECUTION_VERSIONS = frozenset(
+    {
+        EXECUTION_VERSION_LOT_AWARE_V2,
+        EXECUTION_VERSION_SELL_ECONOMICS_V3,
+    }
+)
 
 
 def is_lot_aware_spec(spec: Any) -> bool:
-    """True when fractional_shares is False or payload marks LOT_AWARE_V2."""
+    """True when fractional_shares is False or payload marks a lot-aware execution version."""
     if spec is None:
         return False
     if bool(getattr(spec, "fractional_shares", True)) is False:
         return True
     payload = getattr(spec, "payload", None) or {}
     if isinstance(payload, dict):
-        if payload.get("execution_version") == EXECUTION_VERSION_LOT_AWARE_V2:
+        if payload.get("execution_version") in _LOT_AWARE_EXECUTION_VERSIONS:
             return True
         if payload.get("fractional_shares") is False:
             return True
     return False
+
+
+def is_sell_economics_v3_spec(spec: Any) -> bool:
+    """True when Shadow Realism V3 sell-economics execution is active."""
+    if spec is None:
+        return False
+    direct = getattr(spec, "execution_version", None)
+    if direct == EXECUTION_VERSION_SELL_ECONOMICS_V3:
+        return True
+    payload = getattr(spec, "payload", None) or {}
+    if isinstance(payload, dict):
+        return payload.get("execution_version") == EXECUTION_VERSION_SELL_ECONOMICS_V3
+    return False
+
+
+def execution_version_for_spec(spec: Any) -> str | None:
+    direct = getattr(spec, "execution_version", None)
+    if direct:
+        return str(direct)
+    payload = getattr(spec, "payload", None) or {}
+    if isinstance(payload, dict) and payload.get("execution_version"):
+        return str(payload["execution_version"])
+    if is_lot_aware_spec(spec):
+        return EXECUTION_VERSION_LOT_AWARE_V2
+    return None
 
 
 def positions_dict(portfolio: Any) -> dict[str, dict[str, Any]]:

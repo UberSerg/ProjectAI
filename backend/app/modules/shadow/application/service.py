@@ -31,7 +31,9 @@ from app.modules.shadow.application.execution_eligibility import (
 from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
+    execution_version_for_spec,
     is_lot_aware_spec,
+    is_sell_economics_v3_spec,
     set_fractional_position,
 )
 from app.modules.shadow.application.lot_aware import (
@@ -46,7 +48,16 @@ from app.modules.shadow.config import (
     operational_experiment_groups,
     operational_shadow_configs,
 )
+from app.modules.shadow.domain.fee_estimate import resolve_broker_fee_estimator
 from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
+from app.modules.shadow.domain.sell_gate import (
+    RISK_EXIT,
+    HeldName,
+    PolicyTarget,
+    ReplacementCandidate,
+    SellGateParams,
+    apply_sell_gate,
+)
 from app.modules.shadow.infrastructure.models import (
     ShadowDecision,
     ShadowFill,
@@ -457,6 +468,12 @@ def _build_decision_and_orders(
             ticker=p.ticker,
             as_of_date=p.as_of_date,
             predicted_return_20d=float(p.predicted_return_20d),
+            prediction_semantic=str(
+                getattr(p, "prediction_semantic", None)
+                or getattr(batch, "prediction_semantic", None)
+                or "EXPECTED_RETURN"
+            ),
+            prediction_score=float(p.predicted_return_20d),
         )
         for p in preds
         if p.quality_status == "OK"
@@ -493,13 +510,28 @@ def _build_decision_and_orders(
 
     # Size against current NAV estimate using latest known closes if any; else cash-only
     closes: dict[int, float] = {}
+    price_as_of = portfolio.last_processed_market_date or batch.as_of_date
     for pos in _positions_dict(portfolio).values():
         iid = int(pos["instrument_id"])
-        # prefer latest processed close; fallback none
-        if portfolio.last_processed_market_date is not None:
-            _o, c = _candle_open_close(session, iid, portfolio.last_processed_market_date)
+        if price_as_of is not None:
+            _o, c = _candle_open_close(session, iid, price_as_of)
             if c is not None:
                 closes[iid] = c
+    # Also fetch closes for policy targets / candidates (needed by V3 economics).
+    for d in risk_out.decisions:
+        meta = dict(d.metadata or {})
+        iid = int(meta.get("instrument_id") or 0)
+        if iid and iid not in closes and price_as_of is not None:
+            _o, c = _candle_open_close(session, iid, price_as_of)
+            if c is not None:
+                closes[iid] = c
+    for sig in signals:
+        iid = int(sig.instrument_id)
+        if iid not in closes and price_as_of is not None:
+            _o, c = _candle_open_close(session, iid, price_as_of)
+            if c is not None:
+                closes[iid] = c
+
     mv = sum(_position_qty(portfolio, iid) * px for iid, px in closes.items())
     nav = float(portfolio.cash) + mv
     if nav <= 0:
@@ -519,9 +551,38 @@ def _build_decision_and_orders(
                 "action": meta.get("action"),
                 "rank": meta.get("rank"),
                 "predicted_return_20d": meta.get("predicted_return_20d"),
+                "prediction_semantic": meta.get("prediction_semantic") or "EXPECTED_RETURN",
                 "policy": meta.get("policy") or spec.policy_name,
             }
         )
+
+    decision_meta: dict[str, Any] = {
+        "eligible_n": policy_out.metadata.get("eligible_n"),
+        "selected_k": policy_out.metadata.get("selected_k"),
+        "k_entry": policy_out.metadata.get("k_entry"),
+        "k_max": policy_out.metadata.get("k_max"),
+        "prediction_hash": batch.prediction_hash,
+        "kind": SHADOW_KIND,
+    }
+
+    # V3 only: rank exit-band breach → review trigger; economic sell gate filters targets.
+    if is_sell_economics_v3_spec(spec):
+        targets, v3_meta = _apply_v3_sell_economics(
+            portfolio=portfolio,
+            spec=spec,
+            batch=batch,
+            signals=signals,
+            policy_out=policy_out,
+            policy_targets=targets,
+            closes=closes,
+            nav=nav,
+            exposure_cap=exposure_cap,
+            decision_at=decision_at,
+        )
+        decision_meta.update(v3_meta)
+        exec_ver = execution_version_for_spec(spec)
+        if exec_ver:
+            decision_meta["execution_version"] = exec_ver
 
     decision = ShadowDecision(
         portfolio_id=portfolio.id,
@@ -535,14 +596,7 @@ def _build_decision_and_orders(
         risk_mode=portfolio.risk_mode,
         exposure_cap=exposure_cap,
         targets=targets,
-        metadata_={
-            "eligible_n": policy_out.metadata.get("eligible_n"),
-            "selected_k": policy_out.metadata.get("selected_k"),
-            "k_entry": policy_out.metadata.get("k_entry"),
-            "k_max": policy_out.metadata.get("k_max"),
-            "prediction_hash": batch.prediction_hash,
-            "kind": SHADOW_KIND,
-        },
+        metadata_=decision_meta,
     )
     session.add(decision)
     session.flush()
@@ -604,6 +658,206 @@ def _build_decision_and_orders(
     portfolio.last_decision_id = decision.id
     portfolio.last_processed_prediction_batch_id = batch.id
     return decision
+
+
+def _apply_v3_sell_economics(
+    *,
+    portfolio: ShadowPortfolio,
+    spec: ShadowPortfolioSpec,
+    batch: ForwardPredictionBatch,
+    signals: Sequence[PredictionSignal],
+    policy_out: Any,
+    policy_targets: list[dict[str, Any]],
+    closes: dict[int, float],
+    nav: float,
+    exposure_cap: float,
+    decision_at: datetime,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Run pure sell gate; return filtered targets + metadata (candidate traces)."""
+    payload = spec.payload or {}
+    fee_profile_code = (
+        getattr(spec, "fee_profile_code", None)
+        or (payload.get("fee_profile_code") if isinstance(payload, dict) else None)
+    )
+    min_edge = float(
+        getattr(spec, "min_net_rotation_edge_bps", None)
+        if getattr(spec, "min_net_rotation_edge_bps", None) is not None
+        else (
+            payload.get("min_net_rotation_edge_bps", 0.0)
+            if isinstance(payload, dict)
+            else 0.0
+        )
+    )
+    slippage_bps = float(spec.slippage_bps or 0.0)
+    fee_estimator = resolve_broker_fee_estimator(
+        fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
+        commission_bps=float(spec.commission_bps or 0.0),
+    )
+
+    signal_by_id = {int(s.instrument_id): s for s in signals}
+    k_max = int(policy_out.metadata.get("k_max") or 0)
+    k_entry = int(policy_out.metadata.get("k_entry") or len(policy_targets))
+    decision_day = decision_at.date() if hasattr(decision_at, "date") else batch.as_of_date
+    # Conservative stale rule: signal older than 14 calendar days vs decision day.
+    stale_horizon_days = 14
+
+    policy_ids = {int(t["instrument_id"]) for t in policy_targets}
+    held: list[HeldName] = []
+    risk_forced: dict[int, str] = {}
+    risk_mode = str(portfolio.risk_mode or "normal").lower()
+
+    for key, row in _positions_dict(portfolio).items():
+        qty = float(row.get("quantity") or 0)
+        if abs(qty) < 1e-12:
+            continue
+        iid = int(row.get("instrument_id") or key)
+        sig = signal_by_id.get(iid)
+        px = closes.get(iid)
+        current_w = (qty * px / nav) if px and nav > 0 else float(row.get("weight") or 0.0)
+        avg_entry = row.get("avg_entry")
+        avg_f = float(avg_entry) if avg_entry is not None else None
+        unreal = None
+        if avg_f is not None and px is not None:
+            unreal = (px - avg_f) * qty
+        rank_val = None
+        semantic = "EXPECTED_RETURN"
+        expected = None
+        signal_as_of = None
+        signal_stale = False
+        if sig is not None:
+            semantic = str(sig.prediction_semantic or "EXPECTED_RETURN")
+            expected = float(sig.predicted_return_20d) if semantic == "EXPECTED_RETURN" else None
+            signal_as_of = sig.as_of_date
+            if signal_as_of is not None and (decision_day - signal_as_of).days > stale_horizon_days:
+                signal_stale = True
+        # Rank from policy metadata if available
+        for t in policy_targets:
+            if int(t["instrument_id"]) == iid and t.get("rank") is not None:
+                rank_val = int(t["rank"])
+                break
+        if rank_val is None and sig is not None:
+            # Cross-sectional rank among OK signals (1 = best).
+            ranked = sorted(signals, key=lambda s: (-float(s.score), int(s.instrument_id)))
+            rank_val = next(
+                (i for i, s in enumerate(ranked, start=1) if int(s.instrument_id) == iid),
+                None,
+            )
+        in_exit = True if rank_val is None or k_max <= 0 else rank_val <= k_max
+        review_trigger = iid not in policy_ids
+        held.append(
+            HeldName(
+                instrument_id=iid,
+                ticker=str(row.get("ticker") or (sig.ticker if sig else iid)),
+                quantity=qty,
+                current_weight=float(current_w),
+                rank=rank_val,
+                prediction_semantic=semantic,
+                expected_return=expected,
+                signal_as_of=signal_as_of,
+                price=float(px) if px is not None else None,
+                avg_entry=avg_f,
+                unrealized_pnl=unreal,
+                in_exit_band=in_exit,
+                signal_stale=signal_stale,
+                review_trigger=review_trigger,
+            )
+        )
+        # Risk can force exit of reviewed names without a replacement.
+        if review_trigger and risk_mode in {"risk_off", "off"} and exposure_cap < 1.0 - 1e-12:
+            risk_forced[iid] = RISK_EXIT
+
+    policy_target_models = [
+        PolicyTarget(
+            instrument_id=int(t["instrument_id"]),
+            ticker=str(t["ticker"]),
+            target_weight=float(t["target_weight"]),
+            rank=int(t["rank"]) if t.get("rank") is not None else None,
+            prediction_semantic=str(t.get("prediction_semantic") or "EXPECTED_RETURN"),
+            expected_return=(
+                float(t["predicted_return_20d"])
+                if t.get("predicted_return_20d") is not None
+                and str(t.get("prediction_semantic") or "EXPECTED_RETURN") == "EXPECTED_RETURN"
+                else None
+            ),
+            action=str(t["action"]) if t.get("action") is not None else None,
+            price=closes.get(int(t["instrument_id"])),
+            signal_as_of=batch.as_of_date,
+        )
+        for t in policy_targets
+    ]
+
+    held_ids = {h.instrument_id for h in held}
+    replacements: list[ReplacementCandidate] = []
+    for sig in sorted(signals, key=lambda s: (-float(s.score), int(s.instrument_id))):
+        iid = int(sig.instrument_id)
+        if iid in held_ids:
+            continue
+        semantic = str(sig.prediction_semantic or "EXPECTED_RETURN")
+        stale = bool(
+            sig.as_of_date is not None
+            and (decision_day - sig.as_of_date).days > stale_horizon_days
+        )
+        ranked = sorted(signals, key=lambda s: (-float(s.score), int(s.instrument_id)))
+        rank_val = next(
+            (i for i, s in enumerate(ranked, start=1) if int(s.instrument_id) == iid),
+            None,
+        )
+        replacements.append(
+            ReplacementCandidate(
+                instrument_id=iid,
+                ticker=sig.ticker,
+                rank=rank_val,
+                prediction_semantic=semantic,
+                expected_return=(
+                    float(sig.predicted_return_20d) if semantic == "EXPECTED_RETURN" else None
+                ),
+                price=closes.get(iid),
+                signal_as_of=sig.as_of_date,
+                signal_stale=stale,
+            )
+        )
+
+    gate = apply_sell_gate(
+        held=held,
+        policy_targets=policy_target_models,
+        replacement_candidates=replacements,
+        params=SellGateParams(
+            slippage_bps=slippage_bps,
+            min_net_rotation_edge_bps=min_edge,
+            fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
+            k_entry=k_entry,
+            exposure_cap=float(exposure_cap),
+            as_of=batch.as_of_date,
+        ),
+        fee_estimator=fee_estimator,
+        risk_forced=risk_forced,
+        eligible_count=int(policy_out.metadata.get("eligible_n") or len(signals)),
+        policy_name=spec.policy_name,
+    )
+
+    targets = [
+        {
+            "instrument_id": t.instrument_id,
+            "ticker": t.ticker,
+            "target_weight": float(t.target_weight),
+            "action": t.action,
+            "rank": t.rank,
+            "predicted_return_20d": t.predicted_return_20d,
+            "policy": t.policy or spec.policy_name,
+            "gate_action": t.gate_action,
+            "rotate_from": t.rotate_from,
+            "rotate_to": t.rotate_to,
+        }
+        for t in gate.targets
+    ]
+    meta = {
+        "sell_gate": dict(gate.metadata),
+        "candidate_traces": [tr.to_dict() for tr in gate.traces],
+        "fee_profile_code": fee_profile_code,
+        "min_net_rotation_edge_bps": min_edge,
+        "slippage_bps": slippage_bps,
+    }
+    return targets, meta
 
 
 def _persist_fractional_orders(
@@ -821,15 +1075,24 @@ def _persist_lot_aware_orders(
         ],
     }
     meta["skipped"] = meta["order_plan"]["skipped"]
-    meta["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
+    meta["execution_version"] = execution_version_for_spec(spec) or EXECUTION_VERSION_LOT_AWARE_V2
     decision.metadata_ = meta
 
     for row in plan.executable:
         action = (target_by_id.get(row.instrument_id) or {}).get("action")
+        gate_action = (target_by_id.get(row.instrument_id) or {}).get("gate_action")
         if row.action == "SELL" and row.target_weight <= 0:
-            reason = "EXIT_BELOW_TOP35"
+            if gate_action == "ROTATE":
+                reason = f"ROTATE_TO_{(target_by_id.get(row.instrument_id) or {}).get('rotate_to')}"
+            elif gate_action in {"RISK_EXIT", "RISK_REDUCE", "EXIT_TO_CASH"}:
+                reason = str(gate_action)
+            else:
+                reason = "EXIT_BELOW_TOP35"
         elif row.action == "BUY" and _position_qty(portfolio, row.instrument_id) <= 1e-12:
-            reason = str(action or "ENTER_TOP20")
+            if gate_action == "ROTATE":
+                reason = f"ROTATE_FROM_{(target_by_id.get(row.instrument_id) or {}).get('rotate_from')}"
+            else:
+                reason = str(action or "ENTER_TOP20")
         else:
             reason = (
                 "REBALANCE_WEIGHT_DELTA"
@@ -864,12 +1127,14 @@ def _persist_lot_aware_orders(
                     "policy": spec.policy_name,
                     "risk_mode": portfolio.risk_mode,
                     "kind": SHADOW_KIND,
-                    "execution_version": EXECUTION_VERSION_LOT_AWARE_V2,
+                    "execution_version": execution_version_for_spec(spec)
+                    or EXECUTION_VERSION_LOT_AWARE_V2,
                     "lots": int(row.lots_delta),
                     "lot_size": int(row.lot_size) if row.lot_size else None,
                     "units": float(row.units_delta),
                     "plan_reason": row.reason,
                     "estimated_fee": float(row.estimated_fee),
+                    "gate_action": gate_action,
                 },
             )
         )
@@ -1012,7 +1277,9 @@ def _fill_pending_orders(
             continue
         fill_meta: dict[str, Any] = {"kind": SHADOW_KIND, "raw_open_source": "market.candles"}
         if lot_aware:
-            fill_meta["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
+            fill_meta["execution_version"] = (
+                execution_version_for_spec(spec) or EXECUTION_VERSION_LOT_AWARE_V2
+            )
             if lot_size is not None:
                 fill_meta["lot_size"] = lot_size
                 fill_meta["lots"] = int(float(fill.quantity) / lot_size)
