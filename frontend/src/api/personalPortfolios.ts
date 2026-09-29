@@ -150,7 +150,7 @@ export function createPersonalPortfolio(
 ) {
   return apiRequest<PersonalSummary>(`/personal-portfolios${qs(false, !!opts?.test)}`, {
     method: "POST",
-    body: JSON.stringify(body),
+    body,
     signal: opts?.signal,
   });
 }
@@ -172,7 +172,7 @@ export function patchPersonalPortfolio(
 ) {
   return apiRequest<PersonalSummary>(`/personal-portfolios/${portfolioId}${qs(false, !!opts?.test)}`, {
     method: "PATCH",
-    body: JSON.stringify(body),
+    body,
     signal: opts?.signal,
   });
 }
@@ -193,7 +193,7 @@ export function setDraftCash(
     `/personal-portfolios/${portfolioId}/draft/cash${qs(false, !!opts?.test)}`,
     {
       method: "PUT",
-      body: JSON.stringify({ cash_rub: cashRub }),
+      body: { cash_rub: cashRub },
       signal: opts?.signal,
     },
   );
@@ -216,7 +216,7 @@ export function addDraftPosition(
     `/personal-portfolios/${portfolioId}/draft/positions${qs(false, !!opts?.test)}`,
     {
       method: "POST",
-      body: JSON.stringify(body),
+      body,
       signal: opts?.signal,
     },
   );
@@ -232,7 +232,7 @@ export function patchDraftPosition(
     `/personal-portfolios/${portfolioId}/draft/positions/${positionId}${qs(false, !!opts?.test)}`,
     {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body,
       signal: opts?.signal,
     },
   );
@@ -287,7 +287,7 @@ export function createPersonalOperation(
     `/personal-portfolios/${portfolioId}/operations${qs(false, !!opts?.test)}`,
     {
       method: "POST",
-      body: JSON.stringify(body),
+      body,
       headers,
       signal: opts?.signal,
     },

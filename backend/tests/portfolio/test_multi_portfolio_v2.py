@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -207,7 +208,7 @@ def test_active_ops_and_reset_isolation(mp_db: Session, two_books):
         mp_db,
         portfolio=a,
         operation_type="DEPOSIT",
-        occurred_at="2026-09-28T10:00:00+00:00",
+        occurred_at=datetime.now(UTC),
         amount=Decimal("30000"),
         idempotency_key="dep-a-1",
     )
@@ -215,7 +216,7 @@ def test_active_ops_and_reset_isolation(mp_db: Session, two_books):
         mp_db,
         portfolio=b,
         operation_type="DEPOSIT",
-        occurred_at="2026-09-28T10:00:00+00:00",
+        occurred_at=datetime.now(UTC),
         amount=Decimal("1000"),
         idempotency_key="dep-a-1",
     )
@@ -281,7 +282,7 @@ def test_operation_wrong_portfolio_context(mp_db: Session, two_books):
         mp_db,
         portfolio=a,
         operation_type="DEPOSIT",
-        occurred_at="2026-09-28T10:00:00+00:00",
+        occurred_at=datetime.now(UTC),
         amount=Decimal("1000"),
         idempotency_key="ctx-dep-a",
     )
@@ -378,7 +379,7 @@ def test_active_equity_buy_sell_with_commission(mp_db: Session, two_books):
         mp_db,
         portfolio=a,
         operation_type="BUY",
-        occurred_at="2026-09-28T10:00:00+00:00",
+        occurred_at=datetime.now(UTC),
         instrument_id=int(sber.id),
         units=Decimal("10"),
         price=Decimal("250"),
@@ -393,7 +394,7 @@ def test_active_equity_buy_sell_with_commission(mp_db: Session, two_books):
         mp_db,
         portfolio=a,
         operation_type="SELL",
-        occurred_at="2026-09-28T11:00:00+00:00",
+        occurred_at=datetime.now(UTC),
         instrument_id=int(sber.id),
         units=Decimal("4"),
         price=Decimal("260"),

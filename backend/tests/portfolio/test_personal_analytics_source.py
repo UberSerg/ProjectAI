@@ -11,8 +11,16 @@ from sqlalchemy import delete, text
 from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Candle, Instrument, InstrumentSource
-from app.modules.investment.infrastructure.models import BondMarketSnapshot, BondTerm
+from app.modules.investment.application.portfolio_cashflow_service import (
+    build_manual_portfolio_cashflows,
+)
+from app.modules.investment.infrastructure.models import (
+    BondCashflow,
+    BondMarketSnapshot,
+    BondTerm,
+)
 from app.modules.portfolio.application.manual_portfolio_service import (
+    advisory_rebalance,
     analyze_manual_portfolio,
     compare_to_candidate,
 )
@@ -110,7 +118,14 @@ def _equity(session: Session, symbol: str, *, close: Decimal, as_of: date) -> In
     return inst
 
 
-def _bond(session: Session, symbol: str = "PANLB") -> Instrument:
+def _bond(
+    session: Session,
+    symbol: str = "PANLB",
+    *,
+    maturity: date | None = None,
+    coupon_amount: Decimal | None = None,
+    coupon_date: date | None = None,
+) -> Instrument:
     inst = Instrument(
         symbol=symbol,
         name=symbol,
@@ -131,6 +146,7 @@ def _bond(session: Session, symbol: str = "PANLB") -> Instrument:
             nominal=Decimal("1000"),
             currency="RUB",
             lot_size=1,
+            maturity_date=maturity,
             support_status="SUPPORTED",
             credit_quality_status="OBSERVED",
             known_at=date(2026, 1, 1),
@@ -148,6 +164,19 @@ def _bond(session: Session, symbol: str = "PANLB") -> Instrument:
             observed_fields={},
         )
     )
+    if coupon_amount is not None and coupon_date is not None:
+        session.add(
+            BondCashflow(
+                instrument_id=inst.id,
+                cashflow_date=coupon_date,
+                cashflow_type="COUPON",
+                amount=coupon_amount,
+                currency="RUB",
+                known_at=date(2026, 1, 1),
+                source="TEST",
+                raw_fields={},
+            )
+        )
     session.flush()
     return inst
 
@@ -380,3 +409,103 @@ def test_g_journal_states(pp_db: Session) -> None:
     a_legacy = analyze_manual_portfolio(pp_db, legacy)
     assert a_legacy["journal_state"] == "DRAFT"
     assert len(a_legacy["positions"]) == 1
+
+
+def test_h_cashflows_use_personal_snapshot_units(pp_db: Session) -> None:
+    """Cashflows must scale from snap.positions, not a second ManualPosition scan.
+
+    Bond BUY via journal is blocked (ADVISORY_ONLY). Seed a DRAFT ManualPosition instead.
+    """
+    portfolio = _reset(pp_db, "TEST — analytics H cashflows")
+    bond = _bond(
+        pp_db,
+        "PACF1",
+        maturity=date(2028, 6, 1),
+        coupon_amount=Decimal("35.4"),
+        coupon_date=date(2026, 12, 1),
+    )
+    pp_db.add(
+        ManualPosition(
+            portfolio_id=portfolio.id,
+            instrument_id=bond.id,
+            units=Decimal("3"),
+            average_price=Decimal("967.5"),
+        )
+    )
+    portfolio.cash_rub = Decimal("100000")
+    pp_db.flush()
+
+    snap = load_personal_snapshot(pp_db, portfolio)
+    assert len(snap.positions) == 1
+    assert money(snap.positions[0].units) == money("3")
+
+    result = build_manual_portfolio_cashflows(
+        pp_db, as_of=date(2026, 9, 28), portfolio=portfolio
+    )
+    assert result["source"] == "personal_portfolio"
+    assert result["portfolio_id"] == portfolio.id
+    assert result["analysis"]["bond_position_count"] == 1
+    row = result["positions"][0]
+    assert row["symbol"] == "PACF1"
+    assert money(Decimal(str(row["units"]))) == money("3")
+    assert row["cashflow_count"] == 1
+    assert row["next_payment"] is not None
+    # 3 units × 35.4 coupon = 106.2 gross for the next payment
+    assert money(Decimal(str(row["next_payment"]["gross_amount"]))) == money("106.2")
+    assert money(Decimal(str(row["next_payment"]["units"]))) == money("3")
+
+
+def test_i_rebalance_uses_snapshot_positions(
+    pp_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rebalance current_units come from snap.positions (Personal SoT)."""
+    portfolio = _reset(pp_db, "TEST — analytics I rebalance")
+    eq = _equity(pp_db, "PAREB", close=Decimal("100"), as_of=date(2026, 9, 25))
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="DEPOSIT",
+        occurred_at=datetime(2026, 9, 1, tzinfo=UTC),
+        amount=Decimal("100000"),
+        idempotency_key="pi-dep",
+    )
+    create_operation(
+        pp_db,
+        portfolio=portfolio,
+        operation_type="BUY",
+        occurred_at=datetime(2026, 9, 2, tzinfo=UTC),
+        instrument_id=eq.id,
+        units=Decimal("10"),
+        price=Decimal("100"),
+        non_standard_lot=True,
+        idempotency_key="pi-buy",
+    )
+
+    snap = load_personal_snapshot(pp_db, portfolio)
+    assert money(snap.positions[0].units) == money("10")
+    analysis = analyze_manual_portfolio(pp_db, portfolio)
+    assert money(Decimal(str(analysis["nav"]))) == money(snap.known_nav_rub)
+
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.get_latest_candidate_snapshot",
+        lambda session: None,
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.manual_portfolio_service.preview_portfolio_candidate",
+        lambda session, **kwargs: {
+            "candidate_id": "cand-reb",
+            "positions": [{"symbol": "PAREB", "weight": 0.5}, {"symbol": "OTHER", "weight": 0.5}],
+        },
+    )
+    plan = advisory_rebalance(pp_db, portfolio)
+    assert plan["actual_source"] == "personal_portfolio"
+    assert plan["journal_state"] == "ACTIVE"
+    assert plan["advisory"] is True
+    assert plan["persisted_orders"] is False
+    assert plan["cash_safe"] is True
+    # Plan must see the Personal holding of 10 units as current side.
+    by_ticker = {r["ticker"]: r for r in plan["plan_rows"]}
+    assert "PAREB" in by_ticker
+    # current_weight derived from 10 units × price vs NAV — financially tied to snapshot.
+    assert money(Decimal(str(plan["nav"]))) == money(snap.known_nav_rub)
+    assert money(Decimal(str(plan["cash"]))) == money(snap.cash_rub)

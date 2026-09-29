@@ -94,6 +94,24 @@ def _upsert_definition(session: Session, definition: dict[str, Any]) -> dict[str
     return {"ensured": 1, "frozen": False, "version": version}
 
 
+def snapshot_dataset_spec_flags(session: Session) -> list[dict[str, Any]]:
+    """Exact DatasetSpec identity + is_active flags (research isolation proofs)."""
+    rows = session.execute(
+        select(DatasetSpec.id, DatasetSpec.code, DatasetSpec.version, DatasetSpec.is_active).order_by(
+            DatasetSpec.code, DatasetSpec.version, DatasetSpec.id
+        )
+    ).all()
+    return [
+        {
+            "id": str(row[0]),
+            "code": row[1],
+            "version": int(row[2]),
+            "is_active": bool(row[3]),
+        }
+        for row in rows
+    ]
+
+
 def seed_dataset_specs(session: Session) -> dict[str, Any]:
     results = [_upsert_definition(session, definition) for definition in DATASET_SPEC_DEFINITIONS]
     session.execute(update(DatasetSpec).where(DatasetSpec.code == PIT_DAILY_CORE_CODE).values(is_active=False))

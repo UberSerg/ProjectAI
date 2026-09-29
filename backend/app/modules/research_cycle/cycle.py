@@ -139,6 +139,14 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
             if workflow is None:
                 raise ValueError(f"workflow not found: {workflow_id}")
         else:
+            # Semantics:
+            # - BLOCKED: could not begin because another cycle holds the Redis lock
+            #   (see early return above when lock.acquired is False).
+            # - FAILED: work started (or a prior RUNNING row is stale) and execution failed.
+            #
+            # If we acquired the Redis lock but a DB row is still RUNNING, that row is
+            # stale (crash / unclean shutdown). Do not report BLOCKED — finalize it and
+            # continue with a fresh workflow so recovery tests and ops stay deterministic.
             running = session.scalar(
                 select(Workflow).where(
                     Workflow.workflow_type == CYCLE_WORKFLOW_TYPE,
@@ -146,11 +154,17 @@ def _run(session: Session, *, workflow_id: int | None) -> dict[str, Any]:
                 )
             )
             if running is not None:
-                return {
-                    "status": "BLOCKED",
-                    "reason": "ALREADY_RUNNING",
-                    "workflow_id": running.id,
-                }
+                finish_workflow(
+                    session,
+                    running,
+                    "FAILED",
+                    error="STALE_RUNNING: lock acquired but prior cycle left RUNNING",
+                )
+                session.commit()
+                logger.warning(
+                    "stale_research_cycle_finalized",
+                    extra={"workflow_id": running.id},
+                )
             workflow = create_workflow(session, CYCLE_WORKFLOW_TYPE, CYCLE_NAME, CYCLE_STEPS)
             session.commit()
 

@@ -508,8 +508,9 @@ describe("PersonalPortfolioPanel", () => {
     const input = screen.getByTestId("op-occurred-at");
     expect(input).toHaveAttribute("type", "datetime-local");
     expect(input).toHaveAttribute("step", "1");
+    // jsdom may drop ":00" seconds from datetime-local display values.
     expect((input as HTMLInputElement).value).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/,
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/,
     );
   });
 

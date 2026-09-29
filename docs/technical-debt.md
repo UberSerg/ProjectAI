@@ -64,11 +64,11 @@ This file is **not** a product roadmap. Large features (Dataset V3, dedicated bo
 - **category:** TECH-DEBT
 - **priority:** P3
 - **area:** Personal analytics / cashflows / rebalance
-- **description:** Cashflows and some rebalance internals still read `ManualPosition` rows after resolving the Personal book via snapshot/primary.
-- **impact:** Boundary cleanup only; projection is derived from journal when ACTIVE — not a second source of truth.
-- **why deferred:** Functional source is Personal Portfolio; renaming/refactoring internals is non-blocking.
-- **suggested fix:** Thread snapshot positions into cashflows/rebalance helpers and stop ad-hoc ORM scans.
-- **status:** OPEN
+- **description:** Cashflows and rebalance previously re-scanned `ManualPosition` after resolving the Personal book.
+- **impact:** Boundary cleanup; projection remains derived journal state when ACTIVE.
+- **why deferred:** n/a — narrowed in Brain Foundation V2.
+- **suggested fix:** Done for cashflows + advisory rebalance: both use `load_personal_snapshot` / `snap.positions` only.
+- **status:** DONE
 
 ### TD-004
 
@@ -108,11 +108,11 @@ This file is **not** a product roadmap. Large features (Dataset V3, dedicated bo
 - **category:** BUG
 - **priority:** P1
 - **area:** research_cycle
-- **description:** `research_cycle` failure recovery tests expect `FAILED` but runtime may report `BLOCKED` (known semantic mismatch).
-- **impact:** Local full-suite noise / known failing tests outside Personal Portfolio path; tracked separately from portfolio product PRs.
-- **why deferred:** Explicitly out of scope for Personal / Daily Decision product iterations; fixing requires research_cycle semantics review.
-- **suggested fix:** Align status vocabulary (`FAILED` vs `BLOCKED`) and update tests/docs together.
-- **status:** OPEN
+- **description:** Failure recovery tests expected `FAILED` while a stale DB `RUNNING` row (without Redis lock) made runtime report `BLOCKED`.
+- **impact:** Local full-suite noise outside Personal Portfolio path.
+- **why deferred:** n/a — fixed in Brain Foundation V2.
+- **suggested fix:** Canonical semantics: `BLOCKED` only when Redis lock not acquired; if lock acquired but a prior `RUNNING` row remains, finalize it as `FAILED` (`STALE_RUNNING`) and continue. Mid-cycle exceptions remain `FAILED`.
+- **status:** DONE
 
 ### TD-008
 
@@ -122,5 +122,6 @@ This file is **not** a product roadmap. Large features (Dataset V3, dedicated bo
 - **description:** `historical_equity_universe_v2` delisted MOEX coverage is incomplete; many boundaries still candle-proxy (`DERIVED_FROM_*`) or `UNKNOWN` open windows. Not a full market-wide survivorship-free catalog.
 - **impact:** Dataset V3 Core reduces survivorship bias only where board/candle evidence exists; year-coverage and inactive representation may understate true historical MOEX universe.
 - **why deferred:** Contract correctly marks `universe_quality=PARTIAL` and does not claim bias eliminated; full delisted archaeology is a data ingestion program, not a Dataset builder bug.
-- **suggested fix:** Expand MOEX board history / delisted security ingest; re-measure authoritative vs proxy boundary ratios.
+- **suggested fix:** Expand MOEX board history / delisted security ingest; re-measure authoritative vs proxy boundary ratios. Brain Foundation V2 improved measurement (boundary counts, inactive examples, research_quality grade, V2↔V3 compare artifact) but does **not** close archaeology.
+- **evidence (Brain Foundation V2):** existing SUCCESS V3 runs 249/251 (bounded filtered window) show authoritative `eligible_from=MOEX_BOARD_LISTED_FROM` with `eligible_to=UNKNOWN` open windows; inactive representation requires broader unfiltered windows.
 - **status:** OPEN

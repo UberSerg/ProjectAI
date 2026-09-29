@@ -1087,6 +1087,74 @@ describe("MyPortfolioPage", () => {
     );
   });
 
+  it("does not briefly re-show stale SBER hits after clearing a selection and typing a new query", async () => {
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
+    const searchMock = vi.mocked(instrumentsApi.searchCatalogInstruments);
+    searchMock.mockImplementation(async (params) => {
+      const search = String((params as { search?: string })?.search || "").toUpperCase();
+      if (search.startsWith("GAZ") || search === "GA") {
+        return {
+          items: [
+            {
+              id: 7,
+              symbol: "GAZP",
+              name: "Газпром",
+              asset_class: "equity",
+              instrument_subtype: "equity_common",
+              support_level: "FULL",
+              primary_board: "TQBR",
+              exchange: "MOEX",
+              currency: "RUB",
+              isin: null,
+              is_active: true,
+              sources: ["MOEX"],
+            },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 12,
+        };
+      }
+      return {
+        items: [
+          {
+            id: 1,
+            symbol: "SBER",
+            name: "Сбербанк",
+            asset_class: "equity",
+            instrument_subtype: "equity_common",
+            support_level: "FULL",
+            primary_board: "TQBR",
+            exchange: "MOEX",
+            currency: "RUB",
+            isin: null,
+            is_active: true,
+            sources: ["MOEX"],
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 12,
+      };
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByTestId("add-instrument-open"));
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "SBER" } });
+    await waitFor(() => expect(screen.getByTestId("add-instrument-hits")).toHaveTextContent("SBER"));
+    fireEvent.click(screen.getByRole("button", { name: /SBER/i }));
+    expect(screen.queryByTestId("add-instrument-hits")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "GA" } });
+    expect(screen.queryByTestId("add-instrument-hits")).not.toBeInTheDocument();
+    expect(screen.queryByText("Сбербанк")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("add-instrument-search"), { target: { value: "GAZP" } });
+    const hits = await screen.findByTestId("add-instrument-hits");
+    expect(hits).toHaveTextContent("GAZP");
+    expect(hits).not.toHaveTextContent("SBER");
+  });
+
   it("has page help for manual portfolio", () => {
     expect(getPageHelp("manual_portfolio")?.title).toMatch(/Мой портфель/);
     expect(getPageHelp("manual_portfolio")?.metrics).toEqual(

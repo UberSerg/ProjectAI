@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Instrument
@@ -16,6 +16,7 @@ from app.modules.investment.application.portfolio_candidate_service import (
     get_latest_candidate_snapshot,
     preview_portfolio_candidate,
 )
+from app.modules.investment.domain.composition_config import DEFAULT_COMPOSITION_CONFIG
 from app.modules.investment.domain.fixed_income import TransactionCostProfile
 from app.modules.investment.infrastructure.models import BondTerm
 from app.modules.market.application.instrument_capabilities import resolve_instrument_capabilities
@@ -30,6 +31,136 @@ PRIMARY_NAME = "Primary Manual Portfolio"
 
 def _d(value: object) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _parse_dateish(value: object) -> date | None:
+    """Parse date / ISO datetime / date-string; return None if unusable."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        if "T" in text or " " in text:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _candidate_weight(row: dict[str, Any]) -> object | None:
+    """Preserve legitimate numeric zero — do not use truthiness coalescing."""
+    if "weight" in row and row.get("weight") is not None:
+        return row.get("weight")
+    if "target_weight" in row and row.get("target_weight") is not None:
+        return row.get("target_weight")
+    return None
+
+
+def evaluate_candidate_freshness(
+    *,
+    candidate_source: str,
+    freshness: dict[str, Any],
+    snapshot_status: str | None,
+    candidate_as_of: object = None,
+    generated_at: object = None,
+    evaluation_date: date,
+    default_stale_after_days: int | None = None,
+) -> dict[str, Any]:
+    """Derive CURRENT effective Candidate staleness for Decision / compare.
+
+    Matches Candidate creation boundary: age > stale_after_days ⇒ stale
+    (age == threshold remains fresh). Stored stale=false cannot override elapsed age.
+    """
+    threshold = freshness.get("stale_after_days")
+    if threshold is None:
+        threshold = (
+            default_stale_after_days
+            if default_stale_after_days is not None
+            else DEFAULT_COMPOSITION_CONFIG.stale_after_days
+        )
+    try:
+        threshold_i = int(threshold)
+    except (TypeError, ValueError):
+        threshold_i = int(DEFAULT_COMPOSITION_CONFIG.stale_after_days)
+
+    stored_flag = freshness.get("stale")
+    status_stale = str(snapshot_status or "").upper() == "STALE"
+    stored_stale = bool(stored_flag) or status_stale
+
+    if candidate_source == "live_preview":
+        # Generated in this request — do not invent staleness from missing snapshot age.
+        if stored_flag is True or status_stale:
+            return {
+                "candidate_stale": True,
+                "candidate_freshness_known": True,
+                "candidate_freshness_reason": "LIVE_PREVIEW_STALE_MARKET",
+                "age_days": None,
+                "stale_after_days": threshold_i,
+                "reference_date": None,
+            }
+        return {
+            "candidate_stale": False,
+            "candidate_freshness_known": True,
+            "candidate_freshness_reason": "LIVE_PREVIEW",
+            "age_days": None,
+            "stale_after_days": threshold_i,
+            "reference_date": None,
+        }
+
+    # Persisted snapshot: prefer market_as_of → candidate as_of → generated_at (weaker).
+    reference = (
+        _parse_dateish(freshness.get("market_as_of"))
+        or _parse_dateish(candidate_as_of)
+        or _parse_dateish(freshness.get("generated_at"))
+        or _parse_dateish(generated_at)
+    )
+    age_days: int | None = None
+    age_stale = False
+    if reference is not None:
+        age_days = (evaluation_date - reference).days
+        age_stale = age_days > threshold_i
+
+    candidate_stale = stored_stale or age_stale
+    if stored_stale:
+        reason = "STORED_STALE" if bool(stored_flag) else "SNAPSHOT_STATUS_STALE"
+        known = True
+    elif reference is None:
+        # No usable age evidence and not already marked stale → unknown, not silently fresh.
+        reason = "CANDIDATE_FRESHNESS_UNKNOWN"
+        known = False
+        candidate_stale = False
+    elif age_stale:
+        reason = "AGE_EXCEEDED"
+        known = True
+    else:
+        reason = "FRESH"
+        known = True
+
+    return {
+        "candidate_stale": candidate_stale,
+        "candidate_freshness_known": known,
+        "candidate_freshness_reason": reason,
+        "age_days": age_days,
+        "stale_after_days": threshold_i,
+        "reference_date": reference.isoformat() if reference else None,
+    }
+
+
+def _unique_instruments_by_symbol(session: Session, symbols: list[str]) -> dict[str, Instrument]:
+    """Batch-resolve symbols to a unique Instrument; never invent IDs."""
+    wanted = sorted({s.upper() for s in symbols if s})
+    if not wanted:
+        return {}
+    rows = list(session.scalars(select(Instrument).where(func.upper(Instrument.symbol).in_(wanted))))
+    grouped: dict[str, list[Instrument]] = {}
+    for inst in rows:
+        grouped.setdefault(inst.symbol.upper(), []).append(inst)
+    return {symbol: items[0] for symbol, items in grouped.items() if len(items) == 1}
 
 
 def get_or_create_primary(session: Session) -> ManualPortfolio:
@@ -499,7 +630,14 @@ def _suggest_action(
 def compare_to_candidate(
     session: Session,
     portfolio: ManualPortfolio | None = None,
+    as_of: date | None = None,
 ) -> dict[str, Any]:
+    """Compare Personal portfolio weights to latest Candidate.
+
+    ``as_of`` is the evaluation clock for dynamic Candidate freshness (Decision V2).
+    When omitted, uses current UTC date. Not exposed as a public HTTP parameter.
+    """
+    evaluation_date = as_of or datetime.now(UTC).date()
     analysis = analyze_manual_portfolio(session, portfolio)
     nav = _d(analysis["nav"])
     latest = get_latest_candidate_snapshot(session)
@@ -515,26 +653,80 @@ def compare_to_candidate(
         cand_positions = candidate["payload"].get("positions") or []
 
     cand_weights: dict[str, Decimal] = {}
+    cand_meta: dict[str, dict[str, Any]] = {}
     for row in cand_positions:
         if not isinstance(row, dict):
             continue
         symbol = str(row.get("symbol") or row.get("ticker") or "").upper()
-        w = row.get("weight") or row.get("target_weight")
+        w = _candidate_weight(row)
         if not symbol or w is None:
             continue
         cand_weights[symbol] = _d(w)
+        cand_meta[symbol] = {
+            "instrument_id": row.get("instrument_id"),
+            "asset_class": row.get("asset_class"),
+        }
+
+    manual_by_symbol: dict[str, dict[str, Any]] = {}
+    for r in analysis["positions"]:
+        symbol = str(r.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        manual_by_symbol[symbol] = r
 
     manual_weights = {
-        str(r["symbol"]).upper(): _d(r["weight"])
-        for r in analysis["positions"]
-        if r.get("weight") is not None
+        symbol: _d(row["weight"])
+        for symbol, row in manual_by_symbol.items()
+        if row.get("weight") is not None
     }
+
+    unresolved_symbols = [
+        symbol
+        for symbol in set(manual_weights) | set(cand_weights)
+        if not cand_meta.get(symbol, {}).get("instrument_id")
+        and not manual_by_symbol.get(symbol, {}).get("instrument_id")
+    ]
+    catalog = _unique_instruments_by_symbol(session, unresolved_symbols)
+
+    freshness = dict(candidate.get("freshness") or {})
+    candidate_as_of = (
+        freshness.get("market_as_of")
+        or candidate.get("as_of")
+        or (latest.get("as_of") if latest else None)
+    )
+    candidate_generated_at = (
+        freshness.get("generated_at")
+        or candidate.get("generated_at")
+        or (latest.get("generated_at") if latest else None)
+    )
+    fresh_eval = evaluate_candidate_freshness(
+        candidate_source=candidate_source,
+        freshness=freshness,
+        snapshot_status=(latest.get("status") if latest else None),
+        candidate_as_of=candidate_as_of,
+        generated_at=candidate_generated_at,
+        evaluation_date=evaluation_date,
+    )
+    candidate_stale = bool(fresh_eval["candidate_stale"])
+    candidate_freshness_known = bool(fresh_eval["candidate_freshness_known"])
+    candidate_freshness_reason = fresh_eval.get("candidate_freshness_reason")
 
     comparisons = []
     all_symbols = sorted(set(manual_weights) | set(cand_weights))
     for symbol in all_symbols:
         mw = manual_weights.get(symbol)
         cw = cand_weights.get(symbol)
+        manual_row = manual_by_symbol.get(symbol) or {}
+        meta = cand_meta.get(symbol) or {}
+        instrument_id = meta.get("instrument_id") or manual_row.get("instrument_id")
+        if instrument_id in (None, 0, "0") and symbol in catalog:
+            instrument_id = catalog[symbol].id
+        elif instrument_id not in (None, 0, "0"):
+            instrument_id = int(instrument_id)
+        else:
+            instrument_id = None
+        asset_class = meta.get("asset_class") or manual_row.get("asset_class")
+        current_mv = manual_row.get("market_value")
         status = "BOTH"
         if mw is None:
             status = "NOT_IN_MANUAL"
@@ -556,8 +748,11 @@ def compare_to_candidate(
         comparisons.append(
             {
                 "symbol": symbol,
+                "instrument_id": instrument_id,
+                "asset_class": asset_class,
                 "manual_weight": float(mw) if mw is not None else None,
                 "candidate_weight": float(cw) if cw is not None else None,
+                "current_market_value": float(current_mv) if current_mv is not None else None,
                 "status": status,
                 "suggested_action": action,
                 "note": (
@@ -573,7 +768,18 @@ def compare_to_candidate(
         "actual_source": "personal_portfolio",
         "journal_state": analysis.get("journal_state"),
         "candidate_source": candidate_source,
-        "candidate_id": candidate.get("candidate_id"),
+        "candidate_id": candidate.get("candidate_id") or (latest.get("candidate_id") if latest else None),
+        "candidate_as_of": candidate_as_of,
+        "candidate_generated_at": candidate_generated_at,
+        "candidate_stale": candidate_stale,
+        "candidate_freshness_known": candidate_freshness_known,
+        "candidate_freshness_reason": candidate_freshness_reason,
+        "candidate_age_days": fresh_eval.get("age_days"),
+        "candidate_stale_after_days": fresh_eval.get("stale_after_days"),
+        "candidate_stale_note_ru": freshness.get("stale_note_ru"),
+        "freshness": freshness,
+        "freshness_evaluation": fresh_eval,
+        "evaluation_as_of": evaluation_date.isoformat(),
         "comparisons": comparisons,
         "manual_analysis": {
             "coverage_pct": analysis["coverage_pct"],
@@ -591,6 +797,7 @@ def advisory_rebalance(
     portfolio: ManualPortfolio | None = None,
 ) -> dict[str, Any]:
     from app.modules.portfolio.application.personal_portfolio_service import (
+        PersonalPositionSnapshot,
         load_personal_snapshot,
     )
 
@@ -612,22 +819,12 @@ def advisory_rebalance(
 
     plan_instruments: list[PlanInstrument] = []
     review_rows: list[dict[str, Any]] = []
-    # Actual side = Personal Portfolio projection (via snapshot), not a separate legacy book.
+    # Actual side = Personal snapshot positions only (no second ManualPosition ORM scan).
     snap = load_personal_snapshot(session, portfolio)
     portfolio = snap.portfolio
-    pos_by_symbol: dict[str, ManualPosition] = {}
-    pos_rows = {
-        int(p.instrument_id): p
-        for p in session.scalars(
-            select(ManualPosition).where(ManualPosition.portfolio_id == portfolio.id)
-        ).all()
+    pos_by_symbol: dict[str, PersonalPositionSnapshot] = {
+        p.symbol.upper(): p for p in snap.positions if p.symbol
     }
-    for p in snap.positions:
-        if not p.symbol:
-            continue
-        row = pos_rows.get(int(p.instrument_id))
-        if row is not None:
-            pos_by_symbol[p.symbol.upper()] = row
 
     symbols = sorted(set(scaled) | set(pos_by_symbol))
     for idx, symbol in enumerate(symbols):
@@ -719,6 +916,7 @@ __all__ = [
     "analyze_manual_portfolio",
     "compare_to_candidate",
     "delete_position",
+    "evaluate_candidate_freshness",
     "get_or_create_primary",
     "patch_position",
     "portfolio_to_dict",

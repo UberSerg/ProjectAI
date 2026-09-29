@@ -169,23 +169,28 @@ function AddInstrumentModal({
       if (!debounced) setSearchDone(false);
       return;
     }
+    // Query already moved past this debounce tick — wait for the matching one.
+    if (debounced !== query.trim()) {
+      return;
+    }
     const controller = new AbortController();
+    const searchTerm = debounced;
     setSearchDone(false);
-    searchCatalogInstruments({ search: debounced, active: true, page_size: 12 }, controller.signal)
+    searchCatalogInstruments({ search: searchTerm, active: true, page_size: 12 }, controller.signal)
       .then((resp) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && searchTerm === query.trim()) {
           setHits(resp.items);
           setSearchDone(true);
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && searchTerm === query.trim()) {
           setHits([]);
           setSearchDone(true);
         }
       });
     return () => controller.abort();
-  }, [debounced, open, selected]);
+  }, [debounced, open, selected, query]);
 
   if (!open) return null;
 
@@ -197,6 +202,9 @@ function AddInstrumentModal({
       setSelected(null);
       setHits([]);
       setSearchDone(false);
+      // Drop stale debounced value immediately so we never re-paint old hits
+      // while the visible query has already changed (autocomplete race).
+      setDebounced("");
     }
     setErr(null);
   }
@@ -732,7 +740,13 @@ export function MyPortfolioPage() {
       {tab === "decision" ? (
         <div data-testid="tab-decision-panel" style={{ marginTop: "0.75rem" }}>
           <TabLoadState resource={decisionRes} loadingTitle="Загрузка рекомендаций…" />
-          {decisionRes.data ? <DailyDecisionPanel decision={decisionRes.data} owner={!isUser} /> : null}
+          {decisionRes.data ? (
+            <DailyDecisionPanel
+              decision={decisionRes.data}
+              owner={!isUser}
+              portfolioId={portfolioId}
+            />
+          ) : null}
         </div>
       ) : null}
 

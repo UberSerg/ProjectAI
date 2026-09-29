@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Instrument
 from app.modules.investment.domain.cashflow_timeline import (
@@ -15,7 +15,10 @@ from app.modules.investment.domain.cashflow_timeline import (
     project_portfolio_cashflows,
 )
 from app.modules.investment.infrastructure.models import BondCashflow, BondTerm
-from app.modules.portfolio.application.personal_portfolio_service import PersonalPortfolioError
+from app.modules.portfolio.application.personal_portfolio_service import (
+    PersonalPortfolioError,
+    load_personal_snapshot,
+)
 from app.modules.portfolio.infrastructure.models import ManualPortfolio
 
 
@@ -41,6 +44,11 @@ def build_manual_portfolio_cashflows(
     as_of: date | None = None,
     portfolio: ManualPortfolio | None = None,
 ) -> dict[str, Any]:
+    """Project bond cashflows for a Personal book via ``load_personal_snapshot``.
+
+    Holdings come from ``snap.positions`` (projection read boundary). Do not scan
+    ``ManualPosition`` independently after resolving the Personal portfolio.
+    """
     as_of = as_of or date.today()
     if portfolio is None:
         raise PersonalPortfolioError(
@@ -48,17 +56,8 @@ def build_manual_portfolio_cashflows(
             "Портфель не указан.",
             http_status=404,
         )
-    book = session.scalar(
-        select(ManualPortfolio)
-        .options(selectinload(ManualPortfolio.positions))
-        .where(ManualPortfolio.id == portfolio.id)
-    )
-    if book is None:
-        raise PersonalPortfolioError(
-            "PORTFOLIO_NOT_FOUND",
-            "Портфель не найден.",
-            http_status=404,
-        )
+    snap = load_personal_snapshot(session, portfolio)
+    book = snap.portfolio
 
     events = []
     per_position: list[dict[str, Any]] = []
@@ -66,7 +65,7 @@ def build_manual_portfolio_cashflows(
     gov = 0
     corp = 0
 
-    for pos in book.positions or []:
+    for pos in snap.positions:
         instrument = session.get(Instrument, pos.instrument_id)
         if instrument is None or (instrument.asset_class or "").lower() != "bond":
             continue
@@ -138,6 +137,8 @@ def build_manual_portfolio_cashflows(
     return {
         **projection,
         "portfolio_id": book.id,
+        "source": "personal_portfolio",
+        "journal_state": snap.journal_state,
         "positions": per_position,
         "analysis": {
             "maturity_ladder": maturity_ladder,
