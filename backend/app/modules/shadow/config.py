@@ -41,6 +41,9 @@ PORTFOLIO_B_V3_NAME = "SHADOW_HYSTERESIS_DD_V3"
 EXECUTION_VERSION_SELL_ECONOMICS_V3 = "LOT_AWARE_SELL_ECONOMICS_V3"
 # Built-in broker fee profile code for the personal/default Kraken experiment.
 FEE_PROFILE_CODE_SBER_INVESTMENT = "SBER_INVESTMENT"
+# Flat MOEX online broker commission used by lot-plan / fills for V3 (matches FeeEngine
+# default 0.3%). Sell-gate still uses FeeEngine for instrument overrides (e.g. SBFR).
+SBER_MOEX_ONLINE_COMMISSION_BPS = 30.0
 DEFAULT_MIN_NET_ROTATION_EDGE_BPS = 0.0
 
 # Prospective Model A/B V0 shadows. Same policy, same risk, same capital — only the
@@ -228,6 +231,7 @@ def realism_v3_portfolio_a_config() -> ShadowSpecConfig:
         risk_name=RISK_NAME,
         fractional_shares=False,
         execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        commission_bps=SBER_MOEX_ONLINE_COMMISSION_BPS,
         fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
         min_net_rotation_edge_bps=DEFAULT_MIN_NET_ROTATION_EDGE_BPS,
     )
@@ -251,6 +255,7 @@ def realism_v3_portfolio_b_config() -> ShadowSpecConfig:
         dd_normal_gross=V1_DD_NORMAL_GROSS,
         fractional_shares=False,
         execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        commission_bps=SBER_MOEX_ONLINE_COMMISSION_BPS,
         fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
         min_net_rotation_edge_bps=DEFAULT_MIN_NET_ROTATION_EDGE_BPS,
     )

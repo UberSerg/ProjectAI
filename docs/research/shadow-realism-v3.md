@@ -75,7 +75,10 @@ Sell gate runs **after** policy/risk and **before** the lot-aware planner.
 |--|--|--|
 | Lots | yes | yes |
 | Exit-band drop → SELL | yes (planner) | no (review gate) |
-| FeeProfile / FeeEngine | legacy `commission_bps` | `SBER_INVESTMENT` |
+| FeeProfile / FeeEngine | legacy `commission_bps` | `SBER_INVESTMENT` (+ flat 30 bps on fills/lot-plan aligned to 0.3%) |
 | Candidate traces | no | yes |
+
+Instrument-specific FeeEngine overrides (e.g. SBFR temporary zero) apply in the **sell gate**;
+lot-plan/fills use the flat Sber 0.3% `commission_bps` until per-fill FeeEngine wiring.
 
 Do not compare V2 vs V3 NAV without noting the execution-policy change.
