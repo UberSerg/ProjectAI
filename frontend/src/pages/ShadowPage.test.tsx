@@ -820,13 +820,20 @@ describe("ShadowPage", () => {
     renderPage();
     expect(await screen.findByTestId("shadow-decision-journal")).toBeInTheDocument();
     expect(screen.getByTestId("shadow-journal-portfolio-id")).toHaveTextContent("5");
-    expect(await screen.findByTestId("shadow-journal-day-2026-09-02")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("shadow-journal-day-2026-09-02")).toBeInTheDocument();
+    });
+    expect(shadowApi.getShadowJournal).toHaveBeenCalledWith(
+      "5",
+      expect.objectContaining({ limit: 60 }),
+      expect.any(AbortSignal),
+    );
 
     fireEvent.click(screen.getByTestId("shadow-arm-tab-6"));
     await waitFor(() => {
       expect(screen.getByTestId("shadow-journal-portfolio-id")).toHaveTextContent("6");
+      expect(screen.getByTestId("shadow-journal-day-2026-09-11")).toBeInTheDocument();
     });
-    expect(await screen.findByTestId("shadow-journal-day-2026-09-11")).toBeInTheDocument();
     expect(screen.queryByTestId("shadow-journal-day-2026-09-02")).not.toBeInTheDocument();
   });
 });

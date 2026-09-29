@@ -370,20 +370,22 @@ export function DecisionJournalPanel({
   const [loading, setLoading] = useState(true);
   const [drillTicker, setDrillTicker] = useState<string | null>(null);
 
-  // Clear drill-down and reload when portfolio arm changes (no stale cross-portfolio journal).
+  // Clear drill-down / filters when portfolio arm changes (no stale cross-portfolio journal).
   useEffect(() => {
     setDrillTicker(null);
     setJournal(null);
     setError(null);
-    setApplied({ dateFrom: "", dateTo: "", ticker: "", action: "" });
+    setLoading(true);
     setDateFrom("");
     setDateTo("");
     setTicker("");
     setAction("");
+    setApplied({ dateFrom: "", dateTo: "", ticker: "", action: "" });
   }, [portfolioId]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const expectedPortfolioId = String(portfolioId);
     setLoading(true);
     setError(null);
     void getShadowJournal(
@@ -399,12 +401,13 @@ export function DecisionJournalPanel({
     )
       .then((resp) => {
         // Ignore late responses if portfolio already switched.
-        if (String(resp.portfolio_id) !== String(portfolioId)) return;
+        if (String(resp.portfolio_id) !== expectedPortfolioId) return;
         setJournal(resp);
         setLoading(false);
       })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
+        if (String(portfolioId) !== expectedPortfolioId) return;
         setError(errorMessage(reason));
         setLoading(false);
       });

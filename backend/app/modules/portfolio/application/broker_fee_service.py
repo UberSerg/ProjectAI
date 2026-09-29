@@ -586,7 +586,9 @@ def resolve_operation_commission(
     op = (operation_type or "").upper()
     broker_id = int(portfolio.broker_account_id) if portfolio.broker_account_id is not None else None
 
-    if commission_provided:
+    # Explicit amount (including 0) is always MANUAL. API sets commission_provided via
+    # model_fields_set; legacy/internal callers often pass commission=Decimal(...) only.
+    if commission_provided or commission is not None:
         return money(commission or ZERO), "MANUAL", broker_id, None
 
     if op not in {"BUY", "SELL"}:
