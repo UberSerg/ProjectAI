@@ -1214,71 +1214,75 @@ def test_db_sber_version_2_uses_db_rules_not_builtin_v1() -> None:
     from app.modules.portfolio.infrastructure.models import FeeProfile, FeeRule
     from app.modules.shadow.domain.fee_estimate import load_fee_engine_for_profile
 
-    with core_session() as session:
-        existing = session.scalar(
-            select(FeeProfile).where(
-                FeeProfile.code == FEE_PROFILE_CODE_SBER_INVESTMENT,
-                FeeProfile.version == 2,
+    profile_id: int | None = None
+    try:
+        with core_session() as session:
+            existing = session.scalar(
+                select(FeeProfile).where(
+                    FeeProfile.code == FEE_PROFILE_CODE_SBER_INVESTMENT,
+                    FeeProfile.version == 2,
+                )
             )
-        )
-        if existing is not None:
-            session.execute(delete(FeeRule).where(FeeRule.fee_profile_id == existing.id))
-            session.execute(delete(FeeProfile).where(FeeProfile.id == existing.id))
+            if existing is not None:
+                session.execute(delete(FeeRule).where(FeeRule.fee_profile_id == existing.id))
+                session.execute(delete(FeeProfile).where(FeeProfile.id == existing.id))
+                session.flush()
+
+            profile = FeeProfile(
+                code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+                name="Sber Investment pytest v2",
+                broker_code="SBER",
+                broker_name="Sber",
+                tariff_name="pytest-v2",
+                version=2,
+                valid_from=date(2026, 9, 29),
+                source_note="pytest-only SBER_INVESTMENT v2; distinct 1% rate",
+                is_builtin=False,
+                read_only=False,
+            )
+            session.add(profile)
+            session.flush()
+            profile_id = int(profile.id)
+            session.add(
+                FeeRule(
+                    fee_profile_id=profile_id,
+                    code="SBER_MOEX_ONLINE_V2_PYTEST",
+                    market="MOEX",
+                    execution_channel="ONLINE",
+                    side=None,
+                    fee_type=FeeType.PERCENTAGE,
+                    percentage_rate=Decimal("0.01"),  # 1% — distinct from builtin 0.3%
+                    exclude_from_turnover=False,
+                    priority=100,
+                    valid_from=date(2026, 9, 29),
+                    explanation="pytest v2 1% of notional",
+                    active=True,
+                )
+            )
             session.flush()
 
-        profile = FeeProfile(
-            code=FEE_PROFILE_CODE_SBER_INVESTMENT,
-            name="Sber Investment pytest v2",
-            broker_code="SBER",
-            broker_name="Sber",
-            tariff_name="pytest-v2",
-            version=2,
-            valid_from=date(2026, 9, 29),
-            source_note="pytest-only SBER_INVESTMENT v2; distinct 1% rate",
-            is_builtin=False,
-            read_only=False,
-        )
-        session.add(profile)
-        session.flush()
-        session.add(
-            FeeRule(
-                fee_profile_id=int(profile.id),
-                code="SBER_MOEX_ONLINE_V2_PYTEST",
-                market="MOEX",
-                execution_channel="ONLINE",
-                side=None,
-                fee_type=FeeType.PERCENTAGE,
-                percentage_rate=Decimal("0.01"),  # 1% — distinct from builtin 0.3%
-                exclude_from_turnover=False,
-                priority=100,
-                valid_from=date(2026, 9, 29),
-                explanation="pytest v2 1% of notional",
-                active=True,
+            engine, code, version = load_fee_engine_for_profile(
+                session,
+                fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+                fee_profile_version=2,
             )
-        )
-        session.flush()
-
-        engine, code, version = load_fee_engine_for_profile(
-            session,
-            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
-            fee_profile_version=2,
-        )
-        assert engine is not None
-        assert code == FEE_PROFILE_CODE_SBER_INVESTMENT
-        assert version == 2
-        est = FeeEngineEstimator(engine, fee_profile_code=code, fee_profile_version=version)
-        fee = est.broker_fee_estimate(
-            side="BUY",
-            notional=Decimal("100000"),
-            instrument_id=1,
-            as_of=date(2026, 9, 29),
-            instrument_symbol="SBER",
-        )
-        # DB v2 = 1% → 1000; builtin v1 would be 300
-        assert fee == Decimal("1000")
-        assert fee != Decimal("300")
-
-        # Cleanup — do not leave pytest profile in seeded history
-        session.execute(delete(FeeRule).where(FeeRule.fee_profile_id == profile.id))
-        session.execute(delete(FeeProfile).where(FeeProfile.id == profile.id))
-        session.flush()
+            assert engine is not None
+            assert code == FEE_PROFILE_CODE_SBER_INVESTMENT
+            assert version == 2
+            est = FeeEngineEstimator(engine, fee_profile_code=code, fee_profile_version=version)
+            fee = est.broker_fee_estimate(
+                side="BUY",
+                notional=Decimal("100000"),
+                instrument_id=1,
+                as_of=date(2026, 9, 29),
+                instrument_symbol="SBER",
+            )
+            # DB v2 = 1% → 1000; builtin v1 would be 300
+            assert fee == Decimal("1000")
+            assert fee != Decimal("300")
+    finally:
+        if profile_id is not None:
+            with core_session() as session:
+                session.execute(delete(FeeRule).where(FeeRule.fee_profile_id == profile_id))
+                session.execute(delete(FeeProfile).where(FeeProfile.id == profile_id))
+                session.flush()

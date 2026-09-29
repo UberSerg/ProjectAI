@@ -5,7 +5,9 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # github.ref differs for push (heads/...) vs pull_request (pull/N/merge).
+  # Use branch name so the twin push+PR runs cancel each other.
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -92,7 +94,8 @@ jobs:
       - name: Pytest
         # Hard wall-clock so a hung suite cannot block the PR indefinitely.
         # Healthy full suite historically finishes in ~8 minutes.
-        run: timeout 900 pytest -q
+        # -u: unbuffered progress so a hang is visible before the wall clock.
+        run: timeout 1200 python -u -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
