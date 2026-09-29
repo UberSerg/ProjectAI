@@ -267,34 +267,39 @@ def build_shadow_journal(
     filter_ticker = _normalize_ticker(ticker) if ticker else ""
     filter_action = _normalize_action(action) if action else ""
 
+    decision_q = select(ShadowDecision).where(ShadowDecision.portfolio_id == portfolio_id)
+    if date_from is not None:
+        decision_q = decision_q.where(ShadowDecision.signal_as_of_date >= date_from)
+    if date_to is not None:
+        decision_q = decision_q.where(ShadowDecision.signal_as_of_date <= date_to)
     decisions = list(
         session.scalars(
-            select(ShadowDecision)
-            .where(ShadowDecision.portfolio_id == portfolio_id)
-            .order_by(ShadowDecision.signal_as_of_date.asc(), ShadowDecision.id.asc())
+            decision_q.order_by(ShadowDecision.signal_as_of_date.asc(), ShadowDecision.id.asc())
         )
     )
-    orders = list(
-        session.scalars(
-            select(ShadowOrder)
-            .where(ShadowOrder.portfolio_id == portfolio_id)
-            .order_by(ShadowOrder.id.asc())
-        )
-    )
+
+    order_q = select(ShadowOrder).where(ShadowOrder.portfolio_id == portfolio_id)
+    if filter_ticker:
+        order_q = order_q.where(ShadowOrder.ticker == filter_ticker)
+    orders = list(session.scalars(order_q.order_by(ShadowOrder.id.asc())))
+
+    fill_q = select(ShadowFill).where(ShadowFill.portfolio_id == portfolio_id)
+    if date_from is not None:
+        fill_q = fill_q.where(ShadowFill.execution_date >= date_from)
+    if date_to is not None:
+        fill_q = fill_q.where(ShadowFill.execution_date <= date_to)
+    if filter_ticker:
+        fill_q = fill_q.where(ShadowFill.ticker == filter_ticker)
     fills = list(
-        session.scalars(
-            select(ShadowFill)
-            .where(ShadowFill.portfolio_id == portfolio_id)
-            .order_by(ShadowFill.execution_date.asc(), ShadowFill.id.asc())
-        )
+        session.scalars(fill_q.order_by(ShadowFill.execution_date.asc(), ShadowFill.id.asc()))
     )
-    nav_rows = list(
-        session.scalars(
-            select(ShadowNavDaily)
-            .where(ShadowNavDaily.portfolio_id == portfolio_id)
-            .order_by(ShadowNavDaily.as_of_date.asc())
-        )
-    )
+
+    nav_q = select(ShadowNavDaily).where(ShadowNavDaily.portfolio_id == portfolio_id)
+    if date_from is not None:
+        nav_q = nav_q.where(ShadowNavDaily.as_of_date >= date_from)
+    if date_to is not None:
+        nav_q = nav_q.where(ShadowNavDaily.as_of_date <= date_to)
+    nav_rows = list(session.scalars(nav_q.order_by(ShadowNavDaily.as_of_date.asc())))
 
     orders_by_decision: dict[int, list[ShadowOrder]] = {}
     for order in orders:
@@ -468,14 +473,20 @@ def build_candidate_history(
 
     fills = list(
         session.scalars(
-            select(ShadowFill).where(ShadowFill.portfolio_id == portfolio_id)
+            select(ShadowFill).where(
+                ShadowFill.portfolio_id == portfolio_id,
+                ShadowFill.ticker == ticker_norm,
+            )
         )
     )
-    fills_by_order = {
-        int(f.order_id): f
-        for f in fills
-        if _normalize_ticker(f.ticker) == ticker_norm
-    }
+    if not fills:
+        all_fills = list(
+            session.scalars(
+                select(ShadowFill).where(ShadowFill.portfolio_id == portfolio_id)
+            )
+        )
+        fills = [f for f in all_fills if _normalize_ticker(f.ticker) == ticker_norm]
+    fills_by_order = {int(f.order_id): f for f in fills}
     orders_by_decision: dict[int, list[ShadowOrder]] = {}
     for order in orders:
         orders_by_decision.setdefault(int(order.decision_id), []).append(order)

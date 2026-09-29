@@ -173,7 +173,7 @@ def upgrade() -> None:
             'СберИнвестиции',
             'Инвестиционный',
             1,
-            DATE '2026-01-01',
+            DATE '2026-09-29',
             'https://www.sberbank.ru/ru/person/investments/broker_service/tarifs',
             'User-provided tariff snapshot, 2026-09-29',
             TRUE,
@@ -200,7 +200,7 @@ def upgrade() -> None:
             0.0030000000,
             FALSE,
             100,
-            DATE '2026-01-01',
+            DATE '2026-09-29',
             'Default MOEX stock-market online trades: 0.3% of turnover (broker commission; exchange fees separate). Turnover excludes NKD.',
             'User-provided tariff snapshot, 2026-09-29',
             TRUE

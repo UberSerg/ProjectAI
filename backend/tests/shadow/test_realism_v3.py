@@ -864,3 +864,153 @@ def test_lot_plan_defaults_preserve_v2_sell() -> None:
         costs=TransactionCostProfile(broker_bps=Decimal("0"), slippage_bps=Decimal("0")),
     )
     assert any(r.action == "SELL" and r.instrument_id == 1 for r in plan.executable)
+
+def _fee_for_engine(as_of: date):
+    estimator = FeeEngineEstimator(
+        FeeEngine(sber_investment_builtin_rules()),
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=1,
+    )
+
+    def _fn(side: str, notional: Decimal, inst: PlanInstrument) -> Decimal | None:
+        return estimator.broker_fee_estimate(
+            side=side,
+            notional=notional,
+            instrument_id=int(inst.instrument_id),
+            as_of=as_of,
+            instrument_symbol=str(inst.ticker),
+        )
+
+    return _fn
+
+
+def test_fee_consistency_100k_rub_plan_and_estimate() -> None:
+    """Normal 100000 RUB → 300 RUB FeeEngine estimate used by lot plan."""
+    as_of = date(2026, 10, 1)
+    plan = build_lot_order_plan(
+        [
+            PlanInstrument(
+                1,
+                "SBER",
+                Decimal("1.0"),
+                Decimal("0"),
+                Decimal("100"),
+                10,
+                rank=1,
+            )
+        ],
+        cash=Decimal("100300"),
+        nav=Decimal("100300"),
+        costs=TransactionCostProfile(broker_bps=Decimal("0"), slippage_bps=Decimal("0")),
+        fee_for=_fee_for_engine(as_of),
+    )
+    buys = [r for r in plan.executable if r.action == "BUY"]
+    assert buys
+    assert buys[0].estimated_notional == Decimal("100000")
+    assert buys[0].estimated_fee == Decimal("300")
+
+
+def test_sbfr_zero_fee_in_gate_and_plan_during_window() -> None:
+    """SBFR temp zero applies in gate estimate and lot-plan fee_for during window."""
+    as_of = date(2026, 10, 1)
+    gate_fee = _fee().broker_fee_estimate(
+        side="SELL",
+        notional=Decimal("50000"),
+        instrument_id=7,
+        as_of=as_of,
+        instrument_symbol="SBFR",
+    )
+    assert gate_fee == Decimal("0")
+    plan = build_lot_order_plan(
+        [
+            PlanInstrument(
+                7,
+                "SBFR",
+                Decimal("0"),
+                Decimal("500"),
+                Decimal("100"),
+                10,
+                rank=40,
+                sell_allowed=True,
+            )
+        ],
+        cash=Decimal("0"),
+        nav=Decimal("50000"),
+        costs=TransactionCostProfile(broker_bps=Decimal("30"), slippage_bps=Decimal("0")),
+        fee_for=_fee_for_engine(as_of),
+    )
+    sells = [r for r in plan.executable if r.action == "SELL"]
+    assert sells
+    assert sells[0].estimated_fee == Decimal("0")
+    assert sells[0].estimated_fee != Decimal("150")
+
+
+def test_sbfr_after_window_falls_back_to_generic() -> None:
+    as_of = date(2027, 1, 1)
+    fee = _fee().broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=7,
+        as_of=as_of,
+        instrument_symbol="SBFR",
+    )
+    assert fee == Decimal("300")
+
+
+def test_v2_commission_bps_unchanged_by_fee_profile() -> None:
+    v2a, _ = realism_v2_shadow_configs()
+    assert v2a.commission_bps == 0.0
+    assert v2a.fee_profile_code is None
+    assert v2a.fee_profile_version is None
+    est = resolve_broker_fee_estimator(fee_profile_code=None, commission_bps=10.0)
+    fee = est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 10, 1),
+        instrument_symbol="SBER",
+    )
+    assert fee == Decimal("100")
+
+
+def test_execution_date_selects_fee_rule_across_year_boundary() -> None:
+    """Decision fee_date Dec 31 (SBFR zero) vs fill Jan 1 (generic 0.3%)."""
+    decision_fee = _fee().broker_fee_estimate(
+        side="SELL",
+        notional=Decimal("100000"),
+        instrument_id=7,
+        as_of=date(2026, 12, 31),
+        instrument_symbol="SBFR",
+    )
+    fill_fee = _fee().broker_fee_estimate(
+        side="SELL",
+        notional=Decimal("100000"),
+        instrument_id=7,
+        as_of=date(2027, 1, 1),
+        instrument_symbol="SBFR",
+    )
+    assert decision_fee == Decimal("0")
+    assert fill_fee == Decimal("300")
+
+
+def test_lot_plan_skips_when_fee_rule_unavailable() -> None:
+    """Pre-2026-09-29 generic UNKNOWN → plan must not invent 0% fee."""
+    plan = build_lot_order_plan(
+        [
+            PlanInstrument(
+                1,
+                "SBER",
+                Decimal("1.0"),
+                Decimal("0"),
+                Decimal("100"),
+                10,
+                rank=1,
+            )
+        ],
+        cash=Decimal("100300"),
+        nav=Decimal("100300"),
+        costs=TransactionCostProfile(broker_bps=Decimal("0"), slippage_bps=Decimal("0")),
+        fee_for=_fee_for_engine(date(2026, 9, 1)),
+    )
+    assert not plan.executable
+    assert any(r.reason == "FEE_RULE_UNAVAILABLE" for r in plan.skipped)

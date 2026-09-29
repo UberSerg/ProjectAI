@@ -282,7 +282,9 @@ def sber_investment_builtin_rules(*, profile_rule_ids: dict[str, int] | None = N
             percentage_rate=Decimal("0.003"),
             exclude_from_turnover=False,
             priority=100,
-            valid_from=date(2026, 1, 1),
+            # Snapshot known_at: generic 0.3% is valid from the tariff snapshot date,
+            # not from calendar year start. SBFR temp zero remains 2026-08-04..2026-12-31.
+            valid_from=date(2026, 9, 29),
             explanation=(
                 "Default MOEX stock-market online trades: 0.3% of turnover "
                 "(broker commission; exchange fees separate). Turnover excludes NKD."

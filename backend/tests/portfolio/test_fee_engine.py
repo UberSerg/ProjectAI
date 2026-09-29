@@ -94,6 +94,26 @@ def test_expired_sbfr_override_falls_back_to_0_3() -> None:
     assert est.exclude_from_turnover is False
 
 
+def test_sber_generic_unknown_before_snapshot_date() -> None:
+    """Generic 0.3% starts 2026-09-29 — earlier SBER dates must be UNKNOWN (no fake 0%)."""
+    est = _sber().estimate_fee(
+        _ctx(symbol="SBER", as_of=date(2026, 9, 1), notional=Decimal("100000"))
+    )
+    assert est.status == FeeStatus.UNKNOWN
+    assert est.amount is None
+    assert est.matched_rule_code is None
+
+
+def test_sbfr_after_window_uses_generic_when_snapshot_active() -> None:
+    """After 2026-12-31, SBFR uses generic iff as_of >= 2026-09-29."""
+    est = _sber().estimate_fee(
+        _ctx(symbol="SBFR", as_of=date(2027, 1, 1), notional=Decimal("100000"))
+    )
+    assert est.status == FeeStatus.KNOWN
+    assert est.amount == money("300")
+    assert est.matched_rule_code == "SBER_MOEX_ONLINE_DEFAULT"
+
+
 def test_custom_buy_and_sell_rates() -> None:
     rules = [
         FeeRuleSpec(

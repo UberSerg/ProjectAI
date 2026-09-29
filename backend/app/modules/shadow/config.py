@@ -39,11 +39,10 @@ EXPERIMENT_GROUP_V3 = "SHADOW_PORTFOLIO_REALISM_V3"
 PORTFOLIO_A_V3_NAME = "SHADOW_HYSTERESIS_V3"
 PORTFOLIO_B_V3_NAME = "SHADOW_HYSTERESIS_DD_V3"
 EXECUTION_VERSION_SELL_ECONOMICS_V3 = "LOT_AWARE_SELL_ECONOMICS_V3"
-# Built-in broker fee profile code for the personal/default Kraken experiment.
+# Built-in broker fee profile identity for the personal/default Kraken experiment.
+# V3 lot-plan / fills / sell-gate all use FeeEngine for this profile (not flat bps).
 FEE_PROFILE_CODE_SBER_INVESTMENT = "SBER_INVESTMENT"
-# Flat MOEX online broker commission used by lot-plan / fills for V3 (matches FeeEngine
-# default 0.3%). Sell-gate still uses FeeEngine for instrument overrides (e.g. SBFR).
-SBER_MOEX_ONLINE_COMMISSION_BPS = 30.0
+FEE_PROFILE_VERSION_SBER_INVESTMENT = 1
 DEFAULT_MIN_NET_ROTATION_EDGE_BPS = 0.0
 
 # Prospective Model A/B V0 shadows. Same policy, same risk, same capital — only the
@@ -86,6 +85,7 @@ class ShadowSpecConfig:
     strategic_cash_reserve: float = 0.0
     # V3 sell economics — omitted from V1/V2 config hashes when unset for that execution.
     fee_profile_code: str | None = None
+    fee_profile_version: int | None = None
     min_net_rotation_edge_bps: float = DEFAULT_MIN_NET_ROTATION_EDGE_BPS
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +99,7 @@ class ShadowSpecConfig:
         # Preserve V1/V2 hashes: drop V3-only keys unless this is sell-economics V3.
         if self.execution_version != EXECUTION_VERSION_SELL_ECONOMICS_V3:
             payload.pop("fee_profile_code", None)
+            payload.pop("fee_profile_version", None)
             payload.pop("min_net_rotation_edge_bps", None)
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -231,8 +232,10 @@ def realism_v3_portfolio_a_config() -> ShadowSpecConfig:
         risk_name=RISK_NAME,
         fractional_shares=False,
         execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
-        commission_bps=SBER_MOEX_ONLINE_COMMISSION_BPS,
+        # commission_bps unused as fee authority for V3 — FeeEngine via fee_profile_*.
+        commission_bps=0.0,
         fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=FEE_PROFILE_VERSION_SBER_INVESTMENT,
         min_net_rotation_edge_bps=DEFAULT_MIN_NET_ROTATION_EDGE_BPS,
     )
 
@@ -255,8 +258,9 @@ def realism_v3_portfolio_b_config() -> ShadowSpecConfig:
         dd_normal_gross=V1_DD_NORMAL_GROSS,
         fractional_shares=False,
         execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
-        commission_bps=SBER_MOEX_ONLINE_COMMISSION_BPS,
+        commission_bps=0.0,
         fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=FEE_PROFILE_VERSION_SBER_INVESTMENT,
         min_net_rotation_edge_bps=DEFAULT_MIN_NET_ROTATION_EDGE_BPS,
     )
 

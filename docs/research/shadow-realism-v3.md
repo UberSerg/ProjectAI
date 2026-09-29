@@ -75,7 +75,7 @@ Sell gate runs **after** policy/risk and **before** the lot-aware planner.
 |--|--|--|
 | Lots | yes | yes |
 | Exit-band drop → SELL | yes (planner) | no (review gate) |
-| FeeProfile / FeeEngine | legacy `commission_bps` | `SBER_INVESTMENT` (+ flat 30 bps on fills/lot-plan aligned to 0.3%) |
+| FeeProfile / FeeEngine | legacy `commission_bps` | `SBER_INVESTMENT` v1 via FeeEngine for gate + lot-plan + fill (not flat 30 bps) |
 | Candidate traces | no | yes |
 
 Instrument-specific FeeEngine overrides (e.g. SBFR temporary zero) apply in the **sell gate**;

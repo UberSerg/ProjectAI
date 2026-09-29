@@ -86,6 +86,24 @@ def load_fee_engine(session: Session, fee_profile_id: int) -> FeeEngine:
     return FeeEngine([fee_rule_to_spec(r) for r in rules])
 
 
+def load_fee_engine_by_code_version(
+    session: Session,
+    *,
+    code: str,
+    version: int = 1,
+) -> FeeEngine | None:
+    """Resolve FeeEngine from ``portfolio.fee_profiles`` by code+version."""
+    profile = session.scalar(
+        select(FeeProfile).where(
+            FeeProfile.code == str(code).strip().upper(),
+            FeeProfile.version == int(version),
+        )
+    )
+    if profile is None:
+        return None
+    return load_fee_engine(session, int(profile.id))
+
+
 def broker_account_day_turnover(
     session: Session,
     *,

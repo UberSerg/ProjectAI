@@ -1,6 +1,7 @@
 # Broker Fee Profiles V1
 
-Status: **schema + pure Fee Engine** (Personal/Shadow/UI wiring is separate work).
+Status: **schema + pure Fee Engine** (Personal wiring done; Shadow V3 uses FeeEngine
+end-to-end for gate / lot-plan / fill).
 
 ## What it is
 
@@ -19,9 +20,27 @@ Versioned broker tariff profiles and matchable fee rules for estimating
 - Broker: СберИнвестиции / tariff Инвестиционный
 - Source: https://www.sberbank.ru/ru/person/investments/broker_service/tarifs
 - Note: `User-provided tariff snapshot, 2026-09-29`
-- Default MOEX online: **0.3%** of clean turnover (NKD excluded; exchange fees separate)
-- Temporary zero broker fee for verified УК Первая BPIF **SBFR** only: 2026-08-04 … 2026-12-31; turnover excluded
+- Default MOEX online (`SBER_MOEX_ONLINE_DEFAULT`): **0.3%** of clean turnover
+  (NKD excluded; exchange fees separate)
+- Temporary zero broker fee for verified УК Первая BPIF **SBFR** only:
+  2026-08-04 … 2026-12-31; turnover excluded
 - Do **not** guess zero fee for SBMM / SBRB / FLOW without verified manager
+
+### Date asymmetry (intentional)
+
+| Rule | `valid_from` | `valid_to` | Rationale |
+|------|--------------|------------|-----------|
+| `SBER_MOEX_ONLINE_DEFAULT` | **2026-09-29** | unbounded | Snapshot known_at — we do not claim the 0.3% generic rate was verified before the user-provided tariff page date |
+| `SBER_SBFR_ZERO_TEMP` | 2026-08-04 | 2026-12-31 | Manager-verified temporary window for SBFR only |
+
+Consequence:
+
+- On `2026-09-01`, **SBER** (generic) → `UNKNOWN` (no fake 0%).
+- On `2026-09-01`, **SBFR** → `KNOWN` amount `0` (temp override still active).
+- After `2026-12-31`, SBFR falls back to generic **only if** `as_of >= 2026-09-29`;
+  otherwise still `UNKNOWN`.
+
+In-memory `sber_investment_builtin_rules()` mirrors the migration seed.
 
 ## FeeEngine call shape
 
@@ -57,13 +76,15 @@ est = engine.estimate_fee(
 
 Existing portfolios keep `broker_account_id = NULL`.
 
+Shadow V3 orders/fills snapshot `fee_profile_code`, `fee_profile_version`, `fee_date`,
+estimated/actual fee, and matched rule id/code in metadata.
+
 ## Migration
 
-`20260929_0026` — additive / reversible.
+`20260929_0026` — additive / reversible. Tariff dates for the builtin seed may be
+edited in place while the revision is unmerged (version 1.0.0, no new migration).
 
 ## Out of scope (this stub)
 
-- Personal operation auto-estimate wiring
-- Daily Decision lot-plan fee integration
-- Shadow rotation cost threshold
-- UI broker selector
+- UI broker selector polish
+- Exchange fees / NKD modelling beyond clean-notional contract
