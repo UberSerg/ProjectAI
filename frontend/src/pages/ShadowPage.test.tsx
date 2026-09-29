@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -85,6 +85,30 @@ const portfolioB_V2 = {
   ...portfolioA_V2,
   id: "4",
   name: "SHADOW_HYSTERESIS_DD_V2",
+  risk_name: "DRAWDOWN_GUARD_V1",
+  dd_trigger: -0.2,
+  dd_recovery: -0.1,
+  skipped: [],
+  order_plan: {
+    strategic_cash_reserve: 50_000,
+    rounding_remainder: 0,
+    skipped: [],
+  },
+};
+
+const portfolioA_V3 = {
+  ...portfolioA_V2,
+  id: "5",
+  name: "SHADOW_HYSTERESIS_V3",
+  experiment_group: "SHADOW_PORTFOLIO_REALISM_V3",
+  lot_aware: true,
+  execution_version: "LOT_AWARE_SELL_ECONOMICS_V3",
+};
+
+const portfolioB_V3 = {
+  ...portfolioA_V3,
+  id: "6",
+  name: "SHADOW_HYSTERESIS_DD_V3",
   risk_name: "DRAWDOWN_GUARD_V1",
   dd_trigger: -0.2,
   dd_recovery: -0.1,
@@ -195,13 +219,19 @@ function mockLive(overrides?: Partial<shadowApi.ShadowLiveResponse>) {
   });
 }
 
-function mockHappyPath(opts?: { withV2?: boolean }) {
-  const portfolios = opts?.withV2
-    ? [portfolioA, portfolioB, portfolioA_V2, portfolioB_V2]
-    : [portfolioA, portfolioB];
+function mockHappyPath(opts?: { withV2?: boolean; withV3?: boolean }) {
+  const portfolios = opts?.withV3
+    ? [portfolioA, portfolioB, portfolioA_V2, portfolioB_V2, portfolioA_V3, portfolioB_V3]
+    : opts?.withV2
+      ? [portfolioA, portfolioB, portfolioA_V2, portfolioB_V2]
+      : [portfolioA, portfolioB];
   vi.mocked(shadowApi.getShadowOverview).mockResolvedValue({
     kind: "FORWARD_SHADOW",
-    experiment_group: opts?.withV2 ? "SHADOW_PORTFOLIO_REALISM_V2" : "SHADOW_FORWARD_V0",
+    experiment_group: opts?.withV3
+      ? "SHADOW_PORTFOLIO_REALISM_V3"
+      : opts?.withV2
+        ? "SHADOW_PORTFOLIO_REALISM_V2"
+        : "SHADOW_FORWARD_V0",
     activated_at: portfolioA.activated_at,
     automatic_schedule: "not_configured",
     intraday: {
@@ -212,7 +242,67 @@ function mockHappyPath(opts?: { withV2?: boolean }) {
     },
     portfolios,
   });
-  if (opts?.withV2) {
+  if (opts?.withV3) {
+    mockLive({
+      portfolios: [
+        {
+          ...portfolioA_V3,
+          intraday_enabled: true,
+          live: {
+            cash: 950_000,
+            market_value: 0,
+            nav: 950_000,
+            realized_pnl: 0,
+            fees_paid: 120,
+            unrealized_pnl: 0,
+            quote_coverage: 1,
+            positions: [],
+          },
+          pending_order_reasons: [
+            {
+              order_id: 1,
+              ticker: "MGNT",
+              side: "BUY",
+              min_execution_date: "2026-09-05",
+              reason: "NEXT_SESSION_NOT_STARTED",
+              session_date: "2026-09-07",
+              market_status: "CLOSED",
+            },
+          ],
+        },
+        {
+          ...portfolioB_V3,
+          intraday_enabled: true,
+          live: { cash: 950_000, market_value: 0, nav: 950_000, positions: [] },
+          pending_order_reasons: [],
+        },
+        {
+          ...portfolioA_V2,
+          intraday_enabled: true,
+          live: { cash: 950_000, market_value: 0, nav: 950_000, positions: [] },
+          pending_order_reasons: [],
+        },
+        {
+          ...portfolioB_V2,
+          intraday_enabled: true,
+          live: { cash: 950_000, market_value: 0, nav: 950_000, positions: [] },
+          pending_order_reasons: [],
+        },
+        {
+          ...portfolioA,
+          intraday_enabled: true,
+          live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
+          pending_order_reasons: [],
+        },
+        {
+          ...portfolioB,
+          intraday_enabled: true,
+          live: { cash: 1_000_000, market_value: 0, nav: 1_000_000, positions: [] },
+          pending_order_reasons: [],
+        },
+      ],
+    });
+  } else if (opts?.withV2) {
     mockLive({
       portfolios: [
         {
@@ -302,6 +392,29 @@ function mockHappyPath(opts?: { withV2?: boolean }) {
       policy_name: "RANK_HYSTERESIS_LONG_ONLY_V1",
     },
   ]);
+  vi.mocked(shadowApi.getShadowJournal).mockImplementation(async (portfolioId) => ({
+    portfolio_id: Number(portfolioId),
+    date_from: null,
+    date_to: null,
+    limit: 60,
+    ticker: null,
+    action: null,
+    returned_days: 0,
+    truncated: false,
+    order: "asc_by_date",
+    days: [],
+  }));
+  vi.mocked(shadowApi.getShadowCandidateHistory).mockResolvedValue({
+    portfolio_id: 1,
+    ticker: "MGNT",
+    detail_available: false,
+    message_ru: null,
+    returned_events: 0,
+    truncated: false,
+    order: "asc_by_signal_date",
+    events: [],
+    summary: { first_seen: null, last_seen: null, event_count: 0 },
+  });
   vi.mocked(forwardApi.getLatestForwardBatch).mockResolvedValue({
     batch: {
       id: "1",
@@ -462,12 +575,22 @@ describe("ShadowPage", () => {
     mockHappyPath({ withV2: true });
     renderPage();
     expect(await screen.findByTestId("shadow-experiment-v2")).toHaveTextContent(/Realism V2/i);
-    expect(screen.getByTestId("shadow-legacy-v1")).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-legacy-arms")).toBeInTheDocument();
     expect(await screen.findByTestId("shadow-skipped-reasons")).toHaveTextContent(
       /Не хватает денег даже на один лот/i,
     );
     expect(screen.getByTestId("shadow-cash-card")).toHaveTextContent(/Стратегический резерв/i);
     expect(screen.getByTestId("shadow-pending-orders")).toHaveTextContent(/6×100=600/);
+  });
+
+  it("prefers Realism V3 arms and keeps V2 in legacy", async () => {
+    mockHappyPath({ withV3: true });
+    renderPage();
+    expect(await screen.findByTestId("shadow-experiment-v3")).toHaveTextContent(/Realism V3/i);
+    expect(screen.getByTestId("shadow-legacy-arms")).toHaveTextContent(/Legacy V2/);
+    expect(await screen.findByTestId("shadow-skipped-reasons")).toHaveTextContent(
+      /Не хватает денег даже на один лот/i,
+    );
   });
 
   it("shows updates disabled status without red market-closed panic", async () => {
@@ -646,5 +769,64 @@ describe("ShadowPage", () => {
       /RESEARCH_LIVE_MODE/i,
     );
     expect(screen.getByTestId("shadow-next-stage")).toHaveTextContent("PROCESSING");
+  });
+
+  it("loads Decision Journal for the active arm and switches portfolio safely", async () => {
+    mockHappyPath({ withV3: true });
+    vi.mocked(shadowApi.getShadowJournal).mockImplementation(async (portfolioId) => {
+      const id = String(portfolioId);
+      const day = id === "5" ? "2026-09-02" : "2026-09-11";
+      return {
+        portfolio_id: Number(portfolioId),
+        date_from: null,
+        date_to: null,
+        limit: 60,
+        ticker: null,
+        action: null,
+        returned_days: 1,
+        truncated: false,
+        order: "asc_by_date",
+        days: [
+          {
+            date: day,
+            signal_as_of_date: day,
+            decision: {
+              id: Number(portfolioId),
+              forward_batch_id: 1,
+              signal_as_of_date: day,
+              iso_week: "2026-W36",
+            },
+            decision_ids: [Number(portfolioId)],
+            detail_available: true,
+            message_ru: null,
+            candidates: [],
+            orders: [],
+            fills: [],
+            counts: {
+              buy: 0,
+              sell: 0,
+              hold: 0,
+              review: 0,
+              candidates_reviewed: 0,
+              orders: 0,
+              fills: 0,
+            },
+            total_modeled_costs: { commission: 0, slippage_cost: 0, total: 0 },
+          },
+        ],
+      };
+    });
+
+    renderPage();
+    expect(await screen.findByTestId("shadow-decision-journal")).toBeInTheDocument();
+    expect(screen.getByTestId("shadow-journal-portfolio-id")).toHaveTextContent("5");
+    expect(await screen.findByTestId("shadow-journal-day-2026-09-02")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("shadow-arm-tab-6"));
+    await waitFor(() => {
+      expect(screen.getByTestId("shadow-journal-portfolio-id")).toHaveTextContent("6");
+    });
+    expect(await screen.findByTestId("shadow-journal-day-2026-09-11")).toBeInTheDocument();
+    expect(screen.queryByTestId("shadow-journal-day-2026-09-02")).not.toBeInTheDocument();
   });
 });

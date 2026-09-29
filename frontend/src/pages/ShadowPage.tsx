@@ -33,6 +33,7 @@ import {
 } from "../api/shadow";
 import { MetricCard, PageHeader, PageState } from "../components/Ui";
 import { CatchUpStatusCard } from "../features/shadow/CatchUpStatusCard";
+import { DecisionJournalPanel } from "../features/shadow/DecisionJournalPanel";
 import {
   contextFromShadowOrder,
   DecisionExplanationPanel,
@@ -518,7 +519,11 @@ export function ShadowPage() {
           <span className="sim-meta-chip">
             Возраст: {experimentAgeLabel(ageDays)} <MetricHelp metricId="experiment_age" />
           </span>
-          {partitioned.hasV2 ? (
+          {partitioned.hasV3 ? (
+            <span className="sim-meta-chip" data-testid="shadow-experiment-v3">
+              Realism V3
+            </span>
+          ) : partitioned.hasV2 ? (
             <span className="sim-meta-chip" data-testid="shadow-experiment-v2">
               Realism V2
             </span>
@@ -547,7 +552,11 @@ export function ShadowPage() {
         <h2 className="sim-section-title">Плечи эксперимента</h2>
         <p className="muted">
           NAV и позиции по плечам разделены — не смешивайте их в одну цифру.
-          {partitioned.hasV2 ? " Основной контур: Realism V2 (целые лоты)." : null}
+          {partitioned.hasV3
+            ? " Основной контур: Realism V3 (лоты + экономика продажи)."
+            : partitioned.hasV2
+              ? " Основной контур: Realism V2 (целые лоты)."
+              : null}
         </p>
         <div className="tabs shadow-arm-tabs" role="tablist">
           {primaryArmSummaries.map((p, idx) => {
@@ -648,10 +657,14 @@ export function ShadowPage() {
       </div>
 
       {legacyArmSummaries.length ? (
-        <div className="panel" data-testid="shadow-legacy-v1">
-          <h2 className="sim-section-title">Legacy V1</h2>
+        <div className="panel" data-testid="shadow-legacy-arms">
+          <h2 className="sim-section-title">
+            {partitioned.hasV3 ? "Legacy V2 / V1" : "Legacy V1"}
+          </h2>
           <p className="muted">
-            Дробные Shadow-портфели прежнего эксперимента. Не смешивайте NAV с Realism V2.
+            {partitioned.hasV3
+              ? "Портфели прежних экспериментов (V2 лоты / V1 дробные). Не смешивайте NAV с Realism V3."
+              : "Дробные Shadow-портфели прежнего эксперимента. Не смешивайте NAV с Realism V2."}
           </p>
           <ul className="plain-list">
             {legacyArmSummaries.map((p) => (
@@ -665,6 +678,14 @@ export function ShadowPage() {
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {activeSummary ? (
+        <DecisionJournalPanel
+          key={String(activeSummary.id)}
+          portfolioId={activeSummary.id}
+          portfolioLabel={portfolioHumanName(activeSummary.name)}
+        />
       ) : null}
 
       <div className="shadow-primary-grid">

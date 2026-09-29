@@ -10,11 +10,17 @@ import type {
 
 export const EXPERIMENT_GROUP_V1 = "SHADOW_FORWARD_V0";
 export const EXPERIMENT_GROUP_V2 = "SHADOW_PORTFOLIO_REALISM_V2";
+export const EXPERIMENT_GROUP_V3 = "SHADOW_PORTFOLIO_REALISM_V3";
 
 export const PORTFOLIO_A_V1 = "SHADOW_HYSTERESIS_V1";
 export const PORTFOLIO_B_V1 = "SHADOW_HYSTERESIS_DD_V1";
 export const PORTFOLIO_A_V2 = "SHADOW_HYSTERESIS_V2";
 export const PORTFOLIO_B_V2 = "SHADOW_HYSTERESIS_DD_V2";
+export const PORTFOLIO_A_V3 = "SHADOW_HYSTERESIS_V3";
+export const PORTFOLIO_B_V3 = "SHADOW_HYSTERESIS_DD_V3";
+
+export const EXECUTION_VERSION_V2 = "LOT_AWARE_V2";
+export const EXECUTION_VERSION_V3 = "LOT_AWARE_SELL_ECONOMICS_V3";
 
 /** Hero-level live experiment status (display mapping only). */
 export type LiveExperimentUiStatus =
@@ -124,15 +130,19 @@ export function isCalmMarketClosedStatus(status: LiveExperimentUiStatus): boolea
 export const PORTFOLIO_HUMAN_NAMES: Record<string, string> = {
   SHADOW_HYSTERESIS_V1: "Рейтинговый портфель (V1)",
   SHADOW_HYSTERESIS_DD_V1: "Рейтинговый + защита от просадки (V1)",
-  SHADOW_HYSTERESIS_V2: "Рейтинговый портфель",
-  SHADOW_HYSTERESIS_DD_V2: "Рейтинговый портфель + защита от просадки",
+  SHADOW_HYSTERESIS_V2: "Рейтинговый портфель (V2)",
+  SHADOW_HYSTERESIS_DD_V2: "Рейтинговый + защита от просадки (V2)",
+  SHADOW_HYSTERESIS_V3: "Рейтинговый портфель",
+  SHADOW_HYSTERESIS_DD_V3: "Рейтинговый портфель + защита от просадки",
 };
 
 export const PORTFOLIO_HUMAN_SUBTITLES: Record<string, string> = {
   SHADOW_HYSTERESIS_V1: "Legacy · дробные единицы",
   SHADOW_HYSTERESIS_DD_V1: "Legacy · дробные единицы + Drawdown Guard",
-  SHADOW_HYSTERESIS_V2: "Realism V2 · целые лоты MOEX",
-  SHADOW_HYSTERESIS_DD_V2: "Realism V2 · целые лоты + защита от просадки",
+  SHADOW_HYSTERESIS_V2: "Legacy Realism V2 · целые лоты MOEX",
+  SHADOW_HYSTERESIS_DD_V2: "Legacy Realism V2 · целые лоты + защита от просадки",
+  SHADOW_HYSTERESIS_V3: "Realism V3 · лоты + экономика продажи",
+  SHADOW_HYSTERESIS_DD_V3: "Realism V3 · лоты + экономика продажи + Drawdown Guard",
 };
 
 export function portfolioHumanName(name?: string | null): string {
@@ -145,15 +155,26 @@ export function portfolioHumanSubtitle(name?: string | null): string {
   return PORTFOLIO_HUMAN_SUBTITLES[name] ?? "";
 }
 
+export function isRealismV3Portfolio(p?: ShadowPortfolioSummary | null): boolean {
+  if (!p) return false;
+  if (p.experiment_group === EXPERIMENT_GROUP_V3) return true;
+  if (p.execution_version === EXECUTION_VERSION_V3) return true;
+  return p.name === PORTFOLIO_A_V3 || p.name === PORTFOLIO_B_V3;
+}
+
 export function isRealismV2Portfolio(p?: ShadowPortfolioSummary | null): boolean {
   if (!p) return false;
+  if (isRealismV3Portfolio(p)) return false;
   if (p.experiment_group === EXPERIMENT_GROUP_V2) return true;
-  if (p.lot_aware) return true;
-  return p.name === PORTFOLIO_A_V2 || p.name === PORTFOLIO_B_V2;
+  if (p.execution_version === EXECUTION_VERSION_V2) return true;
+  if (p.name === PORTFOLIO_A_V2 || p.name === PORTFOLIO_B_V2) return true;
+  // Lot-aware without V3 markers → treat as V2-era (legacy when V3 present).
+  return Boolean(p.lot_aware);
 }
 
 export function isLegacyV1Portfolio(p?: ShadowPortfolioSummary | null): boolean {
   if (!p) return false;
+  if (isRealismV3Portfolio(p) || isRealismV2Portfolio(p)) return false;
   if (p.experiment_group === EXPERIMENT_GROUP_V1) return true;
   return p.name === PORTFOLIO_A_V1 || p.name === PORTFOLIO_B_V1;
 }
@@ -341,8 +362,10 @@ export function orderLotsFromMeta(order: ShadowOrder): {
 
 export function pickPortfolioA(portfolios: ShadowPortfolioSummary[]): ShadowPortfolioSummary | undefined {
   return (
+    portfolios.find((p) => p.name === PORTFOLIO_A_V3) ??
     portfolios.find((p) => p.name === PORTFOLIO_A_V2) ??
     portfolios.find((p) => p.name === PORTFOLIO_A_V1) ??
+    portfolios.find((p) => isRealismV3Portfolio(p) && !String(p.name).includes("DD")) ??
     portfolios.find((p) => isRealismV2Portfolio(p) && !String(p.name).includes("DD")) ??
     portfolios[0]
   );
@@ -350,26 +373,40 @@ export function pickPortfolioA(portfolios: ShadowPortfolioSummary[]): ShadowPort
 
 export function pickPortfolioB(portfolios: ShadowPortfolioSummary[]): ShadowPortfolioSummary | undefined {
   return (
+    portfolios.find((p) => p.name === PORTFOLIO_B_V3) ??
     portfolios.find((p) => p.name === PORTFOLIO_B_V2) ??
     portfolios.find((p) => p.name === PORTFOLIO_B_V1) ??
+    portfolios.find((p) => isRealismV3Portfolio(p) && String(p.name).includes("DD")) ??
     portfolios.find((p) => isRealismV2Portfolio(p) && String(p.name).includes("DD")) ??
     portfolios[1]
   );
 }
 
-/** Prefer V2 arms for primary UI; keep V1 as legacy list. */
+/** Prefer V3 arms for primary UI; V2/V1 as legacy lists. */
 export function partitionShadowPortfolios(portfolios: ShadowPortfolioSummary[]): {
   primary: ShadowPortfolioSummary[];
   legacy: ShadowPortfolioSummary[];
+  hasV3: boolean;
   hasV2: boolean;
 } {
+  const v3 = portfolios.filter(isRealismV3Portfolio);
   const v2 = portfolios.filter(isRealismV2Portfolio);
   const v1 = portfolios.filter(isLegacyV1Portfolio);
-  const other = portfolios.filter((p) => !isRealismV2Portfolio(p) && !isLegacyV1Portfolio(p));
-  if (v2.length > 0) {
-    return { primary: [...v2, ...other], legacy: v1, hasV2: true };
+  const other = portfolios.filter(
+    (p) => !isRealismV3Portfolio(p) && !isRealismV2Portfolio(p) && !isLegacyV1Portfolio(p),
+  );
+  if (v3.length > 0) {
+    return {
+      primary: [...v3, ...other],
+      legacy: [...v2, ...v1],
+      hasV3: true,
+      hasV2: v2.length > 0,
+    };
   }
-  return { primary: [...v1, ...other], legacy: [], hasV2: false };
+  if (v2.length > 0) {
+    return { primary: [...v2, ...other], legacy: v1, hasV3: false, hasV2: true };
+  }
+  return { primary: [...v1, ...other], legacy: [], hasV3: false, hasV2: false };
 }
 
 export type LifecycleStepKey =
@@ -615,4 +652,93 @@ export function latestActivationIso(ops?: ShadowDailyOperations | null): string 
     .filter((v): v is string => Boolean(v));
   if (!times.length) return null;
   return times.slice().sort().at(-1) ?? null;
+}
+
+/* ——— Decision Journal display labels (USER Russian copy) ——— */
+
+const JOURNAL_ACTION_LABELS: Record<string, string> = {
+  BUY: "Покупка",
+  SELL: "Продажа",
+  ENTER: "Вход",
+  EXIT: "Выход",
+  HOLD: "Удержание",
+  SKIP: "Пропуск",
+  REVIEW_HOLD: "Ревизия: удержать",
+  REVIEW: "Ревизия",
+  ROTATE: "Ротация",
+  DATA_HOLD: "Удержание (данные)",
+};
+
+const JOURNAL_REASON_LABELS: Record<string, string> = {
+  TOP_ENTRY_BAND: "В зоне входа по рейтингу",
+  WITHIN_EXIT_BAND: "В зоне удержания / выхода",
+  EXIT_BAND_INSUFFICIENT_EDGE: "Ревизия: нет достаточного чистого edge для ротации",
+  WITHIN_POLICY_SELECTION: "Остаётся в политике отбора",
+  REVIEW_TRIGGER: "Сработал триггер ревизии",
+  NET_EDGE_POSITIVE: "Чистый edge после издержек положительный",
+  INSUFFICIENT_NET_EDGE: "Чистый edge после издержек недостаточен",
+  RISK_FORCED_EXIT: "Принудительный выход по риску",
+  RISK_FORCED_REDUCE: "Принудительное сокращение по риску",
+  EXPLICIT_EXIT_TO_CASH: "Явный выход в кэш",
+  STALE_SIGNAL: "Устаревший сигнал",
+  NON_COMPARABLE_PREDICTION: "Прогноз несопоставим с заменой",
+  MISSING_PRICE_OR_QTY: "Нет цены или количества",
+  NO_COMPARABLE_REPLACEMENT: "Нет сопоставимой замены",
+  REPLACEMENT_DATA_INCOMPLETE: "Данные по замене неполные",
+  FEE_MODEL_MISSING: "Нет модели комиссий для оценки",
+  POLICY_ENTER_FREE_CAPACITY: "Вход при свободной ёмкости",
+};
+
+export function journalDecisionActionLabel(action?: string | null): string {
+  const key = (action ?? "").trim().toUpperCase();
+  if (!key) return "—";
+  if (JOURNAL_ACTION_LABELS[key]) return JOURNAL_ACTION_LABELS[key];
+  if (key.startsWith("REVIEW")) return "Ревизия";
+  if (key.startsWith("ROTATE_TO_")) {
+    return `Ротация → ${key.slice("ROTATE_TO_".length)}`;
+  }
+  return key;
+}
+
+export function journalReasonCodeLabel(code?: string | null): string {
+  if (!code) return "—";
+  const key = code.trim().toUpperCase();
+  if (JOURNAL_REASON_LABELS[key]) return JOURNAL_REASON_LABELS[key];
+  if (key.startsWith("ROTATE_TO_")) {
+    return `Ротация на ${key.slice("ROTATE_TO_".length)}`;
+  }
+  return code;
+}
+
+/**
+ * Human sentence for REVIEW_HOLD / ROTATE (and related) from structured facts only.
+ */
+export function journalCandidateHumanReason(input: {
+  action?: string | null;
+  reason_codes?: string[] | null;
+  replacement_ticker?: string | null;
+  net_edge?: number | null;
+}): string {
+  const action = (input.action ?? "").trim().toUpperCase();
+  const codes = (input.reason_codes ?? []).map((c) => String(c));
+  const reasons = codes.map(journalReasonCodeLabel).filter(Boolean);
+  const replacement = input.replacement_ticker?.trim().toUpperCase() || null;
+
+  if (action === "REVIEW_HOLD" || action.startsWith("REVIEW")) {
+    const base = "Ревизия: позиция удержана";
+    const why = reasons.length ? reasons.join("; ") : "структурные причины не сохранены";
+    const alt = replacement ? ` Кандидат на замену: ${replacement}.` : "";
+    const edge =
+      input.net_edge != null && Number.isFinite(input.net_edge)
+        ? ` Чистый edge: ${input.net_edge}.`
+        : "";
+    return `${base} — ${why}.${alt}${edge}`.trim();
+  }
+  if (action === "ROTATE" || action.startsWith("ROTATE")) {
+    const target = replacement ? ` на ${replacement}` : "";
+    const why = reasons.length ? reasons.join("; ") : "чистый edge после издержек";
+    return `Ротация${target}: ${why}.`;
+  }
+  if (reasons.length) return reasons.join("; ");
+  return journalDecisionActionLabel(action);
 }
