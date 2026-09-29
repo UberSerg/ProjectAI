@@ -636,3 +636,74 @@ def test_v3_open_fill_unknown_profile_does_not_fill_at_zero() -> None:
     assert not session.add.called
     assert order.status == "PENDING"
     assert (order.metadata_ or {}).get("limitation") == FEE_RULE_UNAVAILABLE_AT_EXECUTION
+
+
+def test_v3_open_fill_unsupported_sber_version_does_not_fill() -> None:
+    """SBER_INVESTMENT/v999 must not fill at fabricated builtin 0.3% or 0%."""
+    from app.modules.shadow.application.lot_aware import EXECUTION_VERSION_SELL_ECONOMICS_V3
+    from app.modules.shadow.domain.fee_estimate import FEE_RULE_UNAVAILABLE_AT_EXECUTION
+
+    order = _order(
+        quantity=100.0,
+        target_notional=10_000.0,
+        min_execution_date=date(2026, 9, 29),
+        decision_at=datetime(2026, 9, 28, 13, 0, tzinfo=UTC),
+        created_at=datetime(2026, 9, 28, 13, 0, tzinfo=UTC),
+        metadata_={"lot_size": 1},
+    )
+    portfolio = _portfolio()
+    spec = SimpleNamespace(
+        id=1,
+        commission_bps=0.0,
+        slippage_bps=0.0,
+        execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        payload={
+            "execution_version": EXECUTION_VERSION_SELL_ECONOMICS_V3,
+            "fee_profile_code": "SBER_INVESTMENT",
+            "fee_profile_version": 999,
+        },
+        fee_profile_code="SBER_INVESTMENT",
+        fee_profile_version=999,
+        fractional_shares=True,
+    )
+    session = MagicMock()
+    session.scalars.return_value = [order]
+
+    def _get(model, pk):  # noqa: ANN001
+        name = getattr(model, "__name__", "")
+        if name == "ShadowPortfolioSpec":
+            return spec
+        if name == "ShadowPortfolio":
+            return portfolio
+        return None
+
+    session.get.side_effect = _get
+    session.scalar.side_effect = [order, None]
+
+    quote = IntradayQuote(
+        secid="SBER",
+        board="TQBR",
+        trading_date=date(2026, 9, 29),
+        observed_at=datetime(2026, 9, 29, 10, 20, tzinfo=UTC),
+        source_timestamp=datetime(2026, 9, 29, 10, 1, tzinfo=UTC),
+        market_status=MarketSessionStatus.OPEN,
+        open_price=100.0,
+        last_price=105.0,
+        bid=104.0,
+        ask=105.0,
+        previous_close=99.0,
+        volume=1.0,
+        source="MOEX_ISS",
+        freshness=QuoteFreshness.LIVE,
+        quality="ok",
+        instrument_id=1,
+    )
+    result = fill_pending_orders_with_session_open(
+        session,
+        quotes=[quote],
+        now=datetime(2026, 9, 29, 10, 20, tzinfo=UTC),
+    )
+    assert result.filled == 0
+    assert any(r.reason == FEE_RULE_UNAVAILABLE_AT_EXECUTION for r in (result.reasons or []))
+    assert not session.add.called
+    assert order.status == "PENDING"

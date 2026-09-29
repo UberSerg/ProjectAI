@@ -262,6 +262,10 @@ def load_fee_engine_for_profile(
 
     Returns ``(engine, normalized_code, version)``. Engine is None when the
     profile is unknown / unsupported.
+
+    The in-memory Sber builtin mirror represents **exactly**
+    ``SBER_INVESTMENT`` / ``FEE_PROFILE_VERSION_SBER_INVESTMENT`` (v1).
+    It must not impersonate any other requested version.
     """
     code = _normalize_profile_code(fee_profile_code)
     if code is None:
@@ -281,10 +285,14 @@ def load_fee_engine_for_profile(
                 return engine, code, version
         except Exception:
             # Controlled: only fall through to the intentional Sber builtin mirror
-            # below. Do not invent fees for other profiles.
+            # below when the requested version is the builtin v1. Do not invent
+            # fees for other profiles or unsupported Sber versions.
             pass
 
-    if _is_sber_investment(code):
+    if (
+        _is_sber_investment(code)
+        and version == FEE_PROFILE_VERSION_SBER_INVESTMENT
+    ):
         return FeeEngine(sber_investment_builtin_rules()), code, version
     return None, code, version
 

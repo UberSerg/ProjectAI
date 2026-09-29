@@ -1108,10 +1108,12 @@ def test_v2_legacy_bps_fallback_still_works() -> None:
 def test_v3_sber_builtin_still_resolves_when_fallback_disabled() -> None:
     est = resolve_broker_fee_estimator(
         fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=1,
         commission_bps=0.0,
         allow_legacy_bps_fallback=False,
     )
     assert isinstance(est, FeeEngineEstimator)
+    assert est.fee_profile_version == 1
     assert est.broker_fee_estimate(
         side="BUY",
         notional=Decimal("100000"),
@@ -1126,3 +1128,157 @@ def test_v3_sber_builtin_still_resolves_when_fallback_disabled() -> None:
         as_of=date(2026, 9, 29),
         instrument_symbol="SBFR",
     ) == Decimal("0")
+    # Post-expiry SBFR uses generic 0.3%
+    assert est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2027, 1, 2),
+        instrument_symbol="SBFR",
+    ) == Decimal("300")
+
+
+def test_unsupported_sber_version_does_not_use_builtin_v1() -> None:
+    """SBER_INVESTMENT/v999 must not impersonate builtin v1 rules."""
+    est = resolve_broker_fee_estimator(
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=999,
+        commission_bps=0.0,
+        allow_legacy_bps_fallback=False,
+    )
+    assert isinstance(est, UnknownFeeEstimator)
+    assert est.fee_profile_version == 999
+    quote = estimate_shadow_fee(
+        est,
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 29),
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=999,
+        instrument_symbol="SBER",
+    )
+    assert quote.is_unknown
+    assert quote.amount is None
+    assert quote.fee_profile_version == 999
+    # Must not fabricate builtin 0.3% (300 RUB)
+    assert quote.amount != Decimal("300")
+
+
+def test_unsupported_sber_version_blocks_rotate() -> None:
+    est = resolve_broker_fee_estimator(
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        fee_profile_version=999,
+        commission_bps=0.0,
+        allow_legacy_bps_fallback=False,
+    )
+    held = [_held(1, expected=0.01, rank=40, qty=100, price=100, weight=0.5)]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=2,
+                ticker="T2",
+                target_weight=1.0,
+                rank=1,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.99,
+                action="ENTER_TOP20",
+                price=100.0,
+            )
+        ],
+        replacement_candidates=[_cand(2, expected=0.99, rank=1)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=1,
+            as_of=date(2026, 10, 1),
+            min_net_rotation_edge_bps=0.0,
+            slippage_bps=0.0,
+        ),
+        fee_estimator=est,
+        eligible_count=5,
+    )
+    tr = next(t for t in result.traces if t.instrument_id == 1)
+    assert tr.decision_action == DATA_HOLD
+    assert "FEE_MODEL_MISSING" in (tr.limitation_codes or ())
+    assert _perm_map(result)[1].sell_allowed is False
+    assert not any(t.decision_action == ROTATE for t in result.traces)
+
+
+def test_db_sber_version_2_uses_db_rules_not_builtin_v1() -> None:
+    """Exact SBER_INVESTMENT/v2 from DB must not fall back to builtin v1 0.3%."""
+    from sqlalchemy import delete, select
+
+    from app.infrastructure.db.session import core_session
+    from app.modules.portfolio.domain.fee_engine import FeeType
+    from app.modules.portfolio.infrastructure.models import FeeProfile, FeeRule
+    from app.modules.shadow.domain.fee_estimate import load_fee_engine_for_profile
+
+    with core_session() as session:
+        existing = session.scalar(
+            select(FeeProfile).where(
+                FeeProfile.code == FEE_PROFILE_CODE_SBER_INVESTMENT,
+                FeeProfile.version == 2,
+            )
+        )
+        if existing is not None:
+            session.execute(delete(FeeRule).where(FeeRule.fee_profile_id == existing.id))
+            session.execute(delete(FeeProfile).where(FeeProfile.id == existing.id))
+            session.flush()
+
+        profile = FeeProfile(
+            code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            name="Sber Investment pytest v2",
+            broker_code="SBER",
+            broker_name="Sber",
+            tariff_name="pytest-v2",
+            version=2,
+            valid_from=date(2026, 9, 29),
+            source_note="pytest-only SBER_INVESTMENT v2; distinct 1% rate",
+            is_builtin=False,
+            read_only=False,
+        )
+        session.add(profile)
+        session.flush()
+        session.add(
+            FeeRule(
+                fee_profile_id=int(profile.id),
+                code="SBER_MOEX_ONLINE_V2_PYTEST",
+                market="MOEX",
+                execution_channel="ONLINE",
+                side=None,
+                fee_type=FeeType.PERCENTAGE,
+                percentage_rate=Decimal("0.01"),  # 1% — distinct from builtin 0.3%
+                exclude_from_turnover=False,
+                priority=100,
+                valid_from=date(2026, 9, 29),
+                explanation="pytest v2 1% of notional",
+                active=True,
+            )
+        )
+        session.flush()
+
+        engine, code, version = load_fee_engine_for_profile(
+            session,
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            fee_profile_version=2,
+        )
+        assert engine is not None
+        assert code == FEE_PROFILE_CODE_SBER_INVESTMENT
+        assert version == 2
+        est = FeeEngineEstimator(engine, fee_profile_code=code, fee_profile_version=version)
+        fee = est.broker_fee_estimate(
+            side="BUY",
+            notional=Decimal("100000"),
+            instrument_id=1,
+            as_of=date(2026, 9, 29),
+            instrument_symbol="SBER",
+        )
+        # DB v2 = 1% → 1000; builtin v1 would be 300
+        assert fee == Decimal("1000")
+        assert fee != Decimal("300")
+
+        # Cleanup — do not leave pytest profile in seeded history
+        session.execute(delete(FeeRule).where(FeeRule.fee_profile_id == profile.id))
+        session.execute(delete(FeeProfile).where(FeeProfile.id == profile.id))
+        session.flush()
