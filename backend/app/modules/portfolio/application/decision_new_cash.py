@@ -6,6 +6,7 @@ Does not route Dataset V3 into USER decisions.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.infrastructure.market.models import Instrument
 from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.portfolio.application.personal_portfolio_service import PersonalPortfolioSnapshot
+from app.modules.portfolio.domain.fee_engine import FeeStatus
 from app.modules.portfolio.domain.personal_ledger import ZERO, money
 from app.modules.portfolio.domain.valuation import latest_eod_close
 
@@ -129,6 +131,9 @@ def build_new_cash_scenarios(
     if new_cash <= ZERO:
         return None, [], data_confidence, limitations
 
+    if snap.portfolio.broker_account_id is None:
+        limitations.append("BROKER_FEE_PROFILE_MISSING")
+
     instruments = _batch_instruments(session, snap=snap, compare=compare)
 
     scenarios: list[dict[str, Any]] = [
@@ -186,6 +191,7 @@ def build_new_cash_scenarios(
         "hypothetical_total_capital_rub": str(hyp_nav),
         "selected_scenario_hint": _hint_scenario(scenarios, data_confidence),
         "note": "Сценарии сравнимы фактически; ожидаемая доходность не выдумывается.",
+        "broker_account_id": snap.portfolio.broker_account_id,
     }
     return plan, scenarios, data_confidence, limitations
 
@@ -293,6 +299,7 @@ def _lot_suggestion(
     asset_class: str | None,
     unit_price: Decimal | None,
     target_rub: Decimal,
+    portfolio: Any | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "symbol": symbol,
@@ -302,6 +309,8 @@ def _lot_suggestion(
         "units": None,
         "estimated_notional": None,
         "executable_estimated_notional_rub": None,
+        "estimated_broker_fee_rub": None,
+        "estimated_total_cash_out_rub": None,
         "lot_rounding_residual_rub": str(money(target_rub)),
         "residual_cash_rub": str(money(target_rub)),
         "lot_size": None,
@@ -363,22 +372,90 @@ def _lot_suggestion(
     if lot_notional <= ZERO:
         row["limitations"] = ["PRICE_MISSING"]
         return row
+
+    # Max lots by notional alone, then shrink so notional + broker fee <= cash budget.
     lots = int(money(target_rub) // lot_notional)
+    fee_amount = ZERO
+    fee_rule_id = None
+    fee_known = False
+    as_of = datetime.now(UTC).date()
+    while lots > 0:
+        units_try = Decimal(lots * lot_size)
+        notional_try = money(units_try * price)
+        fee_amount, fee_rule_id, fee_known = _estimate_buy_fee(
+            session,
+            portfolio=portfolio,
+            notional=notional_try,
+            instrument_id=int(instrument_id),
+            symbol=symbol,
+            as_of=as_of,
+        )
+        total_out_try = money(notional_try + fee_amount)
+        if total_out_try <= money(target_rub):
+            break
+        lots -= 1
+    if lots <= 0:
+        fee_amount = ZERO
+        fee_rule_id = None
+        fee_known = False
+
     units = Decimal(lots * lot_size)
     notional = money(units * price)
-    residual = money(target_rub - notional)
+    total_out = money(notional + fee_amount) if lots > 0 else ZERO
+    residual = money(target_rub - total_out) if lots > 0 else money(target_rub)
+    limitations: list[str] = []
+    if lots > 0 and portfolio is not None and getattr(portfolio, "broker_account_id", None) is not None and not fee_known:
+        limitations.append("FEE_RULE_UNMATCHED")
     row.update(
         {
             "lots": lots if lots > 0 else 0,
             "units": float(units),
             "estimated_notional": str(notional),
             "executable_estimated_notional_rub": str(notional),
+            "estimated_broker_fee_rub": str(fee_amount),
+            "estimated_total_cash_out_rub": str(total_out),
+            "fee_rule_id": fee_rule_id if lots > 0 else None,
             "lot_rounding_residual_rub": str(residual),
             "residual_cash_rub": str(residual),
             "execution_status": "LOT_ESTIMATE" if lots > 0 else "RUB_ONLY",
         }
     )
+    if limitations:
+        row["limitations"] = limitations
     return row
+
+
+def _estimate_buy_fee(
+    session: Session,
+    *,
+    portfolio: Any | None,
+    notional: Decimal,
+    instrument_id: int,
+    symbol: str,
+    as_of,
+) -> tuple[Decimal, int | None, bool]:
+    """Return (fee_amount, fee_rule_id, known). Missing broker → fee 0, known=False."""
+    if portfolio is None or getattr(portfolio, "broker_account_id", None) is None:
+        return ZERO, None, False
+    from app.modules.portfolio.application.broker_fee_service import estimate_fee_amount
+
+    est = estimate_fee_amount(
+        session,
+        portfolio=portfolio,
+        side="BUY",
+        notional=notional,
+        instrument_id=instrument_id,
+        instrument_symbol=symbol,
+        as_of=as_of,
+    )
+    if est is None or est.status != FeeStatus.KNOWN or est.amount is None:
+        # Unknown fee: refuse to spend full notional as if fee were free.
+        # Treat as blocking by returning a sentinel that forces lots shrink — use
+        # conservative 0 here and mark unknown; caller already shrinks only on
+        # notional+fee. When UNKNOWN, keep fee=0 but flag known=False so Decision
+        # exposes FEE_RULE_UNMATCHED; cash constraint still uses notional alone.
+        return ZERO, None, False
+    return money(est.amount), est.fee_rule_id, True
 
 
 def _batch_instruments(
@@ -475,6 +552,7 @@ def _allocate_shortfalls(
     *,
     items: list[dict[str, Any]],
     budget: Decimal,
+    portfolio: Any | None = None,
 ) -> tuple[list[dict[str, Any]], Decimal, Decimal, Decimal]:
     """Return purchases, executable, advisory, unused residual of budget."""
     if budget <= ZERO or not items:
@@ -501,6 +579,7 @@ def _allocate_shortfalls(
             asset_class=str(it.get("asset_class") or "equity"),
             unit_price=it.get("unit_price"),
             target_rub=target_rub,
+            portfolio=portfolio,
         )
         purchases.append(sug)
         if (it.get("asset_class") or "").lower() == "bond" or "ADVISORY_ONLY_BOND_TRADE" in (
@@ -509,11 +588,11 @@ def _allocate_shortfalls(
             advisory = money(advisory + target_rub)
             remaining = money(remaining - target_rub)
             continue
-        used = money(sug.get("executable_estimated_notional_rub") or ZERO)
-        executable = money(executable + used)
-        remaining = money(remaining - used)
-        # Unresolved / missing price keeps target in residual (remaining already only reduced by lots).
-        if used <= ZERO:
+        used_notional = money(sug.get("executable_estimated_notional_rub") or ZERO)
+        used_total = money(sug.get("estimated_total_cash_out_rub") or used_notional)
+        executable = money(executable + used_notional)
+        remaining = money(remaining - used_total)
+        if used_notional <= ZERO:
             remaining = money(remaining - ZERO)
     residual = money(remaining)
     return purchases, executable, advisory, residual
@@ -581,7 +660,11 @@ def _target_underweight_plan(
 
     target_alloc = min(total_short, new_cash)
     purchases, executable, advisory, residual = _allocate_shortfalls(
-        session, items=items, budget=new_cash
+        session, items=items, budget=new_cash, portfolio=snap.portfolio
+    )
+    fee_total = sum(
+        (money(p.get("estimated_broker_fee_rub") or ZERO) for p in purchases),
+        ZERO,
     )
     return {
         "id": "TARGET_UNDERWEIGHTS",
@@ -590,6 +673,7 @@ def _target_underweight_plan(
         "deployed_rub": str(executable),
         "target_allocation_rub": str(target_alloc),
         "executable_notional_rub": str(executable),
+        "estimated_broker_fee_rub": str(fee_total),
         "advisory_only_rub": str(advisory),
         "residual_cash_rub": str(residual),
         "portfolio_nav_after_rub": str(hyp_nav),
@@ -598,7 +682,7 @@ def _target_underweight_plan(
         "facts": [
             f"Недовесов: {len(items)}; сумма недовеса {total_short} ₽.",
             f"Целевой объём нового капитала: {target_alloc} ₽.",
-            f"Можно оценить по лотам: {executable} ₽; остаётся: {residual} ₽.",
+            f"Можно оценить по лотам: {executable} ₽; комиссия брокера: {fee_total} ₽; остаётся: {residual} ₽.",
             "Новый капитал не создаёт принудительную продажу существующих позиций.",
             "Избыточный вес не получает новый капитал.",
         ],
@@ -693,16 +777,24 @@ def _kraken_allocation_plan(
             for it in _shortfalls(snap=snap, compare=compare, hyp_nav=hyp_nav, instruments=instruments)
             if (it.get("asset_class") or "equity").lower() != "bond"
         ]
-        eq_purchases, eq_exec, eq_adv, _eq_res = _allocate_shortfalls(
-            session, items=equity_items, budget=deploy_eq
+        eq_purchases, eq_exec, eq_adv, eq_res = _allocate_shortfalls(
+            session, items=equity_items, budget=deploy_eq, portfolio=snap.portfolio
         )
         purchases.extend(eq_purchases)
         executable = money(executable + eq_exec)
         advisory = money(advisory + eq_adv)
+        equity_residual = eq_res
     elif deploy_eq > ZERO and (blocked or not allow_precise or compare is None):
         limitations.append("EQUITY_INSTRUMENTS_DEGRADED")
+        equity_residual = deploy_eq
+    else:
+        equity_residual = deploy_eq
 
-    residual = money(new_cash - executable - advisory)
+    fee_total = sum(
+        (money(p.get("estimated_broker_fee_rub") or ZERO) for p in purchases if p.get("symbol")),
+        ZERO,
+    )
+    residual = money(equity_residual + keep_cash)
     if residual < ZERO:
         residual = ZERO
     status = "available" if (not blocked or deploy_fi > ZERO or keep_cash > ZERO) else "degraded"
@@ -719,6 +811,7 @@ def _kraken_allocation_plan(
         "deployed_rub": str(executable),
         "target_allocation_rub": str(money(deploy_eq + deploy_fi)),
         "executable_notional_rub": str(executable),
+        "estimated_broker_fee_rub": str(fee_total),
         "advisory_only_rub": str(advisory),
         "residual_cash_rub": str(residual),
         "portfolio_nav_after_rub": str(hyp_nav),
@@ -731,7 +824,7 @@ def _kraken_allocation_plan(
         "facts": [
             f"Доля equity/cash/FI в research: {_f(eq)} / {_f(cash_target)} / {_f(fi)}.",
             f"Целевой equity: {deploy_eq} ₽; FI ориентир: {deploy_fi} ₽ (не executable).",
-            f"Можно оценить по лотам: {executable} ₽; остаётся: {residual} ₽.",
+            f"Можно оценить по лотам: {executable} ₽; комиссия брокера: {fee_total} ₽; остаётся: {residual} ₽.",
             "Инструменты equity следуют недовесам кандидата, не равным долям текущих позиций.",
         ],
         "limitations": limitations,

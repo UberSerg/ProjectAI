@@ -445,6 +445,7 @@ def create_operation(
     price: Decimal | None = None,
     amount: Decimal | None = None,
     commission: Decimal | None = None,
+    commission_provided: bool = False,
     note: str | None = None,
     non_standard_lot: bool = False,
     supersedes_operation_id: int | None = None,
@@ -456,7 +457,14 @@ def create_operation(
     ``system=True`` is reserved for Kraken-internal writers (activation opening
     snapshot). Public callers must leave it ``False`` so opening rows can never be
     forged through the operations API.
+
+    Commission provenance (BUY/SELL):
+    - MANUAL if the caller explicitly provided ``commission``;
+    - else PROFILE_ESTIMATE via FeeEngine when a broker account is assigned;
+    - else NONE (backward-compatible zero).
     """
+    from app.modules.portfolio.application.broker_fee_service import resolve_operation_commission
+
     portfolio = lock_portfolio(session, portfolio)
     key = (idempotency_key or "").strip() or str(uuid4())
     existing = session.scalar(
@@ -544,6 +552,19 @@ def create_operation(
         except LotValidationError as exc:
             raise PersonalPortfolioError(exc.code, str(exc)) from exc
 
+    resolved_commission, commission_source, op_broker_id, op_fee_rule_id = resolve_operation_commission(
+        session,
+        portfolio=portfolio,
+        operation_type=op_type.value,
+        commission=commission,
+        commission_provided=commission_provided,
+        units=resolved_units if resolved_units > ZERO else None,
+        price=price,
+        amount=amount,
+        instrument_id=instrument_id,
+        occurred_at=occurred_dt,
+    )
+
     fingerprint = _idempotency_fingerprint(
         operation_type=op_type.value,
         occurred_at=occurred_dt,
@@ -552,7 +573,7 @@ def create_operation(
         lots=resolved_lots,
         price=price,
         amount=amount,
-        commission=commission,
+        commission=resolved_commission,
         note=note,
         supersedes_operation_id=supersedes_operation_id,
     )
@@ -585,13 +606,16 @@ def create_operation(
                 units=resolved_units if resolved_units > ZERO else None,
                 price=money(price) if price is not None else None,
                 amount=money(amount) if amount is not None else None,
-                commission=money(commission or ZERO),
+                commission=resolved_commission,
                 currency="RUB",
                 source="MANUAL",
                 note=note,
                 idempotency_key=key,
                 supersedes_operation_id=supersedes_operation_id,
                 correction_reason=correction_reason,
+                broker_account_id=op_broker_id,
+                fee_rule_id=op_fee_rule_id,
+                commission_source=commission_source,
             )
             session.add(row)
             session.flush()
@@ -785,6 +809,9 @@ def _operation_to_dict(op: PersonalOperation, *, owner: bool) -> dict[str, Any]:
         "price": str(op.price) if op.price is not None else None,
         "amount": str(op.amount) if op.amount is not None else None,
         "commission": str(op.commission),
+        "commission_source": op.commission_source,
+        "broker_account_id": op.broker_account_id,
+        "fee_rule_id": op.fee_rule_id,
         "currency": op.currency,
         "note": op.note,
         "created_at": op.created_at.isoformat() if op.created_at else None,
@@ -1180,6 +1207,8 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "journal_cutover_at": cutover.isoformat() if cutover else None,
             "created_at": snap.portfolio.created_at.isoformat() if snap.portfolio.created_at else None,
             "updated_at": snap.portfolio.updated_at.isoformat() if snap.portfolio.updated_at else None,
+            "broker_account_id": snap.portfolio.broker_account_id,
+            "broker": None,
         },
         "summary": {
             "cash_rub": str(snap.cash_rub),
@@ -1211,6 +1240,9 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
         "operations": [_operation_to_dict(o, owner=owner) for o in ops],
         "recommendation_disclaimer": "Модельная рекомендация",
     }
+    from app.modules.portfolio.application.broker_fee_service import broker_summary_for_portfolio
+
+    payload["portfolio"]["broker"] = broker_summary_for_portfolio(session, snap.portfolio)
     if owner:
         payload["reconciliation"] = reconcile(session, snap.portfolio)
     return payload

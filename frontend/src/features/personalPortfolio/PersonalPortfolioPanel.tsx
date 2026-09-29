@@ -9,6 +9,7 @@ import {
   clearDraftPortfolio,
   createPersonalOperation,
   deleteDraftPosition,
+  estimatePersonalFee,
   getPersonalPortfolio,
   patchDraftPosition,
   resetPersonalPortfolio,
@@ -19,6 +20,7 @@ import {
 } from "../../api/personalPortfolios";
 import { EmptyState, MetricCard, PageState, StatusBadge } from "../../components/Ui";
 import { useKrakenRole } from "../../role/KrakenRoleContext";
+import { BrokerSettingsPanel } from "./BrokerSettingsPanel";
 
 /** Display labels for every journal row, including Kraken-written opening rows. */
 export const OP_LABELS: Record<PersonalOperationType, string> = {
@@ -64,7 +66,7 @@ function canonicalPayloadKey(body: CreatePersonalOperationBody): string {
     units: body.units ?? null,
     price: body.price ?? null,
     amount: body.amount ?? null,
-    commission: body.commission ?? "0",
+    commission: body.commission ?? null,
     note: body.note ?? null,
     non_standard_lot: body.non_standard_lot ?? false,
     supersedes_operation_id: body.supersedes_operation_id ?? null,
@@ -522,11 +524,13 @@ function AddOperationModal({
   onClose,
   onSaved,
   portfolioId,
+  hasBroker,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
   portfolioId: number;
+  hasBroker: boolean;
 }) {
   const titleId = useId();
   const [type, setType] = useState<PersonalOperationType>("DEPOSIT");
@@ -535,7 +539,10 @@ function AddOperationModal({
   const [lots, setLots] = useState("");
   const [units, setUnits] = useState("");
   const [price, setPrice] = useState("");
-  const [commission, setCommission] = useState("0");
+  const [commission, setCommission] = useState("");
+  const [commissionOverride, setCommissionOverride] = useState(false);
+  const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
+  const [feeHint, setFeeHint] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<CatalogInstrument[]>([]);
@@ -553,10 +560,18 @@ function AddOperationModal({
     (type === "BUY" || type === "SELL") &&
     (instrumentAssetClass || "").toLowerCase() === "bond";
 
+  const effectiveCommission = commissionOverride
+    ? Number(commission || 0)
+    : Number(estimatedFee ?? 0);
+
   useEffect(() => {
     if (!open) return;
     setError(null);
     setOccurredAt(defaultOccurredLocal());
+    setCommission("");
+    setCommissionOverride(false);
+    setEstimatedFee(null);
+    setFeeHint(null);
   }, [open, type]);
 
   useEffect(() => {
@@ -590,16 +605,85 @@ function AddOperationModal({
     };
   }, [open, query, instrumentId]);
 
+  // Fee preview for BUY/SELL when broker assigned and notional known.
+  useEffect(() => {
+    if (!open || !hasBroker || commissionOverride) {
+      if (!hasBroker) {
+        setEstimatedFee(null);
+        setFeeHint(null);
+      }
+      return;
+    }
+    if (type !== "BUY" && type !== "SELL") {
+      setEstimatedFee(null);
+      setFeeHint(null);
+      return;
+    }
+    const u = Number(units || (lots && lotSize ? Number(lots) * lotSize : NaN));
+    const p = Number(price);
+    if (!Number.isFinite(u) || !Number.isFinite(p) || u <= 0 || p <= 0) {
+      setEstimatedFee(null);
+      setFeeHint(null);
+      return;
+    }
+    const notional = u * p;
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => {
+      estimatePersonalFee(
+        portfolioId,
+        {
+          side: type,
+          notional: String(notional),
+          instrument_id: instrumentId ?? undefined,
+          instrument_symbol: instrumentSymbol || undefined,
+        },
+        { signal: ctrl.signal },
+      )
+        .then((est) => {
+          if (ctrl.signal.aborted) return;
+          if (est.status === "KNOWN" && est.amount != null) {
+            setEstimatedFee(est.amount);
+            setFeeHint(est.explanation || est.matched_rule_code || "Оценка по тарифу");
+          } else {
+            setEstimatedFee(null);
+            setFeeHint(est.limitation || est.explanation || "Комиссия неизвестна");
+          }
+        })
+        .catch(() => {
+          if (!ctrl.signal.aborted) {
+            setEstimatedFee(null);
+            setFeeHint(null);
+          }
+        });
+    }, 250);
+    return () => {
+      ctrl.abort();
+      window.clearTimeout(t);
+    };
+  }, [
+    open,
+    hasBroker,
+    commissionOverride,
+    type,
+    units,
+    lots,
+    lotSize,
+    price,
+    instrumentId,
+    instrumentSymbol,
+    portfolioId,
+  ]);
+
   const tradePreview = useMemo(() => {
     const u = Number(units || (lots && lotSize ? Number(lots) * lotSize : NaN));
     const p = Number(price);
-    const c = Number(commission || 0);
+    const c = Number.isFinite(effectiveCommission) ? effectiveCommission : 0;
     if (!Number.isFinite(u) || !Number.isFinite(p)) return null;
     const notional = u * p;
     if (type === "BUY") return { units: u, notional, cashImpact: -(notional + c) };
     if (type === "SELL") return { units: u, notional, cashImpact: notional - c };
     return null;
-  }, [units, lots, lotSize, price, commission, type]);
+  }, [units, lots, lotSize, price, effectiveCommission, type]);
 
   if (!open) return null;
 
@@ -614,8 +698,17 @@ function AddOperationModal({
       operation_type: type,
       occurred_at: toIsoOccurredAt(occurredAt),
       note: note || undefined,
-      commission: commission || "0",
     };
+    // MANUAL only when user overrides; else omit → PROFILE_ESTIMATE / NONE.
+    if (type === "BUY" || type === "SELL") {
+      if (commissionOverride) {
+        body.commission = commission.trim() === "" ? "0" : commission;
+      }
+    } else if (type === "COMMISSION") {
+      // standalone COMMISSION rows use amount, not trade commission
+    } else {
+      // deposits / withdrawals — omit commission
+    }
     try {
       if (type === "DEPOSIT" || type === "WITHDRAWAL" || type === "COMMISSION") {
         body.amount = amount;
@@ -790,11 +883,48 @@ function AddOperationModal({
             <label className="field">
               <span>Комиссия в этой сделке, ₽</span>
               <input
-                value={commission}
-                onChange={(e) => setCommission(e.target.value)}
+                value={
+                  commissionOverride
+                    ? commission
+                    : estimatedFee != null
+                      ? estimatedFee
+                      : commission
+                }
+                onChange={(e) => {
+                  setCommissionOverride(true);
+                  setCommission(e.target.value);
+                }}
                 inputMode="decimal"
+                data-testid="op-commission"
               />
             </label>
+            {type === "BUY" || type === "SELL" ? (
+              <p className="muted" data-testid="op-fee-hint">
+                {!hasBroker
+                  ? "Брокер не назначен — комиссия не оценивается (можно ввести вручную)."
+                  : commissionOverride
+                    ? "Ручной ввод (MANUAL). "
+                    : estimatedFee != null
+                      ? `Оценка тарифа: ${money(estimatedFee)}. `
+                      : feeHint
+                        ? `${feeHint}. `
+                        : ""}
+                {hasBroker && commissionOverride ? (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    style={{ padding: "0 0.25rem", fontSize: "inherit" }}
+                    onClick={() => {
+                      setCommissionOverride(false);
+                      setCommission("");
+                    }}
+                    data-testid="op-fee-reset"
+                  >
+                    Вернуть оценку
+                  </button>
+                ) : null}
+              </p>
+            ) : null}
             {lotSize ? <p className="muted">LOTSIZE: {lotSize}</p> : null}
             {tradePreview ? (
               <p className="trade-preview" data-testid="trade-preview">
@@ -1006,6 +1136,15 @@ export function PersonalPortfolioPanel({
         ) : null}
       </div>
 
+      <BrokerSettingsPanel
+        portfolioId={portfolioId}
+        broker={data.portfolio.broker ?? null}
+        onChanged={(summary) => {
+          setData(summary);
+          notifyChanged();
+        }}
+      />
+
       {draft ? (
         <>
           <div className="warning-banner" data-testid="draft-setup-banner">
@@ -1194,6 +1333,7 @@ export function PersonalPortfolioPanel({
 
       <AddOperationModal
         portfolioId={portfolioId}
+        hasBroker={data.portfolio.broker_account_id != null || data.portfolio.broker != null}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={() => {

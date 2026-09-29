@@ -10,6 +10,11 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.infrastructure.db.session import core_session
+from app.modules.portfolio.application.broker_fee_service import (
+    BrokerFeeError,
+    assign_broker_account,
+    estimate_fee_for_portfolio,
+)
 from app.modules.portfolio.application.daily_personal_decision_service import (
     build_daily_personal_decision,
 )
@@ -110,7 +115,26 @@ class CancelBody(BaseModel):
     idempotency_key: str | None = None
 
 
+class AssignBrokerBody(BaseModel):
+    broker_account_id: int | None = None
+
+
+class FeeEstimateBody(BaseModel):
+    side: str
+    notional: Decimal = Field(ge=0)
+    instrument_id: int | None = None
+    instrument_symbol: str | None = None
+    nkd: Decimal | None = Field(default=None, ge=0)
+
+
 def _http(exc: PersonalPortfolioError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.http_status,
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
+def _http_broker(exc: BrokerFeeError) -> HTTPException:
     return HTTPException(
         status_code=exc.http_status,
         detail={"code": exc.code, "message": exc.message},
@@ -398,6 +422,47 @@ def get_cashflows(portfolio_id: int, test: bool = Query(False)) -> dict[str, Any
             raise _http(exc) from exc
 
 
+@router.put("/{portfolio_id}/broker-account")
+def put_broker_account(
+    portfolio_id: int,
+    body: AssignBrokerBody,
+    test: bool = Query(False),
+) -> dict[str, Any]:
+    with core_session() as session:
+        try:
+            portfolio = _resolve(session, portfolio_id, test=test)
+            assign_broker_account(session, portfolio, body.broker_account_id)
+            return get_personal_summary(session, portfolio, owner=False)
+        except BrokerFeeError as exc:
+            raise _http_broker(exc) from exc
+        except PersonalPortfolioError as exc:
+            raise _http(exc) from exc
+
+
+@router.post("/{portfolio_id}/estimate-fee")
+def post_estimate_fee(
+    portfolio_id: int,
+    body: FeeEstimateBody,
+    test: bool = Query(False),
+) -> dict[str, Any]:
+    with core_session() as session:
+        try:
+            portfolio = _resolve(session, portfolio_id, test=test)
+            return estimate_fee_for_portfolio(
+                session,
+                portfolio=portfolio,
+                side=body.side,
+                notional=body.notional,
+                instrument_id=body.instrument_id,
+                instrument_symbol=body.instrument_symbol,
+                nkd=body.nkd if body.nkd is not None else Decimal("0"),
+            )
+        except BrokerFeeError as exc:
+            raise _http_broker(exc) from exc
+        except PersonalPortfolioError as exc:
+            raise _http(exc) from exc
+
+
 @router.post("/{portfolio_id}/operations")
 def post_operation(
     portfolio_id: int,
@@ -420,6 +485,7 @@ def post_operation(
                 price=body.price,
                 amount=body.amount,
                 commission=body.commission,
+                commission_provided="commission" in body.model_fields_set,
                 note=body.note,
                 non_standard_lot=body.non_standard_lot,
                 supersedes_operation_id=body.supersedes_operation_id,
