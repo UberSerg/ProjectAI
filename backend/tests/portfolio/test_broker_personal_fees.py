@@ -142,7 +142,7 @@ def test_profile_estimate_when_commission_omitted(test_portfolio_id: int) -> Non
             session,
             portfolio=portfolio,
             operation_type="DEPOSIT",
-            occurred_at=date(2026, 9, 1),
+            occurred_at=date(2026, 9, 29),
             amount=Decimal("100000"),
             idempotency_key="bf-dep-2",
         )
@@ -150,7 +150,7 @@ def test_profile_estimate_when_commission_omitted(test_portfolio_id: int) -> Non
             session,
             portfolio=portfolio,
             operation_type="BUY",
-            occurred_at=date(2026, 9, 2),
+            occurred_at=date(2026, 9, 29),
             instrument_id=int(inst.id),
             units=Decimal("10"),
             price=Decimal("100"),
@@ -158,11 +158,51 @@ def test_profile_estimate_when_commission_omitted(test_portfolio_id: int) -> Non
             non_standard_lot=True,
             idempotency_key="bf-buy-est",
         )
-        # 10 * 100 * 0.3% = 3
+        # 10 * 100 * 0.3% = 3 (generic Sber rule valid_from 2026-09-29)
         assert op.commission == money("3")
         assert op.commission_source == "PROFILE_ESTIMATE"
         assert op.broker_account_id == int(account.id)
         assert op.fee_rule_id is not None
+
+
+def test_profile_estimate_unknown_before_generic_valid_from(test_portfolio_id: int) -> None:
+    """Pre-2026-09-29 ordinary equity: FeeEngine UNKNOWN — do not invent 0.3%."""
+    with core_session() as session:
+        portfolio = session.get(ManualPortfolio, test_portfolio_id)
+        assert portfolio is not None
+        profile = _sber_profile(session)
+        account = create_broker_account(
+            session, name="pytest-sber-pre", fee_profile_id=int(profile.id)
+        )
+        assign_broker_account(session, portfolio, int(account.id))
+        inst = _equity_instrument(session, symbol="SBER")
+        if inst is None or (inst.symbol or "").upper() != "SBER":
+            inst = _equity_instrument(session)
+
+        create_operation(
+            session,
+            portfolio=portfolio,
+            operation_type="DEPOSIT",
+            occurred_at=date(2026, 9, 1),
+            amount=Decimal("100000"),
+            idempotency_key="bf-dep-pre",
+        )
+        op = create_operation(
+            session,
+            portfolio=portfolio,
+            operation_type="BUY",
+            occurred_at=date(2026, 9, 1),
+            instrument_id=int(inst.id),
+            units=Decimal("10"),
+            price=Decimal("100"),
+            commission_provided=False,
+            non_standard_lot=True,
+            idempotency_key="bf-buy-pre",
+        )
+        # UNKNOWN → no fabricated PROFILE_ESTIMATE at 0.3%
+        assert op.commission == money("0")
+        assert op.commission_source == "NONE"
+        assert op.fee_rule_id is None
 
 
 def test_none_when_no_broker_backward_compatible(test_portfolio_id: int) -> None:

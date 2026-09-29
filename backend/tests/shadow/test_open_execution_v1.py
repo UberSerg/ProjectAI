@@ -309,3 +309,148 @@ def test_does_not_fill_when_open_missing_even_if_last_present() -> None:
     )
     assert result.filled == 0
     assert order.status == "PENDING"
+
+
+def test_v3_open_fill_uses_fee_engine_not_flat_bps() -> None:
+    """V3 OPEN path must resolve broker commission via FeeEngine (0.3% Sber)."""
+    from app.modules.shadow.application.lot_aware import EXECUTION_VERSION_SELL_ECONOMICS_V3
+
+    order = _order(
+        quantity=100.0,
+        target_notional=10_000.0,
+        min_execution_date=date(2026, 9, 29),
+        decision_at=datetime(2026, 9, 28, 13, 0, tzinfo=UTC),
+        created_at=datetime(2026, 9, 28, 13, 0, tzinfo=UTC),
+        metadata_={"lot_size": 1},
+    )
+    portfolio = _portfolio()
+    spec = SimpleNamespace(
+        id=1,
+        commission_bps=30.0,  # legacy trap — must NOT be V3 fee authority
+        slippage_bps=0.0,
+        execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        payload={
+            "execution_version": EXECUTION_VERSION_SELL_ECONOMICS_V3,
+            "fee_profile_code": "SBER_INVESTMENT",
+            "fee_profile_version": 1,
+        },
+        fee_profile_code="SBER_INVESTMENT",
+        fee_profile_version=1,
+        fractional_shares=True,  # isolate FeeEngine path from lot-size gate
+    )
+    session = MagicMock()
+    session.scalars.return_value = [order]
+
+    def _get(model, pk):  # noqa: ANN001
+        name = getattr(model, "__name__", "")
+        if name == "ShadowPortfolioSpec":
+            return spec
+        if name == "ShadowPortfolio":
+            return portfolio
+        return None
+
+    session.get.side_effect = _get
+    _scalar_vals = iter([order, None, None, None])
+    session.scalar.side_effect = lambda *a, **k: next(_scalar_vals)
+
+    quote = IntradayQuote(
+        secid="SBER",
+        board="TQBR",
+        trading_date=date(2026, 9, 29),
+        observed_at=datetime(2026, 9, 29, 10, 20, tzinfo=UTC),
+        source_timestamp=datetime(2026, 9, 29, 10, 1, tzinfo=UTC),
+        market_status=MarketSessionStatus.OPEN,
+        open_price=100.0,
+        last_price=105.0,
+        bid=104.0,
+        ask=105.0,
+        previous_close=99.0,
+        volume=1.0,
+        source="MOEX_ISS",
+        freshness=QuoteFreshness.LIVE,
+        quality="ok",
+        instrument_id=1,
+    )
+    result = fill_pending_orders_with_session_open(
+        session,
+        quotes=[quote],
+        now=datetime(2026, 9, 29, 10, 20, tzinfo=UTC),
+    )
+    assert result.filled == 1
+    fill_row = session.add.call_args[0][0]
+    # 100 units * 100 RUB * 0.3% = 30 — FeeEngine, not flat commission_bps trap
+    assert abs(float(fill_row.commission) - 30.0) < 1e-6
+    assert fill_row.metadata_["fee_profile_code"] == "SBER_INVESTMENT"
+    assert fill_row.metadata_["matched_fee_rule_code"] == "SBER_MOEX_ONLINE_DEFAULT"
+
+
+def test_v3_open_fill_sbfr_zero_fee_not_flat_bps() -> None:
+    """SBFR in zero-fee window: OPEN fill commission must be 0, not 30 bps."""
+    from app.modules.shadow.application.lot_aware import EXECUTION_VERSION_SELL_ECONOMICS_V3
+
+    order = _order(
+        ticker="SBFR",
+        quantity=100.0,
+        target_notional=10_000.0,
+        min_execution_date=date(2026, 9, 29),
+        decision_at=datetime(2026, 9, 28, 13, 0, tzinfo=UTC),
+        created_at=datetime(2026, 9, 28, 13, 0, tzinfo=UTC),
+        metadata_={"lot_size": 1},
+    )
+    portfolio = _portfolio()
+    spec = SimpleNamespace(
+        id=1,
+        commission_bps=30.0,
+        slippage_bps=0.0,
+        execution_version=EXECUTION_VERSION_SELL_ECONOMICS_V3,
+        payload={
+            "execution_version": EXECUTION_VERSION_SELL_ECONOMICS_V3,
+            "fee_profile_code": "SBER_INVESTMENT",
+            "fee_profile_version": 1,
+        },
+        fee_profile_code="SBER_INVESTMENT",
+        fee_profile_version=1,
+        fractional_shares=True,
+    )
+    session = MagicMock()
+    session.scalars.return_value = [order]
+
+    def _get(model, pk):  # noqa: ANN001
+        name = getattr(model, "__name__", "")
+        if name == "ShadowPortfolioSpec":
+            return spec
+        if name == "ShadowPortfolio":
+            return portfolio
+        return None
+
+    session.get.side_effect = _get
+    _scalar_vals = iter([order, None, None, None])
+    session.scalar.side_effect = lambda *a, **k: next(_scalar_vals)
+
+    quote = IntradayQuote(
+        secid="SBFR",
+        board="TQTF",
+        trading_date=date(2026, 9, 29),
+        observed_at=datetime(2026, 9, 29, 10, 20, tzinfo=UTC),
+        source_timestamp=datetime(2026, 9, 29, 10, 1, tzinfo=UTC),
+        market_status=MarketSessionStatus.OPEN,
+        open_price=100.0,
+        last_price=105.0,
+        bid=104.0,
+        ask=105.0,
+        previous_close=99.0,
+        volume=1.0,
+        source="MOEX_ISS",
+        freshness=QuoteFreshness.LIVE,
+        quality="ok",
+        instrument_id=1,
+    )
+    result = fill_pending_orders_with_session_open(
+        session,
+        quotes=[quote],
+        now=datetime(2026, 9, 29, 10, 20, tzinfo=UTC),
+    )
+    assert result.filled == 1
+    fill_row = session.add.call_args[0][0]
+    assert float(fill_row.commission) == 0.0
+    assert fill_row.metadata_["matched_fee_rule_code"] == "SBER_SBFR_ZERO_TEMP"

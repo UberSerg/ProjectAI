@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -575,6 +575,7 @@ def _build_decision_and_orders(
     # V3 only: rank exit-band breach → review trigger; economic sell gate filters targets.
     if is_sell_economics_v3_spec(spec):
         targets, v3_meta = _apply_v3_sell_economics(
+            session=session,
             portfolio=portfolio,
             spec=spec,
             batch=batch,
@@ -669,6 +670,7 @@ def _build_decision_and_orders(
 
 def _apply_v3_sell_economics(
     *,
+    session: Session,
     portfolio: ShadowPortfolio,
     spec: ShadowPortfolioSpec,
     batch: ForwardPredictionBatch,
@@ -693,6 +695,11 @@ def _apply_v3_sell_economics(
     )
     if fee_profile_code and fee_profile_version is None:
         fee_profile_version = FEE_PROFILE_VERSION_SBER_INVESTMENT
+    # V3 always carries a frozen FeeProfile identity (default built-in Sber).
+    if not fee_profile_code:
+        fee_profile_code = FEE_PROFILE_CODE_SBER_INVESTMENT
+        if fee_profile_version is None:
+            fee_profile_version = FEE_PROFILE_VERSION_SBER_INVESTMENT
     min_edge = float(
         getattr(spec, "min_net_rotation_edge_bps", None)
         if getattr(spec, "min_net_rotation_edge_bps", None) is not None
@@ -705,11 +712,12 @@ def _apply_v3_sell_economics(
     slippage_bps = float(spec.slippage_bps or 0.0)
     # Fee date at decision = planned min execution market date (not signal as_of).
     fee_as_of = min_execution_market_date(decision_at)
+    # Resolve persisted FeeProfile when session available; domain gate stays SQL-free.
     fee_estimator = resolve_broker_fee_estimator(
         fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
         fee_profile_version=int(fee_profile_version) if fee_profile_version is not None else None,
         commission_bps=float(spec.commission_bps or 0.0),
-        session=None,  # sell gate stays pure; DB resolution used at plan/fill
+        session=session,
     )
 
     signal_by_id = {int(s.instrument_id): s for s in signals}
@@ -1507,12 +1515,7 @@ def _fill_pending_orders(
                 order.metadata_ = ometa
                 order.updated_at = now
                 continue
-            fill = fill.__class__(
-                **{
-                    **fill.__dict__,
-                    "commission": float(fee_quote.amount or 0),
-                }
-            )
+            fill = replace(fill, commission=float(fee_quote.amount or 0))
 
         lot_aware = is_lot_aware_spec(spec)
         lot_size = _order_lot_size(order)
@@ -1600,13 +1603,11 @@ def _fill_pending_orders(
             else:
                 new_qty = _position_qty(portfolio, int(order.instrument_id)) - sell_qty
                 _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
-            fill = fill.__class__(
-                **{
-                    **fill.__dict__,
-                    "quantity": sell_qty,
-                    "notional": sell_notional,
-                    "commission": commission,
-                }
+            fill = replace(
+                fill,
+                quantity=sell_qty,
+                notional=sell_notional,
+                commission=commission,
             )
 
         # Immutable fill row

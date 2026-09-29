@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
     is_lot_aware_spec,
+    is_sell_economics_v3_spec,
     set_fractional_position,
 )
 from app.modules.shadow.application.lot_aware import (
@@ -22,6 +24,15 @@ from app.modules.shadow.application.lot_aware import (
 )
 from app.modules.shadow.application.lot_aware import (
     positions_dict as _positions_dict,
+)
+from app.modules.shadow.config import (
+    FEE_PROFILE_CODE_SBER_INVESTMENT,
+    FEE_PROFILE_VERSION_SBER_INVESTMENT,
+)
+from app.modules.shadow.domain.fee_estimate import (
+    FEE_RULE_UNAVAILABLE_AT_EXECUTION,
+    estimate_shadow_fee,
+    resolve_broker_fee_estimator,
 )
 from app.modules.shadow.domain.open_execution import (
     EXECUTION_PRICE_TYPE,
@@ -36,6 +47,21 @@ from app.modules.shadow.infrastructure.models import (
     ShadowPortfolioSpec,
 )
 from app.modules.simulator.application.execution import HistoricalNextOpenAdapter
+
+
+def _v3_fee_identity(spec: ShadowPortfolioSpec) -> tuple[str, int]:
+    payload = spec.payload if isinstance(spec.payload, dict) else {}
+    code = (
+        getattr(spec, "fee_profile_code", None)
+        or payload.get("fee_profile_code")
+        or FEE_PROFILE_CODE_SBER_INVESTMENT
+    )
+    version = getattr(spec, "fee_profile_version", None)
+    if version is None:
+        version = payload.get("fee_profile_version")
+    if version is None:
+        version = FEE_PROFILE_VERSION_SBER_INVESTMENT
+    return str(code), int(version)
 
 
 def _set_position(portfolio: ShadowPortfolio, instrument_id: int, ticker: str, qty: float) -> None:
@@ -236,11 +262,16 @@ def fill_pending_orders_with_session_open(
             quantity=float(order.quantity),
             reason=order.reason,
         )
+        v3 = is_sell_economics_v3_spec(spec)
+        fee_profile_code: str | None = None
+        fee_profile_version: int | None = None
+        fee_quote = None
+        # V3: slippage via adapter; broker commission from FeeEngine on execution_date.
         fill = adapter.fill(
             intent,
             raw_open=raw_open,
-            commission_bps=float(spec.commission_bps),
-            slippage_bps=float(spec.slippage_bps),
+            commission_bps=0.0 if v3 else float(spec.commission_bps or 0.0),
+            slippage_bps=float(spec.slippage_bps or 0.0),
         )
         if fill is None:
             result.skipped += 1
@@ -254,6 +285,45 @@ def fill_pending_orders_with_session_open(
                 )
             )
             continue
+
+        if v3:
+            fee_profile_code, fee_profile_version = _v3_fee_identity(spec)
+            fee_estimator = resolve_broker_fee_estimator(
+                fee_profile_code=fee_profile_code,
+                fee_profile_version=fee_profile_version,
+                commission_bps=0.0,
+                session=session,
+            )
+            fee_quote = estimate_shadow_fee(
+                fee_estimator,
+                side=str(order.side),
+                notional=Decimal(str(fill.notional)),
+                instrument_id=int(order.instrument_id),
+                as_of=session_date,
+                fee_profile_code=fee_profile_code,
+                fee_profile_version=fee_profile_version,
+                instrument_symbol=str(order.ticker),
+            )
+            if fee_quote.is_unknown:
+                ometa = dict(order.metadata_ or {})
+                ometa["limitation"] = FEE_RULE_UNAVAILABLE_AT_EXECUTION
+                ometa["fee_status"] = str(fee_quote.status)
+                ometa["fee_date"] = session_date.isoformat()
+                ometa["fee_explanation"] = fee_quote.explanation
+                order.metadata_ = ometa
+                order.updated_at = clock
+                result.skipped += 1
+                result.reasons.append(
+                    PendingOrderReason(
+                        order_id=int(order.id),
+                        portfolio_id=int(order.portfolio_id),
+                        ticker=order.ticker,
+                        reason=FEE_RULE_UNAVAILABLE_AT_EXECUTION,
+                        session_date=session_date.isoformat(),
+                    )
+                )
+                continue
+            fill = replace(fill, commission=float(fee_quote.amount or 0))
 
         if order.side == "BUY":
             cost = fill.notional + fill.commission
@@ -329,7 +399,49 @@ def fill_pending_orders_with_session_open(
                     )
                 )
                 continue
-            proceeds = sell_qty * fill.fill_price - fill.commission
+            sell_notional = sell_qty * fill.fill_price
+            commission = float(fill.commission)
+            if v3 and fee_profile_code and abs(sell_qty - fill.quantity) > 1e-12:
+                fee_estimator = resolve_broker_fee_estimator(
+                    fee_profile_code=fee_profile_code,
+                    fee_profile_version=fee_profile_version,
+                    commission_bps=0.0,
+                    session=session,
+                )
+                fee_quote = estimate_shadow_fee(
+                    fee_estimator,
+                    side="SELL",
+                    notional=Decimal(str(sell_notional)),
+                    instrument_id=int(order.instrument_id),
+                    as_of=session_date,
+                    fee_profile_code=fee_profile_code,
+                    fee_profile_version=fee_profile_version,
+                    instrument_symbol=str(order.ticker),
+                )
+                if fee_quote.is_unknown:
+                    ometa = dict(order.metadata_ or {})
+                    ometa["limitation"] = FEE_RULE_UNAVAILABLE_AT_EXECUTION
+                    order.metadata_ = ometa
+                    order.updated_at = clock
+                    result.skipped += 1
+                    result.reasons.append(
+                        PendingOrderReason(
+                            order_id=int(order.id),
+                            portfolio_id=int(order.portfolio_id),
+                            ticker=order.ticker,
+                            reason=FEE_RULE_UNAVAILABLE_AT_EXECUTION,
+                            session_date=session_date.isoformat(),
+                        )
+                    )
+                    continue
+                commission = float(fee_quote.amount or 0)
+            elif (
+                not v3
+                and fill.quantity > 0
+                and abs(sell_qty - fill.quantity) > 1e-12
+            ):
+                commission = float(fill.commission) * (sell_qty / fill.quantity)
+            proceeds = sell_notional - commission
             portfolio.cash = float(portfolio.cash) + proceeds
             lot_aware = is_lot_aware_spec(spec)
             lot_size = _order_lot_size(order)
@@ -357,18 +469,17 @@ def fill_pending_orders_with_session_open(
                     side="SELL",
                     quantity=float(sell_qty),
                     fill_price=float(fill.fill_price),
-                    commission=float(fill.commission),
+                    commission=float(commission),
                     lot_size=lot_size,
                 )
             else:
                 new_qty = _position_qty(portfolio, int(order.instrument_id)) - sell_qty
                 _set_position(portfolio, int(order.instrument_id), order.ticker, new_qty)
-            fill = fill.__class__(
-                **{
-                    **fill.__dict__,
-                    "quantity": sell_qty,
-                    "notional": sell_qty * fill.fill_price,
-                }
+            fill = replace(
+                fill,
+                quantity=sell_qty,
+                notional=sell_notional,
+                commission=commission,
             )
 
         filled_at = quote.observed_at
@@ -383,6 +494,15 @@ def fill_pending_orders_with_session_open(
             "session_date": session_date.isoformat(),
             "raw_open_source": "intraday_quote.open",
         }
+        if v3 and fee_profile_code:
+            metadata["fee_profile_code"] = fee_profile_code
+            metadata["fee_profile_version"] = fee_profile_version
+            metadata["fee_date"] = session_date.isoformat()
+            metadata["broker_commission"] = float(fill.commission)
+            if fee_quote is not None:
+                metadata["fee_rule_id"] = fee_quote.fee_rule_id
+                metadata["matched_fee_rule_code"] = fee_quote.matched_rule_code
+                metadata["fee_status"] = str(fee_quote.status)
         if is_lot_aware_spec(spec):
             metadata["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
             ls = _order_lot_size(order)

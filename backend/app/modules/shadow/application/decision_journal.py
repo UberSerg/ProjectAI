@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.shadow.infrastructure.models import (
@@ -278,11 +278,6 @@ def build_shadow_journal(
         )
     )
 
-    order_q = select(ShadowOrder).where(ShadowOrder.portfolio_id == portfolio_id)
-    if filter_ticker:
-        order_q = order_q.where(ShadowOrder.ticker == filter_ticker)
-    orders = list(session.scalars(order_q.order_by(ShadowOrder.id.asc())))
-
     fill_q = select(ShadowFill).where(ShadowFill.portfolio_id == portfolio_id)
     if date_from is not None:
         fill_q = fill_q.where(ShadowFill.execution_date >= date_from)
@@ -293,6 +288,24 @@ def build_shadow_journal(
     fills = list(
         session.scalars(fill_q.order_by(ShadowFill.execution_date.asc(), ShadowFill.id.asc()))
     )
+
+    # Bound orders: by ticker and/or by decision/fill windows (avoid loading full history).
+    order_q = select(ShadowOrder).where(ShadowOrder.portfolio_id == portfolio_id)
+    if filter_ticker:
+        order_q = order_q.where(ShadowOrder.ticker == filter_ticker)
+    if date_from is not None or date_to is not None:
+        decision_ids = [int(d.id) for d in decisions]
+        fill_order_ids = [int(f.order_id) for f in fills]
+        id_filters = []
+        if decision_ids:
+            id_filters.append(ShadowOrder.decision_id.in_(decision_ids))
+        if fill_order_ids:
+            id_filters.append(ShadowOrder.id.in_(fill_order_ids))
+        if id_filters:
+            order_q = order_q.where(or_(*id_filters))
+        else:
+            order_q = order_q.where(ShadowOrder.id == -1)  # empty window
+    orders = list(session.scalars(order_q.order_by(ShadowOrder.id.asc())))
 
     nav_q = select(ShadowNavDaily).where(ShadowNavDaily.portfolio_id == portfolio_id)
     if date_from is not None:
@@ -454,38 +467,25 @@ def build_candidate_history(
             .order_by(ShadowDecision.signal_as_of_date.asc(), ShadowDecision.id.asc())
         )
     )
+    from sqlalchemy import func as sa_func
+
     orders = list(
         session.scalars(
             select(ShadowOrder).where(
                 ShadowOrder.portfolio_id == portfolio_id,
-                ShadowOrder.ticker == ticker_norm,
+                sa_func.upper(ShadowOrder.ticker) == ticker_norm,
             )
         )
     )
-    # Also match case-insensitive via Python if DB collation is sensitive
-    if not orders:
-        all_orders = list(
-            session.scalars(
-                select(ShadowOrder).where(ShadowOrder.portfolio_id == portfolio_id)
-            )
-        )
-        orders = [o for o in all_orders if _normalize_ticker(o.ticker) == ticker_norm]
 
     fills = list(
         session.scalars(
             select(ShadowFill).where(
                 ShadowFill.portfolio_id == portfolio_id,
-                ShadowFill.ticker == ticker_norm,
+                sa_func.upper(ShadowFill.ticker) == ticker_norm,
             )
         )
     )
-    if not fills:
-        all_fills = list(
-            session.scalars(
-                select(ShadowFill).where(ShadowFill.portfolio_id == portfolio_id)
-            )
-        )
-        fills = [f for f in all_fills if _normalize_ticker(f.ticker) == ticker_norm]
     fills_by_order = {int(f.order_id): f for f in fills}
     orders_by_decision: dict[int, list[ShadowOrder]] = {}
     for order in orders:
