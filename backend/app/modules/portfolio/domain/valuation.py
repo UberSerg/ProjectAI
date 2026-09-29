@@ -9,11 +9,18 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.ports.intraday_market import IntradayMarketPort
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.investment.domain.fixed_income import calculate_bond_purchase
 from app.modules.investment.infrastructure.models import BondMarketSnapshot, BondTerm
 from app.modules.market.application.instrument_capabilities import resolve_instrument_capabilities
 from app.modules.market.application.intraday_cache import IntradayQuoteCache
+from app.modules.market.application.operational_quote import (
+    ensure_operational_quote,
+    mark_from_intraday_quote,
+    price_unavailable_detail,
+    resolve_board_secid,
+)
 
 Quality = Literal["LIVE", "PARTIAL", "STALE", "UNSUPPORTED"]
 
@@ -54,12 +61,28 @@ def equity_mark(
     instrument: Instrument,
     *,
     cache: IntradayQuoteCache | None = None,
+    allow_fetch: bool = True,
+    provider: IntradayMarketPort | None = None,
 ) -> tuple[Decimal | None, str, Quality]:
-    board = (instrument.primary_board or "TQBR").upper()
+    """Operational mark: cache LAST → PREVPRICE → optional MOEX cold-start → EOD.
+
+    Never writes candles. Missing price returns NONE (not zero).
+    """
+    board, secid = resolve_board_secid(session, instrument)
     quote_cache = cache or IntradayQuoteCache()
-    quote = quote_cache.get(board, instrument.symbol)
-    if quote is not None and quote.last_price is not None:
-        return _d(quote.last_price), "INTRADAY_LAST", "LIVE"
+    quote = quote_cache.get(board, secid)
+    price, source, quality = mark_from_intraday_quote(quote)
+    if price is not None:
+        return price, source, quality
+
+    if allow_fetch:
+        fetched = ensure_operational_quote(
+            session, instrument, cache=quote_cache, provider=provider
+        )
+        price, source, quality = mark_from_intraday_quote(fetched)
+        if price is not None:
+            return price, source, quality
+
     close, _ts = latest_eod_close(session, int(instrument.id))
     if close is not None:
         return close, "EOD_CLOSE", "STALE"
@@ -176,6 +199,8 @@ def value_position(
     units: Decimal,
     *,
     cache: IntradayQuoteCache | None = None,
+    allow_fetch: bool = True,
+    provider: IntradayMarketPort | None = None,
 ) -> PositionValuation:
     asset = (instrument.asset_class or "").lower()
     if asset == "bond":
@@ -197,8 +222,15 @@ def value_position(
             supported=False,
         )
 
-    price, source, quality = equity_mark(session, instrument, cache=cache)
+    price, source, quality = equity_mark(
+        session, instrument, cache=cache, allow_fetch=allow_fetch, provider=provider
+    )
     if price is None:
+        moex_missing = caps.reasons.get("can_live_quote") == "inactive_or_no_moex_or_catalog_only"
+        detail = price_unavailable_detail(
+            has_moex_source=not moex_missing,
+            tried_fetch=allow_fetch,
+        )
         return PositionValuation(
             instrument_id=int(instrument.id),
             symbol=instrument.symbol,
@@ -209,7 +241,7 @@ def value_position(
             currency=instrument.currency or "RUB",
             quality="UNSUPPORTED",
             price_source=None,
-            detail={"reason": "no_price"},
+            detail=detail,
             supported=False,
         )
     return PositionValuation(

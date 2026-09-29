@@ -74,10 +74,18 @@ def test_cache_missing_returns_none() -> None:
     assert cache.get("TQBR", "MISSING") is None
 
 
-def test_cache_unavailable_returns_none_no_fake_data() -> None:
+def test_cache_unavailable_get_without_set_returns_none() -> None:
     cache = IntradayQuoteCache(ttl_seconds=60, client=_BrokenRedis())
-    assert cache.set(_quote()) is False
     assert cache.get("TQBR", "SBER") is None
+
+
+def test_cache_memory_works_when_redis_broken() -> None:
+    """Process memory keeps operational quotes usable after Redis failure."""
+    cache = IntradayQuoteCache(ttl_seconds=60, client=_BrokenRedis())
+    assert cache.set(_quote()) is True
+    got = cache.get("TQBR", "SBER")
+    assert got is not None
+    assert got.last_price == 252.0
 
 
 def test_get_many() -> None:
