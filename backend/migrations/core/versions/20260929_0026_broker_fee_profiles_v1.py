@@ -247,6 +247,30 @@ def upgrade() -> None:
         """
     )
 
+    # Idempotent correction: unmerged PR may have previously seeded 2026-01-01.
+    # Supported evidence for the generic snapshot is only 2026-09-29.
+    op.execute(
+        """
+        UPDATE portfolio.fee_profiles
+        SET valid_from = DATE '2026-09-29',
+            source_note = 'User-provided tariff snapshot, 2026-09-29'
+        WHERE code = 'SBER_INVESTMENT' AND version = 1
+          AND (valid_from IS DISTINCT FROM DATE '2026-09-29')
+        """
+    )
+    op.execute(
+        """
+        UPDATE portfolio.fee_rules r
+        SET valid_from = DATE '2026-09-29',
+            source_note = 'User-provided tariff snapshot, 2026-09-29'
+        FROM portfolio.fee_profiles p
+        WHERE r.fee_profile_id = p.id
+          AND p.code = 'SBER_INVESTMENT' AND p.version = 1
+          AND r.code = 'SBER_MOEX_ONLINE_DEFAULT'
+          AND (r.valid_from IS DISTINCT FROM DATE '2026-09-29')
+        """
+    )
+
 
 def downgrade() -> None:
     op.execute(
