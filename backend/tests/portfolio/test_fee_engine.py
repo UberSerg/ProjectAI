@@ -15,7 +15,6 @@ from app.modules.portfolio.domain.fee_engine import (
 )
 from app.modules.portfolio.domain.personal_ledger import money
 
-
 AS_OF = date(2026, 9, 29)
 
 

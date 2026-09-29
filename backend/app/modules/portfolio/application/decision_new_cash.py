@@ -404,7 +404,8 @@ def _lot_suggestion(
     total_out = money(notional + fee_amount) if lots > 0 else ZERO
     residual = money(target_rub - total_out) if lots > 0 else money(target_rub)
     limitations: list[str] = []
-    if lots > 0 and portfolio is not None and getattr(portfolio, "broker_account_id", None) is not None and not fee_known:
+    has_broker = portfolio is not None and getattr(portfolio, "broker_account_id", None) is not None
+    if lots > 0 and has_broker and not fee_known:
         limitations.append("FEE_RULE_UNMATCHED")
     row.update(
         {

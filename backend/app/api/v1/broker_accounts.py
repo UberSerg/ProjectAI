@@ -24,6 +24,7 @@ from app.modules.portfolio.application.broker_fee_service import (
     update_broker_account,
     update_custom_fee_profile,
 )
+
 router = APIRouter()
 
 

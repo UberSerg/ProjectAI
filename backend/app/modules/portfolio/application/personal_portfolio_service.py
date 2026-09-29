@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.infrastructure.market.models import Instrument
 from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.investment.infrastructure.models import BondTerm
+from app.modules.market.application.intraday_cache import IntradayQuoteCache
+from app.modules.market.application.operational_quote import (
+    ensure_operational_quotes,
+    resolve_board_secid,
+)
 from app.modules.portfolio.domain.lots import LotValidationError, assert_lot_compatible
 from app.modules.portfolio.domain.personal_ledger import (
     ZERO,
@@ -27,11 +32,6 @@ from app.modules.portfolio.domain.personal_ledger import (
     lots_to_units,
     money,
     units_q,
-)
-from app.modules.market.application.intraday_cache import IntradayQuoteCache
-from app.modules.market.application.operational_quote import (
-    ensure_operational_quotes,
-    resolve_board_secid,
 )
 from app.modules.portfolio.domain.valuation import equity_mark, latest_eod_close, value_position
 from app.modules.portfolio.infrastructure.models import (
