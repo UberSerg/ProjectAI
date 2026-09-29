@@ -4,9 +4,14 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -85,7 +90,9 @@ jobs:
       - name: Apply memory migrations
         run: alembic -c alembic_memory.ini upgrade head
       - name: Pytest
-        run: pytest -q
+        # Hard wall-clock so a hung suite cannot block the PR indefinitely.
+        # Healthy full suite historically finishes in ~8 minutes.
+        run: timeout 900 pytest -q
 
   frontend:
     runs-on: ubuntu-latest
