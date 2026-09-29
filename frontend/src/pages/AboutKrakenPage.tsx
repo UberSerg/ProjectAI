@@ -3,6 +3,7 @@ import { useKrakenRole } from "../role/KrakenRoleContext";
 import { getBuildMeta } from "../version/buildMeta";
 import {
   KRAKEN_DISPLAY_VERSION,
+  KRAKEN_PRODUCT_VERSION,
   KRAKEN_RELEASES,
   KRAKEN_VERSION,
   currentRelease,
@@ -24,7 +25,7 @@ export function AboutKrakenPage() {
           {release.title}
         </p>
         <p className="muted" data-testid="about-release-date">
-          Дата релиза: {formatReleaseDate(release.date)}
+          {formatReleaseDate(release.date)}
         </p>
       </header>
 
@@ -37,25 +38,30 @@ export function AboutKrakenPage() {
         </ul>
       </section>
 
-      <section className="panel" data-testid="about-whats-new">
-        <h2>Что нового в {release.displayVersion}</h2>
-        <ul>
+      <details className="panel about-whats-new-details" data-testid="about-whats-new">
+        <summary data-testid="about-whats-new-summary">Что нового</summary>
+        <ul data-testid="about-whats-new-list">
           {release.whatsNew.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>
         <p className="muted about-iam-note">
-          USER / OWNER — режим интерфейса (presentation). Не production IAM.
+          В этой версии по-прежнему нет реального брокерского исполнения: Kraken остаётся
+          advisory-системой и не совершает сделки самостоятельно.
         </p>
-      </section>
+      </details>
 
       {!isUser ? (
         <section className="panel" data-testid="about-owner-meta">
           <h2>Сборка (OWNER)</h2>
           <dl className="about-meta-grid">
             <div>
-              <dt>Version</dt>
+              <dt>Technical VERSION</dt>
               <dd data-testid="about-semver">{meta.version}</dd>
+            </div>
+            <div>
+              <dt>Product release</dt>
+              <dd data-testid="about-product-version">{KRAKEN_PRODUCT_VERSION}</dd>
             </div>
             <div>
               <dt>Git tag</dt>
@@ -85,7 +91,7 @@ export function AboutKrakenPage() {
 
       <ReleaseHistoryPanel
         releases={KRAKEN_RELEASES}
-        currentVersion={KRAKEN_VERSION}
+        currentVersion={KRAKEN_PRODUCT_VERSION}
         showTechnicalNotes={!isUser}
       />
 
