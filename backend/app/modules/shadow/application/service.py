@@ -43,12 +43,18 @@ from app.modules.shadow.application.lot_aware import (
     positions_dict as _lot_positions_dict,
 )
 from app.modules.shadow.config import (
+    FEE_PROFILE_CODE_SBER_INVESTMENT,
+    FEE_PROFILE_VERSION_SBER_INVESTMENT,
     SHADOW_KIND,
     ShadowSpecConfig,
     operational_experiment_groups,
     operational_shadow_configs,
 )
-from app.modules.shadow.domain.fee_estimate import resolve_broker_fee_estimator
+from app.modules.shadow.domain.fee_estimate import (
+    FEE_RULE_UNAVAILABLE_AT_EXECUTION,
+    estimate_shadow_fee,
+    resolve_broker_fee_estimator,
+)
 from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
 from app.modules.shadow.domain.sell_gate import (
     RISK_EXIT,
@@ -56,6 +62,7 @@ from app.modules.shadow.domain.sell_gate import (
     PolicyTarget,
     ReplacementCandidate,
     SellGateParams,
+    SellPermission,
     apply_sell_gate,
 )
 from app.modules.shadow.infrastructure.models import (
@@ -679,6 +686,13 @@ def _apply_v3_sell_economics(
         getattr(spec, "fee_profile_code", None)
         or (payload.get("fee_profile_code") if isinstance(payload, dict) else None)
     )
+    fee_profile_version = (
+        getattr(spec, "fee_profile_version", None)
+        if getattr(spec, "fee_profile_version", None) is not None
+        else (payload.get("fee_profile_version") if isinstance(payload, dict) else None)
+    )
+    if fee_profile_code and fee_profile_version is None:
+        fee_profile_version = FEE_PROFILE_VERSION_SBER_INVESTMENT
     min_edge = float(
         getattr(spec, "min_net_rotation_edge_bps", None)
         if getattr(spec, "min_net_rotation_edge_bps", None) is not None
@@ -689,9 +703,13 @@ def _apply_v3_sell_economics(
         )
     )
     slippage_bps = float(spec.slippage_bps or 0.0)
+    # Fee date at decision = planned min execution market date (not signal as_of).
+    fee_as_of = min_execution_market_date(decision_at)
     fee_estimator = resolve_broker_fee_estimator(
         fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
+        fee_profile_version=int(fee_profile_version) if fee_profile_version is not None else None,
         commission_bps=float(spec.commission_bps or 0.0),
+        session=None,  # sell gate stays pure; DB resolution used at plan/fill
     )
 
     signal_by_id = {int(s.instrument_id): s for s in signals}
@@ -827,7 +845,7 @@ def _apply_v3_sell_economics(
             fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
             k_entry=k_entry,
             exposure_cap=float(exposure_cap),
-            as_of=batch.as_of_date,
+            as_of=fee_as_of,
         ),
         fee_estimator=fee_estimator,
         risk_forced=risk_forced,
@@ -835,6 +853,7 @@ def _apply_v3_sell_economics(
         policy_name=spec.policy_name,
     )
 
+    perm_by_id = {int(p.instrument_id): p for p in gate.permissions}
     targets = [
         {
             "instrument_id": t.instrument_id,
@@ -847,13 +866,30 @@ def _apply_v3_sell_economics(
             "gate_action": t.gate_action,
             "rotate_from": t.rotate_from,
             "rotate_to": t.rotate_to,
+            "sell_allowed": (
+                perm_by_id[int(t.instrument_id)].sell_allowed
+                if int(t.instrument_id) in perm_by_id
+                else True
+            ),
+            "sell_permission": (
+                perm_by_id[int(t.instrument_id)].to_dict()
+                if int(t.instrument_id) in perm_by_id
+                else None
+            ),
         }
         for t in gate.targets
     ]
+    sell_permissions = {str(p.instrument_id): p.to_dict() for p in gate.permissions}
     meta = {
         "sell_gate": dict(gate.metadata),
         "candidate_traces": [tr.to_dict() for tr in gate.traces],
-        "fee_profile_code": fee_profile_code,
+        "sell_permissions": sell_permissions,
+        "fee_profile_code": fee_profile_code or FEE_PROFILE_CODE_SBER_INVESTMENT,
+        "fee_profile_version": int(fee_profile_version)
+        if fee_profile_version is not None
+        else FEE_PROFILE_VERSION_SBER_INVESTMENT,
+        "fee_estimation_date": fee_as_of.isoformat(),
+        "min_execution_market_date": fee_as_of.isoformat(),
         "min_net_rotation_edge_bps": min_edge,
         "slippage_bps": slippage_bps,
     }
@@ -970,7 +1006,9 @@ def _persist_lot_aware_orders(
     eligible_count: int,
     decision_at: datetime,
 ) -> None:
-    """V2 lot-aware path — LOTSIZE + cash-safe OrderPlan."""
+    """V2/V3 lot-aware path — LOTSIZE + cash-safe OrderPlan."""
+    v3 = is_sell_economics_v3_spec(spec)
+    perm_by_id = _sell_permissions_from_decision(decision) if v3 else {}
     instruments_orm: list[Instrument] = []
     if all_ids:
         instruments_orm = list(
@@ -999,6 +1037,21 @@ def _persist_lot_aware_orders(
         resolved = lot_res.get(iid)
         lot_size = resolved.lot_size if resolved is not None else None
         rank = (target_by_id.get(iid) or {}).get("rank")
+        sell_allowed = True
+        max_sell_units: Decimal | None = None
+        if v3:
+            perm = perm_by_id.get(iid)
+            if perm is not None:
+                sell_allowed = bool(perm.sell_allowed)
+                if perm.max_sell_units is not None:
+                    max_sell_units = Decimal(str(perm.max_sell_units))
+                elif perm.max_sell_fraction is not None and current_qty > 0:
+                    max_sell_units = Decimal(str(current_qty)) * Decimal(
+                        str(perm.max_sell_fraction)
+                    )
+            elif current_qty > 1e-12 and target_w <= 0:
+                # Held exit without an explicit permission — block (fail closed).
+                sell_allowed = False
         plan_inputs.append(
             PlanInstrument(
                 instrument_id=iid,
@@ -1008,22 +1061,100 @@ def _persist_lot_aware_orders(
                 price=Decimal(str(px)) if px and px > 0 else None,
                 lot_size=lot_size,
                 rank=int(rank) if rank is not None else None,
+                sell_allowed=sell_allowed,
+                max_sell_units=max_sell_units,
             )
         )
 
     payload = spec.payload or {}
     strategic = float(payload.get("strategic_cash_reserve") or 0.0)
     costs = TransactionCostProfile(
-        broker_bps=Decimal(str(spec.commission_bps)),
-        slippage_bps=Decimal(str(spec.slippage_bps)),
+        # V1/V2: flat commission_bps. V3: FeeEngine via fee_for (broker_bps ignored).
+        broker_bps=Decimal(str(spec.commission_bps or 0.0)),
+        slippage_bps=Decimal(str(spec.slippage_bps or 0.0)),
     )
+    fee_for = None
+    fee_estimator = None
+    fee_profile_code = None
+    fee_profile_version = None
+    if v3:
+        fee_profile_code = (
+            payload.get("fee_profile_code")
+            if isinstance(payload, dict)
+            else None
+        ) or FEE_PROFILE_CODE_SBER_INVESTMENT
+        fee_profile_version = (
+            payload.get("fee_profile_version")
+            if isinstance(payload, dict)
+            else None
+        )
+        if fee_profile_version is None:
+            fee_profile_version = FEE_PROFILE_VERSION_SBER_INVESTMENT
+        fee_estimator = resolve_broker_fee_estimator(
+            fee_profile_code=str(fee_profile_code),
+            fee_profile_version=int(fee_profile_version),
+            commission_bps=0.0,
+            session=session,
+        )
+
+        def fee_for(side: str, notional: Decimal, inst: PlanInstrument) -> Decimal | None:
+            quote = estimate_shadow_fee(
+                fee_estimator,
+                side=side,
+                notional=notional,
+                instrument_id=int(inst.instrument_id),
+                as_of=min_exec,
+                fee_profile_code=str(fee_profile_code),
+                fee_profile_version=int(fee_profile_version),
+                instrument_symbol=str(inst.ticker),
+            )
+            return quote.amount
+
     plan = build_lot_order_plan(
         plan_inputs,
         cash=Decimal(str(portfolio.cash)),
         nav=Decimal(str(nav)),
         costs=costs,
         strategic_cash_reserve=Decimal(str(strategic)),
+        fee_for=fee_for,
     )
+
+    if v3:
+        unauthorized = [
+            r
+            for r in plan.executable
+            if r.action == "SELL"
+            and (
+                r.instrument_id not in perm_by_id
+                or not perm_by_id[r.instrument_id].sell_allowed
+            )
+        ]
+        if unauthorized:
+            # Do not persist — sell permission invariant violated.
+            meta = dict(decision.metadata_ or {})
+            meta["order_plan_blocked"] = {
+                "reason": "UNAUTHORIZED_SELL",
+                "instrument_ids": [r.instrument_id for r in unauthorized],
+            }
+            decision.metadata_ = meta
+            return
+
+        # Journal consistency: HOLD/REVIEW_HOLD/DATA_HOLD must not coexist with SELL.
+        no_sell_actions = {"HOLD", "REVIEW_HOLD", "DATA_HOLD"}
+        for r in plan.executable:
+            if r.action != "SELL":
+                continue
+            perm = perm_by_id.get(r.instrument_id)
+            if perm is not None and perm.action in no_sell_actions:
+                meta = dict(decision.metadata_ or {})
+                meta["order_plan_blocked"] = {
+                    "reason": "HOLD_SELL_INCONSISTENCY",
+                    "instrument_id": r.instrument_id,
+                    "gate_action": perm.action,
+                }
+                decision.metadata_ = meta
+                return
+
     meta = dict(decision.metadata_ or {})
     meta["order_plan"] = {
         "projected_cash": float(plan.projected_cash),
@@ -1033,6 +1164,9 @@ def _persist_lot_aware_orders(
         "strategic_cash_reserve": float(plan.strategic_cash_reserve),
         "sell_proceeds": float(plan.sell_proceeds),
         "buy_notional": float(plan.buy_notional),
+        "fee_estimation_date": min_exec.isoformat() if v3 else None,
+        "fee_profile_code": fee_profile_code if v3 else None,
+        "fee_profile_version": int(fee_profile_version) if v3 and fee_profile_version else None,
         "rows": [
             {
                 "instrument_id": r.instrument_id,
@@ -1076,18 +1210,49 @@ def _persist_lot_aware_orders(
     }
     meta["skipped"] = meta["order_plan"]["skipped"]
     meta["execution_version"] = execution_version_for_spec(spec) or EXECUTION_VERSION_LOT_AWARE_V2
+    if v3:
+        meta["fee_estimation_date"] = min_exec.isoformat()
+        meta["fee_profile_code"] = fee_profile_code
+        meta["fee_profile_version"] = int(fee_profile_version) if fee_profile_version else None
     decision.metadata_ = meta
 
     for row in plan.executable:
         action = (target_by_id.get(row.instrument_id) or {}).get("action")
         gate_action = (target_by_id.get(row.instrument_id) or {}).get("gate_action")
-        if row.action == "SELL" and row.target_weight <= 0:
-            if gate_action == "ROTATE":
-                reason = f"ROTATE_TO_{(target_by_id.get(row.instrument_id) or {}).get('rotate_to')}"
-            elif gate_action in {"RISK_EXIT", "RISK_REDUCE", "EXIT_TO_CASH"}:
-                reason = str(gate_action)
+        perm = perm_by_id.get(row.instrument_id) if v3 else None
+        if perm is not None and gate_action is None:
+            gate_action = perm.action
+        if row.action == "SELL":
+            if v3 and perm is not None:
+                # V3: order reason must be the gate authorization reason.
+                if perm.action == "ROTATE":
+                    rot_ticker = None
+                    if perm.rotate_to is not None:
+                        rot_tgt = target_by_id.get(int(perm.rotate_to)) or {}
+                        rot_ticker = rot_tgt.get("ticker")
+                    reason = perm.reason or (
+                        f"ROTATE_TO_{rot_ticker or perm.rotate_to}"
+                    )
+                elif perm.action in {"RISK_EXIT", "RISK_REDUCE", "EXIT_TO_CASH"}:
+                    reason = str(perm.reason or perm.action)
+                else:
+                    reason = str(perm.reason or perm.action)
+            elif row.target_weight <= 0:
+                if gate_action == "ROTATE":
+                    reason = (
+                        f"ROTATE_TO_"
+                        f"{(target_by_id.get(row.instrument_id) or {}).get('rotate_to')}"
+                    )
+                elif gate_action in {"RISK_EXIT", "RISK_REDUCE", "EXIT_TO_CASH"}:
+                    reason = str(gate_action)
+                else:
+                    reason = "EXIT_BELOW_TOP35"
             else:
-                reason = "EXIT_BELOW_TOP35"
+                reason = (
+                    "REBALANCE_WEIGHT_DELTA"
+                    if action == "HOLD_WITHIN_EXIT_BAND"
+                    else str(action or row.action)
+                )
         elif row.action == "BUY" and _position_qty(portfolio, row.instrument_id) <= 1e-12:
             if gate_action == "ROTATE":
                 reason = f"ROTATE_FROM_{(target_by_id.get(row.instrument_id) or {}).get('rotate_from')}"
@@ -1118,26 +1283,113 @@ def _persist_lot_aware_orders(
                 eligible_count=eligible_count,
                 decision_at=decision_at,
                 min_execution_date=min_exec,
-                metadata_={
-                    "forward_batch_id": batch.id,
-                    "signal_as_of": batch.as_of_date.isoformat(),
-                    "signal_generated_at": ensure_aware_utc(
-                        batch.generated_at or decision_at
-                    ).isoformat(),
-                    "policy": spec.policy_name,
-                    "risk_mode": portfolio.risk_mode,
-                    "kind": SHADOW_KIND,
-                    "execution_version": execution_version_for_spec(spec)
-                    or EXECUTION_VERSION_LOT_AWARE_V2,
-                    "lots": int(row.lots_delta),
-                    "lot_size": int(row.lot_size) if row.lot_size else None,
-                    "units": float(row.units_delta),
-                    "plan_reason": row.reason,
-                    "estimated_fee": float(row.estimated_fee),
-                    "gate_action": gate_action,
-                },
+                metadata_=_order_fee_metadata(
+                    base={
+                        "forward_batch_id": batch.id,
+                        "signal_as_of": batch.as_of_date.isoformat(),
+                        "signal_generated_at": ensure_aware_utc(
+                            batch.generated_at or decision_at
+                        ).isoformat(),
+                        "policy": spec.policy_name,
+                        "risk_mode": portfolio.risk_mode,
+                        "kind": SHADOW_KIND,
+                        "execution_version": execution_version_for_spec(spec)
+                        or EXECUTION_VERSION_LOT_AWARE_V2,
+                        "lots": int(row.lots_delta),
+                        "lot_size": int(row.lot_size) if row.lot_size else None,
+                        "units": float(row.units_delta),
+                        "plan_reason": row.reason,
+                        "estimated_fee": float(row.estimated_fee),
+                        "gate_action": gate_action,
+                        "sell_allowed": (
+                            bool(perm.sell_allowed) if perm is not None else None
+                        ),
+                    },
+                    v3=v3,
+                    fee_estimator=fee_estimator,
+                    fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
+                    fee_profile_version=(
+                        int(fee_profile_version) if fee_profile_version is not None else None
+                    ),
+                    fee_date=min_exec,
+                    side=str(row.action),
+                    notional=Decimal(str(row.estimated_notional)),
+                    instrument_id=int(row.instrument_id),
+                    instrument_symbol=str(row.ticker),
+                    estimated=True,
+                ),
             )
         )
+
+
+def _order_fee_metadata(
+    *,
+    base: dict[str, Any],
+    v3: bool,
+    fee_estimator: Any,
+    fee_profile_code: str | None,
+    fee_profile_version: int | None,
+    fee_date: date,
+    side: str,
+    notional: Decimal,
+    instrument_id: int,
+    instrument_symbol: str,
+    estimated: bool,
+) -> dict[str, Any]:
+    """Attach FeeEngine provenance to order/fill metadata (V3 only)."""
+    meta = dict(base)
+    if not v3 or fee_estimator is None:
+        return meta
+    quote = estimate_shadow_fee(
+        fee_estimator,
+        side=side,
+        notional=notional,
+        instrument_id=instrument_id,
+        as_of=fee_date,
+        fee_profile_code=fee_profile_code,
+        fee_profile_version=fee_profile_version,
+        instrument_symbol=instrument_symbol,
+    )
+    meta.update(quote.to_provenance(estimated=estimated))
+    return meta
+
+
+def _sell_permissions_from_decision(
+    decision: ShadowDecision,
+) -> dict[int, SellPermission]:
+    """Rebuild SellPermission map from decision metadata (V3)."""
+    meta = dict(decision.metadata_ or {})
+    raw = meta.get("sell_permissions") or {}
+    if not raw and isinstance(meta.get("sell_gate"), dict):
+        raw = (meta.get("sell_gate") or {}).get("sell_permissions") or {}
+    out: dict[int, SellPermission] = {}
+    if not isinstance(raw, dict):
+        return out
+    for key, val in raw.items():
+        if not isinstance(val, dict):
+            continue
+        try:
+            iid = int(val.get("instrument_id") or key)
+        except (TypeError, ValueError):
+            continue
+        max_units = val.get("max_sell_units")
+        out[iid] = SellPermission(
+            instrument_id=iid,
+            ticker=str(val.get("ticker") or iid),
+            sell_allowed=bool(val.get("sell_allowed")),
+            action=str(val.get("action") or "HOLD"),
+            reason=val.get("reason"),
+            max_sell_units=Decimal(str(max_units)) if max_units is not None else None,
+            max_sell_fraction=(
+                float(val["max_sell_fraction"])
+                if val.get("max_sell_fraction") is not None
+                else None
+            ),
+            rotate_to=(
+                int(val["rotate_to"]) if val.get("rotate_to") is not None else None
+            ),
+        )
+    return out
 
 
 def _scan_late_input_corrections(session: Session, portfolio: ShadowPortfolio) -> int:
@@ -1178,6 +1430,27 @@ def _fill_pending_orders(
     )
     adapter = HistoricalNextOpenAdapter()
     filled = 0
+    v3 = is_sell_economics_v3_spec(spec)
+    payload = spec.payload or {}
+    fee_profile_code = None
+    fee_profile_version = None
+    fee_estimator = None
+    if v3:
+        fee_profile_code = (
+            (payload.get("fee_profile_code") if isinstance(payload, dict) else None)
+            or FEE_PROFILE_CODE_SBER_INVESTMENT
+        )
+        fee_profile_version = (
+            payload.get("fee_profile_version") if isinstance(payload, dict) else None
+        )
+        if fee_profile_version is None:
+            fee_profile_version = FEE_PROFILE_VERSION_SBER_INVESTMENT
+        fee_estimator = resolve_broker_fee_estimator(
+            fee_profile_code=str(fee_profile_code),
+            fee_profile_version=int(fee_profile_version),
+            commission_bps=0.0,
+            session=session,
+        )
     # Sells first
     ordered = sorted(pending, key=lambda o: 0 if o.side == "SELL" else 1)
     for order in ordered:
@@ -1199,17 +1472,51 @@ def _fill_pending_orders(
             quantity=float(order.quantity),
             reason=order.reason,
         )
+        # V3: slippage via adapter; broker commission from FeeEngine on execution_date.
         fill = adapter.fill(
             intent,
             raw_open=raw_open,
-            commission_bps=float(spec.commission_bps),
-            slippage_bps=float(spec.slippage_bps),
+            commission_bps=0.0 if v3 else float(spec.commission_bps or 0.0),
+            slippage_bps=float(spec.slippage_bps or 0.0),
         )
         if fill is None:
             continue
+
+        fee_quote = None
+        if v3 and fee_estimator is not None:
+            # Actual notional after slippage-adjusted fill price.
+            fee_quote = estimate_shadow_fee(
+                fee_estimator,
+                side=str(order.side),
+                notional=Decimal(str(fill.notional)),
+                instrument_id=int(order.instrument_id),
+                as_of=market_date,
+                fee_profile_code=str(fee_profile_code),
+                fee_profile_version=int(fee_profile_version)
+                if fee_profile_version is not None
+                else None,
+                instrument_symbol=str(order.ticker),
+            )
+            if fee_quote.is_unknown:
+                # Honest degrade — do not invent 0% commission.
+                ometa = dict(order.metadata_ or {})
+                ometa["limitation"] = FEE_RULE_UNAVAILABLE_AT_EXECUTION
+                ometa["fee_status"] = str(fee_quote.status)
+                ometa["fee_date"] = market_date.isoformat()
+                ometa["fee_explanation"] = fee_quote.explanation
+                order.metadata_ = ometa
+                order.updated_at = now
+                continue
+            fill = fill.__class__(
+                **{
+                    **fill.__dict__,
+                    "commission": float(fee_quote.amount or 0),
+                }
+            )
+
         lot_aware = is_lot_aware_spec(spec)
         lot_size = _order_lot_size(order)
-        # Apply cash / positions
+        # Apply cash / positions: BUY decreases by notional+fee; SELL increases by notional-fee.
         if order.side == "BUY":
             cost = fill.notional + fill.commission
             if cost > float(portfolio.cash) + 1e-6:
@@ -1241,7 +1548,37 @@ def _fill_pending_orders(
                 order.status = "CANCELLED"
                 order.updated_at = now
                 continue
-            proceeds = sell_qty * fill.fill_price - fill.commission
+            # Recompute commission on actual sell notional when quantity was clipped.
+            sell_notional = sell_qty * fill.fill_price
+            if v3 and fee_estimator is not None and abs(sell_qty - fill.quantity) > 1e-12:
+                fee_quote = estimate_shadow_fee(
+                    fee_estimator,
+                    side="SELL",
+                    notional=Decimal(str(sell_notional)),
+                    instrument_id=int(order.instrument_id),
+                    as_of=market_date,
+                    fee_profile_code=str(fee_profile_code),
+                    fee_profile_version=int(fee_profile_version)
+                    if fee_profile_version is not None
+                    else None,
+                    instrument_symbol=str(order.ticker),
+                )
+                if fee_quote.is_unknown:
+                    ometa = dict(order.metadata_ or {})
+                    ometa["limitation"] = FEE_RULE_UNAVAILABLE_AT_EXECUTION
+                    ometa["fee_status"] = str(fee_quote.status)
+                    ometa["fee_date"] = market_date.isoformat()
+                    order.metadata_ = ometa
+                    order.updated_at = now
+                    continue
+                commission = float(fee_quote.amount or 0)
+            else:
+                # Scale legacy bps commission to clipped qty; V3 already set absolute fee.
+                if not v3 and fill.quantity > 0 and abs(sell_qty - fill.quantity) > 1e-12:
+                    commission = float(fill.commission) * (sell_qty / fill.quantity)
+                else:
+                    commission = float(fill.commission)
+            proceeds = sell_notional - commission
             portfolio.cash = float(portfolio.cash) + proceeds
             if lot_aware:
                 if lot_size is None:
@@ -1257,7 +1594,7 @@ def _fill_pending_orders(
                     side="SELL",
                     quantity=float(sell_qty),
                     fill_price=float(fill.fill_price),
-                    commission=float(fill.commission),
+                    commission=float(commission),
                     lot_size=lot_size,
                 )
             else:
@@ -1267,7 +1604,8 @@ def _fill_pending_orders(
                 **{
                     **fill.__dict__,
                     "quantity": sell_qty,
-                    "notional": sell_qty * fill.fill_price,
+                    "notional": sell_notional,
+                    "commission": commission,
                 }
             )
 
@@ -1283,6 +1621,9 @@ def _fill_pending_orders(
             if lot_size is not None:
                 fill_meta["lot_size"] = lot_size
                 fill_meta["lots"] = int(float(fill.quantity) / lot_size)
+        if v3 and fee_quote is not None:
+            fill_meta.update(fee_quote.to_provenance(estimated=False))
+            fill_meta["fee_date"] = market_date.isoformat()
         session.add(
             ShadowFill(
                 portfolio_id=portfolio.id,

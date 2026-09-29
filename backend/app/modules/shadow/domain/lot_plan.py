@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import ROUND_FLOOR, Decimal
 from typing import Literal
@@ -10,6 +11,10 @@ from app.modules.investment.domain.fixed_income import TransactionCostProfile
 
 Side = Literal["BUY", "SELL"]
 PlanAction = Literal["BUY", "SELL", "SKIP"]
+
+# Optional per-instrument FeeEngine (or other) fee: side, notional, instrument → amount.
+# Return None when the rule is UNKNOWN — planner must not invent a fake 0%.
+InstrumentFeeFn = Callable[[str, Decimal, "PlanInstrument"], Decimal | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +27,9 @@ class PlanInstrument:
     lot_size: int | None
     rank: int | None = None
     priority: int | None = None  # lower = earlier for buys
+    # V3 sell-permission guardrails (defaults preserve V1/V2 behaviour).
+    sell_allowed: bool = True
+    max_sell_units: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +88,47 @@ def _floor_lots(units: Decimal, lot_size: int) -> int:
     return int((units / Decimal(lot_size)).to_integral_value(rounding=ROUND_FLOOR))
 
 
+def _resolve_fee(
+    *,
+    costs: TransactionCostProfile,
+    fee_for: InstrumentFeeFn | None,
+    side: str,
+    notional: Decimal,
+    inst: PlanInstrument,
+) -> Decimal | None:
+    """Legacy flat bps via ``costs.fee``; V3 FeeEngine via ``fee_for`` (None = unknown)."""
+    if fee_for is not None:
+        return fee_for(side, notional, inst)
+    return costs.fee(notional)
+
+
+def _affordable_lots_with_fee(
+    cash: Decimal,
+    lot_notional: Decimal,
+    *,
+    costs: TransactionCostProfile,
+    fee_for: InstrumentFeeFn | None,
+    side: str,
+    inst: PlanInstrument,
+) -> int:
+    if cash <= 0 or lot_notional <= 0:
+        return 0
+    if fee_for is None:
+        from app.modules.investment.domain.fixed_income import affordable_lots
+
+        return affordable_lots(cash, lot_notional, costs)
+    guess = int((cash / lot_notional).to_integral_value(rounding=ROUND_FLOOR))
+    while guess > 0:
+        notional = lot_notional * Decimal(guess)
+        fee = fee_for(side, notional, inst)
+        if fee is None:
+            return 0
+        if notional + fee <= cash:
+            return guess
+        guess -= 1
+    return 0
+
+
 def build_lot_order_plan(
     instruments: list[PlanInstrument],
     *,
@@ -87,6 +136,7 @@ def build_lot_order_plan(
     nav: Decimal,
     costs: TransactionCostProfile,
     strategic_cash_reserve: Decimal = Decimal("0"),
+    fee_for: InstrumentFeeFn | None = None,
 ) -> OrderPlan:
     """Deterministic sell-then-buy integer-lot plan. Never returns negative projected cash."""
     if cash < 0:
@@ -160,6 +210,28 @@ def build_lot_order_plan(
                 )
             continue
 
+        # Hard guard: no SELL without explicit authorization (V3 sell permission).
+        if not inst.sell_allowed:
+            if cur > 0 and tw < cw:
+                plan.rows.append(
+                    PlanRow(
+                        instrument_id=inst.instrument_id,
+                        ticker=inst.ticker,
+                        action="SKIP",
+                        lots_delta=0,
+                        units_delta=Decimal("0"),
+                        target_weight=tw,
+                        current_weight=cw,
+                        estimated_price=px,
+                        estimated_notional=Decimal("0"),
+                        estimated_fee=Decimal("0"),
+                        lot_size=inst.lot_size,
+                        reason="SELL_NOT_ALLOWED",
+                        rank=inst.rank,
+                    )
+                )
+            continue
+
         lot_size = int(inst.lot_size)
         target_units = (nav * tw / px).to_integral_value(rounding=ROUND_FLOOR)
         # Align target to lots
@@ -176,9 +248,75 @@ def build_lot_order_plan(
         if lots_delta <= 0:
             continue
         units_delta = Decimal(lots_delta * lot_size)
+        # Cap by max_sell_units when set (e.g. RISK_REDUCE partial).
+        if inst.max_sell_units is not None:
+            max_units = _d(inst.max_sell_units)
+            if max_units <= 0:
+                plan.rows.append(
+                    PlanRow(
+                        instrument_id=inst.instrument_id,
+                        ticker=inst.ticker,
+                        action="SKIP",
+                        lots_delta=0,
+                        units_delta=Decimal("0"),
+                        target_weight=tw,
+                        current_weight=cw,
+                        estimated_price=px,
+                        estimated_notional=Decimal("0"),
+                        estimated_fee=Decimal("0"),
+                        lot_size=lot_size,
+                        reason="SELL_CAP_ZERO",
+                        rank=inst.rank,
+                    )
+                )
+                continue
+            max_lots = _floor_lots(max_units, lot_size)
+            if max_lots <= 0:
+                plan.rows.append(
+                    PlanRow(
+                        instrument_id=inst.instrument_id,
+                        ticker=inst.ticker,
+                        action="SKIP",
+                        lots_delta=0,
+                        units_delta=Decimal("0"),
+                        target_weight=tw,
+                        current_weight=cw,
+                        estimated_price=px,
+                        estimated_notional=Decimal("0"),
+                        estimated_fee=Decimal("0"),
+                        lot_size=lot_size,
+                        reason="SELL_CAP_BELOW_ONE_LOT",
+                        rank=inst.rank,
+                    )
+                )
+                continue
+            if lots_delta > max_lots:
+                lots_delta = max_lots
+                units_delta = Decimal(lots_delta * lot_size)
         exec_px = costs.execution_price(px, "SELL")
         notional = exec_px * units_delta
-        fee = costs.fee(notional)
+        fee = _resolve_fee(
+            costs=costs, fee_for=fee_for, side="SELL", notional=notional, inst=inst
+        )
+        if fee is None:
+            plan.rows.append(
+                PlanRow(
+                    instrument_id=inst.instrument_id,
+                    ticker=inst.ticker,
+                    action="SKIP",
+                    lots_delta=0,
+                    units_delta=Decimal("0"),
+                    target_weight=tw,
+                    current_weight=cw,
+                    estimated_price=px,
+                    estimated_notional=Decimal("0"),
+                    estimated_fee=Decimal("0"),
+                    lot_size=lot_size,
+                    reason="FEE_RULE_UNAVAILABLE",
+                    rank=inst.rank,
+                )
+            )
+            continue
         proceeds = notional - fee
         if proceeds < 0:
             plan.rows.append(
@@ -316,16 +454,29 @@ def build_lot_order_plan(
         # Cap by target need and allocable cash (keep strategic reserve)
         max_by_cash = 0
         if lot_notional > 0 and allocable > 0:
-            from app.modules.investment.domain.fixed_income import affordable_lots
-
-            max_by_cash = affordable_lots(allocable, lot_notional, costs)
+            max_by_cash = _affordable_lots_with_fee(
+                allocable,
+                lot_notional,
+                costs=costs,
+                fee_for=fee_for,
+                side="BUY",
+                inst=inst,
+            )
         lots = min(need_lots, max_by_cash)
         if lots <= 0:
-            reason = (
-                "INSUFFICIENT_CASH_FOR_ONE_LOT"
-                if lot_notional + costs.fee(lot_notional) > allocable
-                else "BELOW_ONE_LOT"
+            one_lot_fee = _resolve_fee(
+                costs=costs,
+                fee_for=fee_for,
+                side="BUY",
+                notional=lot_notional,
+                inst=inst,
             )
+            if one_lot_fee is None:
+                reason = "FEE_RULE_UNAVAILABLE"
+            elif lot_notional + one_lot_fee > allocable:
+                reason = "INSUFFICIENT_CASH_FOR_ONE_LOT"
+            else:
+                reason = "BELOW_ONE_LOT"
             plan.rows.append(
                 PlanRow(
                     instrument_id=inst.instrument_id,
@@ -347,7 +498,28 @@ def build_lot_order_plan(
 
         units_delta = Decimal(lots * lot_size)
         notional = exec_px * units_delta
-        fee = costs.fee(notional)
+        fee = _resolve_fee(
+            costs=costs, fee_for=fee_for, side="BUY", notional=notional, inst=inst
+        )
+        if fee is None:
+            plan.rows.append(
+                PlanRow(
+                    instrument_id=inst.instrument_id,
+                    ticker=inst.ticker,
+                    action="SKIP",
+                    lots_delta=0,
+                    units_delta=Decimal("0"),
+                    target_weight=tw,
+                    current_weight=cw,
+                    estimated_price=exec_px,
+                    estimated_notional=Decimal("0"),
+                    estimated_fee=Decimal("0"),
+                    lot_size=lot_size,
+                    reason="FEE_RULE_UNAVAILABLE",
+                    rank=inst.rank,
+                )
+            )
+            continue
         used = notional + fee
         if used > allocable + Decimal("0.0000001"):
             plan.rows.append(

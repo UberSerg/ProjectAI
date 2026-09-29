@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
+from app.modules.investment.domain.fixed_income import TransactionCostProfile
 from app.modules.portfolio.domain.fee_engine import (
     FeeEngine,
     FeeEstimateContext,
@@ -30,6 +31,7 @@ from app.modules.shadow.domain.fee_estimate import (
     FeeEngineEstimator,
     resolve_broker_fee_estimator,
 )
+from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
 from app.modules.shadow.domain.sell_gate import (
     DATA_HOLD,
     EXIT_TO_CASH,
@@ -53,6 +55,7 @@ def _held(
     rank: int,
     qty: float = 100.0,
     price: float = 100.0,
+    weight: float = 0.2,
     semantic: str = "EXPECTED_RETURN",
     stale: bool = False,
     in_band: bool = False,
@@ -61,11 +64,11 @@ def _held(
         instrument_id=iid,
         ticker=f"T{iid}",
         quantity=qty,
-        current_weight=0.2,
+        current_weight=weight,
         rank=rank,
         prediction_semantic=semantic,
         expected_return=expected if semantic == "EXPECTED_RETURN" else None,
-        signal_as_of=date(2026, 9, 1),
+        signal_as_of=date(2026, 9, 15),
         price=price,
         in_exit_band=in_band,
         signal_stale=stale,
@@ -89,7 +92,7 @@ def _cand(
         prediction_semantic=semantic,
         expected_return=expected if semantic == "EXPECTED_RETURN" else None,
         price=price,
-        signal_as_of=date(2026, 9, 1),
+        signal_as_of=date(2026, 9, 15),
         signal_stale=stale,
     )
 
@@ -98,17 +101,83 @@ def _fee() -> FeeEngineEstimator:
     return FeeEngineEstimator(FeeEngine(sber_investment_builtin_rules()))
 
 
+def _perm_map(result):
+    return {p.instrument_id: p for p in result.permissions}
+
+
+def _plan_from_gate(
+    result,
+    *,
+    held: list[HeldName],
+    nav: float | None = None,
+    cash: float = 10_000.0,
+):
+    """End-to-end gate → PlanInstrument → lot plan (unit-level, no DB)."""
+    held_by = {h.instrument_id: h for h in held}
+    perm_by = _perm_map(result)
+    target_by = {t.instrument_id: t for t in result.targets}
+    all_ids = set(target_by) | set(held_by)
+    # Derive NAV from marks so current_weight matches HeldName weights.
+    if nav is None:
+        mv = sum(
+            float(h.quantity) * float(h.price or 0)
+            for h in held
+            if h.price and h.price > 0
+        )
+        nav = mv + float(cash) if mv > 0 else 100_000.0
+    instruments: list[PlanInstrument] = []
+    for iid in sorted(all_ids):
+        h = held_by.get(iid)
+        t = target_by.get(iid)
+        tw = float(t.target_weight) if t is not None else 0.0
+        qty = float(h.quantity) if h is not None else 0.0
+        px = h.price if h is not None else None
+        if t is not None and px is None:
+            px = 100.0
+        perm = perm_by.get(iid)
+        sell_allowed = True
+        max_sell_units = None
+        if perm is not None:
+            sell_allowed = perm.sell_allowed
+            max_sell_units = perm.max_sell_units
+        elif qty > 0 and tw <= 0:
+            sell_allowed = False
+        instruments.append(
+            PlanInstrument(
+                instrument_id=iid,
+                ticker=(t.ticker if t else h.ticker if h else str(iid)),
+                target_weight=Decimal(str(tw)),
+                current_units=Decimal(str(qty)),
+                price=Decimal(str(px)) if px and px > 0 else None,
+                lot_size=1,
+                rank=t.rank if t is not None else (h.rank if h else None),
+                sell_allowed=sell_allowed,
+                max_sell_units=max_sell_units,
+            )
+        )
+    return build_lot_order_plan(
+        instruments,
+        cash=Decimal(str(cash)),
+        nav=Decimal(str(nav)),
+        costs=TransactionCostProfile(broker_bps=Decimal("0"), slippage_bps=Decimal("0")),
+    )
+
+
 def test_v3_configs_distinct_from_v2() -> None:
     a, b = realism_v3_shadow_configs()
     assert a.experiment_group == EXPERIMENT_GROUP_V3 == b.experiment_group
     assert a.execution_version == EXECUTION_VERSION_SELL_ECONOMICS_V3
     assert a.fee_profile_code == FEE_PROFILE_CODE_SBER_INVESTMENT
+    assert a.fee_profile_version == 1
+    assert a.commission_bps == 0.0
     assert a.min_net_rotation_edge_bps == 0.0
     assert a.fractional_shares is False
     assert b.risk_name != a.risk_name
     v2a, _ = realism_v2_shadow_configs()
     assert v2a.experiment_group == EXPERIMENT_GROUP_V2
     assert v2a.execution_version == EXECUTION_VERSION_LOT_AWARE_V2
+    assert v2a.commission_bps == 0.0
+    assert v2a.fee_profile_code is None
     assert a.config_hash() != v2a.config_hash()
     assert portfolio_a_config().experiment_group != EXPERIMENT_GROUP_V3
     assert is_sell_economics_v3_spec(a)
@@ -123,14 +192,14 @@ def test_fee_engine_sber_point_three_percent() -> None:
         side="SELL",
         notional=Decimal("100000"),
         instrument_id=1,
-        as_of=date(2026, 9, 10),
+        as_of=date(2026, 10, 1),
         instrument_symbol="SBER",
     )
     assert fee is not None
     assert abs(fee - Decimal("300")) < Decimal("0.01")
     raw = FeeEngine(sber_investment_builtin_rules()).estimate_fee(
         FeeEstimateContext(
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
             side="BUY",
             notional=Decimal("100000"),
             instrument_symbol="GAZP",
@@ -139,6 +208,28 @@ def test_fee_engine_sber_point_three_percent() -> None:
     assert raw.status == FeeStatus.KNOWN
     assert raw.amount is not None
     assert abs(raw.amount - Decimal("300")) < Decimal("0.01")
+
+
+def test_fee_engine_sber_unknown_before_generic_valid_from() -> None:
+    est = resolve_broker_fee_estimator(fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT)
+    fee = est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 1),
+        instrument_symbol="SBER",
+    )
+    assert fee is None
+    raw = FeeEngine(sber_investment_builtin_rules()).estimate_fee(
+        FeeEstimateContext(
+            as_of=date(2026, 9, 1),
+            side="BUY",
+            notional=Decimal("100000"),
+            instrument_symbol="SBER",
+        )
+    )
+    assert raw.status == FeeStatus.UNKNOWN
+    assert raw.amount is None
 
 
 def test_rank_breach_alone_no_sell_insufficient_edge() -> None:
@@ -164,7 +255,7 @@ def test_rank_breach_alone_no_sell_insufficient_edge() -> None:
             min_net_rotation_edge_bps=0.0,
             fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
             k_entry=1,
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
         ),
         fee_estimator=_fee(),
         eligible_count=50,
@@ -175,6 +266,11 @@ def test_rank_breach_alone_no_sell_insufficient_edge() -> None:
     assert tr.decision_action == REVIEW_HOLD
     assert tr.review_trigger is True
     assert "INSUFFICIENT_NET_EDGE" in tr.limitation_codes
+    perm = _perm_map(result)[1]
+    assert perm.sell_allowed is False
+    assert perm.action == REVIEW_HOLD
+    tw = next(t for t in result.targets if t.instrument_id == 1).target_weight
+    assert abs(tw - 0.2) < 1e-12
 
 
 def test_sufficient_edge_rotates() -> None:
@@ -200,7 +296,7 @@ def test_sufficient_edge_rotates() -> None:
             min_net_rotation_edge_bps=0.0,
             fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
             k_entry=1,
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
         ),
         fee_estimator=_fee(),
         eligible_count=50,
@@ -213,6 +309,11 @@ def test_sufficient_edge_rotates() -> None:
     assert tr.replacement_instrument_id == 2
     assert tr.net_edge is not None and tr.net_edge > 0
     assert tr.sell_fee_estimate is not None and tr.buy_fee_estimate is not None
+    perm = _perm_map(result)[1]
+    assert perm.sell_allowed is True
+    assert perm.action == ROTATE
+    assert perm.rotate_to == 2
+    assert perm.reason == "ROTATE_TO_T2"
 
 
 def test_slippage_affects_threshold_separately() -> None:
@@ -242,7 +343,7 @@ def test_slippage_affects_threshold_separately() -> None:
             slippage_bps=0.0,
             fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
             k_entry=1,
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
         ),
     )
     blocked = apply_sell_gate(
@@ -251,7 +352,7 @@ def test_slippage_affects_threshold_separately() -> None:
             slippage_bps=10.0,
             fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
             k_entry=1,
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
         ),
     )
     assert next(t for t in ok.traces if t.instrument_id == 1).decision_action == ROTATE
@@ -269,6 +370,7 @@ def test_non_comparable_prediction_data_hold() -> None:
     )
     assert 1 in {t.instrument_id for t in result.targets}
     assert next(t for t in result.traces if t.instrument_id == 1).decision_action == DATA_HOLD
+    assert _perm_map(result)[1].sell_allowed is False
 
 
 def test_stale_signal_no_economic_rotation() -> None:
@@ -284,12 +386,13 @@ def test_stale_signal_no_economic_rotation() -> None:
     assert tr.decision_action == DATA_HOLD
     assert "STALE_SIGNAL" in tr.limitation_codes
     assert 1 in {t.instrument_id for t in result.targets}
+    assert _perm_map(result)[1].sell_allowed is False
 
 
 def test_risk_can_force_exit_and_reduce() -> None:
     held = [
         _held(1, expected=0.02, rank=40),
-        _held(2, expected=0.03, rank=5, in_band=True),
+        _held(2, expected=0.03, rank=5, in_band=True, weight=0.4),
     ]
     policy = [
         PolicyTarget(
@@ -322,7 +425,12 @@ def test_risk_can_force_exit_and_reduce() -> None:
     assert actions[1] == RISK_EXIT
     assert actions[2] == RISK_REDUCE
     tw = next(t for t in result.targets if t.instrument_id == 2).target_weight
-    assert tw == 0.5
+    assert abs(tw - 0.4 * 0.5) < 1e-12
+    perms = _perm_map(result)
+    assert perms[1].sell_allowed is True and perms[1].action == RISK_EXIT
+    assert perms[2].sell_allowed is True and perms[2].action == RISK_REDUCE
+    assert perms[2].max_sell_fraction is not None
+    assert abs(perms[2].max_sell_fraction - 0.5) < 1e-12
 
 
 def test_exit_to_cash_explicit_reason() -> None:
@@ -339,12 +447,13 @@ def test_exit_to_cash_explicit_reason() -> None:
     tr = next(t for t in result.traces if t.instrument_id == 1)
     assert tr.decision_action == EXIT_TO_CASH
     assert "EXPLICIT_EXIT_TO_CASH" in tr.reason_codes
+    assert _perm_map(result)[1].sell_allowed is True
 
 
 def test_retained_position_stays_in_targets_no_phantom_funding() -> None:
     held = [
-        _held(10, expected=0.02, rank=3, in_band=True),
-        _held(1, expected=0.015, rank=40),
+        _held(10, expected=0.02, rank=3, in_band=True, weight=0.5),
+        _held(1, expected=0.015, rank=40, weight=0.5),
     ]
     policy = [
         PolicyTarget(
@@ -375,7 +484,7 @@ def test_retained_position_stays_in_targets_no_phantom_funding() -> None:
         params=SellGateParams(
             fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
             k_entry=2,
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
         ),
         fee_estimator=_fee(),
     )
@@ -383,6 +492,11 @@ def test_retained_position_stays_in_targets_no_phantom_funding() -> None:
     assert 1 in ids and 10 in ids
     assert 2 not in ids
     assert next(t for t in result.traces if t.instrument_id == 1).decision_action == REVIEW_HOLD
+    tws = {t.instrument_id: t.target_weight for t in result.targets}
+    assert abs(tws[1] - 0.5) < 1e-12
+    assert abs(tws[10] - 0.5) < 1e-12
+    assert _perm_map(result)[1].sell_allowed is False
+    assert _perm_map(result)[10].sell_allowed is False
 
 
 def test_rotate_sell_proceeds_fund_buy_long_only() -> None:
@@ -405,7 +519,7 @@ def test_rotate_sell_proceeds_fund_buy_long_only() -> None:
         params=SellGateParams(
             fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
             k_entry=1,
-            as_of=date(2026, 9, 10),
+            as_of=date(2026, 10, 1),
         ),
         fee_estimator=_fee(),
     )
@@ -438,6 +552,7 @@ def test_within_band_hold_trace() -> None:
         fee_estimator=_fee(),
     )
     assert next(t for t in result.traces if t.instrument_id == 1).decision_action == HOLD
+    assert _perm_map(result)[1].sell_allowed is False
 
 
 def test_v2_spec_helper_untouched() -> None:
@@ -448,3 +563,304 @@ def test_v2_spec_helper_untouched() -> None:
     )
     assert is_lot_aware_spec(spec)
     assert not is_sell_economics_v3_spec(spec)
+
+
+def test_review_hold_zero_sell_through_plan() -> None:
+    held = [_held(1, expected=0.02, rank=40, qty=200, price=100, weight=0.6)]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=2,
+                ticker="T2",
+                target_weight=1.0,
+                rank=1,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.024,
+                action="ENTER_TOP20",
+                price=100.0,
+            )
+        ],
+        replacement_candidates=[_cand(2, expected=0.024, rank=1)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=1,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+    )
+    assert next(t for t in result.traces if t.instrument_id == 1).decision_action == REVIEW_HOLD
+    plan = _plan_from_gate(result, held=held)
+    assert not any(r.action == "SELL" for r in plan.executable)
+
+
+def test_data_hold_zero_sell_through_plan() -> None:
+    held = [_held(1, expected=0.01, rank=40, stale=True, qty=150, weight=0.55)]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[],
+        replacement_candidates=[_cand(2, expected=0.50, rank=1)],
+        params=SellGateParams(fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT, k_entry=1),
+        fee_estimator=_fee(),
+    )
+    assert next(t for t in result.traces if t.instrument_id == 1).decision_action == DATA_HOLD
+    plan = _plan_from_gate(result, held=held)
+    assert not any(r.action == "SELL" for r in plan.executable)
+
+
+def test_equal_weight_would_have_sold_review_hold_blocks() -> None:
+    """High current weight A + REVIEW_HOLD must not emit SELL even if equal-weight would trim."""
+    held = [
+        _held(1, expected=0.015, rank=40, qty=800, price=100, weight=0.8),
+        _held(10, expected=0.02, rank=3, in_band=True, qty=200, price=100, weight=0.2),
+    ]
+    policy = [
+        PolicyTarget(
+            instrument_id=10,
+            ticker="T10",
+            target_weight=0.5,
+            rank=3,
+            prediction_semantic="EXPECTED_RETURN",
+            expected_return=0.02,
+            action="HOLD_WITHIN_EXIT_BAND",
+            price=100.0,
+        ),
+        PolicyTarget(
+            instrument_id=2,
+            ticker="T2",
+            target_weight=0.5,
+            rank=1,
+            prediction_semantic="EXPECTED_RETURN",
+            expected_return=0.018,
+            action="ENTER_TOP20",
+            price=100.0,
+        ),
+    ]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=policy,
+        replacement_candidates=[_cand(2, expected=0.018, rank=1)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=2,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+    )
+    assert next(t for t in result.traces if t.instrument_id == 1).decision_action == REVIEW_HOLD
+    tw_a = next(t for t in result.targets if t.instrument_id == 1).target_weight
+    assert abs(tw_a - 0.8) < 1e-12  # not equal-weight 0.5
+    assert _perm_map(result)[1].sell_allowed is False
+    plan = _plan_from_gate(result, held=held, nav=100_000.0)
+    assert not any(r.action == "SELL" and r.instrument_id == 1 for r in plan.executable)
+    assert not any(r.action == "SELL" for r in plan.executable)
+
+
+def test_rotate_authorized_sell_and_buy_through_plan() -> None:
+    held = [_held(1, expected=0.01, rank=40, qty=100, price=100, weight=1.0)]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=2,
+                ticker="T2",
+                target_weight=1.0,
+                rank=1,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.08,
+                action="ENTER_TOP20",
+                price=100.0,
+            )
+        ],
+        replacement_candidates=[_cand(2, expected=0.08, rank=1)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=1,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+    )
+    assert _perm_map(result)[1].sell_allowed is True
+    plan = _plan_from_gate(result, held=held, cash=0.0)
+    sells = [r for r in plan.executable if r.action == "SELL"]
+    buys = [r for r in plan.executable if r.action == "BUY"]
+    assert len(sells) == 1 and sells[0].instrument_id == 1
+    assert len(buys) == 1 and buys[0].instrument_id == 2
+
+
+def test_risk_reduce_and_exit_still_sell() -> None:
+    held = [
+        _held(1, expected=0.02, rank=40, qty=100, weight=0.3),
+        _held(2, expected=0.03, rank=5, in_band=True, qty=200, weight=0.6),
+    ]
+    policy = [
+        PolicyTarget(
+            instrument_id=2,
+            ticker="T2",
+            target_weight=0.5,
+            rank=5,
+            prediction_semantic="EXPECTED_RETURN",
+            expected_return=0.03,
+            action="HOLD_WITHIN_EXIT_BAND",
+            price=100.0,
+        )
+    ]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=policy,
+        replacement_candidates=[],
+        params=SellGateParams(k_entry=2, exposure_cap=0.5),
+        fee_estimator=_fee(),
+        risk_forced={1: RISK_EXIT, 2: RISK_REDUCE},
+    )
+    plan = _plan_from_gate(result, held=held)
+    sell_ids = {r.instrument_id for r in plan.executable if r.action == "SELL"}
+    assert 1 in sell_ids  # full exit
+    assert 2 in sell_ids  # partial reduce
+
+
+def test_outside_k_entry_cannot_rotate() -> None:
+    held = [_held(1, expected=0.01, rank=40)]
+    # Candidate rank 5 is outside k_entry=3 → no rotation.
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[],
+        replacement_candidates=[_cand(2, expected=0.99, rank=5)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=3,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+    )
+    tr = next(t for t in result.traces if t.instrument_id == 1)
+    assert tr.decision_action == REVIEW_HOLD
+    assert "NO_REPLACEMENT" in tr.limitation_codes
+    assert _perm_map(result)[1].sell_allowed is False
+
+    # Same candidate with rank inside k_entry → ROTATE.
+    ok = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=2,
+                ticker="T2",
+                target_weight=1.0,
+                rank=2,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.99,
+                action="ENTER_TOP20",
+                price=100.0,
+            )
+        ],
+        replacement_candidates=[_cand(2, expected=0.99, rank=2)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=3,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+    )
+    assert next(t for t in ok.traces if t.instrument_id == 1).decision_action == ROTATE
+
+
+def test_multiple_reviewed_do_not_over_allocate_one_b() -> None:
+    held = [
+        _held(1, expected=0.01, rank=40, qty=100, weight=0.5),
+        _held(2, expected=0.011, rank=41, qty=100, weight=0.5),
+    ]
+    # Only one strong replacement — second reviewed must not also claim it.
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=99,
+                ticker="T99",
+                target_weight=1.0,
+                rank=1,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.20,
+                action="ENTER_TOP20",
+                price=100.0,
+            )
+        ],
+        replacement_candidates=[_cand(99, expected=0.20, rank=1)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=2,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+    )
+    actions = {t.instrument_id: t.decision_action for t in result.traces if t.held_before}
+    rotate_from = [a for a, act in actions.items() if act == ROTATE]
+    assert len(rotate_from) == 1
+    assert rotate_from[0] == 1  # lower id evaluated first among sorted reviewed
+    assert actions[2] == REVIEW_HOLD
+    assert sum(1 for t in result.targets if t.instrument_id == 99) == 1
+    perms = _perm_map(result)
+    assert perms[1].sell_allowed is True and perms[1].rotate_to == 99
+    assert perms[2].sell_allowed is False
+
+
+def test_every_v3_sell_has_permission() -> None:
+    held = [
+        _held(1, expected=0.01, rank=40, qty=100, weight=0.4),
+        _held(2, expected=0.03, rank=5, in_band=True, qty=100, weight=0.4),
+    ]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=2,
+                ticker="T2",
+                target_weight=0.5,
+                rank=5,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.03,
+                action="HOLD_WITHIN_EXIT_BAND",
+                price=100.0,
+            ),
+            PolicyTarget(
+                instrument_id=3,
+                ticker="T3",
+                target_weight=0.5,
+                rank=1,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.10,
+                action="ENTER_TOP20",
+                price=100.0,
+            ),
+        ],
+        replacement_candidates=[_cand(3, expected=0.10, rank=1)],
+        params=SellGateParams(
+            fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+            k_entry=2,
+            exposure_cap=0.5,
+            as_of=date(2026, 10, 1),
+        ),
+        fee_estimator=_fee(),
+        risk_forced={2: RISK_REDUCE},
+    )
+    plan = _plan_from_gate(result, held=held)
+    perm_by = _perm_map(result)
+    for row in plan.executable:
+        if row.action != "SELL":
+            continue
+        assert row.instrument_id in perm_by
+        assert perm_by[row.instrument_id].sell_allowed is True
+        assert perm_by[row.instrument_id].action not in {HOLD, REVIEW_HOLD, DATA_HOLD}
+
+
+def test_lot_plan_defaults_preserve_v2_sell() -> None:
+    """V1/V2 PlanInstrument defaults (sell_allowed=True) still emit SELL."""
+    plan = build_lot_order_plan(
+        [
+            PlanInstrument(1, "AAA", Decimal("0"), Decimal("1000"), Decimal("10"), 100, rank=2),
+            PlanInstrument(2, "BBB", Decimal("0.5"), Decimal("0"), Decimal("10"), 100, rank=1),
+        ],
+        cash=Decimal("0"),
+        nav=Decimal("10000"),
+        costs=TransactionCostProfile(broker_bps=Decimal("0"), slippage_bps=Decimal("0")),
+    )
+    assert any(r.action == "SELL" and r.instrument_id == 1 for r in plan.executable)
