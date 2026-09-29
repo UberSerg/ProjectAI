@@ -14,6 +14,12 @@ const setDraftCash = vi.fn();
 const patchDraftPosition = vi.fn();
 const deleteDraftPosition = vi.fn();
 const searchCatalogInstruments = vi.fn();
+const assignPortfolioBroker = vi.fn();
+const estimatePersonalFee = vi.fn();
+const listBrokerAccounts = vi.fn();
+const listFeeProfiles = vi.fn();
+const createBrokerAccount = vi.fn();
+const createFeeProfile = vi.fn();
 
 vi.mock("../../api/personalPortfolios", () => ({
   getPersonalPortfolio: (...args: unknown[]) => getPersonalPortfolio(...args),
@@ -24,6 +30,17 @@ vi.mock("../../api/personalPortfolios", () => ({
   setDraftCash: (...args: unknown[]) => setDraftCash(...args),
   patchDraftPosition: (...args: unknown[]) => patchDraftPosition(...args),
   deleteDraftPosition: (...args: unknown[]) => deleteDraftPosition(...args),
+  assignPortfolioBroker: (...args: unknown[]) => assignPortfolioBroker(...args),
+  estimatePersonalFee: (...args: unknown[]) => estimatePersonalFee(...args),
+}));
+
+vi.mock("../../api/brokerAccounts", () => ({
+  listBrokerAccounts: (...args: unknown[]) => listBrokerAccounts(...args),
+  listFeeProfiles: (...args: unknown[]) => listFeeProfiles(...args),
+  createBrokerAccount: (...args: unknown[]) => createBrokerAccount(...args),
+  createFeeProfile: (...args: unknown[]) => createFeeProfile(...args),
+  patchBrokerAccount: vi.fn(),
+  patchFeeProfile: vi.fn(),
 }));
 
 vi.mock("../../api/instruments", () => ({
@@ -257,6 +274,23 @@ describe("PersonalPortfolioPanel", () => {
     deleteDraftPosition.mockReset();
     searchCatalogInstruments.mockReset();
     searchCatalogInstruments.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 });
+    assignPortfolioBroker.mockReset();
+    estimatePersonalFee.mockReset();
+    listBrokerAccounts.mockReset();
+    listFeeProfiles.mockReset();
+    createBrokerAccount.mockReset();
+    createFeeProfile.mockReset();
+    listBrokerAccounts.mockResolvedValue({ items: [], count: 0 });
+    listFeeProfiles.mockResolvedValue({ items: [], count: 0 });
+    estimatePersonalFee.mockResolvedValue({
+      status: "UNKNOWN",
+      amount: null,
+      fee_rule_id: null,
+      explanation: "no broker",
+      commission_source: "NONE",
+      broker_account_id: null,
+      limitation: "BROKER_FEE_PROFILE_MISSING",
+    });
   });
 
   it("shows draft setup when portfolio not activated", async () => {

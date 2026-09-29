@@ -44,6 +44,19 @@ export interface PersonalSummary {
     journal_cutover_at?: string | null;
     created_at?: string | null;
     updated_at?: string | null;
+    broker_account_id?: number | null;
+    broker?: {
+      broker_account_id: number;
+      broker_account_name: string;
+      broker_code: string;
+      broker_name: string;
+      tariff_name?: string | null;
+      fee_profile_id: number;
+      fee_profile_code?: string | null;
+      fee_profile_name?: string | null;
+      is_builtin?: boolean;
+      read_only?: boolean;
+    } | null;
   };
   summary: {
     cash_rub: string;
@@ -98,6 +111,9 @@ export interface PersonalSummary {
     price: string | null;
     amount: string | null;
     commission: string;
+    commission_source?: string | null;
+    broker_account_id?: number | null;
+    fee_rule_id?: number | null;
     currency: string;
     note: string | null;
     source?: string;
@@ -121,6 +137,7 @@ export interface CreatePersonalOperationBody {
   units?: string;
   price?: string;
   amount?: string;
+  /** Omit to let backend PROFILE_ESTIMATE / NONE; set for MANUAL override. */
   commission?: string;
   note?: string;
   non_standard_lot?: boolean;
@@ -317,4 +334,46 @@ export function getPortfolioRebalance(portfolioId: number, opts?: { signal?: Abo
 
 export function getPortfolioCashflows(portfolioId: number, opts?: { signal?: AbortSignal }) {
   return apiRequest(`/personal-portfolios/${portfolioId}/cashflows`, { signal: opts?.signal });
+}
+
+export function assignPortfolioBroker(
+  portfolioId: number,
+  brokerAccountId: number | null,
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<PersonalSummary>(
+    `/personal-portfolios/${portfolioId}/broker-account${qs(false, !!opts?.test)}`,
+    {
+      method: "PUT",
+      body: { broker_account_id: brokerAccountId },
+      signal: opts?.signal,
+    },
+  );
+}
+
+export function estimatePersonalFee(
+  portfolioId: number,
+  body: {
+    side: "BUY" | "SELL" | string;
+    notional: string | number;
+    instrument_id?: number;
+    instrument_symbol?: string;
+    nkd?: string | number;
+  },
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  return apiRequest<{
+    status: string;
+    amount: string | null;
+    fee_rule_id: number | null;
+    explanation: string;
+    commission_source: string;
+    broker_account_id: number | null;
+    limitation?: string | null;
+    matched_rule_code?: string | null;
+  }>(`/personal-portfolios/${portfolioId}/estimate-fee${qs(false, !!opts?.test)}`, {
+    method: "POST",
+    body,
+    signal: opts?.signal,
+  });
 }

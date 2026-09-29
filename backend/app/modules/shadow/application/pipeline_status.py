@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.modules.shadow.config import EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2
+from app.modules.shadow.config import EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2, EXPERIMENT_GROUP_V3
 from app.modules.shadow.domain.open_execution import (
     ensure_aware_utc,
     session_open_time_utc,
@@ -131,7 +131,11 @@ def _active_shadow_specs(session: Session) -> list[tuple[ShadowPortfolio, Shadow
         session.execute(
             select(ShadowPortfolio, ShadowPortfolioSpec)
             .join(ShadowPortfolioSpec, ShadowPortfolio.spec_id == ShadowPortfolioSpec.id)
-            .where(ShadowPortfolioSpec.experiment_group.in_([EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2]))
+            .where(
+                ShadowPortfolioSpec.experiment_group.in_(
+                    [EXPERIMENT_GROUP, EXPERIMENT_GROUP_V2, EXPERIMENT_GROUP_V3]
+                )
+            )
             .order_by(ShadowPortfolio.id)
         ).all()
     )

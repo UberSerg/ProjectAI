@@ -80,11 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     init_p.add_argument("--batch-id", type=int, default=None)
     init_p.add_argument(
         "--group",
-        choices=("operational", "realism-v2", "model-ab", "all"),
+        choices=("operational", "realism-v2", "realism-v3", "model-ab", "all"),
         default="operational",
         help="Which experiment configs to initialize (default: operational V1 only)",
     )
-    sub.add_parser("advance", help="Advance all operational Shadow portfolios (V1+V2)")
+    sub.add_parser("advance", help="Advance all operational Shadow portfolios (V1+V2+V3)")
     adv = sub.add_parser("advance-one", help="Advance one portfolio by id")
     adv.add_argument("portfolio_id", type=int)
     st = sub.add_parser("status", help="Inspect Shadow portfolio status")
@@ -97,18 +97,22 @@ def main(argv: list[str] | None = None) -> int:
                 model_ab_shadow_configs,
                 operational_shadow_configs,
                 realism_v2_shadow_configs,
+                realism_v3_shadow_configs,
             )
 
             if args.group == "operational":
                 configs = list(operational_shadow_configs())
             elif args.group == "realism-v2":
                 configs = list(realism_v2_shadow_configs())
+            elif args.group == "realism-v3":
+                configs = list(realism_v3_shadow_configs())
             elif args.group == "model-ab":
                 configs = list(model_ab_shadow_configs())
             else:
                 configs = (
                     list(operational_shadow_configs())
                     + list(realism_v2_shadow_configs())
+                    + list(realism_v3_shadow_configs())
                     + list(model_ab_shadow_configs())
                 )
             results = initialize_shadow_portfolios(

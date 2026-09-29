@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -14,6 +15,10 @@ from app.infrastructure.market.models import Instrument
 from app.modules.market.application.intraday_cache import IntradayQuoteCache
 from app.modules.market.application.workflows import create_workflow
 from app.modules.shadow.application.daily_operations import build_daily_operations_status
+from app.modules.shadow.application.decision_journal import (
+    build_candidate_history,
+    build_shadow_journal,
+)
 from app.modules.shadow.application.intraday_universe import resolve_intraday_universe
 from app.modules.shadow.application.live_valuation import build_live_portfolio_snapshot
 from app.modules.shadow.application.lot_aware import is_lot_aware_spec
@@ -22,6 +27,7 @@ from app.modules.shadow.config import (
     SHADOW_KIND,
     operational_shadow_configs,
     realism_v2_shadow_configs,
+    realism_v3_shadow_configs,
 )
 from app.modules.shadow.domain.open_execution import POLICY_NAME, can_fill_with_session_open
 from app.modules.shadow.infrastructure.models import (
@@ -670,6 +676,50 @@ def get_shadow_decisions(portfolio_id: int) -> list[dict]:
         ]
 
 
+@router.get("/portfolios/{portfolio_id}/journal")
+def get_shadow_journal(
+    portfolio_id: int,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=365)] = 60,
+    ticker: Annotated[str | None, Query()] = None,
+    action: Annotated[str | None, Query()] = None,
+) -> dict[str, Any]:
+    """Decision Journal: Decision → candidate traces → Orders → Fills → NAV (by day)."""
+    with core_session() as session:
+        payload = build_shadow_journal(
+            session,
+            portfolio_id=portfolio_id,
+            date_from=date_from,
+            date_to=date_to,
+            limit=limit,
+            ticker=ticker,
+            action=action,
+        )
+        if payload is None:
+            raise HTTPException(404, "Shadow portfolio not found")
+        return payload
+
+
+@router.get("/portfolios/{portfolio_id}/candidates/{ticker}/history")
+def get_shadow_candidate_history(
+    portfolio_id: int,
+    ticker: str,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> dict[str, Any]:
+    """Candidate lifecycle across Shadow decisions for one ticker."""
+    with core_session() as session:
+        payload = build_candidate_history(
+            session,
+            portfolio_id=portfolio_id,
+            ticker=ticker,
+            limit=limit,
+        )
+        if payload is None:
+            raise HTTPException(404, "Shadow portfolio not found")
+        return payload
+
+
 @router.get("/daily-operations")
 @router.get("/operations/status")
 def shadow_daily_operations() -> dict[str, Any]:
@@ -768,13 +818,18 @@ def get_shadow_portfolio_current(portfolio_id: int) -> dict[str, Any]:
 
 @router.post("/init")
 def init_shadow(
-    group: Annotated[str, Query(description="operational | realism-v2")] = "operational",
+    group: Annotated[
+        str, Query(description="operational | realism-v2 | realism-v3")
+    ] = "operational",
 ) -> dict[str, Any]:
-    if group not in ("operational", "realism-v2"):
-        raise HTTPException(400, "group must be operational or realism-v2")
-    configs = (
-        list(realism_v2_shadow_configs()) if group == "realism-v2" else list(operational_shadow_configs())
-    )
+    if group not in ("operational", "realism-v2", "realism-v3"):
+        raise HTTPException(400, "group must be operational, realism-v2, or realism-v3")
+    if group == "realism-v3":
+        configs = list(realism_v3_shadow_configs())
+    elif group == "realism-v2":
+        configs = list(realism_v2_shadow_configs())
+    else:
+        configs = list(operational_shadow_configs())
     with core_session() as session:
         results = initialize_shadow_portfolios(session, configs=configs)
         session.commit()

@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.infrastructure.market.models import Instrument
 from app.modules.investment.application.equity_lot_size import resolve_equity_lot_sizes
 from app.modules.investment.infrastructure.models import BondTerm
+from app.modules.market.application.intraday_cache import IntradayQuoteCache
+from app.modules.market.application.operational_quote import (
+    ensure_operational_quotes,
+    resolve_board_secid,
+)
 from app.modules.portfolio.domain.lots import LotValidationError, assert_lot_compatible
 from app.modules.portfolio.domain.personal_ledger import (
     ZERO,
@@ -28,7 +33,7 @@ from app.modules.portfolio.domain.personal_ledger import (
     money,
     units_q,
 )
-from app.modules.portfolio.domain.valuation import latest_eod_close, value_position
+from app.modules.portfolio.domain.valuation import equity_mark, latest_eod_close, value_position
 from app.modules.portfolio.infrastructure.models import (
     ManualPortfolio,
     ManualPosition,
@@ -440,6 +445,7 @@ def create_operation(
     price: Decimal | None = None,
     amount: Decimal | None = None,
     commission: Decimal | None = None,
+    commission_provided: bool = False,
     note: str | None = None,
     non_standard_lot: bool = False,
     supersedes_operation_id: int | None = None,
@@ -451,7 +457,14 @@ def create_operation(
     ``system=True`` is reserved for Kraken-internal writers (activation opening
     snapshot). Public callers must leave it ``False`` so opening rows can never be
     forged through the operations API.
+
+    Commission provenance (BUY/SELL):
+    - MANUAL if the caller explicitly provided ``commission``;
+    - else PROFILE_ESTIMATE via FeeEngine when a broker account is assigned;
+    - else NONE (backward-compatible zero).
     """
+    from app.modules.portfolio.application.broker_fee_service import resolve_operation_commission
+
     portfolio = lock_portfolio(session, portfolio)
     key = (idempotency_key or "").strip() or str(uuid4())
     existing = session.scalar(
@@ -539,6 +552,19 @@ def create_operation(
         except LotValidationError as exc:
             raise PersonalPortfolioError(exc.code, str(exc)) from exc
 
+    resolved_commission, commission_source, op_broker_id, op_fee_rule_id = resolve_operation_commission(
+        session,
+        portfolio=portfolio,
+        operation_type=op_type.value,
+        commission=commission,
+        commission_provided=commission_provided,
+        units=resolved_units if resolved_units > ZERO else None,
+        price=price,
+        amount=amount,
+        instrument_id=instrument_id,
+        occurred_at=occurred_dt,
+    )
+
     fingerprint = _idempotency_fingerprint(
         operation_type=op_type.value,
         occurred_at=occurred_dt,
@@ -547,7 +573,7 @@ def create_operation(
         lots=resolved_lots,
         price=price,
         amount=amount,
-        commission=commission,
+        commission=resolved_commission,
         note=note,
         supersedes_operation_id=supersedes_operation_id,
     )
@@ -580,13 +606,16 @@ def create_operation(
                 units=resolved_units if resolved_units > ZERO else None,
                 price=money(price) if price is not None else None,
                 amount=money(amount) if amount is not None else None,
-                commission=money(commission or ZERO),
+                commission=resolved_commission,
                 currency="RUB",
                 source="MANUAL",
                 note=note,
                 idempotency_key=key,
                 supersedes_operation_id=supersedes_operation_id,
                 correction_reason=correction_reason,
+                broker_account_id=op_broker_id,
+                fee_rule_id=op_fee_rule_id,
+                commission_source=commission_source,
             )
             session.add(row)
             session.flush()
@@ -780,6 +809,9 @@ def _operation_to_dict(op: PersonalOperation, *, owner: bool) -> dict[str, Any]:
         "price": str(op.price) if op.price is not None else None,
         "amount": str(op.amount) if op.amount is not None else None,
         "commission": str(op.commission),
+        "commission_source": op.commission_source,
+        "broker_account_id": op.broker_account_id,
+        "fee_rule_id": op.fee_rule_id,
         "currency": op.currency,
         "note": op.note,
         "created_at": op.created_at.isoformat() if op.created_at else None,
@@ -800,31 +832,65 @@ def _personal_mark(
     session: Session,
     instrument: Instrument,
     units: Decimal,
-) -> tuple[Decimal | None, Decimal | None, str | None, str | None]:
-    """Return (unit_price, market_value, price_date, asset_hint).
+    *,
+    cache: IntradayQuoteCache | None = None,
+    allow_fetch: bool = True,
+) -> tuple[Decimal | None, Decimal | None, str | None, str | None, str | None, str | None]:
+    """Return (unit_price, market_value, price_date, asset_hint, price_source, unavailable_code).
 
-    Equity/fund: latest valid EOD only (no intraday fallback).
+    Equity/fund operational mark (never invents candles / valid_from):
+    1) IntradayQuoteCache / MoexIntradayProvider LAST or PREVPRICE (via equity_mark)
+    2) local EOD close fallback
+    3) unavailable with machine-readable code (not zero)
+
     Bond: existing dirty valuation (never treat clean % as RUB).
     """
     asset = (instrument.asset_class or "").lower()
     if asset == "bond":
-        val = value_position(session, instrument, units)
+        val = value_position(session, instrument, units, cache=cache, allow_fetch=False)
         if val.market_value is None or val.unit_price is None:
-            return None, None, None, "bond"
+            code = None
+            if isinstance(val.detail, dict):
+                code = str(val.detail.get("code") or val.detail.get("reason") or "no_price")
+            return None, None, None, "bond", None, code or "no_price"
         as_of = val.detail.get("as_of") if isinstance(val.detail, dict) else None
         price_date = str(as_of)[:10] if as_of else None
-        return money(val.unit_price), money(val.market_value), price_date, "bond"
+        return (
+            money(val.unit_price),
+            money(val.market_value),
+            price_date,
+            "bond",
+            val.price_source,
+            None,
+        )
 
     if asset in {"equity", "fund", ""}:
-        eod_px, eod_ts = latest_eod_close(session, int(instrument.id))
-        if eod_px is None:
-            return None, None, None, asset or "equity"
-        price_date = eod_ts[:10] if eod_ts else None
-        mv = money(units * eod_px)
-        return money(eod_px), mv, price_date, asset or "equity"
+        hint = asset or "equity"
+        # Prefer operational current quote (cache / cold-start), then local EOD.
+        # equity_mark already does LAST → PREVPRICE → optional fetch → EOD.
+        price, source, _quality = equity_mark(
+            session,
+            instrument,
+            cache=cache,
+            allow_fetch=allow_fetch,
+        )
+        if price is not None:
+            price_date: str | None = None
+            if source == "EOD_CLOSE":
+                _eod_px, eod_ts = latest_eod_close(session, int(instrument.id))
+                price_date = eod_ts[:10] if eod_ts else None
+            else:
+                board, secid = resolve_board_secid(session, instrument)
+                quote = (cache or IntradayQuoteCache()).get(board, secid)
+                if quote is not None and quote.trading_date is not None:
+                    price_date = quote.trading_date.isoformat()
+                elif quote is not None:
+                    price_date = quote.observed_at.date().isoformat()
+            mv = money(units * price)
+            return money(price), mv, price_date, hint, source, None
+        return None, None, None, hint, None, "MOEX_QUOTE_UNAVAILABLE"
 
-    # Unsupported for Personal Portfolio mark
-    return None, None, None, asset
+    return None, None, None, asset, None, "unsupported_asset"
 
 
 @dataclass
@@ -847,6 +913,8 @@ class PersonalPositionSnapshot:
     lot_size: int | None = None
     lots: Decimal | None = None
     pnl_unavailable_reason: str | None = None
+    price_source: str | None = None
+    price_unavailable_code: str | None = None
 
 
 @dataclass
@@ -906,10 +974,27 @@ def load_personal_snapshot(
     price_dates: list[str] = []
     cost_incomplete = False
 
-    for pos in session.scalars(
-        select(ManualPosition).where(ManualPosition.portfolio_id == book.id)
-    ).all():
+    raw_rows = list(
+        session.scalars(select(ManualPosition).where(ManualPosition.portfolio_id == book.id)).all()
+    )
+    instruments_by_id: dict[int, Instrument] = {}
+    equity_fund_for_quote: list[Instrument] = []
+    for pos in raw_rows:
         instrument = session.get(Instrument, pos.instrument_id)
+        if instrument is None:
+            continue
+        instruments_by_id[int(instrument.id)] = instrument
+        asset = (instrument.asset_class or "").lower()
+        if asset in {"equity", "fund", ""}:
+            equity_fund_for_quote.append(instrument)
+
+    # Bounded cold-start: one batch MOEX fetch for cache misses (never invents candles).
+    quote_cache = IntradayQuoteCache()
+    if equity_fund_for_quote:
+        ensure_operational_quotes(session, equity_fund_for_quote, cache=quote_cache)
+
+    for pos in raw_rows:
+        instrument = instruments_by_id.get(int(pos.instrument_id))
         if instrument is None:
             missing_prices += 1
             cost_incomplete = True
@@ -929,6 +1014,7 @@ def load_personal_snapshot(
                     price_available=False,
                     unrealized_pnl=None,
                     pnl_unavailable_reason="Инструмент не найден",
+                    price_unavailable_code="MISSING_INSTRUMENT",
                 )
             )
             continue
@@ -938,8 +1024,15 @@ def load_personal_snapshot(
         lots_display = None
         if lot_size and lot_size > 0:
             lots_display = units_q(pos.units) / Decimal(lot_size)
-        unit_price, market_value, price_date, asset_hint = _personal_mark(
-            session, instrument, _d(pos.units)
+        # allow_fetch=False: batch already ran; equity_mark still uses cache then EOD.
+        unit_price, market_value, price_date, asset_hint, price_source, unavailable_code = (
+            _personal_mark(
+                session,
+                instrument,
+                _d(pos.units),
+                cache=quote_cache,
+                allow_fetch=False,
+            )
         )
         asset = asset_hint or asset
         unrealized = None
@@ -977,6 +1070,8 @@ def load_personal_snapshot(
                 lot_size=lot_size,
                 lots=lots_display,
                 pnl_unavailable_reason=pnl_reason,
+                price_source=price_source,
+                price_unavailable_code=unavailable_code if unit_price is None else None,
             )
         )
 
@@ -1008,6 +1103,7 @@ def load_personal_snapshot(
     cost_incomplete = cost_incomplete or history_incomplete
 
     valuation_complete = missing_prices == 0
+    # known_nav includes priced securities even when cost basis / P&L is incomplete.
     known_nav = money(cash + securities_mv)
     inv_pnl: Decimal | None
     inv_pnl_reason: str | None = None
@@ -1073,10 +1169,12 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
                 "cost_basis_status": "KNOWN" if p.cost_basis_usable else "UNKNOWN",
                 "current_price": str(p.unit_price) if p.unit_price is not None else None,
                 "price_date": p.price_date,
+                "price_source": p.price_source,
                 "market_value": str(p.market_value) if p.market_value is not None else None,
                 "unrealized_pnl": str(p.unrealized_pnl) if p.unrealized_pnl is not None else None,
                 "price_available": p.price_available,
                 "price_label": None if p.price_available else "Цена недоступна",
+                "price_unavailable_code": p.price_unavailable_code,
                 "pnl_unavailable_reason": p.pnl_unavailable_reason,
             }
         )
@@ -1109,6 +1207,8 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "journal_cutover_at": cutover.isoformat() if cutover else None,
             "created_at": snap.portfolio.created_at.isoformat() if snap.portfolio.created_at else None,
             "updated_at": snap.portfolio.updated_at.isoformat() if snap.portfolio.updated_at else None,
+            "broker_account_id": snap.portfolio.broker_account_id,
+            "broker": None,
         },
         "summary": {
             "cash_rub": str(snap.cash_rub),
@@ -1140,6 +1240,9 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
         "operations": [_operation_to_dict(o, owner=owner) for o in ops],
         "recommendation_disclaimer": "Модельная рекомендация",
     }
+    from app.modules.portfolio.application.broker_fee_service import broker_summary_for_portfolio
+
+    payload["portfolio"]["broker"] = broker_summary_for_portfolio(session, snap.portfolio)
     if owner:
         payload["reconciliation"] = reconcile(session, snap.portfolio)
     return payload

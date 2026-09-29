@@ -75,7 +75,7 @@ def quote_from_dict(payload: dict[str, Any]) -> IntradayQuote:
 
 
 class IntradayQuoteCache:
-    """get/set/get_many — returns None when Redis is unavailable (never fakes)."""
+    """get/set/get_many — process memory + Redis; never invents quotes."""
 
     def __init__(self, *, ttl_seconds: int | None = None, client: Any | None = None) -> None:
         settings = get_settings()
@@ -83,6 +83,7 @@ class IntradayQuoteCache:
             int(settings.intraday_cache_ttl_seconds) if ttl_seconds is None else int(ttl_seconds)
         )
         self._client = client
+        self._memory: dict[str, IntradayQuote] = {}
 
     def _redis(self) -> Any | None:
         if self._client is not None:
@@ -94,19 +95,21 @@ class IntradayQuoteCache:
             return None
 
     def set(self, quote: IntradayQuote) -> bool:
+        key = quote_key(quote.board, quote.secid)
+        self._memory[key] = quote
         client = self._redis()
         if client is None:
-            return False
+            return True  # memory hit is enough for this process
         try:
             client.set(
-                quote_key(quote.board, quote.secid),
+                key,
                 json.dumps(quote_to_dict(quote), separators=(",", ":")),
                 ex=self.ttl_seconds,
             )
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("intraday_cache_set_failed", extra={"error": str(exc)})
-            return False
+            return True  # still usable via memory
 
     def set_many(self, quotes: list[IntradayQuote]) -> int:
         n = 0
@@ -116,11 +119,15 @@ class IntradayQuoteCache:
         return n
 
     def get(self, board: str, secid: str) -> IntradayQuote | None:
+        key = quote_key(board, secid)
+        mem = self._memory.get(key)
+        if mem is not None:
+            return mem
         client = self._redis()
         if client is None:
             return None
         try:
-            raw = client.get(quote_key(board, secid))
+            raw = client.get(key)
         except Exception as exc:  # noqa: BLE001
             logger.warning("intraday_cache_get_failed", extra={"error": str(exc)})
             return None
@@ -130,7 +137,9 @@ class IntradayQuoteCache:
             payload = json.loads(raw)
             if not isinstance(payload, dict):
                 return None
-            return quote_from_dict(payload)
+            quote = quote_from_dict(payload)
+            self._memory[key] = quote
+            return quote
         except (TypeError, ValueError, KeyError) as exc:
             logger.warning("intraday_cache_decode_failed", extra={"error": str(exc)})
             return None

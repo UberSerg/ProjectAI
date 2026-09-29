@@ -95,7 +95,8 @@ def resolve_instrument_capabilities(
     is_bond = asset == "bond" or subtype in {OFZ_GOV, CORPORATE_BOND, MUNICIPAL_BOND}
 
     can_portfolio_value = False
-    if asset == "equity" or subtype in {"equity_common", "equity_preferred", FUND}:
+    # Funds may be asset_class=fund with subtype fund (or TQBR funds with fund class).
+    if asset in {"equity", "fund"} or subtype in {"equity_common", "equity_preferred", FUND}:
         can_portfolio_value = active and (has_candle or can_live_quote)
         if not can_portfolio_value:
             reasons["can_portfolio_value"] = "no_price_source"

@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.analytics import router as analytics_router
+from app.api.v1.broker_accounts import router as broker_accounts_router
 from app.api.v1.fundamentals import router as fundamentals_router
 from app.api.v1.instruments import router as instruments_router
 from app.api.v1.intraday_market import router as intraday_market_router
@@ -33,6 +34,7 @@ api_router.include_router(
 api_router.include_router(
     personal_portfolios_router, prefix="/personal-portfolios", tags=["personal-portfolios"]
 )
+api_router.include_router(broker_accounts_router, tags=["broker-accounts"])
 api_router.include_router(intraday_market_router, prefix="/market", tags=["intraday-market"])
 api_router.include_router(
     market_history_router, prefix="/market-history/external", tags=["market-history"]

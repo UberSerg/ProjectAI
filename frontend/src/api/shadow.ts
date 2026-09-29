@@ -1,6 +1,6 @@
 /** Shadow Portfolio / Live Research API client. */
 
-import { apiRequest } from "./client";
+import { apiRequest, queryString } from "./client";
 import type { IntradayLastRefresh } from "./intraday";
 
 export interface ShadowLivePosition {
@@ -400,4 +400,224 @@ export function getShadowNav(id: string | number, signal?: AbortSignal): Promise
 
 export function getShadowDecisions(id: string | number, signal?: AbortSignal): Promise<ShadowDecision[]> {
   return apiRequest(`/shadow/portfolios/${encodeURIComponent(String(id))}/decisions`, { signal });
+}
+
+/* ——— Decision Journal (read-only) ——— */
+
+export interface ShadowJournalCandidateTrace {
+  instrument_id?: number;
+  ticker?: string;
+  signal_as_of?: string | null;
+  rank?: number | null;
+  eligible_count?: number | null;
+  prediction_semantic?: string | null;
+  predicted_value?: number | null;
+  predicted_return_20d?: number | null;
+  held_before?: boolean | null;
+  quantity_before?: number | null;
+  current_weight?: number | null;
+  avg_entry?: number | null;
+  current_mark?: number | null;
+  unrealized_pnl?: number | null;
+  unrealized_pnl_pct?: number | null;
+  entry_band?: number | null;
+  exit_band?: number | null;
+  entry_exit_band_state?: string | null;
+  review_trigger?: boolean | null;
+  target_weight?: number | null;
+  replacement_ticker?: string | null;
+  replacement_instrument_id?: number | null;
+  gross_expected_edge?: number | null;
+  sell_fee_estimate?: number | null;
+  buy_fee_estimate?: number | null;
+  slippage_estimate?: number | null;
+  net_edge?: number | null;
+  decision_action?: string | null;
+  reason_codes?: string[] | null;
+  limitation_codes?: string[] | null;
+}
+
+export interface ShadowJournalOrder {
+  id: number;
+  decision_id: number;
+  instrument_id: number;
+  ticker: string;
+  side: string;
+  quantity: number;
+  target_weight: number;
+  target_notional: number;
+  reason?: string | null;
+  status: string;
+  rank?: number | null;
+  predicted_return_20d?: number | null;
+  eligible_count?: number | null;
+  decision_at?: string | null;
+  min_execution_date?: string | null;
+  execution_date?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ShadowJournalFill {
+  id: number;
+  order_id: number;
+  instrument_id: number;
+  ticker: string;
+  side: string;
+  quantity: number;
+  raw_open: number;
+  fill_price: number;
+  notional: number;
+  commission: number;
+  slippage_cost: number;
+  execution_date: string;
+  filled_at?: string | null;
+  decision_at?: string | null;
+}
+
+export interface ShadowJournalNav {
+  as_of_date: string;
+  cash: number;
+  market_value: number;
+  nav: number;
+  gross_exposure: number;
+  drawdown: number;
+  peak_nav: number;
+  position_count: number;
+  benchmark_value?: number | null;
+}
+
+export interface ShadowJournalDecisionSummary {
+  id: number;
+  forward_batch_id: number;
+  signal_as_of_date: string;
+  signal_generated_at?: string | null;
+  decision_at?: string | null;
+  iso_week: string;
+  risk_mode?: string | null;
+  exposure_cap?: number | null;
+  policy_name?: string | null;
+  risk_name?: string | null;
+  targets?: Array<Record<string, unknown>>;
+}
+
+export interface ShadowJournalDayCounts {
+  buy: number;
+  sell: number;
+  hold: number;
+  review: number;
+  candidates_reviewed: number;
+  orders: number;
+  fills?: number;
+}
+
+export interface ShadowJournalModeledCosts {
+  commission: number;
+  slippage_cost: number;
+  total: number;
+}
+
+export interface ShadowJournalDay {
+  date: string;
+  signal_as_of_date?: string | null;
+  decision?: ShadowJournalDecisionSummary | null;
+  decision_ids?: number[];
+  risk_mode?: string | null;
+  nav?: ShadowJournalNav | null;
+  detail_available: boolean;
+  message_ru?: string | null;
+  candidates: ShadowJournalCandidateTrace[];
+  orders: ShadowJournalOrder[];
+  fills: ShadowJournalFill[];
+  counts: ShadowJournalDayCounts;
+  total_modeled_costs: ShadowJournalModeledCosts;
+}
+
+export interface ShadowJournalResponse {
+  portfolio_id: number;
+  date_from?: string | null;
+  date_to?: string | null;
+  limit: number;
+  ticker?: string | null;
+  action?: string | null;
+  returned_days: number;
+  truncated: boolean;
+  order: string;
+  days: ShadowJournalDay[];
+}
+
+export interface ShadowCandidateHistoryEvent {
+  decision_id: number;
+  iso_week?: string | null;
+  signal_as_of_date: string;
+  decision_at?: string | null;
+  action?: string | null;
+  rank?: number | null;
+  reason_codes?: string[];
+  replacement_ticker?: string | null;
+  net_edge?: number | null;
+  sell_fee_estimate?: number | null;
+  buy_fee_estimate?: number | null;
+  slippage_estimate?: number | null;
+  review_trigger?: boolean | null;
+  trace?: ShadowJournalCandidateTrace | null;
+  detail_available: boolean;
+  message_ru?: string | null;
+  order?: ShadowJournalOrder | null;
+  fill?: ShadowJournalFill | null;
+  nav_at_signal?: ShadowJournalNav | null;
+}
+
+export interface ShadowCandidateHistoryResponse {
+  portfolio_id: number;
+  ticker: string;
+  detail_available: boolean;
+  message_ru?: string | null;
+  returned_events: number;
+  truncated: boolean;
+  order: string;
+  events: ShadowCandidateHistoryEvent[];
+  summary: {
+    first_seen?: string | null;
+    last_seen?: string | null;
+    event_count: number;
+  };
+}
+
+export interface ShadowJournalQuery {
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  ticker?: string;
+  action?: string;
+}
+
+export function getShadowJournal(
+  portfolioId: string | number,
+  query: ShadowJournalQuery = {},
+  signal?: AbortSignal,
+): Promise<ShadowJournalResponse> {
+  return apiRequest(
+    `/shadow/portfolios/${encodeURIComponent(String(portfolioId))}/journal${queryString({
+      date_from: query.date_from,
+      date_to: query.date_to,
+      limit: query.limit,
+      ticker: query.ticker,
+      action: query.action,
+    })}`,
+    { signal },
+  );
+}
+
+export function getShadowCandidateHistory(
+  portfolioId: string | number,
+  ticker: string,
+  limit = 100,
+  signal?: AbortSignal,
+): Promise<ShadowCandidateHistoryResponse> {
+  return apiRequest(
+    `/shadow/portfolios/${encodeURIComponent(String(portfolioId))}/candidates/${encodeURIComponent(ticker)}/history${queryString(
+      { limit },
+    )}`,
+    { signal },
+  );
 }
