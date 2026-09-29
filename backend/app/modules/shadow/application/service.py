@@ -718,6 +718,7 @@ def _apply_v3_sell_economics(
         fee_profile_version=int(fee_profile_version) if fee_profile_version is not None else None,
         commission_bps=float(spec.commission_bps or 0.0),
         session=session,
+        allow_legacy_bps_fallback=False,
     )
 
     signal_by_id = {int(s.instrument_id): s for s in signals}
@@ -1103,6 +1104,7 @@ def _persist_lot_aware_orders(
             fee_profile_version=int(fee_profile_version),
             commission_bps=0.0,
             session=session,
+            allow_legacy_bps_fallback=False,
         )
 
         def fee_for(side: str, notional: Decimal, inst: PlanInstrument) -> Decimal | None:
@@ -1458,6 +1460,7 @@ def _fill_pending_orders(
             fee_profile_version=int(fee_profile_version),
             commission_bps=0.0,
             session=session,
+            allow_legacy_bps_fallback=False,
         )
     # Sells first
     ordered = sorted(pending, key=lambda o: 0 if o.side == "SELL" else 1)

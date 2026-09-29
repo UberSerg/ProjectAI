@@ -15,6 +15,7 @@ from app.domain.ports.intraday_market import IntradayQuote
 from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
+    execution_version_for_spec,
     is_lot_aware_spec,
     is_sell_economics_v3_spec,
     set_fractional_position,
@@ -293,6 +294,7 @@ def fill_pending_orders_with_session_open(
                 fee_profile_version=fee_profile_version,
                 commission_bps=0.0,
                 session=session,
+                allow_legacy_bps_fallback=False,
             )
             fee_quote = estimate_shadow_fee(
                 fee_estimator,
@@ -407,6 +409,7 @@ def fill_pending_orders_with_session_open(
                     fee_profile_version=fee_profile_version,
                     commission_bps=0.0,
                     session=session,
+                    allow_legacy_bps_fallback=False,
                 )
                 fee_quote = estimate_shadow_fee(
                     fee_estimator,
@@ -504,7 +507,9 @@ def fill_pending_orders_with_session_open(
                 metadata["matched_fee_rule_code"] = fee_quote.matched_rule_code
                 metadata["fee_status"] = str(fee_quote.status)
         if is_lot_aware_spec(spec):
-            metadata["execution_version"] = EXECUTION_VERSION_LOT_AWARE_V2
+            metadata["execution_version"] = (
+                execution_version_for_spec(spec) or EXECUTION_VERSION_LOT_AWARE_V2
+            )
             ls = _order_lot_size(order)
             if ls:
                 metadata["lot_size"] = ls

@@ -195,6 +195,63 @@ class BpsFeeEstimator:
         return (n * self.broker_bps) / Decimal("10000")
 
 
+class UnknownFeeEstimator:
+    """V3-safe estimator when a configured FeeProfile cannot be resolved.
+
+    Always returns None / UNKNOWN — never fabricates 0% via legacy bps.
+    """
+
+    def __init__(
+        self,
+        *,
+        fee_profile_code: str | None = None,
+        fee_profile_version: int | None = None,
+        explanation: str = "Fee profile unavailable or unsupported",
+    ) -> None:
+        self.fee_profile_code = fee_profile_code
+        self.fee_profile_version = fee_profile_version
+        self.explanation = explanation
+
+    def estimate(
+        self,
+        *,
+        side: str,
+        notional: Decimal,
+        instrument_id: int,
+        as_of: date,
+        instrument_symbol: str | None = None,
+        fee_profile_id: int | None = None,
+        fee_profile_code: str | None = None,
+    ) -> ShadowFeeQuote:
+        del side, notional, instrument_id, instrument_symbol, fee_profile_id
+        code = _normalize_profile_code(fee_profile_code) or self.fee_profile_code
+        return ShadowFeeQuote(
+            status=FeeStatus.UNKNOWN,
+            amount=None,
+            fee_rule_id=None,
+            matched_rule_code=None,
+            explanation=self.explanation,
+            fee_profile_code=code,
+            fee_profile_version=self.fee_profile_version,
+            fee_date=as_of,
+        )
+
+    def broker_fee_estimate(
+        self,
+        *,
+        side: str,
+        notional: Decimal,
+        instrument_id: int,
+        as_of: date,
+        fee_profile_id: int | None = None,
+        fee_profile_code: str | None = None,
+        instrument_symbol: str | None = None,
+    ) -> Decimal | None:
+        del side, notional, instrument_id, as_of, fee_profile_id, fee_profile_code
+        del instrument_symbol
+        return None
+
+
 def load_fee_engine_for_profile(
     session: Session | None,
     *,
@@ -223,7 +280,8 @@ def load_fee_engine_for_profile(
             if engine is not None:
                 return engine, code, version
         except Exception:
-            # Unit tests / missing migration: fall through to builtin.
+            # Controlled: only fall through to the intentional Sber builtin mirror
+            # below. Do not invent fees for other profiles.
             pass
 
     if _is_sber_investment(code):
@@ -237,8 +295,14 @@ def resolve_fee_engine_estimator(
     fee_profile_version: int | None = None,
     commission_bps: float = 0.0,
     session: Session | None = None,
+    allow_legacy_bps_fallback: bool = True,
 ) -> BrokerFeeEstimator:
-    """Sber Investment → FeeEngine (DB or builtin); else legacy commission_bps."""
+    """Resolve FeeEngine estimator; optionally fall back to legacy commission_bps.
+
+    V1/V2: ``allow_legacy_bps_fallback=True`` (default) preserves flat bps.
+    V3: ``allow_legacy_bps_fallback=False`` — missing/unsupported profile →
+    :class:`UnknownFeeEstimator` (UNKNOWN), never fabricated 0%.
+    """
     engine, code, version = load_fee_engine_for_profile(
         session,
         fee_profile_code=fee_profile_code,
@@ -250,7 +314,17 @@ def resolve_fee_engine_estimator(
             fee_profile_code=code,
             fee_profile_version=version,
         )
-    return BpsFeeEstimator(Decimal(str(commission_bps)))
+    if allow_legacy_bps_fallback:
+        return BpsFeeEstimator(Decimal(str(commission_bps)))
+    return UnknownFeeEstimator(
+        fee_profile_code=code,
+        fee_profile_version=version if code is not None else fee_profile_version,
+        explanation=(
+            f"Fee profile unavailable or unsupported: code={code!r} version={version!r}"
+            if code is not None
+            else "Fee profile required but not configured"
+        ),
+    )
 
 
 def resolve_broker_fee_estimator(
@@ -259,6 +333,7 @@ def resolve_broker_fee_estimator(
     commission_bps: float = 0.0,
     fee_profile_version: int | None = None,
     session: Session | None = None,
+    allow_legacy_bps_fallback: bool = True,
 ) -> BrokerFeeEstimator:
     """Backward-compatible alias for sell-gate / unit callers."""
     return resolve_fee_engine_estimator(
@@ -266,6 +341,7 @@ def resolve_broker_fee_estimator(
         fee_profile_version=fee_profile_version,
         commission_bps=commission_bps,
         session=session,
+        allow_legacy_bps_fallback=allow_legacy_bps_fallback,
     )
 
 
@@ -281,7 +357,7 @@ def estimate_shadow_fee(
     instrument_symbol: str | None = None,
 ) -> ShadowFeeQuote:
     """Uniform quote for plan/fill provenance (works with FeeEngine or bps)."""
-    if isinstance(estimator, FeeEngineEstimator):
+    if isinstance(estimator, FeeEngineEstimator | UnknownFeeEstimator):
         return estimator.estimate(
             side=side,
             notional=notional,

@@ -28,7 +28,10 @@ from app.modules.shadow.config import (
     realism_v3_shadow_configs,
 )
 from app.modules.shadow.domain.fee_estimate import (
+    BpsFeeEstimator,
     FeeEngineEstimator,
+    UnknownFeeEstimator,
+    estimate_shadow_fee,
     resolve_broker_fee_estimator,
 )
 from app.modules.shadow.domain.lot_plan import PlanInstrument, build_lot_order_plan
@@ -1014,3 +1017,112 @@ def test_lot_plan_skips_when_fee_rule_unavailable() -> None:
     )
     assert not plan.executable
     assert any(r.reason == "FEE_RULE_UNAVAILABLE" for r in plan.skipped)
+
+
+def test_v3_unknown_profile_does_not_become_zero_bps() -> None:
+    """Missing FeeProfile must be UNKNOWN — not BpsFeeEstimator(0)."""
+    est = resolve_broker_fee_estimator(
+        fee_profile_code="NON_EXISTENT_PROFILE",
+        fee_profile_version=1,
+        commission_bps=0.0,
+        allow_legacy_bps_fallback=False,
+    )
+    assert isinstance(est, UnknownFeeEstimator)
+    assert not isinstance(est, BpsFeeEstimator)
+    quote = estimate_shadow_fee(
+        est,
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 29),
+        fee_profile_code="NON_EXISTENT_PROFILE",
+        instrument_symbol="SBER",
+    )
+    assert quote.is_unknown
+    assert quote.amount is None
+    assert est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 29),
+        fee_profile_code="NON_EXISTENT_PROFILE",
+        instrument_symbol="SBER",
+    ) is None
+
+
+def test_v3_unknown_profile_blocks_rotate() -> None:
+    """Cost-dependent ROTATE cannot assume 0% when profile is unresolved."""
+    est = resolve_broker_fee_estimator(
+        fee_profile_code="NON_EXISTENT_PROFILE",
+        commission_bps=0.0,
+        allow_legacy_bps_fallback=False,
+    )
+    held = [_held(1, expected=0.01, rank=40, qty=100, price=100, weight=0.5)]
+    result = apply_sell_gate(
+        held=held,
+        policy_targets=[
+            PolicyTarget(
+                instrument_id=2,
+                ticker="T2",
+                target_weight=1.0,
+                rank=1,
+                prediction_semantic="EXPECTED_RETURN",
+                expected_return=0.99,
+                action="ENTER_TOP20",
+                price=100.0,
+            )
+        ],
+        replacement_candidates=[_cand(2, expected=0.99, rank=1)],
+        params=SellGateParams(
+            fee_profile_code="NON_EXISTENT_PROFILE",
+            k_entry=1,
+            as_of=date(2026, 10, 1),
+            min_net_rotation_edge_bps=0.0,
+            slippage_bps=0.0,
+        ),
+        fee_estimator=est,
+        eligible_count=5,
+    )
+    tr = next(t for t in result.traces if t.instrument_id == 1)
+    assert tr.decision_action == DATA_HOLD
+    assert "FEE_MODEL_MISSING" in (tr.limitation_codes or ())
+    assert _perm_map(result)[1].sell_allowed is False
+
+
+def test_v2_legacy_bps_fallback_still_works() -> None:
+    est = resolve_broker_fee_estimator(
+        fee_profile_code=None,
+        commission_bps=10.0,
+        allow_legacy_bps_fallback=True,
+    )
+    assert isinstance(est, BpsFeeEstimator)
+    fee = est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("10000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 29),
+    )
+    assert fee == Decimal("10")
+
+
+def test_v3_sber_builtin_still_resolves_when_fallback_disabled() -> None:
+    est = resolve_broker_fee_estimator(
+        fee_profile_code=FEE_PROFILE_CODE_SBER_INVESTMENT,
+        commission_bps=0.0,
+        allow_legacy_bps_fallback=False,
+    )
+    assert isinstance(est, FeeEngineEstimator)
+    assert est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 29),
+        instrument_symbol="SBER",
+    ) == Decimal("300")
+    assert est.broker_fee_estimate(
+        side="BUY",
+        notional=Decimal("100000"),
+        instrument_id=1,
+        as_of=date(2026, 9, 29),
+        instrument_symbol="SBFR",
+    ) == Decimal("0")
