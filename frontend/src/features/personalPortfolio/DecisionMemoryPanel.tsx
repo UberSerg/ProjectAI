@@ -134,10 +134,13 @@ export function DecisionMemoryPanel({
   portfolioId,
   test = false,
   newCashRub = null,
+  decisionFingerprint = null,
 }: {
   portfolioId: number | null | undefined;
   test?: boolean;
   newCashRub?: number | string | null;
+  /** Fingerprint of the Daily Decision currently shown to the user. */
+  decisionFingerprint?: string | null;
 }) {
   const [items, setItems] = useState<DecisionMemoryRecordSummary[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -244,11 +247,20 @@ export function DecisionMemoryPanel({
 
   async function capture() {
     if (portfolioId == null || capturing) return;
+    const fp = typeof decisionFingerprint === "string" ? decisionFingerprint.trim() : "";
+    if (!fp) {
+      setError("Сначала обновите расчёт решения, затем зафиксируйте актуальную версию.");
+      return;
+    }
     setCapturing(true);
     setError(null);
     setNotice(null);
     try {
-      const rec = await captureDecisionMemory(portfolioId, { test, newCashRub });
+      const rec = await captureDecisionMemory(portfolioId, {
+        test,
+        newCashRub,
+        expectedDecisionFingerprint: fp,
+      });
       const summary: DecisionMemoryRecordSummary = {
         ...rec,
         actions_count: rec.actions_count ?? rec.actions?.length ?? 0,

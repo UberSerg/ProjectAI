@@ -37,6 +37,7 @@ router = APIRouter()
 class CaptureBody(BaseModel):
     # ``captured_at`` is deliberately absent: the server clock is the only source.
     new_cash_rub: Decimal | None = Field(default=None, ge=0)
+    expected_decision_fingerprint: str = Field(min_length=1)
 
 
 class LinkBody(BaseModel):
@@ -53,19 +54,23 @@ def _http_memory(exc: DecisionMemoryError) -> HTTPException:
 @router.post("/{portfolio_id}/decision-memory/capture")
 def post_capture(
     portfolio_id: int,
-    body: CaptureBody | None = None,
+    body: CaptureBody,
     test: Annotated[bool, Query()] = False,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
-    new_cash = body.new_cash_rub if body is not None else None
+    new_cash = body.new_cash_rub
+    expected_fp = body.expected_decision_fingerprint
     with core_session() as core, memory_session() as mem:
         try:
             portfolio = _resolve(core, portfolio_id, test=test)
+            # Replay BEFORE rebuild so a successful capture stays stable if the
+            # live Daily Decision has since changed.
             replay = find_existing_capture(
                 mem,
                 portfolio_id=int(portfolio.id),
                 idempotency_key=idempotency_key or "",
                 new_cash_rub=new_cash,
+                expected_decision_fingerprint=expected_fp,
             )
             if replay is not None:
                 return replay
@@ -81,6 +86,7 @@ def post_capture(
                 decision_payload=decision,
                 idempotency_key=idempotency_key or "",
                 new_cash_rub=new_cash,
+                expected_decision_fingerprint=expected_fp,
             )
         except DecisionMemoryError as exc:
             raise _http_memory(exc) from exc

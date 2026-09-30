@@ -422,6 +422,7 @@ export function MyPortfolioPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const [decisionNewCash, setDecisionNewCash] = useState<string | null>(null);
+  const [decisionFingerprint, setDecisionFingerprint] = useState<string | null>(null);
 
   useEffect(() => {
     setDecisionNewCash(null);
@@ -751,12 +752,19 @@ export function MyPortfolioPage() {
               decision={decisionRes.data}
               owner={!isUser}
               portfolioId={portfolioId}
-              onDecisionChange={(next) => setDecisionNewCash(next?.new_cash_rub ?? null)}
+              onDecisionChange={(next) => {
+                setDecisionNewCash(next?.new_cash_rub ?? null);
+                setDecisionFingerprint(next?.decision_fingerprint ?? null);
+              }}
             />
           ) : null}
           {portfolioId != null ? (
             <div style={{ marginTop: "1rem" }}>
-              <DecisionMemoryPanel portfolioId={portfolioId} newCashRub={decisionNewCash} />
+              <DecisionMemoryPanel
+                portfolioId={portfolioId}
+                newCashRub={decisionNewCash}
+                decisionFingerprint={decisionFingerprint ?? decisionRes.data?.decision_fingerprint ?? null}
+              />
             </div>
           ) : null}
         </div>

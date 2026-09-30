@@ -146,18 +146,30 @@ describe("DecisionMemoryPanel", () => {
     expect(await screen.findByText("История решений раньше не сохранялась.")).toBeInTheDocument();
   });
 
-  it("calls capture API with current new cash", async () => {
+  it("calls capture API with current new cash and displayed fingerprint", async () => {
     vi.mocked(api.captureDecisionMemory).mockResolvedValue(record);
-    render(<DecisionMemoryPanel portfolioId={1} newCashRub="30000" />);
+    render(<DecisionMemoryPanel portfolioId={1} newCashRub="30000" decisionFingerprint="fp-test" />);
     await screen.findByTestId("memory-empty");
     fireEvent.click(screen.getByTestId("memory-capture"));
     await waitFor(() => expect(api.captureDecisionMemory).toHaveBeenCalledTimes(1));
-    expect(api.captureDecisionMemory).toHaveBeenCalledWith(1, { test: false, newCashRub: "30000" });
+    expect(api.captureDecisionMemory).toHaveBeenCalledWith(1, {
+      test: false,
+      newCashRub: "30000",
+      expectedDecisionFingerprint: "fp-test",
+    });
+  });
+
+  it("refuses capture without a displayed decision fingerprint", async () => {
+    render(<DecisionMemoryPanel portfolioId={1} />);
+    await screen.findByTestId("memory-empty");
+    fireEvent.click(screen.getByTestId("memory-capture"));
+    expect(await screen.findByText(/Сначала обновите расчёт решения/)).toBeInTheDocument();
+    expect(api.captureDecisionMemory).not.toHaveBeenCalled();
   });
 
   it("shows captured decision in history list", async () => {
     vi.mocked(api.captureDecisionMemory).mockResolvedValue(record);
-    render(<DecisionMemoryPanel portfolioId={1} />);
+    render(<DecisionMemoryPanel portfolioId={1} decisionFingerprint="fp-ok" />);
     await screen.findByTestId("memory-empty");
     fireEvent.click(screen.getByTestId("memory-capture"));
     expect(await screen.findByTestId("memory-item-7")).toHaveTextContent("Рассмотрите увеличение SBER");
@@ -226,11 +238,14 @@ describe("DecisionMemoryPanel", () => {
   });
 
   it("shows a readable error when capture fails", async () => {
-    vi.mocked(api.captureDecisionMemory).mockRejectedValue(new ApiError("Портфель не найден.", 404));
-    render(<DecisionMemoryPanel portfolioId={1} />);
+    vi.mocked(api.captureDecisionMemory).mockRejectedValue(
+      new ApiError("Решение изменилось с момента отображения. Обновите расчёт и зафиксируйте актуальную версию.", 409),
+    );
+    render(<DecisionMemoryPanel portfolioId={1} decisionFingerprint="fp-stale" />);
     await screen.findByTestId("memory-empty");
     fireEvent.click(screen.getByTestId("memory-capture"));
-    expect(await screen.findByTestId("memory-error")).toHaveTextContent("Портфель не найден.");
+    expect(await screen.findByTestId("memory-error")).toHaveTextContent("Решение изменилось с момента отображения");
+    expect(screen.getByTestId("memory-error").textContent).not.toContain("[object Object]");
   });
 
   it("unlinks a confirmed link", async () => {

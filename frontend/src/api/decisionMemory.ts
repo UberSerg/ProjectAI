@@ -176,14 +176,22 @@ export function newIdempotencyKey(): string {
 
 export function captureDecisionMemory(
   portfolioId: number,
-  options: CommonOptions & { newCashRub?: number | string | null; idempotencyKey?: string } = {},
+  options: CommonOptions & {
+    newCashRub?: number | string | null;
+    expectedDecisionFingerprint: string;
+    idempotencyKey?: string;
+  },
 ): Promise<DecisionMemoryRecord> {
   const cash = options.newCashRub;
   const hasCash = cash != null && cash !== "" && Number(cash) > 0;
+  const body: Record<string, unknown> = {
+    expected_decision_fingerprint: options.expectedDecisionFingerprint,
+  };
+  if (hasCash) body.new_cash_rub = Number(cash);
   return apiRequest<DecisionMemoryRecord>(`${base(portfolioId)}/capture${testQuery(options.test)}`, {
     method: "POST",
     headers: { "Idempotency-Key": options.idempotencyKey ?? newIdempotencyKey() },
-    body: hasCash ? { new_cash_rub: Number(cash) } : undefined,
+    body,
     signal: options.signal,
   });
 }

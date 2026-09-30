@@ -16,6 +16,7 @@ from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioSnapshot,
     load_personal_snapshot,
 )
+from app.modules.portfolio.domain.decision_identity import decision_fingerprint
 from app.modules.portfolio.domain.personal_ledger import ZERO, money
 from app.modules.portfolio.infrastructure.models import ManualPortfolio
 
@@ -819,7 +820,7 @@ def _pack(
         "reasons": list(degradations[:5]),
         "note": "Qualitative confidence from data completeness — not a probability.",
     }
-    return {
+    payload: dict[str, Any] = {
         "engine_version": ENGINE_VERSION,
         "as_of": as_of.isoformat(),
         "status": status,
@@ -888,3 +889,6 @@ def _pack(
         "degradations": degradations,
         "disclaimer": DISCLAIMER,
     }
+    # Identity of the exact recommendation payload (no Memory I/O).
+    payload["decision_fingerprint"] = decision_fingerprint(payload)
+    return payload

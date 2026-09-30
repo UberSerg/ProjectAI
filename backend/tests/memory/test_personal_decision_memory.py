@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.domain.ports.intraday_market import IntradayQuote, MarketSessionStatus, QuoteFreshness
 from app.infrastructure.market.models import Base as CoreBase
 from app.infrastructure.market.models import Candle, Instrument, InstrumentSource
 from app.modules.market.application.intraday_cache import IntradayQuoteCache
@@ -45,6 +46,7 @@ from app.modules.memory.domain.decision_memory import (
     HORIZONS,
     canonical_hash,
     canonical_json,
+    decision_fingerprint,
     directional_alignment,
     normalize_new_cash,
     request_fingerprint,
@@ -240,7 +242,7 @@ def _act(action: str, symbol: str | None, **extra: Any) -> dict[str, Any]:
 
 
 def _payload(portfolio: ManualPortfolio, actions: list[dict[str, Any]], **over: Any) -> dict[str, Any]:
-    return {
+    body = {
         "engine_version": ENGINE_VERSION,
         "as_of": "2026-09-21",
         "status": "READY",
@@ -252,6 +254,8 @@ def _payload(portfolio: ManualPortfolio, actions: list[dict[str, Any]], **over: 
         "data_quality": {"quantity": Decimal("1.50"), "day": date(2026, 9, 21)},
         **over,
     }
+    body["decision_fingerprint"] = decision_fingerprint(body)
+    return body
 
 
 def _capture(
@@ -263,18 +267,61 @@ def _capture(
     key: str = "k1",
     new_cash: Decimal | None = None,
     now: datetime = CAPTURE_NOW,
+    expected_fingerprint: str | None = None,
+    quote_cache: IntradayQuoteCache | None = None,
     **payload_over: Any,
 ) -> dict[str, Any]:
+    payload = _payload(portfolio, actions, **payload_over)
     return capture_decision(
         mem,
         core,
         portfolio_id=portfolio.id,
-        decision_payload=_payload(portfolio, actions, **payload_over),
+        decision_payload=payload,
         idempotency_key=key,
         new_cash_rub=new_cash,
+        expected_decision_fingerprint=expected_fingerprint or payload["decision_fingerprint"],
         now=now,
-        quote_cache=_cache(),
+        quote_cache=quote_cache if quote_cache is not None else _cache(),
     )
+
+
+def _quote(
+    *,
+    secid: str,
+    board: str = "TQBR",
+    trading_date: date,
+    observed_at: datetime,
+    last: float | None = 100.0,
+    prev: float | None = None,
+    freshness: QuoteFreshness = QuoteFreshness.LIVE,
+    market_status: MarketSessionStatus = MarketSessionStatus.OPEN,
+    source_timestamp: datetime | None = None,
+) -> IntradayQuote:
+    return IntradayQuote(
+        secid=secid,
+        board=board,
+        trading_date=trading_date,
+        observed_at=observed_at,
+        source_timestamp=source_timestamp,
+        market_status=market_status,
+        open_price=None,
+        last_price=last,
+        bid=None,
+        ask=None,
+        previous_close=prev,
+        volume=None,
+        source="MOEX_ISS",
+        freshness=freshness,
+        quality="TEST",
+        instrument_id=None,
+    )
+
+
+def _cache_with(*quotes: IntradayQuote) -> IntradayQuoteCache:
+    cache = _cache()
+    for q in quotes:
+        cache.set(q)
+    return cache
 
 
 def _nth_session(start: date, n: int) -> date:
@@ -354,15 +401,26 @@ def test_canonical_json_is_order_independent_and_handles_decimal_date() -> None:
 
 
 def test_request_fingerprint_normalizes_new_cash() -> None:
-    base = request_fingerprint(1, None)
-    assert base == request_fingerprint(1, Decimal("0"))
-    assert base == request_fingerprint(1, Decimal("0.00001"))
-    assert request_fingerprint(1, Decimal("100")) == request_fingerprint(1, Decimal("100.0000"))
-    assert request_fingerprint(1, Decimal("100")) != request_fingerprint(2, Decimal("100"))
-    assert request_fingerprint(1, Decimal("100")) != request_fingerprint(1, Decimal("101"))
+    a = request_fingerprint(1, None, "fp-a")
+    b = request_fingerprint(1, Decimal("0"), "fp-a")
+    c = request_fingerprint(1, Decimal("0.0000"), "fp-a")
+    assert a == b == c
+    assert request_fingerprint(1, Decimal("5"), "fp-a") != a
+    assert request_fingerprint(1, None, "fp-b") != a
     assert normalize_new_cash(Decimal("5")) == Decimal("5.0000")
     with pytest.raises(ValueError):
         normalize_new_cash(Decimal("NaN"))
+
+
+def test_decision_fingerprint_ignores_key_order_and_self_field() -> None:
+    from app.modules.portfolio.domain.decision_identity import decision_fingerprint as portfolio_fp
+
+    left = {"b": 1, "a": Decimal("1.5"), "day": date(2026, 9, 21)}
+    right = {"a": Decimal("1.5"), "day": date(2026, 9, 21), "b": 1}
+    assert decision_fingerprint(left) == decision_fingerprint(right)
+    assert decision_fingerprint(left) == portfolio_fp(left)
+    stamped = {**left, "decision_fingerprint": "should-not-matter"}
+    assert decision_fingerprint(stamped) == decision_fingerprint(left)
 
 
 def test_directional_alignment_only_for_increase_reduce() -> None:
@@ -449,8 +507,13 @@ def test_get_daily_decision_stays_read_only_and_capture_is_post_only() -> None:
 def test_capture_body_has_no_captured_at() -> None:
     from app.api.v1.decision_memory import CaptureBody
 
-    assert set(CaptureBody.model_fields) == {"new_cash_rub"}
-    assert CaptureBody.model_validate({"new_cash_rub": 1, "captured_at": "2020-01-01T00:00:00Z"}).new_cash_rub == 1
+    assert set(CaptureBody.model_fields) == {"new_cash_rub", "expected_decision_fingerprint"}
+    parsed = CaptureBody.model_validate(
+        {"new_cash_rub": 1, "expected_decision_fingerprint": "abc", "captured_at": "2020-01-01T00:00:00Z"}
+    )
+    assert parsed.new_cash_rub == 1
+    assert parsed.expected_decision_fingerprint == "abc"
+    assert not hasattr(parsed, "captured_at") or "captured_at" not in CaptureBody.model_fields
 
 
 # --------------------------------------------------------------------------- capture
@@ -526,33 +589,51 @@ def test_capture_is_idempotent_and_replay_adds_no_rows(mem_tx, core_tx) -> None:
     _instrument(core_tx, "PDMIA")
     actions = [_act("CONSIDER_INCREASE", "PDMIA")]
     first = _capture(mem_tx, core_tx, pf, actions, key="same-key")
+    fp = first["decision_payload"]["decision_fingerprint"]
     rows = (_n_records(mem_tx, pf.id), _n_actions(mem_tx, pf.id), _n_outcomes(mem_tx, pf.id))
 
     later = CAPTURE_NOW + timedelta(hours=3)
-    second = _capture(mem_tx, core_tx, pf, actions, key="same-key", now=later, headline="changed")
+    # Retry must resend the original displayed fingerprint even if a rebuilt payload differs.
+    second = _capture(
+        mem_tx, core_tx, pf, actions, key="same-key", now=later, expected_fingerprint=fp, headline="changed"
+    )
 
     assert second["idempotent_replay"] is True
     assert second["id"] == first["id"]
     assert second["captured_at"] == first["captured_at"]
     assert second["canonical_hash"] == first["canonical_hash"]
     assert rows == (_n_records(mem_tx, pf.id), _n_actions(mem_tx, pf.id), _n_outcomes(mem_tx, pf.id))
-    replay = find_existing_capture(mem_tx, portfolio_id=pf.id, idempotency_key="same-key", new_cash_rub=None)
+    replay = find_existing_capture(
+        mem_tx, portfolio_id=pf.id, idempotency_key="same-key", new_cash_rub=None, expected_decision_fingerprint=fp
+    )
     assert replay is not None and replay["id"] == first["id"]
-    assert find_existing_capture(mem_tx, portfolio_id=pf.id, idempotency_key="other", new_cash_rub=None) is None
+    assert (
+        find_existing_capture(
+            mem_tx, portfolio_id=pf.id, idempotency_key="other", new_cash_rub=None, expected_decision_fingerprint=fp
+        )
+        is None
+    )
 
 
 def test_same_key_different_parameters_is_conflict(mem_tx, core_tx) -> None:
     pf = _portfolio(core_tx, "pdm-conflict")
-    _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("100"))
+    first = _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("100"))
+    fp = first["decision_payload"]["decision_fingerprint"]
     with pytest.raises(ConflictError) as exc:
-        _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("200"))
+        _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("200"), expected_fingerprint=fp)
     assert exc.value.http_status == 409
     assert exc.value.code == "IDEMPOTENCY_KEY_REUSED"
     with pytest.raises(ConflictError):
-        find_existing_capture(mem_tx, portfolio_id=pf.id, idempotency_key="kc", new_cash_rub=None)
+        find_existing_capture(
+            mem_tx, portfolio_id=pf.id, idempotency_key="kc", new_cash_rub=None, expected_decision_fingerprint=fp
+        )
     # Numerically equal value in another spelling is the same request.
-    again = _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("100.0000"))
+    again = _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("100.0000"), expected_fingerprint=fp)
     assert again["idempotent_replay"] is True
+    # Same key + different displayed fingerprint is also a conflict.
+    with pytest.raises(ConflictError) as exc2:
+        _capture(mem_tx, core_tx, pf, [], key="kc", new_cash=Decimal("100"), expected_fingerprint="other-fp")
+    assert exc2.value.code == "IDEMPOTENCY_KEY_REUSED"
 
 
 def test_same_key_is_scoped_per_portfolio(mem_tx, core_tx) -> None:
@@ -598,13 +679,15 @@ def test_captured_at_is_server_utc_and_naive_now_rejected(mem_tx, core_tx) -> No
 def test_default_clock_is_server_now(mem_tx, core_tx) -> None:
     pf = _portfolio(core_tx, "pdm-defclock")
     before = datetime.now(UTC)
+    payload = _payload(pf, [])
     out = capture_decision(
         mem_tx,
         core_tx,
         portfolio_id=pf.id,
-        decision_payload=_payload(pf, []),
+        decision_payload=payload,
         idempotency_key="defclock",
         new_cash_rub=None,
+        expected_decision_fingerprint=payload["decision_fingerprint"],
         quote_cache=_cache(),
     )
     after = datetime.now(UTC)
@@ -627,6 +710,7 @@ def test_wrong_engine_or_portfolio_payload_rejected(mem_tx, core_tx) -> None:
             decision_payload=bad_pf_payload,
             idempotency_key="e2",
             new_cash_rub=None,
+            expected_decision_fingerprint=bad_pf_payload["decision_fingerprint"],
             now=CAPTURE_NOW,
             quote_cache=_cache(),
         )
@@ -639,6 +723,7 @@ def test_wrong_engine_or_portfolio_payload_rejected(mem_tx, core_tx) -> None:
             decision_payload={"engine_version": ENGINE_VERSION, "actions": "nope"},  # type: ignore[arg-type]
             idempotency_key="e3",
             new_cash_rub=None,
+            expected_decision_fingerprint="x",
             now=CAPTURE_NOW,
         )
     assert _n_records(mem_tx, pf.id) == 0
@@ -650,9 +735,10 @@ def test_unknown_portfolio_not_found(mem_tx, core_tx) -> None:
             mem_tx,
             core_tx,
             portfolio_id=999_999_999,
-            decision_payload={"engine_version": ENGINE_VERSION, "actions": []},
+            decision_payload={"engine_version": ENGINE_VERSION, "actions": [], "decision_fingerprint": "x"},
             idempotency_key="nf",
             new_cash_rub=None,
+            expected_decision_fingerprint="x",
             now=CAPTURE_NOW,
         )
 
@@ -667,6 +753,7 @@ def test_stored_payload_is_detached_and_hash_detects_tampering(mem_tx, core_tx) 
         decision_payload=payload,
         idempotency_key="h1",
         new_cash_rub=None,
+        expected_decision_fingerprint=payload["decision_fingerprint"],
         now=CAPTURE_NOW,
         quote_cache=_cache(),
     )
@@ -726,52 +813,147 @@ def test_unavailable_baselines_do_not_invent_prices(mem_tx, core_tx) -> None:
     assert by_sym["PDMBOND"]["outcomes"][0]["provenance"]["reason"] == "ASSET_CLASS_NOT_SUPPORTED"
 
 
-def test_zero_or_negative_mark_is_unavailable(mem_tx, core_tx, monkeypatch) -> None:
+def test_zero_last_quote_falls_back_or_unavailable(mem_tx, core_tx) -> None:
     pf = _portfolio(core_tx, "pdm-zero")
     _instrument(core_tx, "PDMZERO", close=None)
-    monkeypatch.setattr(svc, "equity_mark", lambda *a, **k: (Decimal("0"), "INTRADAY_LAST", "LIVE"))
-    out = _capture(mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMZERO")])
+    cache = _cache_with(
+        _quote(secid="PDMZERO", trading_date=BASELINE_DAY, observed_at=CAPTURE_NOW - timedelta(minutes=5), last=0.0)
+    )
+    out = _capture(mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMZERO")], quote_cache=cache)
     assert out["actions"][0]["baseline"]["status"] == "UNAVAILABLE"
 
 
-@pytest.mark.parametrize(
-    ("source", "now", "expected_day"),
-    [
-        # Saturday: last session was Friday 2026-09-25 for both live and previous close.
-        ("INTRADAY_LAST", datetime(2026, 9, 26, 10, 0, tzinfo=UTC), "2026-09-25"),
-        ("PREVIOUS_CLOSE", datetime(2026, 9, 26, 10, 0, tzinfo=UTC), "2026-09-25"),
-        # Monday midday: live mark belongs to today, previous close to Friday.
-        ("INTRADAY_LAST", datetime(2026, 9, 28, 10, 0, tzinfo=UTC), "2026-09-28"),
-        ("PREVIOUS_CLOSE", datetime(2026, 9, 28, 10, 0, tzinfo=UTC), "2026-09-25"),
-    ],
-)
-def test_live_mark_market_date_uses_trading_calendar(mem_tx, core_tx, monkeypatch, source, now, expected_day) -> None:
+def test_intraday_baseline_uses_quote_trading_date_not_capture_calendar(mem_tx, core_tx) -> None:
+    """Quote trading_date may differ from capture MSK calendar day; do not relabel."""
     pf = _portfolio(core_tx, "pdm-live")
     _instrument(core_tx, "PDMLIVE", close=None)
-    monkeypatch.setattr(svc, "equity_mark", lambda *a, **k: (Decimal("123.45"), source, "LIVE"))
-    out = _capture(mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMLIVE")], now=now)
+    capture_at = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+    observed = datetime(2026, 9, 25, 15, 30, tzinfo=UTC)
+    cache = _cache_with(
+        _quote(
+            secid="PDMLIVE",
+            trading_date=date(2026, 9, 25),
+            observed_at=observed,
+            last=123.45,
+            source_timestamp=observed,
+        )
+    )
+    out = _capture(
+        mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMLIVE")], now=capture_at, quote_cache=cache
+    )
     base = out["actions"][0]["baseline"]
     assert base["price"] == "123.45"
-    assert base["price_source"] == source
-    assert base["market_date"] == expected_day
+    assert base["price_source"] == "INTRADAY_LAST"
+    assert base["market_date"] == "2026-09-25"
+    assert _dt(base["observed_at"]) == observed
+    assert base["provenance"]["quote_trading_date"] == "2026-09-25"
+    assert base["provenance"]["captured_at"] == capture_at.isoformat()
+    assert _dt(out["captured_at"]) == capture_at
+    assert _dt(out["captured_at"]) != _dt(base["observed_at"])
     assert (
         out["actions"][0]["outcomes"][0]["target_session_date"]
-        == _nth_session(date.fromisoformat(expected_day), 5).isoformat()
+        == _nth_session(date(2026, 9, 25), 5).isoformat()
     )
 
 
-def test_capture_never_fetches_market_data(mem_tx, core_tx, monkeypatch) -> None:
-    pf = _portfolio(core_tx, "pdm-nofetch")
-    _instrument(core_tx, "PDMNF")
-    seen: dict[str, Any] = {}
+def test_previous_close_baseline_uses_quote_session(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-prev")
+    _instrument(core_tx, "PDMPREV", close=None)
+    capture_at = datetime(2026, 9, 28, 6, 0, tzinfo=UTC)
+    observed = datetime(2026, 9, 25, 20, 0, tzinfo=UTC)
+    cache = _cache_with(
+        _quote(
+            secid="PDMPREV",
+            trading_date=date(2026, 9, 25),
+            observed_at=observed,
+            last=None,
+            prev=88.5,
+            freshness=QuoteFreshness.STALE,
+            market_status=MarketSessionStatus.CLOSED,
+        )
+    )
+    out = _capture(
+        mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMPREV")], now=capture_at, quote_cache=cache
+    )
+    base = out["actions"][0]["baseline"]
+    assert base["price_source"] == "PREVIOUS_CLOSE"
+    assert base["market_date"] == "2026-09-25"
+    assert Decimal(base["price"]) == Decimal("88.5")
+    assert base["provenance"]["quote_freshness"] == "STALE"
 
-    def fake_mark(session, instrument, **kwargs):
-        seen.update(kwargs)
-        return None, "NONE", "UNSUPPORTED"
 
-    monkeypatch.setattr(svc, "equity_mark", fake_mark)
-    _capture(mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMNF")])
-    assert seen["allow_fetch"] is False
+def test_future_quote_observed_at_is_rejected(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-futureq")
+    _instrument(core_tx, "PDMFUT", close=Decimal("50"))
+    cache = _cache_with(
+        _quote(
+            secid="PDMFUT",
+            trading_date=BASELINE_DAY,
+            observed_at=CAPTURE_NOW + timedelta(hours=2),
+            last=999.0,
+        )
+    )
+    out = _capture(mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMFUT")], quote_cache=cache)
+    base = out["actions"][0]["baseline"]
+    assert base["price_source"] == "EOD_CLOSE"
+    assert Decimal(base["price"]) == Decimal("50")
+    assert base["market_date"] == "2026-09-21"
+
+
+def test_quote_without_trading_date_falls_back_to_eod(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-nodate")
+    _instrument(core_tx, "PDMND", close=Decimal("41"))
+    q = IntradayQuote(
+        secid="PDMND",
+        board="TQBR",
+        trading_date=None,
+        observed_at=CAPTURE_NOW - timedelta(minutes=1),
+        source_timestamp=None,
+        market_status=MarketSessionStatus.OPEN,
+        open_price=None,
+        last_price=77.0,
+        bid=None,
+        ask=None,
+        previous_close=None,
+        volume=None,
+        source="MOEX_ISS",
+        freshness=QuoteFreshness.LIVE,
+        quality="TEST",
+    )
+    out = _capture(
+        mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMND")], quote_cache=_cache_with(q)
+    )
+    assert out["actions"][0]["baseline"]["price_source"] == "EOD_CLOSE"
+    assert Decimal(out["actions"][0]["baseline"]["price"]) == Decimal("41")
+
+
+def test_stale_preopen_quote_keeps_its_session(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-preopen")
+    _instrument(core_tx, "PDMPO", close=None)
+    observed = datetime(2026, 9, 25, 7, 0, tzinfo=UTC)
+    cache = _cache_with(
+        _quote(
+            secid="PDMPO",
+            trading_date=date(2026, 9, 25),
+            observed_at=observed,
+            last=None,
+            prev=12.0,
+            freshness=QuoteFreshness.SESSION_NOT_STARTED,
+            market_status=MarketSessionStatus.PREOPEN,
+        )
+    )
+    out = _capture(
+        mem_tx,
+        core_tx,
+        pf,
+        [_act("CONSIDER_INCREASE", "PDMPO")],
+        now=datetime(2026, 9, 28, 5, 0, tzinfo=UTC),
+        quote_cache=cache,
+    )
+    base = out["actions"][0]["baseline"]
+    assert base["market_date"] == "2026-09-25"
+    assert base["provenance"]["quote_market_status"] == "PREOPEN"
+    assert base["price_source"] == "PREVIOUS_CLOSE"
 
 
 # --------------------------------------------------------------------------- reads / scoping
@@ -798,6 +980,79 @@ def test_reads_are_portfolio_scoped(mem_tx, core_tx) -> None:
         get_decision(mem_tx, p2.id, d1["id"])
     with pytest.raises(NotFoundError):
         get_decision(mem_tx, p1.id, 999_999_999)
+
+
+def test_stale_displayed_fingerprint_is_rejected_without_memory_row(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-fp-stale")
+    _instrument(core_tx, "PDMFP")
+    displayed = _payload(pf, [_act("CONSIDER_INCREASE", "PDMFP")], headline="shown")
+    shown_fp = displayed["decision_fingerprint"]
+    rebuilt = _payload(pf, [_act("CONSIDER_INCREASE", "PDMFP")], headline="changed-after-show")
+    assert rebuilt["decision_fingerprint"] != shown_fp
+    with pytest.raises(ConflictError) as exc:
+        capture_decision(
+            mem_tx,
+            core_tx,
+            portfolio_id=pf.id,
+            decision_payload=rebuilt,
+            idempotency_key="stale-ui",
+            new_cash_rub=None,
+            expected_decision_fingerprint=shown_fp,
+            now=CAPTURE_NOW,
+            quote_cache=_cache(),
+        )
+    assert exc.value.code == "DECISION_CHANGED"
+    assert "Обновите расчёт" in exc.value.message
+    assert _n_records(mem_tx, pf.id) == 0
+
+
+def test_matching_fingerprint_captures_exact_displayed_payload(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-fp-ok")
+    _instrument(core_tx, "PDMFO")
+    displayed = _payload(pf, [_act("CONSIDER_INCREASE", "PDMFO")], headline="exact")
+    out = capture_decision(
+        mem_tx,
+        core_tx,
+        portfolio_id=pf.id,
+        decision_payload=displayed,
+        idempotency_key="exact",
+        new_cash_rub=None,
+        expected_decision_fingerprint=displayed["decision_fingerprint"],
+        now=CAPTURE_NOW,
+        quote_cache=_cache(),
+    )
+    assert out["decision_payload"]["headline"] == "exact"
+    assert out["decision_payload"]["decision_fingerprint"] == displayed["decision_fingerprint"]
+    assert out["hash_verified"] is True
+
+
+def test_idempotent_replay_even_if_current_decision_would_differ(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-fp-replay")
+    _instrument(core_tx, "PDMFR")
+    first_payload = _payload(pf, [_act("CONSIDER_INCREASE", "PDMFR")], headline="v1")
+    first = capture_decision(
+        mem_tx,
+        core_tx,
+        portfolio_id=pf.id,
+        decision_payload=first_payload,
+        idempotency_key="replay-key",
+        new_cash_rub=None,
+        expected_decision_fingerprint=first_payload["decision_fingerprint"],
+        now=CAPTURE_NOW,
+        quote_cache=_cache(),
+    )
+    changed = _payload(pf, [_act("CONSIDER_INCREASE", "PDMFR")], headline="v2-now")
+    replay = find_existing_capture(
+        mem_tx,
+        portfolio_id=pf.id,
+        idempotency_key="replay-key",
+        new_cash_rub=None,
+        expected_decision_fingerprint=first_payload["decision_fingerprint"],
+    )
+    assert replay is not None
+    assert replay["id"] == first["id"]
+    assert replay["decision_payload"]["headline"] == "v1"
+    assert changed["decision_fingerprint"] != first_payload["decision_fingerprint"]
 
 
 # --------------------------------------------------------------------------- outcomes

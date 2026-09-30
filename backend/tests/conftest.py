@@ -45,6 +45,40 @@ def _clear_settings_cache() -> None:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _block_live_moex_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ordinary automated tests must not call live MOEX (project rule + CI hangs).
+
+    Blocks the Personal Portfolio snapshot cold-start batch only. Focused market
+    tests may still exercise ``ensure_operational_quote`` with an injected provider.
+    """
+
+    def _no_network_quotes(session, instruments, *, cache=None, provider=None):  # noqa: ANN001
+        from app.modules.market.application.intraday_cache import IntradayQuoteCache
+        from app.modules.market.application.operational_quote import resolve_board_secid
+
+        class _NoRedis:
+            def get(self, *_a, **_k):  # noqa: ANN001
+                return None
+
+            def set(self, *_a, **_k):  # noqa: ANN001
+                return True
+
+        quote_cache = cache if cache is not None else IntradayQuoteCache(client=_NoRedis())
+        out = {}
+        for inst in instruments or []:
+            board, secid = resolve_board_secid(session, inst)
+            hit = quote_cache.get(board, secid)
+            if hit is not None:
+                out[(board, secid)] = hit
+        return out
+
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.personal_portfolio_service.ensure_operational_quotes",
+        _no_network_quotes,
+    )
+
+
 @pytest.fixture
 def core_db() -> Generator[Session, None, None]:
     """Transactional core DB session; rolled back after each test.

@@ -68,11 +68,31 @@ def normalize_new_cash(new_cash_rub: Decimal | None) -> Decimal:
     return value.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
-def request_fingerprint(portfolio_id: int, new_cash_rub: Decimal | None) -> str:
+def decision_fingerprint(payload: Any) -> str:
+    """Deterministic identity of a Daily Decision as shown to the user.
+
+    Excludes ``decision_fingerprint`` itself (no recursive self-hash). Uses the
+    same canonical JSON rules as snapshot integrity hashing. Does not include
+    pure runtime timestamps invented only for hashing.
+    """
+    if isinstance(payload, dict):
+        body = {key: value for key, value in payload.items() if key != "decision_fingerprint"}
+    else:
+        body = payload
+    # Round-trip through canonical JSON so Decimal/date and key order match capture.
+    return canonical_hash(json.loads(canonical_json(body)))
+
+
+def request_fingerprint(
+    portfolio_id: int,
+    new_cash_rub: Decimal | None,
+    expected_decision_fingerprint: str | None = None,
+) -> str:
     return canonical_hash(
         {
             "portfolio_id": int(portfolio_id),
             "new_cash_rub": format(normalize_new_cash(new_cash_rub), "f"),
+            "expected_decision_fingerprint": str(expected_decision_fingerprint or "").strip(),
         }
     )
 

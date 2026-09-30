@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.market.application.intraday_cache import IntradayQuoteCache
+from app.modules.market.application.operational_quote import mark_from_intraday_quote, resolve_board_secid
 from app.modules.market.domain.trading_calendar import MoexEquityTradingCalendar
 from app.modules.market.infrastructure.ru_trading_calendar import get_moex_equity_trading_calendar
 from app.modules.memory.domain.decision_memory import (
@@ -49,6 +50,7 @@ from app.modules.memory.domain.decision_memory import (
     RETURN_TYPE_PRICE,
     canonical_hash,
     canonical_json,
+    decision_fingerprint,
     directional_alignment,
     normalize_new_cash,
     operation_side_for_action,
@@ -61,7 +63,6 @@ from app.modules.memory.infrastructure.models import (
     PersonalDecisionOutcome,
     PersonalDecisionRecord,
 )
-from app.modules.portfolio.domain.valuation import equity_mark
 from app.modules.portfolio.infrastructure.models import (
     BrokerAccount,
     FeeProfile,
@@ -150,13 +151,46 @@ def _clean_key(idempotency_key: str | None) -> str:
     return key
 
 
-def _fingerprint(portfolio_id: int, new_cash_rub: Decimal | None) -> str:
+def _fingerprint(
+    portfolio_id: int,
+    new_cash_rub: Decimal | None,
+    expected_decision_fingerprint: str | None,
+) -> str:
     try:
         if new_cash_rub is not None and normalize_new_cash(new_cash_rub) < 0:
             raise DecisionMemoryValidationError("NEW_CASH_NEGATIVE", "new_cash_rub не может быть отрицательным.")
-        return request_fingerprint(portfolio_id, new_cash_rub)
+        expected = str(expected_decision_fingerprint or "").strip()
+        if not expected:
+            raise DecisionMemoryValidationError(
+                "DECISION_FINGERPRINT_REQUIRED",
+                "Требуется expected_decision_fingerprint отображённого решения.",
+            )
+        return request_fingerprint(portfolio_id, new_cash_rub, expected)
     except (ValueError, InvalidOperation) as exc:
         raise DecisionMemoryValidationError("NEW_CASH_INVALID", "new_cash_rub должен быть конечным числом.") from exc
+
+
+def _require_expected_fingerprint(expected_decision_fingerprint: str | None) -> str:
+    expected = str(expected_decision_fingerprint or "").strip()
+    if not expected:
+        raise DecisionMemoryValidationError(
+            "DECISION_FINGERPRINT_REQUIRED",
+            "Требуется expected_decision_fingerprint отображённого решения.",
+        )
+    return expected
+
+
+def _assert_displayed_decision_matches(
+    payload: dict[str, Any],
+    expected_decision_fingerprint: str,
+) -> None:
+    """Server remains authoritative: rebuilt payload must match what the UI showed."""
+    actual = str(payload.get("decision_fingerprint") or decision_fingerprint(payload)).strip()
+    if actual != expected_decision_fingerprint:
+        raise ConflictError(
+            "DECISION_CHANGED",
+            "Решение изменилось с момента отображения. Обновите расчёт и зафиксируйте актуальную версию.",
+        )
 
 
 def _parse_date(value: object) -> date | None:
@@ -198,6 +232,7 @@ class _Baseline:
     source: str | None = None
     observed_at: datetime | None = None
     reason: str | None = None
+    provenance: dict[str, Any] | None = None
 
 
 def _resolve_instrument(core_session: Session, symbol: str | None) -> tuple[Instrument | None, str | None]:
@@ -233,6 +268,12 @@ def _eod_close_asof(core_session: Session, instrument_id: int, asof: datetime) -
     return Decimal(str(row[0])), row[1]
 
 
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _freeze_baseline(
     core_session: Session,
     instrument: Instrument | None,
@@ -248,35 +289,74 @@ def _freeze_baseline(
     if asset not in SUPPORTED_BASELINE_ASSET_CLASSES:
         return _Baseline(BASELINE_UNAVAILABLE, reason="ASSET_CLASS_NOT_SUPPORTED")
 
-    msk_today = captured_at.astimezone(MSK).date()
-    # Never fetch from MOEX during capture: capture must not warm/mutate caches.
-    price, source, _quality = equity_mark(core_session, instrument, cache=quote_cache, allow_fetch=False)
+    # Capture never warms MOEX. Prefer the injected cache; otherwise use the process
+    # Redis-backed cache for real quote evidence (production). Tests inject ``_NoRedis``.
+    cache = quote_cache if quote_cache is not None else IntradayQuoteCache()
+    board, secid = resolve_board_secid(core_session, instrument)
+    quote = cache.get(board, secid)
+    price, source, quality = mark_from_intraday_quote(quote)
 
-    market_date: date | None
-    observed_at: datetime | None
-    if price is not None and source == "INTRADAY_LAST":
-        market_date = msk_today if calendar.is_trading_day(msk_today) else calendar.previous_trading_day(msk_today)
-        observed_at = captured_at
-    elif price is not None and source == "PREVIOUS_CLOSE":
-        market_date = calendar.previous_trading_day(msk_today)
-        observed_at = captured_at
-    else:
-        # EOD fallback (or no mark at all): re-read bounded by ``captured_at``.
-        eod = _eod_close_asof(core_session, int(instrument.id), captured_at)
-        if eod is None:
-            return _Baseline(BASELINE_UNAVAILABLE, reason="NO_PRICE")
-        price, observed_at = eod
-        source = "EOD_CLOSE"
-        market_date = observed_at.date()
+    if (
+        quote is not None
+        and price is not None
+        and price > 0
+        and source in {"INTRADAY_LAST", "PREVIOUS_CLOSE"}
+    ):
+        observed_at = _aware_utc(quote.observed_at)
+        if quote.source_timestamp is not None:
+            # Prefer exchange/source timestamp when present and not after capture.
+            src_ts = _aware_utc(quote.source_timestamp)
+            if src_ts <= captured_at:
+                observed_at = src_ts
+        if observed_at > captured_at:
+            # Future quote relative to capture is not honest evidence at capture time.
+            pass
+        elif quote.trading_date is None:
+            # Do not invent a session from the capture calendar.
+            pass
+        else:
+            provenance = {
+                "quote_source": quote.source,
+                "quote_freshness": str(quote.freshness),
+                "quote_market_status": str(quote.market_status),
+                "quote_trading_date": quote.trading_date.isoformat(),
+                "quote_observed_at": _iso(quote.observed_at),
+                "quote_source_timestamp": _iso(quote.source_timestamp),
+                "mark_quality": quality,
+                "captured_at": _iso(captured_at),
+                "board": quote.board,
+                "secid": quote.secid,
+            }
+            return _Baseline(
+                BASELINE_AVAILABLE,
+                price=price,
+                market_date=quote.trading_date,
+                source=source,
+                observed_at=observed_at,
+                provenance=provenance,
+            )
 
-    if price is None or price <= 0 or market_date is None:
+    # Honest EOD fallback bounded by capture time (Point-in-Time).
+    eod = _eod_close_asof(core_session, int(instrument.id), captured_at)
+    if eod is None:
+        return _Baseline(BASELINE_UNAVAILABLE, reason="NO_PRICE")
+    eod_price, eod_ts = eod
+    if eod_price is None or eod_price <= 0:
+        return _Baseline(BASELINE_UNAVAILABLE, reason="NO_PRICE")
+    market_date = eod_ts.date() if isinstance(eod_ts, datetime) else None
+    if market_date is None:
         return _Baseline(BASELINE_UNAVAILABLE, reason="NO_PRICE")
     return _Baseline(
         BASELINE_AVAILABLE,
-        price=price,
+        price=eod_price,
         market_date=market_date,
-        source=source,
-        observed_at=observed_at,
+        source="EOD_CLOSE",
+        observed_at=_aware_utc(eod_ts) if isinstance(eod_ts, datetime) else captured_at,
+        provenance={
+            "price_basis": PRICE_BASIS,
+            "captured_at": _iso(captured_at),
+            "eod_candle_timestamp": _iso(eod_ts) if isinstance(eod_ts, datetime) else None,
+        },
     )
 
 
@@ -337,6 +417,7 @@ def _serialize_action(row: PersonalDecisionAction) -> dict[str, Any]:
             "market_date": _iso(row.baseline_market_date),
             "price_source": row.baseline_price_source,
             "observed_at": _iso(row.baseline_observed_at),
+            "provenance": (row.action_payload or {}).get("baseline_provenance") or {},
         },
         "links": [_serialize_link(x) for x in row.links],
         "outcomes": [_serialize_outcome(x) for x in row.outcomes],
@@ -419,10 +500,11 @@ def find_existing_capture(
     portfolio_id: int,
     idempotency_key: str,
     new_cash_rub: Decimal | None,
+    expected_decision_fingerprint: str | None,
 ) -> dict[str, Any] | None:
     """Replay lookup used by the API before rebuilding the (expensive) daily decision."""
     key = _clean_key(idempotency_key)
-    fingerprint = _fingerprint(portfolio_id, new_cash_rub)
+    fingerprint = _fingerprint(portfolio_id, new_cash_rub, expected_decision_fingerprint)
     existing = _existing_by_key(memory_session, portfolio_id, key)
     if existing is None:
         return None
@@ -493,15 +575,18 @@ def capture_decision(
     decision_payload: dict[str, Any],
     idempotency_key: str,
     new_cash_rub: Decimal | None,
+    expected_decision_fingerprint: str | None,
     now: datetime | None = None,
     quote_cache: IntradayQuoteCache | None = None,
 ) -> dict[str, Any]:
     """Freeze an already-built Daily Personal Decision into Memory DB.
 
     Idempotent per ``(portfolio_id, idempotency_key)``. Caller commits.
+    Replay of the same key returns the original row even if today's decision changed.
     """
     key = _clean_key(idempotency_key)
-    fingerprint = _fingerprint(portfolio_id, new_cash_rub)
+    expected = _require_expected_fingerprint(expected_decision_fingerprint)
+    fingerprint = _fingerprint(portfolio_id, new_cash_rub, expected)
 
     existing = _existing_by_key(memory_session, portfolio_id, key)
     if existing is not None:
@@ -509,6 +594,7 @@ def capture_decision(
 
     captured_at = _utc_now(now)
     payload = _validate_payload(portfolio_id, decision_payload)
+    _assert_displayed_decision_matches(payload, expected)
 
     portfolio = core_session.get(ManualPortfolio, portfolio_id)
     if portfolio is None:
@@ -579,6 +665,9 @@ def _add_action(
         calendar=calendar,
         quote_cache=quote_cache,
     )
+    payload_out = dict(raw)
+    if baseline.provenance:
+        payload_out["baseline_provenance"] = baseline.provenance
     action = PersonalDecisionAction(
         decision_record_id=record.id,
         original_action_id=str(raw["id"]),
@@ -593,7 +682,7 @@ def _add_action(
         units_delta=_dec(raw.get("units_delta")),
         estimated_notional=_dec(raw.get("estimated_notional")),
         limitations=list(raw.get("limitations") or []),
-        action_payload=raw,
+        action_payload=payload_out,
         baseline_price=baseline.price,
         baseline_market_date=baseline.market_date,
         baseline_price_source=baseline.source,
