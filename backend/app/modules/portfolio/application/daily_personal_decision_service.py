@@ -16,6 +16,7 @@ from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioSnapshot,
     load_personal_snapshot,
 )
+from app.modules.portfolio.domain.decision_identity import decision_fingerprint
 from app.modules.portfolio.domain.personal_ledger import ZERO, money
 from app.modules.portfolio.infrastructure.models import ManualPortfolio
 
@@ -23,6 +24,9 @@ DISCLAIMER = (
     "Модельная рекомендация по текущему личному портфелю. "
     "Это не приказ брокеру и не гарантия результата."
 )
+
+# Stable recommendation-engine id (also frozen by Personal Decision Memory).
+ENGINE_VERSION = "PERSONAL_DAILY_DECISION_V2"
 
 MAX_ACTIONS = 5
 WEIGHT_EPS = Decimal("0.02")  # material weight delta (~2 pp)
@@ -816,8 +820,8 @@ def _pack(
         "reasons": list(degradations[:5]),
         "note": "Qualitative confidence from data completeness — not a probability.",
     }
-    return {
-        "engine_version": "2",
+    payload: dict[str, Any] = {
+        "engine_version": ENGINE_VERSION,
         "as_of": as_of.isoformat(),
         "status": status,
         "headline": headline,
@@ -885,3 +889,6 @@ def _pack(
         "degradations": degradations,
         "disclaimer": DISCLAIMER,
     }
+    # Identity of the exact recommendation payload (no Memory I/O).
+    payload["decision_fingerprint"] = decision_fingerprint(payload)
+    return payload

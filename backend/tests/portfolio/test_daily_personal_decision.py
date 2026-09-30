@@ -827,7 +827,7 @@ def test_decision_v2_new_cash_zero_compatible(pp_db, monkeypatch):
     ops_before = journal_operation_count(pp_db, portfolio.id)
     d = build_daily_personal_decision(pp_db, portfolio=portfolio, new_cash_rub=Decimal("0"))
     after = load_personal_snapshot(pp_db, portfolio)
-    assert d["engine_version"] == "2"
+    assert d["engine_version"] == "PERSONAL_DAILY_DECISION_V2"
     assert Decimal(d["new_cash_rub"]) == 0
     assert after.cash_rub == before.cash_rub
     assert after.contributed_rub == before.contributed_rub

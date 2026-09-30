@@ -103,6 +103,8 @@ export interface DecisionScenario {
 
 export interface DailyPersonalDecision {
   engine_version?: string;
+  /** Deterministic identity of this exact recommendation payload. */
+  decision_fingerprint?: string;
   as_of: string;
   status: DailyDecisionStatus;
   headline: string;

@@ -366,6 +366,16 @@ vi.mock("../api/dailyPersonalDecision", () => ({
   }),
 }));
 
+vi.mock("../api/decisionMemory", () => ({
+  listDecisionMemory: vi.fn().mockResolvedValue({ portfolio_id: 1, items: [], count: 0 }),
+  getDecisionMemory: vi.fn(),
+  getPossibleMatches: vi.fn(),
+  captureDecisionMemory: vi.fn(),
+  linkOperation: vi.fn(),
+  unlinkOperation: vi.fn(),
+  refreshDecisionOutcomes: vi.fn(),
+}));
+
 vi.mock("../api/instruments", () => ({
   getCatalogInstrument: vi.fn(),
   searchCatalogInstruments: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 8 }),

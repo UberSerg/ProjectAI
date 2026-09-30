@@ -45,6 +45,53 @@ def _clear_settings_cache() -> None:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _block_live_moex_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ordinary automated tests must not call live MOEX (project rule + CI hangs).
+
+    Blocks cold-start fetch when no provider is injected. Focused market tests may
+    still pass an explicit ``provider`` (FakeProvider) through equity_mark /
+    ensure_operational_quote. Patch both the operational_quote module (covers
+    valuation.ensure_operational_quote → ensure_operational_quotes) and the
+    personal_portfolio_service local import binding.
+    """
+    from app.modules.market.application import operational_quote as _oq
+
+    _original_ensure = _oq.ensure_operational_quotes
+
+    def _no_network_quotes(session, instruments, *, cache=None, provider=None):  # noqa: ANN001
+        if provider is not None:
+            return _original_ensure(session, instruments, cache=cache, provider=provider)
+
+        from app.modules.market.application.intraday_cache import IntradayQuoteCache
+        from app.modules.market.application.operational_quote import resolve_board_secid
+
+        class _NoRedis:
+            def get(self, *_a, **_k):  # noqa: ANN001
+                return None
+
+            def set(self, *_a, **_k):  # noqa: ANN001
+                return True
+
+        quote_cache = cache if cache is not None else IntradayQuoteCache(client=_NoRedis())
+        out = {}
+        for inst in instruments or []:
+            board, secid = resolve_board_secid(session, inst)
+            hit = quote_cache.get(board, secid)
+            if hit is not None:
+                out[(board, secid)] = hit
+        return out
+
+    monkeypatch.setattr(
+        "app.modules.market.application.operational_quote.ensure_operational_quotes",
+        _no_network_quotes,
+    )
+    monkeypatch.setattr(
+        "app.modules.portfolio.application.personal_portfolio_service.ensure_operational_quotes",
+        _no_network_quotes,
+    )
+
+
 @pytest.fixture
 def core_db() -> Generator[Session, None, None]:
     """Transactional core DB session; rolled back after each test.
