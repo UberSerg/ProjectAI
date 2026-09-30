@@ -1,3 +1,8 @@
+> Zero-memory onboarding and daily Kraken operating rules:
+> root [AGENTS.md](../../AGENTS.md),
+> [KRAKEN_CURRENT_STATE.md](KRAKEN_CURRENT_STATE.md),
+> [KRAKEN_OPERATING_PROTOCOL.md](KRAKEN_OPERATING_PROTOCOL.md).
+
 # ProjectAI — AI Development Workflow
 
 ## Назначение

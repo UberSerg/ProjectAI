@@ -178,9 +178,13 @@ Linux/VPS:
 
 ProjectAI uses repository-level Cursor rules from `.cursor/rules/`.
 
-The complete development and review workflow is documented in:
+**New AI / zero-memory agents must start with [`AGENTS.md`](AGENTS.md).**
 
-`docs/development/AI_WORKFLOW.md`
+Then read:
+
+- [`docs/development/KRAKEN_CURRENT_STATE.md`](docs/development/KRAKEN_CURRENT_STATE.md) — current handoff snapshot (baseline SHA, next milestone)
+- [`docs/development/KRAKEN_OPERATING_PROTOCOL.md`](docs/development/KRAKEN_OPERATING_PROTOCOL.md) — stable project operating protocol
+- [`docs/development/AI_WORKFLOW.md`](docs/development/AI_WORKFLOW.md) — implementation and review workflow
 
 ## Configuration
 
