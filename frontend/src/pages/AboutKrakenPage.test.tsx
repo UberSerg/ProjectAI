@@ -14,7 +14,7 @@ describe("AboutKrakenPage", () => {
     localStorage.clear();
   });
 
-  it("USER sees V1.0, release date, and can expand history notes", () => {
+  it("USER sees Kraken 1.02, release date, and can open Что нового", () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
     render(
       <MemoryRouter>
@@ -23,27 +23,44 @@ describe("AboutKrakenPage", () => {
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken V1.0");
-    expect(screen.getByTestId("about-release-title")).toHaveTextContent("First Release");
-    expect(screen.getByTestId("about-release-date")).toHaveTextContent("27.09.2026");
-    expect(screen.getByTestId("about-whats-new")).toBeInTheDocument();
+    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken 1.02");
+    expect(screen.getByTestId("about-release-date")).toHaveTextContent("29.09.2026");
+    expect(screen.getByTestId("about-product-line")).toHaveTextContent("Kraken 1.02");
     expect(screen.queryByTestId("about-owner-meta")).not.toBeInTheDocument();
 
-    expect(screen.getByTestId("history-date-1.0.0")).toHaveTextContent("27.09.2026");
-    // Current version is expanded by default.
+    const details = screen.getByTestId("about-whats-new");
+    expect(details).toBeInTheDocument();
+    expect(screen.getByTestId("about-whats-new-summary")).toHaveTextContent("Что нового");
+    // Closed by default — open for investor detail.
+    fireEvent.click(screen.getByTestId("about-whats-new-summary"));
+    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("Daily Decision V2");
+    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("FeeEngine");
+    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("Shadow Realism V3");
+
+    expect(screen.getByTestId("history-date-1.02")).toHaveTextContent("29.09.2026");
+    expect(screen.getByTestId("history-details-1.02")).toBeInTheDocument();
+    expect(screen.getByTestId("history-whats-new-1.02")).toHaveTextContent("Shadow Decision Journal");
+    expect(screen.queryByTestId("history-technical-1.02")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("history-toggle-1.01"));
+    expect(screen.getByTestId("history-details-1.01")).toBeInTheDocument();
+    expect(screen.getByTestId("history-date-1.01")).toHaveTextContent("28.09.2026");
+    expect(screen.getByTestId("history-whats-new-1.01")).toHaveTextContent("Multi-Portfolio V2");
+    expect(screen.getByTestId("history-whats-new-1.01")).not.toHaveTextContent(
+      "Shadow Realism V3",
+    );
+
+    fireEvent.click(screen.getByTestId("history-toggle-1.0.0"));
     expect(screen.getByTestId("history-details-1.0.0")).toBeInTheDocument();
     expect(screen.getByTestId("history-whats-new-1.0.0")).toHaveTextContent(
       "Автоматический догон рынка после простоя",
     );
-    expect(screen.queryByTestId("history-technical-1.0.0")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("history-toggle-1.0.0"));
-    expect(screen.queryByTestId("history-details-1.0.0")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("history-toggle-1.0.0"));
-    expect(screen.getByTestId("history-details-1.0.0")).toBeInTheDocument();
+    expect(screen.getByTestId("history-whats-new-1.0.0")).not.toHaveTextContent(
+      "Shadow Realism V3",
+    );
   });
 
-  it("OWNER sees semver/tag and technical notes without replacing USER summary", () => {
+  it("OWNER sees technical VERSION 1.0.0 without replacing product notes", () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "OWNER");
     render(
       <MemoryRouter>
@@ -52,15 +69,13 @@ describe("AboutKrakenPage", () => {
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
+    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken 1.02");
     expect(screen.getByTestId("about-owner-meta")).toBeInTheDocument();
     expect(screen.getByTestId("about-semver")).toHaveTextContent("1.0.0");
+    expect(screen.getByTestId("about-product-version")).toHaveTextContent("1.02");
     expect(screen.getByTestId("about-git-tag")).toHaveTextContent("v1.0.0");
-    expect(screen.getByTestId("history-summary-1.0.0")).toHaveTextContent(
-      "Первый зафиксированный рабочий релиз",
-    );
-    expect(screen.getByTestId("history-technical-1.0.0")).toBeInTheDocument();
-    expect(screen.getByTestId("history-technical-1.0.0").textContent).not.toEqual(
-      screen.getByTestId("history-summary-1.0.0").textContent,
+    expect(screen.getByTestId("history-summary-1.02")).toHaveTextContent(
+      "персональный портфель, Daily Decision и Shadow-контур",
     );
   });
 });

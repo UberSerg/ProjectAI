@@ -76,7 +76,7 @@ export function ReleaseHistoryPanel({
                       ))}
                     </ul>
                   ) : null}
-                  <h3>Что вошло в {r.displayVersion}</h3>
+                  <h3>Что нового</h3>
                   <ul data-testid={`history-whats-new-${r.version}`}>
                     {r.whatsNew.map((item) => (
                       <li key={item}>{item}</li>
@@ -92,14 +92,19 @@ export function ReleaseHistoryPanel({
                       </ul>
                     </div>
                   ) : null}
-                  <p className="muted about-history-meta">
-                    SemVer {r.version}
-                    {" · "}
-                    tag {r.gitTag}
-                    {r.releaseCommitSha ? ` · ${r.releaseCommitSha.slice(0, 12)}` : ""}
-                    {" · "}
-                    дата {formatReleaseDate(r.date)}
-                  </p>
+                  {showTechnicalNotes ? (
+                    <p className="muted about-history-meta">
+                      Версия {r.version}
+                      {r.gitTag ? ` · tag ${r.gitTag}` : ""}
+                      {r.releaseCommitSha ? ` · ${r.releaseCommitSha.slice(0, 12)}` : ""}
+                      {" · "}
+                      дата {formatReleaseDate(r.date)}
+                    </p>
+                  ) : (
+                    <p className="muted about-history-meta">
+                      Дата релиза: {formatReleaseDate(r.date)}
+                    </p>
+                  )}
                 </div>
               ) : null}
             </li>

@@ -17,7 +17,6 @@ export function isCompleteReleaseNotes(release: KrakenReleaseNotes): boolean {
   return (
     Boolean(release.version?.trim()) &&
     Boolean(release.displayVersion?.trim()) &&
-    Boolean(release.gitTag?.trim()) &&
     DATE_RE.test(release.date) &&
     Boolean(release.summary?.trim()) &&
     Array.isArray(release.whatsNew) &&

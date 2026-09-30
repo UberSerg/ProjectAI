@@ -669,6 +669,34 @@
   padding-left: 1.2rem;
 }
 
+.about-kraken .about-whats-new-details {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
+.about-kraken .about-whats-new-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.about-kraken .about-whats-new-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.about-kraken .about-whats-new-details > summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+.about-kraken .about-whats-new-details[open] > summary::before {
+  content: "▾ ";
+}
+
+.about-kraken .about-whats-new-details > summary + * {
+  margin-top: 0.75rem;
+}
+
 .about-kraken .about-history-hint {
   margin: 0.35rem 0 0.75rem;
 }
