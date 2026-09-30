@@ -53,6 +53,7 @@ import {
   type PersonalSummary,
 } from "../api/personalPortfolios";
 import { DailyDecisionPanel } from "../features/personalPortfolio/DailyDecisionPanel";
+import { DecisionMemoryPanel } from "../features/personalPortfolio/DecisionMemoryPanel";
 import {
   OP_LABELS,
   PersonalPortfolioPanel,
@@ -420,6 +421,11 @@ export function MyPortfolioPage() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [modalOpen, setModalOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+  const [decisionNewCash, setDecisionNewCash] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDecisionNewCash(null);
+  }, [portfolioId]);
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
   const reload = useCallback(() => setDataVersion((v) => v + 1), []);
 
@@ -745,7 +751,13 @@ export function MyPortfolioPage() {
               decision={decisionRes.data}
               owner={!isUser}
               portfolioId={portfolioId}
+              onDecisionChange={(next) => setDecisionNewCash(next?.new_cash_rub ?? null)}
             />
+          ) : null}
+          {portfolioId != null ? (
+            <div style={{ marginTop: "1rem" }}>
+              <DecisionMemoryPanel portfolioId={portfolioId} newCashRub={decisionNewCash} />
+            </div>
           ) : null}
         </div>
       ) : null}

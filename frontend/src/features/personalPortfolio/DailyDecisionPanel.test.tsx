@@ -13,7 +13,7 @@ vi.mock("../../api/dailyPersonalDecision", async () => {
 });
 
 const base: DailyPersonalDecision = {
-  engine_version: "2",
+  engine_version: "PERSONAL_DAILY_DECISION_V2",
   as_of: "2026-09-27",
   status: "NO_ACTION",
   headline: "Срочных действий нет",

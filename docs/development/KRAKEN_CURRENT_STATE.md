@@ -26,25 +26,13 @@ Investor-visible history: `frontend/src/version/manifest.ts` → `/about`.
 ## Baseline main at this state snapshot
 
 ```text
-BASELINE_MAIN=8010793cd8f57d35af39204ff28be8f15830f34f
+BASELINE_MAIN=fbde57004a5c8b3fde66909736e4faf9044b7e6f
 ```
 
-This was `origin/main` when this state snapshot was written (merge of PR #71:
-`Merge pull request #71 from UberSerg/feature/frontend-release-1.02`).
+This was `origin/main` when this Personal Decision Memory V1 milestone branch was started
+(merge of PR #72: Kraken operating protocol / zero-memory handoff).
 
-If current `origin/main` differs, inspect newer merged PRs before continuing —
-this file does not automatically stay equal to tip-of-main after later merges
-(including a future merge of the operating-protocol PR itself).
-
-Final reviewed PR #71 HEAD (ancestor of this snapshot base):
-
-```text
-041b85b24a9213542eca719c1a30e756fe8f1f02
-```
-
-CI for that HEAD (green attempt 2):
-
-https://github.com/UberSerg/ProjectAI/actions/runs/36676741674
+If current `origin/main` differs, inspect newer merged PRs before continuing.
 
 ## Recently completed milestones
 
@@ -52,7 +40,8 @@ https://github.com/UberSerg/ProjectAI/actions/runs/36676741674
 |----|--------|
 | #69 | Dataset V3 research evaluation + Daily Decision V2 |
 | #70 | Personal + Shadow Realism V3 (fees, sell economics, Decision Journal) |
-| #71 | Frontend cumulative micro-release history through Kraken 1.02 (+ 1.01 metadata fix) |
+| #71 | Frontend cumulative micro-release history through Kraken 1.02 |
+| #72 | Kraken operating protocol and zero-memory handoff |
 
 ## Current major semantics (in main)
 
@@ -61,19 +50,36 @@ https://github.com/UberSerg/ProjectAI/actions/runs/36676741674
 - Shadow Realism V3 (REVIEW ≠ auto-SELL; ROTATE only after economics)
 - Shadow Decision Journal
 - Daily Decision V2 (Personal portfolio + lots + fees awareness)
+- Operating protocol / AGENTS zero-memory bootstrap
 
-## Next planned major milestone
+## Active milestone
 
-**Personal Decision Memory / prospective outcome tracking**
+**Personal Decision Memory V1 — prospective outcome tracking**
 
-Not started. Do not begin unless the Owner/curator issues an explicit bounded task.
+Status: **IN PROGRESS** (feature branch `feature/personal-decision-memory-v1` —
+PR will be opened; **not completed until merged**).
 
-## Explicitly not started
+Scope in this branch (Memory DB only, prospective capture):
+
+- Explicit `POST .../decision-memory/capture` (no write-on-GET for daily-decision)
+- Immutable `personal_decision_records` / actions / outcomes / operation links
+- 5/20/60 **trading-session** PRICE_RETURN outcomes + explicit refresh
+- Investor UI: «Зафиксировать решение» + «История решений»
+- Retention: Core portfolio reset does **not** CASCADE-delete Memory evidence
+
+Baseline at milestone start:
+
+```text
+BASELINE_MAIN=fbde57004a5c8b3fde66909736e4faf9044b7e6f
+```
+## Explicitly not started / out of scope for this milestone
 
 - Broker real execution / real-money autonomy
 - Dataset V4
 - New ML production promotion of research candidates
-- Personal Decision Memory implementation
+- Causal attribution / win-rate marketing
+- Shadow mutation / Candidate promotion
+- EOD product micro-release 1.03 (Owner EOD only)
 
 ## Known operational lesson
 
@@ -85,7 +91,7 @@ After a stage merges, prefer pointing frontend runtime back at current `main`.
 
 1. `git fetch origin` and read this file for the recorded `BASELINE_MAIN` snapshot SHA.
 2. Compare `origin/main` to that SHA; if they differ, inspect newer merged PRs before continuing.
-3. Inspect open PRs on GitHub.
+3. Inspect open PRs on GitHub (this milestone may still be OPEN / NOT MERGED).
 4. If local UI matters, verify the runtime worktree serving port 5173.
 5. Ask for / read the **current bounded task** — do not infer unfinished work from the roadmap alone.
 6. Read `AGENTS.md` → operating protocol → `AI_WORKFLOW.md` → core rules → domain docs for that task only.

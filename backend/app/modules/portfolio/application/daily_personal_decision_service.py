@@ -24,6 +24,9 @@ DISCLAIMER = (
     "Это не приказ брокеру и не гарантия результата."
 )
 
+# Stable recommendation-engine id (also frozen by Personal Decision Memory).
+ENGINE_VERSION = "PERSONAL_DAILY_DECISION_V2"
+
 MAX_ACTIONS = 5
 WEIGHT_EPS = Decimal("0.02")  # material weight delta (~2 pp)
 
@@ -817,7 +820,7 @@ def _pack(
         "note": "Qualitative confidence from data completeness — not a probability.",
     }
     return {
-        "engine_version": "2",
+        "engine_version": ENGINE_VERSION,
         "as_of": as_of.isoformat(),
         "status": status,
         "headline": headline,
