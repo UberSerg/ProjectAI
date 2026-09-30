@@ -30,15 +30,16 @@ describe("Kraken version source", () => {
     expect(rel.whatsNew.some((line) => line.includes("Shadow Realism V3"))).toBe(true);
   });
 
-  it("keeps restored V1.01 history under 1.02", () => {
-    const v101 = KRAKEN_RELEASES.find((r) => r.version === "1.0.1");
+  it("keeps restored 1.01 history under 1.02 without inventing a git tag", () => {
+    const v101 = KRAKEN_RELEASES.find((r) => r.version === "1.01");
     expect(v101).toBeDefined();
-    expect(v101!.displayVersion).toBe("Kraken V1.01");
+    expect(v101!.displayVersion).toBe("Kraken 1.01");
     expect(v101!.date).toBe("2026-09-28");
     expect(formatReleaseDate(v101!.date)).toBe("28.09.2026");
+    expect(v101!.gitTag).toBeFalsy();
     expect(v101!.whatsNew.some((line) => line.includes("Multi-Portfolio V2"))).toBe(true);
     expect(isCompleteReleaseNotes(v101!)).toBe(true);
-    expect(KRAKEN_RELEASES.map((r) => r.version)).toEqual(["1.02", "1.0.1", "1.0.0"]);
+    expect(KRAKEN_RELEASES.map((r) => r.version)).toEqual(["1.02", "1.01", "1.0.0"]);
   });
 
   it("V1.0 history entry remains a complete official snapshot", () => {

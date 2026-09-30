@@ -42,11 +42,11 @@ describe("AboutKrakenPage", () => {
     expect(screen.getByTestId("history-whats-new-1.02")).toHaveTextContent("Shadow Decision Journal");
     expect(screen.queryByTestId("history-technical-1.02")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("history-toggle-1.0.1"));
-    expect(screen.getByTestId("history-details-1.0.1")).toBeInTheDocument();
-    expect(screen.getByTestId("history-date-1.0.1")).toHaveTextContent("28.09.2026");
-    expect(screen.getByTestId("history-whats-new-1.0.1")).toHaveTextContent("Multi-Portfolio V2");
-    expect(screen.getByTestId("history-whats-new-1.0.1")).not.toHaveTextContent(
+    fireEvent.click(screen.getByTestId("history-toggle-1.01"));
+    expect(screen.getByTestId("history-details-1.01")).toBeInTheDocument();
+    expect(screen.getByTestId("history-date-1.01")).toHaveTextContent("28.09.2026");
+    expect(screen.getByTestId("history-whats-new-1.01")).toHaveTextContent("Multi-Portfolio V2");
+    expect(screen.getByTestId("history-whats-new-1.01")).not.toHaveTextContent(
       "Shadow Realism V3",
     );
 

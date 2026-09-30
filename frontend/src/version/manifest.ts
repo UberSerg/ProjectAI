@@ -48,7 +48,8 @@ export const KRAKEN_PRODUCT_VERSION = "1.02";
  * Newest first. Historical entries must keep their own notes forever —
  * never render current changelog under older versions.
  *
- * V1.01 text restored from the 28.09.2026 local frontend edit on
+ * 1.01 / 1.02 are product micro-releases (no git tag / GitHub Release).
+ * 1.01 notes restored from the 28.09.2026 local frontend edit on
  * feature/brain-foundation-v2 (never pushed; lost from main after BFV2 merge).
  * V1.0 date/tag/commit from GitHub Release `v1.0.0`
  * (published_at 2026-09-27T09:43:33Z, commit b815b1ae…).
@@ -88,12 +89,11 @@ export const KRAKEN_RELEASES: KrakenReleaseNotes[] = [
     ],
   },
   {
-    version: "1.0.1",
-    displayVersion: "Kraken V1.01",
+    version: "1.01",
+    displayVersion: "Kraken 1.01",
     title:
       "Kraken стал персональным инвестиционным контуром с несколькими портфелями и более сильной исследовательской базой",
     date: "2026-09-28",
-    gitTag: "v1.0.1",
     summary:
       "V1.01 — крупный внутренний шаг от набора отдельных аналитических экранов к Kraken Brain: система уже лучше понимает конкретный пользовательский портфель, умеет рассуждать о новом капитале и одновременно получила более строгую исследовательскую инфраструктуру для будущего обучения моделей.",
     highlights: [],
