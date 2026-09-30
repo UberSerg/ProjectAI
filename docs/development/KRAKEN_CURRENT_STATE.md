@@ -56,8 +56,10 @@ If current `origin/main` differs, inspect newer merged PRs before continuing.
 
 **Personal Decision Memory V1 — prospective outcome tracking**
 
-Status: **IN PROGRESS** (feature branch `feature/personal-decision-memory-v1` —
-PR will be opened; **not completed until merged**).
+Status: **PR #73 OPEN / NOT MERGED**
+(branch `feature/personal-decision-memory-v1` — **not completed until merged**).
+
+PR: https://github.com/UberSerg/ProjectAI/pull/73
 
 Scope in this branch (Memory DB only, prospective capture):
 
