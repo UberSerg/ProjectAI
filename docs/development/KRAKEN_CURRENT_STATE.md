@@ -23,16 +23,20 @@ Investor-visible history: `frontend/src/version/manifest.ts` → `/about`.
 
 `1.0.0` (repository `VERSION` file). Unchanged by product micro-releases 1.01/1.02.
 
-## Latest baseline main
+## Baseline main at this state snapshot
 
 ```text
 BASELINE_MAIN=8010793cd8f57d35af39204ff28be8f15830f34f
 ```
 
-This is the merge commit of PR #71 onto `main`
-(`Merge pull request #71 from UberSerg/feature/frontend-release-1.02`).
+This was `origin/main` when this state snapshot was written (merge of PR #71:
+`Merge pull request #71 from UberSerg/feature/frontend-release-1.02`).
 
-Final reviewed PR #71 HEAD (ancestor of baseline):
+If current `origin/main` differs, inspect newer merged PRs before continuing —
+this file does not automatically stay equal to tip-of-main after later merges
+(including a future merge of the operating-protocol PR itself).
+
+Final reviewed PR #71 HEAD (ancestor of this snapshot base):
 
 ```text
 041b85b24a9213542eca719c1a30e756fe8f1f02
@@ -79,8 +83,8 @@ After a stage merges, prefer pointing frontend runtime back at current `main`.
 
 ## How a new AI should resume
 
-1. `git fetch origin` and read this file for `BASELINE_MAIN`.
-2. Confirm `origin/main` still matches (or note newer merges).
+1. `git fetch origin` and read this file for the recorded `BASELINE_MAIN` snapshot SHA.
+2. Compare `origin/main` to that SHA; if they differ, inspect newer merged PRs before continuing.
 3. Inspect open PRs on GitHub.
 4. If local UI matters, verify the runtime worktree serving port 5173.
 5. Ask for / read the **current bounded task** — do not infer unfinished work from the roadmap alone.

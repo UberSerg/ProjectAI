@@ -45,10 +45,11 @@ GitHub is the durable project memory. Chat history is ephemeral.
 
 ## Product vs technical versioning
 
-- Investor-visible micro-releases (`Kraken 1.01`, `1.02`, …) live in `frontend/src/version/manifest.ts`.
-- They are **not** SemVer bumps, git tags, or GitHub Releases unless Owner explicitly requests that.
-- Repository technical `VERSION` is separate (currently `1.0.0`).
+- Investor-visible product micro-releases live in `frontend/src/version/manifest.ts`.
+- Product micro-version ≠ technical `VERSION`, SemVer tag, or GitHub Release unless Owner explicitly requests that.
+- Repository technical `VERSION` is separate; read its **current** value from `KRAKEN_CURRENT_STATE.md` / root `VERSION`.
 
-## Next planned major milestone (do not start unless tasked)
+## Next planned major milestone
 
-Personal Decision Memory / prospective outcome tracking — see `KRAKEN_CURRENT_STATE.md` and the operating protocol.
+Read the current planned milestone from `KRAKEN_CURRENT_STATE.md`.
+Do **not** start it unless explicitly tasked.

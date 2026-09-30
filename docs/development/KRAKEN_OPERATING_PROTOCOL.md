@@ -195,23 +195,14 @@ codes, provenance — not internal reasoning transcripts.
 
 ## 11. Next milestone rule
 
-On the Kraken 1.02 baseline, the next planned **major** milestone is:
+- The current next milestone lives only in `KRAKEN_CURRENT_STATE.md`.
+- Roadmap documents do not authorize implementation.
+- A new milestone starts only after an explicit Owner/curator task.
+- One bounded milestone → one PR.
+- When a milestone changes, update `KRAKEN_CURRENT_STATE.md`, not this stable
+  protocol, unless the development **process** itself changed.
 
-**Personal Decision Memory / Outcome Tracking**
-
-Concept: Daily Decision → immutable recommendation snapshot → actual user action
-(if any) → observations at 5/20/60 trading sessions → descriptive evaluation.
-
-Important:
-
-- recommendation ≠ execution;
-- possible temporal match ≠ causal proof;
-- missing action ≠ HOLD;
-- missing outcome ≠ 0;
-- no historical backfill pretending old advice existed;
-- no look-ahead; observations are prospective.
-
-This protocol document does **not** authorize starting that implementation.
+Do not duplicate mutable roadmap state in this stable protocol.
 
 ---
 
