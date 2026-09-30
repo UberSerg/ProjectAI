@@ -14,7 +14,7 @@ describe("AboutKrakenPage", () => {
     localStorage.clear();
   });
 
-  it("USER sees Kraken 1.02, release date, and can open Что нового", () => {
+  it("USER sees Kraken 1.03, release date, and cumulative history 1.03→1.02→1.01→V1.0", () => {
     localStorage.setItem(ROLE_STORAGE_KEY, "USER");
     render(
       <MemoryRouter>
@@ -23,9 +23,9 @@ describe("AboutKrakenPage", () => {
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken 1.02");
-    expect(screen.getByTestId("about-release-date")).toHaveTextContent("29.09.2026");
-    expect(screen.getByTestId("about-product-line")).toHaveTextContent("Kraken 1.02");
+    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken 1.03");
+    expect(screen.getByTestId("about-release-date")).toHaveTextContent("30.09.2026");
+    expect(screen.getByTestId("about-product-line")).toHaveTextContent("Kraken 1.03");
     expect(screen.queryByTestId("about-owner-meta")).not.toBeInTheDocument();
 
     const details = screen.getByTestId("about-whats-new");
@@ -33,14 +33,24 @@ describe("AboutKrakenPage", () => {
     expect(screen.getByTestId("about-whats-new-summary")).toHaveTextContent("Что нового");
     // Closed by default — open for investor detail.
     fireEvent.click(screen.getByTestId("about-whats-new-summary"));
-    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("Daily Decision V2");
-    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("FeeEngine");
-    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("Shadow Realism V3");
+    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("Personal Decision Memory");
+    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("5, 20 и 60");
+    expect(screen.getByTestId("about-whats-new-list")).toHaveTextContent("PREVIOUS_CLOSE");
 
-    expect(screen.getByTestId("history-date-1.02")).toHaveTextContent("29.09.2026");
+    expect(screen.getByTestId("history-date-1.03")).toHaveTextContent("30.09.2026");
+    expect(screen.getByTestId("history-details-1.03")).toBeInTheDocument();
+    expect(screen.getByTestId("history-whats-new-1.03")).toHaveTextContent(
+      "Personal Decision Memory",
+    );
+    expect(screen.queryByTestId("history-technical-1.03")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("history-toggle-1.02"));
     expect(screen.getByTestId("history-details-1.02")).toBeInTheDocument();
+    expect(screen.getByTestId("history-date-1.02")).toHaveTextContent("29.09.2026");
     expect(screen.getByTestId("history-whats-new-1.02")).toHaveTextContent("Shadow Decision Journal");
-    expect(screen.queryByTestId("history-technical-1.02")).not.toBeInTheDocument();
+    expect(screen.getByTestId("history-whats-new-1.02")).not.toHaveTextContent(
+      "Personal Decision Memory",
+    );
 
     fireEvent.click(screen.getByTestId("history-toggle-1.01"));
     expect(screen.getByTestId("history-details-1.01")).toBeInTheDocument();
@@ -69,11 +79,15 @@ describe("AboutKrakenPage", () => {
         </KrakenRoleProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken 1.02");
+    expect(screen.getByTestId("about-display-version")).toHaveTextContent("Kraken 1.03");
     expect(screen.getByTestId("about-owner-meta")).toBeInTheDocument();
     expect(screen.getByTestId("about-semver")).toHaveTextContent("1.0.0");
-    expect(screen.getByTestId("about-product-version")).toHaveTextContent("1.02");
+    expect(screen.getByTestId("about-product-version")).toHaveTextContent("1.03");
     expect(screen.getByTestId("about-git-tag")).toHaveTextContent("v1.0.0");
+    expect(screen.getByTestId("history-summary-1.03")).toHaveTextContent(
+      "явно сохранять показанное пользователю Daily Decision",
+    );
+    fireEvent.click(screen.getByTestId("history-toggle-1.02"));
     expect(screen.getByTestId("history-summary-1.02")).toHaveTextContent(
       "персональный портфель, Daily Decision и Shadow-контур",
     );

@@ -42,19 +42,47 @@ export const KRAKEN_VERSION =
  * Investor-visible product release key shown in «О Kraken» and the sidebar.
  * Independent of technical `VERSION` / `KRAKEN_VERSION`.
  */
-export const KRAKEN_PRODUCT_VERSION = "1.02";
+export const KRAKEN_PRODUCT_VERSION = "1.03";
 
 /**
  * Newest first. Historical entries must keep their own notes forever —
  * never render current changelog under older versions.
  *
- * 1.01 / 1.02 are product micro-releases (no git tag / GitHub Release).
+ * 1.01 / 1.02 / 1.03 are product micro-releases (no git tag / GitHub Release).
  * 1.01 notes restored from the 28.09.2026 local frontend edit on
  * feature/brain-foundation-v2 (never pushed; lost from main after BFV2 merge).
  * V1.0 date/tag/commit from GitHub Release `v1.0.0`
  * (published_at 2026-09-27T09:43:33Z, commit b815b1ae…).
  */
 export const KRAKEN_RELEASES: KrakenReleaseNotes[] = [
+  {
+    version: "1.03",
+    displayVersion: "Kraken 1.03",
+    title: "Память решений и проверка рекомендаций",
+    date: "2026-09-30",
+    summary:
+      "Kraken теперь умеет явно сохранять показанное пользователю Daily Decision и наблюдать, что происходило после него. История решений остаётся advisory: сохранение рекомендации не создаёт сделку и не меняет реальный портфель.",
+    highlights: [
+      "История Daily Decision",
+      "5 / 20 / 60 торговых сессий",
+      "Связь с фактическими операциями",
+      "Immutable recommendation snapshots",
+      "Честная provenance котировок",
+    ],
+    whatsNew: [
+      "Добавлена Personal Decision Memory: пользователь может явно нажать «Зафиксировать решение» и сохранить текущую рекомендацию Kraken.",
+      "Сохраняется именно то Daily Decision, которое было показано пользователю: deterministic fingerprint защищает от незаметного сохранения уже изменившегося решения.",
+      "История решений хранится отдельно в Memory DB и не изменяет Personal Portfolio, кэш, contributed capital или журнал операций.",
+      "Для действий фиксируется доступная на момент решения ценовая evidence с provenance источника и торговой сессии.",
+      "Kraken отслеживает результат после 5, 20 и 60 торговых сессий.",
+      "V1 использует PRICE_RETURN. В интерфейсе честно указано, что дивиденды не включены.",
+      "Возможные совпадения рекомендации с фактическими PersonalOperation показываются как POSSIBLE_MATCH и не считаются причинной связью автоматически.",
+      "Связь рекомендации с фактической операцией появляется только после явного подтверждения пользователя.",
+      "PREVIOUS_CLOSE теперь относится к реальной предыдущей торговой сессии, а не к дате текущего board context.",
+      "Усилена reproducibility: сохранённые решения, baseline evidence и outcomes не переписываются последующими изменениями портфеля, Candidate или FeeProfile.",
+      "В репозитории закреплён zero-memory operating protocol Kraken, чтобы новый AI/agent мог корректно продолжить разработку без истории старого чата.",
+    ],
+  },
   {
     version: "1.02",
     displayVersion: "Kraken 1.02",
