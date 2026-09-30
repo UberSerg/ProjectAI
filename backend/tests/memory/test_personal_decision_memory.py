@@ -856,20 +856,22 @@ def test_intraday_baseline_uses_quote_trading_date_not_capture_calendar(mem_tx, 
     )
 
 
-def test_previous_close_baseline_uses_quote_session(mem_tx, core_tx) -> None:
+def test_previous_close_baseline_uses_prior_session_not_quote_trading_date(mem_tx, core_tx) -> None:
+    """PREVIOUS_CLOSE price session is before quote.trading_date (e.g. Mon → Fri)."""
     pf = _portfolio(core_tx, "pdm-prev")
     _instrument(core_tx, "PDMPREV", close=None)
     capture_at = datetime(2026, 9, 28, 6, 0, tzinfo=UTC)
-    observed = datetime(2026, 9, 25, 20, 0, tzinfo=UTC)
+    # Board context is Monday; previous_close is Friday's close — not Monday's price.
+    observed = datetime(2026, 9, 28, 5, 30, tzinfo=UTC)
     cache = _cache_with(
         _quote(
             secid="PDMPREV",
-            trading_date=date(2026, 9, 25),
+            trading_date=date(2026, 9, 28),
             observed_at=observed,
             last=None,
             prev=88.5,
             freshness=QuoteFreshness.STALE,
-            market_status=MarketSessionStatus.CLOSED,
+            market_status=MarketSessionStatus.PREOPEN,
         )
     )
     out = _capture(
@@ -878,8 +880,16 @@ def test_previous_close_baseline_uses_quote_session(mem_tx, core_tx) -> None:
     base = out["actions"][0]["baseline"]
     assert base["price_source"] == "PREVIOUS_CLOSE"
     assert base["market_date"] == "2026-09-25"
+    assert base["provenance"]["quote_trading_date"] == "2026-09-28"
+    assert base["provenance"]["price_session_date"] == "2026-09-25"
     assert Decimal(base["price"]) == Decimal("88.5")
-    assert base["provenance"]["quote_freshness"] == "STALE"
+    assert (
+        out["actions"][0]["outcomes"][0]["target_session_date"]
+        == _nth_session(date(2026, 9, 25), 5).isoformat()
+    )
+    assert out["actions"][0]["outcomes"][0]["target_session_date"] != _nth_session(
+        date(2026, 9, 28), 5
+    ).isoformat()
 
 
 def test_future_quote_observed_at_is_rejected(mem_tx, core_tx) -> None:
@@ -927,14 +937,15 @@ def test_quote_without_trading_date_falls_back_to_eod(mem_tx, core_tx) -> None:
     assert Decimal(out["actions"][0]["baseline"]["price"]) == Decimal("41")
 
 
-def test_stale_preopen_quote_keeps_its_session(mem_tx, core_tx) -> None:
+def test_stale_preopen_quote_uses_previous_session_for_prev_close(mem_tx, core_tx) -> None:
     pf = _portfolio(core_tx, "pdm-preopen")
     _instrument(core_tx, "PDMPO", close=None)
-    observed = datetime(2026, 9, 25, 7, 0, tzinfo=UTC)
+    # Monday PREOPEN: quote.trading_date is Monday; PREVIOUS_CLOSE is Friday.
+    observed = datetime(2026, 9, 28, 4, 0, tzinfo=UTC)
     cache = _cache_with(
         _quote(
             secid="PDMPO",
-            trading_date=date(2026, 9, 25),
+            trading_date=date(2026, 9, 28),
             observed_at=observed,
             last=None,
             prev=12.0,
@@ -952,8 +963,145 @@ def test_stale_preopen_quote_keeps_its_session(mem_tx, core_tx) -> None:
     )
     base = out["actions"][0]["baseline"]
     assert base["market_date"] == "2026-09-25"
+    assert base["provenance"]["quote_trading_date"] == "2026-09-28"
+    assert base["provenance"]["price_session_date"] == "2026-09-25"
     assert base["provenance"]["quote_market_status"] == "PREOPEN"
     assert base["price_source"] == "PREVIOUS_CLOSE"
+
+
+def test_previous_close_from_moex_payload_anchors_prior_session(mem_tx, core_tx) -> None:
+    """Realistic ISS parse: Monday SYSTIME + PREVLEGALCLOSEPRICE → Friday price session."""
+    from app.infrastructure.market.moex_intraday import parse_board_securities_payload
+
+    pf = _portfolio(core_tx, "pdm-moex-prev")
+    _instrument(core_tx, "PDMMOX", close=None)
+    observed = datetime(2026, 9, 28, 6, 5, tzinfo=UTC)
+    payload = {
+        "securities": {
+            "columns": ["SECID", "BOARDID", "PREVPRICE", "STATUS", "PREVLEGALCLOSEPRICE"],
+            "data": [["PDMMOX", "TQBR", 250.0, "A", 249.5]],
+        },
+        "marketdata": {
+            "columns": [
+                "SECID",
+                "BOARDID",
+                "OPEN",
+                "LAST",
+                "BID",
+                "OFFER",
+                "VOLTODAY",
+                "NUMTRADES",
+                "UPDATETIME",
+                "SYSTIME",
+                "STATUS",
+                "TIME",
+                "TRADINGSTATUS",
+            ],
+            "data": [
+                [
+                    "PDMMOX",
+                    "TQBR",
+                    None,
+                    None,
+                    None,
+                    None,
+                    0,
+                    0,
+                    "09:05:00",
+                    "2026-09-28 09:05:01",
+                    "A",
+                    "09:05:00",
+                    "B",  # PREOPEN
+                ]
+            ],
+        },
+    }
+    quotes = parse_board_securities_payload(
+        payload, board="TQBR", wanted={"PDMMOX"}, observed_at=observed
+    )
+    assert len(quotes) == 1
+    quote = quotes[0]
+    assert quote.trading_date == date(2026, 9, 28)
+    assert quote.last_price is None
+    assert quote.previous_close == 249.5
+    assert quote.market_status is MarketSessionStatus.PREOPEN
+
+    out = _capture(
+        mem_tx,
+        core_tx,
+        pf,
+        [_act("CONSIDER_INCREASE", "PDMMOX")],
+        now=datetime(2026, 9, 28, 6, 10, tzinfo=UTC),
+        quote_cache=_cache_with(quote),
+    )
+    base = out["actions"][0]["baseline"]
+    assert base["price_source"] == "PREVIOUS_CLOSE"
+    assert base["market_date"] == "2026-09-25"
+    assert Decimal(base["price"]) == Decimal("249.5")
+    assert base["provenance"]["quote_trading_date"] == "2026-09-28"
+    assert base["provenance"]["price_session_date"] == "2026-09-25"
+    assert (
+        out["actions"][0]["outcomes"][0]["target_session_date"]
+        == _nth_session(date(2026, 9, 25), 5).isoformat()
+    )
+    # Must not start horizons from Monday board context.
+    assert out["actions"][0]["outcomes"][0]["target_session_date"] != _nth_session(
+        date(2026, 9, 28), 5
+    ).isoformat()
+
+
+def test_previous_close_weekend_quote_trading_date_still_prior_session(mem_tx, core_tx) -> None:
+    """If quote.trading_date falls on Saturday, prior eligible session is still Friday."""
+    pf = _portfolio(core_tx, "pdm-wknd-prev")
+    _instrument(core_tx, "PDMWK", close=None)
+    capture_at = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)  # Saturday
+    cache = _cache_with(
+        _quote(
+            secid="PDMWK",
+            trading_date=date(2026, 9, 26),
+            observed_at=capture_at - timedelta(minutes=5),
+            last=None,
+            prev=33.0,
+            freshness=QuoteFreshness.MARKET_CLOSED,
+            market_status=MarketSessionStatus.CLOSED,
+        )
+    )
+    out = _capture(
+        mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMWK")], now=capture_at, quote_cache=cache
+    )
+    base = out["actions"][0]["baseline"]
+    assert base["price_source"] == "PREVIOUS_CLOSE"
+    assert base["market_date"] == "2026-09-25"
+    assert base["provenance"]["quote_trading_date"] == "2026-09-26"
+    assert base["provenance"]["price_session_date"] == "2026-09-25"
+
+
+def test_intraday_last_still_uses_quote_trading_date(mem_tx, core_tx) -> None:
+    pf = _portfolio(core_tx, "pdm-last-keep")
+    _instrument(core_tx, "PDMLK", close=None)
+    capture_at = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
+    observed = datetime(2026, 9, 28, 11, 55, tzinfo=UTC)
+    cache = _cache_with(
+        _quote(
+            secid="PDMLK",
+            trading_date=date(2026, 9, 28),
+            observed_at=observed,
+            last=101.25,
+            source_timestamp=observed,
+        )
+    )
+    out = _capture(
+        mem_tx, core_tx, pf, [_act("CONSIDER_INCREASE", "PDMLK")], now=capture_at, quote_cache=cache
+    )
+    base = out["actions"][0]["baseline"]
+    assert base["price_source"] == "INTRADAY_LAST"
+    assert base["market_date"] == "2026-09-28"
+    assert base["provenance"]["quote_trading_date"] == "2026-09-28"
+    assert base["provenance"]["price_session_date"] == "2026-09-28"
+    assert (
+        out["actions"][0]["outcomes"][0]["target_session_date"]
+        == _nth_session(date(2026, 9, 28), 5).isoformat()
+    )
 
 
 # --------------------------------------------------------------------------- reads / scoping

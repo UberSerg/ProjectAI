@@ -315,26 +315,58 @@ def _freeze_baseline(
             # Do not invent a session from the capture calendar.
             pass
         else:
-            provenance = {
-                "quote_source": quote.source,
-                "quote_freshness": str(quote.freshness),
-                "quote_market_status": str(quote.market_status),
-                "quote_trading_date": quote.trading_date.isoformat(),
-                "quote_observed_at": _iso(quote.observed_at),
-                "quote_source_timestamp": _iso(quote.source_timestamp),
-                "mark_quality": quality,
-                "captured_at": _iso(captured_at),
-                "board": quote.board,
-                "secid": quote.secid,
-            }
-            return _Baseline(
-                BASELINE_AVAILABLE,
-                price=price,
-                market_date=quote.trading_date,
-                source=source,
-                observed_at=observed_at,
-                provenance=provenance,
-            )
+            # INTRADAY_LAST: price belongs to quote.trading_date.
+            # PREVIOUS_CLOSE: PREVLEGALCLOSEPRICE/PREVPRICE is the prior session's
+            # close — quote.trading_date is only the observation/board context
+            # (e.g. Monday PREOPEN still carries Friday's previous close).
+            if source == "PREVIOUS_CLOSE":
+                price_session = calendar.previous_trading_day(quote.trading_date, inclusive=False)
+                if price_session is None:
+                    pass  # fall through to EOD / unavailable
+                else:
+                    provenance = {
+                        "quote_source": quote.source,
+                        "quote_freshness": str(quote.freshness),
+                        "quote_market_status": str(quote.market_status),
+                        "quote_trading_date": quote.trading_date.isoformat(),
+                        "price_session_date": price_session.isoformat(),
+                        "quote_observed_at": _iso(quote.observed_at),
+                        "quote_source_timestamp": _iso(quote.source_timestamp),
+                        "mark_quality": quality,
+                        "captured_at": _iso(captured_at),
+                        "board": quote.board,
+                        "secid": quote.secid,
+                    }
+                    return _Baseline(
+                        BASELINE_AVAILABLE,
+                        price=price,
+                        market_date=price_session,
+                        source=source,
+                        observed_at=observed_at,
+                        provenance=provenance,
+                    )
+            else:
+                provenance = {
+                    "quote_source": quote.source,
+                    "quote_freshness": str(quote.freshness),
+                    "quote_market_status": str(quote.market_status),
+                    "quote_trading_date": quote.trading_date.isoformat(),
+                    "price_session_date": quote.trading_date.isoformat(),
+                    "quote_observed_at": _iso(quote.observed_at),
+                    "quote_source_timestamp": _iso(quote.source_timestamp),
+                    "mark_quality": quality,
+                    "captured_at": _iso(captured_at),
+                    "board": quote.board,
+                    "secid": quote.secid,
+                }
+                return _Baseline(
+                    BASELINE_AVAILABLE,
+                    price=price,
+                    market_date=quote.trading_date,
+                    source=source,
+                    observed_at=observed_at,
+                    provenance=provenance,
+                )
 
     # Honest EOD fallback bounded by capture time (Point-in-Time).
     eod = _eod_close_asof(core_session, int(instrument.id), captured_at)
