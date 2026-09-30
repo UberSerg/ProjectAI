@@ -5,7 +5,13 @@ alwaysApply: true
 
 # ProjectAI Core Rules
 
-Before making non-trivial changes, read `docs/development/AI_WORKFLOW.md`.
+Before non-trivial work, read in order:
+- `AGENTS.md`
+- `docs/development/KRAKEN_CURRENT_STATE.md`
+- `docs/development/KRAKEN_OPERATING_PROTOCOL.md`
+- `docs/development/AI_WORKFLOW.md`
+
+Also follow `docs/development/AI_WORKFLOW.md` for implementation/review details.
 
 ProjectAI is a modular monolith evolving toward a self-learning investment system
 (conceptual mature state: **Kraken**). Kraken is not a module, namespace, or class.
