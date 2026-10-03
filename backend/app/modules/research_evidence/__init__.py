@@ -33,6 +33,7 @@ from app.modules.research_evidence.prospective import (
     summarize_forward_predictions,
     summarize_personal_decision_memory,
 )
+from app.modules.research_evidence.service import get_latest_evidence, run_historical_evidence
 from app.modules.research_evidence.stability import slice_stability
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "build_prospective_evidence_v1",
     "default_feature_group_definitions",
     "fingerprint_identity",
+    "get_latest_evidence",
     "paired_v4_vs_base",
     "prove_paired_v3_v4",
     "ranking_metrics",
@@ -54,6 +56,7 @@ __all__ = [
     "resolve_or_build_paired_runs",
     "run_all_model_variants",
     "run_chronological_oos",
+    "run_historical_evidence",
     "run_research_economics",
     "run_research_economics_cost_grid",
     "run_v4_ablation",

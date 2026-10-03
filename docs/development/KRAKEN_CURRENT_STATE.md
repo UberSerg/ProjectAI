@@ -21,17 +21,17 @@ Investor-visible history: `frontend/src/version/manifest.ts` → `/about`.
 
 ## Technical VERSION
 
-`1.0.0` (repository `VERSION` file). Unchanged by product micro-releases 1.01 / 1.02 / 1.03 and by Dataset V4 research merge.
+`1.0.0` (repository `VERSION` file). Unchanged by product micro-releases 1.01 / 1.02 / 1.03, Dataset V4 research merge, and Research Evidence Engine V1 (this branch is not a product release).
 
 ## Baseline main at this state snapshot
 
 ```text
-BASELINE_MAIN=9b40854ffead508fd2fe4a98d6b3425a0eea4b25
+BASELINE_MAIN=8b071b71b031f61fcbe185408323e310c9103935
 ```
 
-This is `origin/main` after the ordinary merge of **PR #75** (Dataset V4 Research Foundation V1).
+`origin/main` after PR #75 Dataset V4 Research Foundation V1 (ordinary merge `9b40854`) plus the docs baseline commit.
 
-If current `origin/main` differs, inspect newer merged PRs before continuing.
+PR #75 reviewed HEAD `86d97b107e1c478067b4ec2f73a6540ca61bbc41` is an ancestor of this SHA.
 
 ## Recently completed milestones
 
@@ -64,9 +64,13 @@ If current `origin/main` differs, inspect newer merged PRs before continuing.
 
 ## Active milestone
 
-**NONE** — next bounded milestone to be chosen by Owner.
+**Research Evidence Engine V1**
 
-Do **not** auto-start Dataset V5, Candidate V2, broker execution, UX redesign, or a product micro-release.
+- branch: `feature/research-evidence-engine-v1`
+- status: **OPEN / NOT MERGED**
+- worktree: `E:\!AI\ProjectAI-wt-research-evidence-engine-v1`
+
+RESEARCH ONLY. No Candidate V2, no Dataset V5, no Shadow mutation, no Daily Decision change, no PDM writes, no broker execution, no Kraken 1.04.
 
 ## Explicitly not started / out of scope until Owner asks
 
@@ -77,6 +81,7 @@ Do **not** auto-start Dataset V5, Candidate V2, broker execution, UX redesign, o
 - Auto-learning from Decision Memory outcomes
 - Shadow mutation / Candidate promotion from Memory evidence
 - Universe-wide Total Return labels
+- Kraken 1.04 product micro-release
 
 ## Known operational lesson
 

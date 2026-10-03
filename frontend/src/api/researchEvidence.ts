@@ -167,6 +167,12 @@ export interface ResearchEvidenceExperimentDetail {
 export interface ResearchEvidenceRunRequest {
   experiment_id?: string | null;
   note?: string | null;
+  v3_run_id?: number | null;
+  v4_run_id?: number | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  instrument_ids?: number[] | null;
+  rebuild?: boolean | null;
 }
 
 export interface ResearchEvidenceRunResponse {
