@@ -21,15 +21,15 @@ Investor-visible history: `frontend/src/version/manifest.ts` → `/about`.
 
 ## Technical VERSION
 
-`1.0.0` (repository `VERSION` file). Unchanged by product micro-releases 1.01 / 1.02 / 1.03. This Dataset V4 research branch does **not** bump VERSION.
+`1.0.0` (repository `VERSION` file). Unchanged by product micro-releases 1.01 / 1.02 / 1.03 and by Dataset V4 research merge.
 
 ## Baseline main at this state snapshot
 
 ```text
-BASELINE_MAIN=767a6f1c5b7037c6bc382b20d47e202324ee6caf
+BASELINE_MAIN=9b40854ffead508fd2fe4a98d6b3425a0eea4b25
 ```
 
-This is `origin/main` after merge of **PR #74** (Kraken 1.03 daily micro-release).
+This is `origin/main` after the ordinary merge of **PR #75** (Dataset V4 Research Foundation V1).
 
 If current `origin/main` differs, inspect newer merged PRs before continuing.
 
@@ -43,6 +43,7 @@ If current `origin/main` differs, inspect newer merged PRs before continuing.
 | #72 | Kraken operating protocol and zero-memory handoff |
 | #73 | Personal Decision Memory V1 / prospective outcome tracking |
 | #74 | Kraken 1.03 EOD product micro-release |
+| #75 | Dataset V4 Research Foundation V1 (research-only PIT fund/event enrichment) |
 
 ## Current major semantics (in main)
 
@@ -58,26 +59,14 @@ If current `origin/main` differs, inspect newer merged PRs before continuing.
 - Daily Decision V2 (Personal portfolio + lots + fees awareness)
 - Operating protocol / AGENTS zero-memory bootstrap
 - Dataset V3 research-only (`historical_equity_universe_v2`, mechanical price-return)
+- Dataset V4 research-only (`historical_equity_universe_v2`, same mechanical labels, PIT fund/event X)
 - Production Candidate V0/V1 pinned to Dataset V2; `PIT_DAILY_CORE_ACTIVE_VERSION = 1`
 
 ## Active milestone
 
-**Dataset V4 Research Foundation V1** — **OPEN / NOT MERGED**
+**NONE** — next bounded milestone to be chosen by Owner.
 
-Branch: `feature/dataset-v4-research-foundation-v1`
-
-Scope (research-only):
-
-- Additive `pit_daily_core` v4 DatasetSpec
-- Same `historical_equity_universe_v2` as V3
-- PIT fundamental/event features (same-report ratios + event pack)
-- Primary labels remain V3 mechanical price-return (Total Return not claimed)
-- V3↔V4 fair dataset compare and chronological OOS experiment
-- No Candidate promotion, no ACTIVE DatasetSpec change, no Shadow/Personal/Daily Decision switch
-
-See `docs/research/dataset-v4-research-foundation-v1.md`.
-
-Do **not** auto-start Dataset V5, Candidate V2, broker execution, or a product micro-release.
+Do **not** auto-start Dataset V5, Candidate V2, broker execution, UX redesign, or a product micro-release.
 
 ## Explicitly not started / out of scope until Owner asks
 
