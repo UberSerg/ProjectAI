@@ -1,10 +1,16 @@
-"""Research Evidence Engine V1 — experiment contract, OOS/ablation, prospective read-model."""
+"""Research Evidence Engine V1 — experiment, OOS/ablation, economics, prospective."""
 
 from app.modules.research_evidence.ablation import apply_ablation_mask, run_v4_ablation
 from app.modules.research_evidence.bundle import (
     BUNDLE_PART_NAMES,
     PENDING_PART,
     write_evidence_bundle,
+)
+from app.modules.research_evidence.economics import (
+    run_all_model_variants,
+    run_research_economics,
+    run_research_economics_cost_grid,
+    validate_oos_prediction_frame,
 )
 from app.modules.research_evidence.experiment import (
     EVALUATION_WORDING,
@@ -46,10 +52,14 @@ __all__ = [
     "ranking_metrics",
     "regression_metrics_payload",
     "resolve_or_build_paired_runs",
+    "run_all_model_variants",
     "run_chronological_oos",
+    "run_research_economics",
+    "run_research_economics_cost_grid",
     "run_v4_ablation",
     "slice_stability",
     "summarize_forward_predictions",
     "summarize_personal_decision_memory",
+    "validate_oos_prediction_frame",
     "write_evidence_bundle",
 ]
