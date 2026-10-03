@@ -4,6 +4,25 @@ export const RESEARCH_ONLY_BADGE = "RESEARCH ONLY";
 export const ENGINE_TITLE = "Research Evidence Engine V1";
 export const PROSPECTIVE_DIVIDER = "Проспективные наблюдения";
 export const ECONOMICS_DISCLAIMER = "Историческая OOS симуляция, не фактический счёт";
+export const NO_DATA_LABEL = "нет данных";
+export const PRIMARY_CONTRACT_LABEL = "PRIMARY RESEARCH CONTRACT";
+export const LAUNCH_CANONICAL_LABEL = "Запустить каноническое исследование";
+export const EXACT_RERUN_LABEL = "Точный пересчёт с теми же семантиками";
+
+export const OOS_VARIANT_ORDER = ["base", "fund", "events", "full_v4"] as const;
+export const OOS_VARIANT_LABELS: Record<(typeof OOS_VARIANT_ORDER)[number], string> = {
+  base: "BASE",
+  fund: "FUND",
+  events: "EVENTS",
+  full_v4: "V4 FULL",
+};
+
+export const PRIMARY_REBALANCE_SESSIONS = 20;
+export const PRIMARY_SELECTION_TOP_PCT = 20;
+export const PRIMARY_COST_BPS = 30;
+export const ROBUSTNESS_COST_BPS = [0, 10, 30, 50] as const;
+export const ROBUSTNESS_REBALANCE = [10, 20, 40] as const;
+export const ROBUSTNESS_SELECTION = [10, 20, 30] as const;
 
 export const ABLATION_VARIANT_ORDER = ["base", "fund", "events", "full_v4"] as const;
 
