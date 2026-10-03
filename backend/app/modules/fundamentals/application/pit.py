@@ -42,6 +42,7 @@ from app.modules.fundamentals.infrastructure.models import (
 BASIS_DATED_WINDOW = "DATED_WINDOW"
 BASIS_CURRENT_ONLY = "CURRENT_ONLY"
 BASIS_UNMAPPED = "UNMAPPED"
+BASIS_AMBIGUOUS = "AMBIGUOUS"
 
 
 @dataclass(frozen=True, slots=True)

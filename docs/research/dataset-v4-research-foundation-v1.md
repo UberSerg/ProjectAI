@@ -190,6 +190,13 @@ Not claimed here. A later, explicit Owner task would still need at least:
 - Shadow then Signal then human-confirmed execution — never a jump from one research OOS
 - No automatic registry / Shadow / Daily Decision switch from a single compare artifact
 
+## Hardening (PR #75 remediation)
+
+- V3↔V4 model OOS requires identical sample keys and identical 20d target semantics (`FAIR_CONTRACT_FAIL` otherwise).
+- Explicit `Issuer.metadata.fns.support_status = NOT_SUPPORTED_BY_FNS_RAS_V1` blocks all industrial V4 fundamental features.
+- `return_truth` is provider-aware: empty store / unaccepted provider → `NOT_READY`; bounded `universe_wide=false` → at most `PARTIAL`.
+- Duplicate `NORMALIZED` facts must agree or the metric is missing; overlapping mappings to different issuers are `AMBIGUOUS`.
+
 ## Implementation notes
 
 - Enrichment: `app.modules.learning.application.v4_enrichment` — batched SQL preload

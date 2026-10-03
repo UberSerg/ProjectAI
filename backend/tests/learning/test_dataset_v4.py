@@ -12,7 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.infrastructure.learning.models import DatasetRun, DatasetSampleDaily, DatasetSpec
-from app.modules.fundamentals.application.pit import BASIS_CURRENT_ONLY, BASIS_DATED_WINDOW, BASIS_UNMAPPED
+from app.modules.fundamentals.application.pit import (
+    BASIS_AMBIGUOUS,
+    BASIS_CURRENT_ONLY,
+    BASIS_DATED_WINDOW,
+    BASIS_UNMAPPED,
+)
 from app.modules.fundamentals.domain.types import (
     CorporateEventRef,
     CorporateEventType,
@@ -25,6 +30,7 @@ from app.modules.fundamentals.domain.types import (
     ReportingStandard,
     ReportRef,
 )
+from app.modules.fundamentals.infrastructure.fns_gir_bo_provider import SUPPORT_BANK
 from app.modules.fundamentals.infrastructure.models import (
     CorporateEvent,
     DividendEvent,
@@ -36,12 +42,17 @@ from app.modules.fundamentals.infrastructure.models import (
 )
 from app.modules.learning.application.builder import PITDatasetBuilder, grade_v4_research_quality
 from app.modules.learning.application.compare_v3_v4 import compare_v3_v4_builds
-from app.modules.learning.application.research_eval import assert_fair_v3_v4_compare_contract
+from app.modules.learning.application.research_eval import (
+    FairCompareError,
+    assert_fair_v3_v4_compare_contract,
+    assert_v3_v4_run_population_identity,
+)
 from app.modules.learning.application.seed import seed_dataset_specs
 from app.modules.learning.application.v4_enrichment import (
     V4EnrichmentIndex,
     load_v4_enrichment_index,
     resolve_v4_sample,
+    v4_return_truth,
 )
 from app.modules.learning.dataset_config import (
     FEATURE_MANIFEST_V1,
@@ -69,7 +80,11 @@ from app.modules.prediction.application.research_dataset_loader import (
     ALLOWED_RESEARCH_VERSIONS,
     load_research_frame,
 )
-from app.modules.prediction.application.research_runner import run_experimental_v2_v3_oos
+from app.modules.prediction.application.research_runner import (
+    ResearchCompareError,
+    compare_experimental_model_v3_v4,
+    run_experimental_v2_v3_oos,
+)
 from app.modules.prediction.candidate_config import CANDIDATE_V0_CONFIG
 from app.modules.prediction.candidate_v1_config import CANDIDATE_V1_RANKER_CONFIG
 from tests.learning.test_dataset_v3 import (
@@ -110,7 +125,15 @@ def _report(*, report_id: int, known_at: date, version: int = 1, is_restatement:
     )
 
 
-def _fact(report_id: int, code: str, value: float, *, currency: str = "RUB", status=None) -> FactRef:
+def _fact(
+    report_id: int,
+    code: str,
+    value: float,
+    *,
+    currency: str = "RUB",
+    status=None,
+    source_metric_name: str = "",
+) -> FactRef:
     return FactRef(
         metric_code=code,
         value=value,
@@ -118,6 +141,7 @@ def _fact(report_id: int, code: str, value: float, *, currency: str = "RUB", sta
         currency=currency,
         unit_scale="units",
         report_id=report_id,
+        source_metric_name=source_metric_name,
     )
 
 
@@ -701,3 +725,343 @@ def test_experimental_oos_forbids_registry_persist_v4(core_db: Session) -> None:
             dataset_spec_version=4,
             persist_registry=True,
         )
+
+
+def _paired_oos_runs(session: Session, inst_v3: int, inst_v4: int, *, fwd_v4: float = 0.1) -> tuple[int, int]:
+    seed_dataset_specs(session)
+    spec3 = session.scalar(
+        select(DatasetSpec).where(
+            DatasetSpec.code == PIT_DAILY_CORE_CODE, DatasetSpec.version == 3
+        )
+    )
+    spec4 = session.scalar(
+        select(DatasetSpec).where(
+            DatasetSpec.code == PIT_DAILY_CORE_CODE, DatasetSpec.version == 4
+        )
+    )
+    assert spec3 is not None and spec4 is not None
+    run3 = DatasetRun(
+        dataset_spec_id=spec3.id,
+        date_from=date(2024, 1, 1),
+        date_to=date(2024, 12, 31),
+        status="SUCCESS",
+        pit_status="PASS",
+    )
+    run4 = DatasetRun(
+        dataset_spec_id=spec4.id,
+        date_from=date(2024, 1, 1),
+        date_to=date(2024, 12, 31),
+        status="SUCCESS",
+        pit_status="PASS",
+    )
+    session.add_all([run3, run4])
+    session.flush()
+    as_of = date(2024, 5, 6)
+    labels3 = {
+        "forward_return_20d": 0.1,
+        "target_date_20d": "2024-06-04",
+    }
+    labels4 = {
+        "forward_return_20d": fwd_v4,
+        "target_date_20d": "2024-06-04",
+    }
+    quality = {"label_valid": {"20d": True}}
+    elig = {"training_eligible_20d": True}
+    session.add_all(
+        [
+            DatasetSampleDaily(
+                dataset_run_id=run3.id,
+                dataset_spec_id=spec3.id,
+                instrument_id=inst_v3,
+                as_of_date=as_of,
+                features={},
+                labels=labels3,
+                label_quality=quality,
+                training_eligibility=elig,
+                content_hash="v3",
+            ),
+            DatasetSampleDaily(
+                dataset_run_id=run4.id,
+                dataset_spec_id=spec4.id,
+                instrument_id=inst_v4,
+                as_of_date=as_of,
+                features={},
+                labels=labels4,
+                label_quality=quality,
+                training_eligibility=elig,
+                content_hash="v4",
+            ),
+        ]
+    )
+    session.flush()
+    return run3.id, run4.id
+
+
+def test_oos_fairness_fails_on_different_instruments(core_db: Session) -> None:
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    v3_id, v4_id = _paired_oos_runs(core_db, fx["aaa"].id, fx["dead"].id)
+    with pytest.raises(ResearchCompareError, match="FAIR_CONTRACT_FAIL"):
+        compare_experimental_model_v3_v4(
+            core_db,
+            v3_run_id=v3_id,
+            v4_run_id=v4_id,
+            oos_start=date(2024, 6, 1),
+        )
+
+
+def test_oos_fairness_fails_on_modified_forward_return(core_db: Session) -> None:
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    v3_id, v4_id = _paired_oos_runs(core_db, fx["aaa"].id, fx["aaa"].id, fwd_v4=0.99)
+    with pytest.raises(FairCompareError, match="FAIR_CONTRACT_FAIL"):
+        assert_v3_v4_run_population_identity(core_db, v3_run_id=v3_id, v4_run_id=v4_id)
+
+
+def test_oos_fairness_passes_on_identical_keys_and_labels(core_db: Session) -> None:
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    v3_id, v4_id = _paired_oos_runs(core_db, fx["aaa"].id, fx["aaa"].id, fwd_v4=0.1)
+    proof = assert_v3_v4_run_population_identity(core_db, v3_run_id=v3_id, v4_run_id=v4_id)
+    assert proof["fair_contract_status"] == "PASS"
+    assert proof["target_identity_match"] is True
+
+
+def test_oos_fairness_passes_for_same_contract_builds(core_db: Session) -> None:
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    ids = [fx["aaa"].id, fx["dead"].id]
+    builder = PITDatasetBuilder(core_db)
+    v3 = builder.run_build(
+        date_from=date(2024, 5, 6),
+        date_to=date(2024, 5, 20),
+        dataset_spec_version=PIT_DAILY_CORE_V3_VERSION,
+        instrument_ids=ids,
+        seed_specs=False,
+    )
+    v4 = builder.run_build(
+        date_from=date(2024, 5, 6),
+        date_to=date(2024, 5, 20),
+        dataset_spec_version=PIT_DAILY_CORE_V4_VERSION,
+        instrument_ids=ids,
+        seed_specs=False,
+    )
+    proof = assert_v3_v4_run_population_identity(
+        core_db, v3_run_id=v3["dataset_run_id"], v4_run_id=v4["dataset_run_id"]
+    )
+    assert proof["fair_contract_status"] == "PASS"
+
+
+def test_bank_fi_explicit_status_blocks_industrial_ratios() -> None:
+    index = V4EnrichmentIndex(schema_ready=True)
+    index.mappings_by_instrument = {7: [_mapping(issuer_id=1, valid_from=date(2020, 1, 1))]}
+    index.issuer_fns_support = {1: SUPPORT_BANK}
+    index.reports_by_issuer = {1: [_report(report_id=1, known_at=date(2026, 1, 1))]}
+    index.facts_by_report = {
+        1: (
+            _fact(1, "REVENUE", 100.0),
+            _fact(1, "NET_INCOME", 10.0),
+            _fact(1, "TOTAL_DEBT", 50.0),
+            _fact(1, "TOTAL_EQUITY", 25.0),
+        )
+    }
+    row = resolve_v4_sample(index, instrument_id=7, as_of=date(2026, 5, 1))
+    assert row.lineage["fundamentals"]["issuer_resolution_basis"] == BASIS_DATED_WINDOW
+    assert row.lineage["fundamentals"]["status"] == "UNSUPPORTED_BANK_FI"
+    assert row.lineage["fundamentals"]["missing_reason"] == "BANK_FI_SEMANTICS_UNSUPPORTED"
+    for name in V4_FUNDAMENTAL_FEATURE_NAMES:
+        assert row.features[name] is None
+
+
+def test_duplicate_identical_facts_are_deterministic() -> None:
+    facts_a = (
+        _fact(1, "NET_INCOME", 100.0, source_metric_name="ni_src"),
+        _fact(1, "NET_INCOME", 100.0, source_metric_name="ni_alt"),
+        _fact(1, "REVENUE", 1000.0, source_metric_name="rev_src"),
+        _fact(1, "REVENUE", 1000.0, source_metric_name="rev_alt"),
+    )
+    facts_b = tuple(reversed(facts_a))
+    index_a = V4EnrichmentIndex(schema_ready=True)
+    index_b = V4EnrichmentIndex(schema_ready=True)
+    mapping = [_mapping(issuer_id=1, valid_from=date(2020, 1, 1))]
+    report = [_report(report_id=1, known_at=date(2026, 1, 1))]
+    for idx, facts in ((index_a, facts_a), (index_b, facts_b)):
+        idx.mappings_by_instrument = {7: mapping}
+        idx.reports_by_issuer = {1: report}
+        idx.facts_by_report = {1: facts}
+    a = resolve_v4_sample(index_a, instrument_id=7, as_of=date(2026, 5, 1))
+    b = resolve_v4_sample(index_b, instrument_id=7, as_of=date(2026, 5, 1))
+    assert a.features["fund_net_margin"] == pytest.approx(0.1)
+    assert a.features == b.features
+    assert a.lineage["fundamentals"].get("conflicting_normalized_metrics") is None
+
+
+def test_conflicting_normalized_facts_omit_ratio() -> None:
+    facts_a = (
+        _fact(1, "NET_INCOME", 100.0, source_metric_name="a"),
+        _fact(1, "NET_INCOME", 200.0, source_metric_name="b"),
+        _fact(1, "REVENUE", 1000.0),
+    )
+    facts_b = tuple(reversed(facts_a))
+    results = []
+    for facts in (facts_a, facts_b):
+        index = V4EnrichmentIndex(schema_ready=True)
+        index.mappings_by_instrument = {7: [_mapping(issuer_id=1, valid_from=date(2020, 1, 1))]}
+        index.reports_by_issuer = {1: [_report(report_id=1, known_at=date(2026, 1, 1))]}
+        index.facts_by_report = {1: facts}
+        results.append(resolve_v4_sample(index, instrument_id=7, as_of=date(2026, 5, 1)))
+    assert results[0].features["fund_net_margin"] is None
+    assert results[1].features["fund_net_margin"] is None
+    assert results[0].features == results[1].features
+    assert results[0].lineage["fundamentals"]["missing_reason"] == "CONFLICTING_NORMALIZED_FACTS"
+
+
+def test_overlapping_mappings_same_issuer_collapse() -> None:
+    index = V4EnrichmentIndex(schema_ready=True)
+    index.mappings_by_instrument = {
+        7: [
+            _mapping(issuer_id=1, valid_from=date(2019, 1, 1), valid_to=date(2030, 1, 1)),
+            _mapping(issuer_id=1, valid_from=date(2020, 1, 1)),
+        ]
+    }
+    index.reports_by_issuer = {1: [_report(report_id=1, known_at=date(2026, 1, 1))]}
+    index.facts_by_report = {1: (_fact(1, "REVENUE", 10.0), _fact(1, "NET_INCOME", 1.0))}
+    reversed_index = V4EnrichmentIndex(schema_ready=True)
+    reversed_index.mappings_by_instrument = {
+        7: list(reversed(index.mappings_by_instrument[7]))
+    }
+    reversed_index.reports_by_issuer = index.reports_by_issuer
+    reversed_index.facts_by_report = index.facts_by_report
+    a = resolve_v4_sample(index, instrument_id=7, as_of=date(2026, 5, 1))
+    b = resolve_v4_sample(reversed_index, instrument_id=7, as_of=date(2026, 5, 1))
+    assert a.lineage["fundamentals"]["issuer_id"] == 1
+    assert b.lineage["fundamentals"]["issuer_id"] == 1
+    assert a.features["fund_net_margin"] == b.features["fund_net_margin"]
+
+
+def test_overlapping_mappings_different_issuers_are_ambiguous() -> None:
+    index = V4EnrichmentIndex(schema_ready=True)
+    index.mappings_by_instrument = {
+        7: [
+            _mapping(issuer_id=1, valid_from=date(2020, 1, 1)),
+            _mapping(issuer_id=2, valid_from=date(2019, 1, 1)),
+        ]
+    }
+    index.reports_by_issuer = {
+        1: [_report(report_id=1, known_at=date(2026, 1, 1))],
+        2: [_report(report_id=2, known_at=date(2026, 1, 1))],
+    }
+    index.facts_by_report = {
+        1: (_fact(1, "REVENUE", 10.0), _fact(1, "NET_INCOME", 1.0)),
+        2: (_fact(2, "REVENUE", 99.0), _fact(2, "NET_INCOME", 9.0)),
+    }
+    reversed_index = V4EnrichmentIndex(schema_ready=True)
+    reversed_index.mappings_by_instrument = {7: list(reversed(index.mappings_by_instrument[7]))}
+    reversed_index.reports_by_issuer = index.reports_by_issuer
+    reversed_index.facts_by_report = index.facts_by_report
+    a = resolve_v4_sample(index, instrument_id=7, as_of=date(2026, 5, 1))
+    b = resolve_v4_sample(reversed_index, instrument_id=7, as_of=date(2026, 5, 1))
+    assert a.lineage["fundamentals"]["issuer_resolution_basis"] == BASIS_AMBIGUOUS
+    assert a.lineage["fundamentals"]["status"] == BASIS_AMBIGUOUS
+    assert all(a.features[n] is None for n in V4_FUNDAMENTAL_FEATURE_NAMES)
+    assert a.features == b.features
+
+
+class _BoundedProvider:
+    def readiness(self) -> dict:
+        return {
+            "status": "PARTIAL",
+            "provider": "COMPOSITE_ISSUER_IR_V2",
+            "accepted": True,
+            "universe_wide": False,
+            "reasons": ["bounded"],
+            "notes": [],
+        }
+
+
+class _NotReadyProvider:
+    def readiness(self) -> dict:
+        return {
+            "status": "NOT_READY",
+            "provider": "NOT_READY",
+            "accepted": False,
+            "universe_wide": False,
+            "reasons": ["blocked"],
+            "notes": [],
+        }
+
+
+def test_return_truth_empty_store_not_ready(core_db: Session) -> None:
+    payload = v4_return_truth(core_db)
+    assert payload["total_return"] is False
+    assert payload["primary_label_family"] == "MECHANICAL_PRICE_RETURN"
+    assert payload["total_return_enrichment_status"] == "NOT_READY"
+    assert payload["verdict"] == "NOT_READY"
+
+
+def test_return_truth_stored_events_with_not_ready_provider(core_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    _require_fundamentals(core_db)
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    core_db.add(
+        DividendEvent(
+            instrument_id=fx["aaa"].id,
+            announcement_date=date(2024, 5, 1),
+            known_at=date(2024, 5, 1),
+            record_date=date(2024, 6, 1),
+            amount_per_share=1.0,
+            currency="RUB",
+            status=DividendStatus.RECOMMENDED.value,
+            source="FIXTURE",
+            version=1,
+        )
+    )
+    core_db.flush()
+    monkeypatch.setattr(
+        "app.modules.learning.application.v4_enrichment.get_dividend_provider",
+        lambda: _NotReadyProvider(),
+    )
+    monkeypatch.setattr(
+        "app.modules.fundamentals.application.dividend_provider.get_dividend_provider",
+        lambda: _NotReadyProvider(),
+    )
+    payload = v4_return_truth(core_db)
+    assert payload["dividend_events_stored"] >= 1
+    assert payload["provider_accepted"] is False
+    assert payload["total_return_enrichment_status"] == "NOT_READY"
+    assert payload["primary_label_family"] == "MECHANICAL_PRICE_RETURN"
+    assert payload["total_return"] is False
+
+
+def test_return_truth_bounded_provider_never_ready(core_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    _require_fundamentals(core_db)
+    _bind_flush_only(core_db)
+    fx = _seed_v3_fixture(core_db)
+    core_db.add(
+        DividendEvent(
+            instrument_id=fx["aaa"].id,
+            announcement_date=date(2024, 5, 1),
+            known_at=date(2024, 5, 1),
+            record_date=date(2024, 6, 1),
+            amount_per_share=1.0,
+            currency="RUB",
+            status=DividendStatus.RECOMMENDED.value,
+            source="FIXTURE",
+            version=1,
+        )
+    )
+    core_db.flush()
+    monkeypatch.setattr(
+        "app.modules.learning.application.v4_enrichment.get_dividend_provider",
+        lambda: _BoundedProvider(),
+    )
+    monkeypatch.setattr(
+        "app.modules.fundamentals.application.dividend_provider.get_dividend_provider",
+        lambda: _BoundedProvider(),
+    )
+    payload = v4_return_truth(core_db)
+    assert payload["provider_accepted"] is True
+    assert payload["provider_universe_wide"] is False
+    assert payload["total_return_enrichment_status"] != "READY"
+    assert payload["total_return_enrichment_status"] == "PARTIAL"
+    assert payload["total_return"] is False

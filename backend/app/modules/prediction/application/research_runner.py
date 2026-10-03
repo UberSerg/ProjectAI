@@ -246,6 +246,7 @@ def compare_experimental_model_v3_v4(
             random_seed=RANDOM_SEED,
             spec_v3=spec_v3,
             spec_v4=spec_v4,
+            session=session,
         )
     except FairCompareError as exc:
         raise ResearchCompareError(str(exc)) from exc

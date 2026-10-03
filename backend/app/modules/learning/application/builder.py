@@ -724,6 +724,8 @@ class PITDatasetBuilder:
                 "v4_by_year_event": {},
                 "v4_report_sources": {},
                 "v4_report_standards": {},
+                "v4_ambiguous": 0,
+                "v4_bank_fi_unsupported": 0,
             }
             universe_version = str(
                 (spec.parameters or {}).get("historical_universe_version")
@@ -894,8 +896,12 @@ class PITDatasetBuilder:
                             counters["v4_dated"] += 1
                         elif basis == "CURRENT_ONLY":
                             counters["v4_current_only"] += 1
+                        elif basis == "AMBIGUOUS":
+                            counters["v4_ambiguous"] += 1
                         if fund_lin.get("status") == "NO_VISIBLE_REPORT":
                             counters["v4_no_report"] += 1
+                        if fund_lin.get("status") == "UNSUPPORTED_BANK_FI":
+                            counters["v4_bank_fi_unsupported"] += 1
                         year_key = str(as_of.year)
                         if v4_enrichment.has_fundamental_feature:
                             counters["v4_fund_samples"] += 1
@@ -1389,9 +1395,12 @@ class PITDatasetBuilder:
                         "DATED_WINDOW": int(counters["v4_dated"]),
                         "CURRENT_ONLY": int(counters["v4_current_only"]),
                         "UNMAPPED": int(counters["v4_unmapped"]),
+                        "AMBIGUOUS": int(counters["v4_ambiguous"]),
                     },
                     "mapped_samples": int(counters["v4_dated"]) + int(counters["v4_current_only"]),
                     "unmapped_samples": int(counters["v4_unmapped"]),
+                    "ambiguous_issuer_samples": int(counters["v4_ambiguous"]),
+                    "bank_fi_unsupported_samples": int(counters["v4_bank_fi_unsupported"]),
                     "no_visible_report_samples": int(counters["v4_no_report"]),
                     "report_source_counts": dict(counters["v4_report_sources"]),
                     "reporting_standard_counts": dict(counters["v4_report_standards"]),

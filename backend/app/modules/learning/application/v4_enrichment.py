@@ -18,12 +18,17 @@ from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from app.modules.fundamentals.application.dividend_provider import (
+    dividend_coverage_v2,
+    get_dividend_provider,
+)
 from app.modules.fundamentals.application.features_event import build_event_features
 from app.modules.fundamentals.application.features_fundamental import (
     LookaheadError,
     build_fundamental_features,
 )
 from app.modules.fundamentals.application.pit import (
+    BASIS_AMBIGUOUS,
     BASIS_CURRENT_ONLY,
     BASIS_DATED_WINDOW,
     BASIS_UNMAPPED,
@@ -32,7 +37,6 @@ from app.modules.fundamentals.application.pit import (
     fact_ref,
     report_ref,
 )
-from app.modules.fundamentals.application.total_return import build_dividend_coverage_report
 from app.modules.fundamentals.domain import pit_rules
 from app.modules.fundamentals.domain.types import (
     CorporateEventRef,
@@ -44,11 +48,13 @@ from app.modules.fundamentals.domain.types import (
     ReportRef,
     ReportStatus,
 )
+from app.modules.fundamentals.infrastructure.fns_gir_bo_provider import SUPPORT_BANK
 from app.modules.fundamentals.infrastructure.models import (
     CorporateEvent,
     DividendEvent,
     FinancialFact,
     FinancialReport,
+    Issuer,
     SecurityIssuerMapping,
     fundamentals_schema_ready,
 )
@@ -56,6 +62,12 @@ from app.modules.learning.dataset_config import (
     V4_EVENT_FEATURE_NAMES,
     V4_FUNDAMENTAL_FEATURE_NAMES,
 )
+
+FNS_BANK_FI_UNSUPPORTED = SUPPORT_BANK
+STATUS_UNSUPPORTED_BANK_FI = "UNSUPPORTED_BANK_FI"
+REASON_BANK_FI_UNSUPPORTED = "BANK_FI_SEMANTICS_UNSUPPORTED"
+REASON_CONFLICTING_FACTS = "CONFLICTING_NORMALIZED_FACTS"
+REASON_AMBIGUOUS_ISSUER = "AMBIGUOUS_ISSUER_MAPPING"
 
 _EVENT_KEY_MAP = {
     "days_since_last_split": "event_days_since_last_split",
@@ -102,6 +114,7 @@ class V4EnrichmentIndex:
     facts_by_report: dict[int, tuple[FactRef, ...]] = field(default_factory=dict)
     corp_by_instrument: dict[int, list[CorporateEventRef]] = field(default_factory=dict)
     div_by_instrument: dict[int, list[DividendEventRef]] = field(default_factory=dict)
+    issuer_fns_support: dict[int, str | None] = field(default_factory=dict)
     preload_reason: str | None = None
 
     def empty_features(self) -> dict[str, float | None]:
@@ -199,11 +212,42 @@ def load_v4_enrichment_index(
                 div_map[int(row.instrument_id)].append(dividend_ref(row))
         index.corp_by_instrument = dict(corp_map)
         index.div_by_instrument = dict(div_map)
+        if issuer_ids:
+            issuer_rows = list(
+                session.scalars(select(Issuer).where(Issuer.id.in_(sorted(issuer_ids)))).all()
+            )
+            index.issuer_fns_support = {
+                int(row.id): _fns_support_status(row.metadata_) for row in issuer_rows
+            }
     finally:
         if isinstance(engine, Engine):
             event.remove(engine, "before_cursor_execute", counter)
     index.query_count = counter.count
     return index
+
+
+def _fns_support_status(metadata: Any) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    fns = metadata.get("fns")
+    if not isinstance(fns, dict):
+        return None
+    status = fns.get("support_status")
+    if status is None or status == "":
+        return None
+    return str(status)
+
+
+def _is_bank_fi_unsupported(support_status: str | None) -> bool:
+    return support_status == FNS_BANK_FI_UNSUPPORTED
+
+
+def _mapping_sort_key(row: Any) -> tuple[int, str, int]:
+    issuer = int(row.issuer_id) if getattr(row, "issuer_id", None) is not None else 0
+    valid_from = getattr(row, "valid_from", None)
+    vf = valid_from.isoformat() if valid_from is not None else ""
+    row_id = int(getattr(row, "id", 0) or 0)
+    return (issuer, vf, row_id)
 
 
 def _resolve_issuer(
@@ -219,7 +263,10 @@ def _resolve_issuer(
         and (row.valid_to is None or as_of < row.valid_to)
     ]
     if dated:
-        return int(dated[0].issuer_id), BASIS_DATED_WINDOW
+        issuers = {int(row.issuer_id) for row in dated}
+        if len(issuers) > 1:
+            return None, BASIS_AMBIGUOUS
+        return int(sorted(dated, key=_mapping_sort_key)[0].issuer_id), BASIS_DATED_WINDOW
     current = [
         row
         for row in mappings
@@ -229,7 +276,10 @@ def _resolve_issuer(
         and row.valid_to is None
     ]
     if current:
-        return int(current[0].issuer_id), BASIS_CURRENT_ONLY
+        issuers = {int(row.issuer_id) for row in current}
+        if len(issuers) > 1:
+            return None, BASIS_AMBIGUOUS
+        return int(sorted(current, key=_mapping_sort_key)[0].issuer_id), BASIS_CURRENT_ONLY
     return None, BASIS_UNMAPPED
 
 
@@ -237,15 +287,31 @@ def _compatible(a: FactRef, b: FactRef) -> bool:
     return (a.currency or "") == (b.currency or "") and (a.unit_scale or "") == (b.unit_scale or "")
 
 
-def _normalized_facts(facts: tuple[FactRef, ...]) -> dict[str, FactRef]:
-    out: dict[str, FactRef] = {}
+def _fact_signature(fact: FactRef) -> tuple[float, str, str]:
+    return (float(fact.value), fact.currency or "", fact.unit_scale or "")
+
+
+def _normalized_facts(facts: tuple[FactRef, ...]) -> tuple[dict[str, FactRef], list[str]]:
+    by_code: dict[str, list[FactRef]] = defaultdict(list)
     for fact in facts:
         if fact.normalization_status is not NormalizationStatus.NORMALIZED:
             continue
         if fact.value is None:
             continue
-        out[fact.metric_code] = fact
-    return out
+        by_code[fact.metric_code].append(fact)
+    out: dict[str, FactRef] = {}
+    conflicts: list[str] = []
+    for code in sorted(by_code):
+        candidates = by_code[code]
+        signatures = {_fact_signature(item) for item in candidates}
+        if len(signatures) == 1:
+            out[code] = sorted(
+                candidates,
+                key=lambda f: (f.source_metric_name or "", f.report_id or 0),
+            )[0]
+        else:
+            conflicts.append(code)
+    return out, conflicts
 
 
 def _ratio(num: FactRef | None, den: FactRef | None) -> float | None:
@@ -293,9 +359,16 @@ def resolve_v4_sample(
     issuer_id, basis = _resolve_issuer(index.mappings_by_instrument.get(instrument_id, []), as_of)
     fund_lineage["issuer_resolution_basis"] = basis
     fund_lineage["issuer_id"] = issuer_id
-    if issuer_id is None:
+    if basis == BASIS_AMBIGUOUS:
+        fund_lineage["status"] = BASIS_AMBIGUOUS
+        fund_lineage["missing_reason"] = REASON_AMBIGUOUS_ISSUER
+    elif issuer_id is None:
         fund_lineage["status"] = "UNMAPPED"
         fund_lineage["missing_reason"] = "UNMAPPED"
+    elif _is_bank_fi_unsupported(index.issuer_fns_support.get(issuer_id)):
+        fund_lineage["status"] = STATUS_UNSUPPORTED_BANK_FI
+        fund_lineage["missing_reason"] = REASON_BANK_FI_UNSUPPORTED
+        fund_lineage["fns_support_status"] = index.issuer_fns_support.get(issuer_id)
     else:
         visible_reports = pit_rules.visible_reports(
             index.reports_by_issuer.get(issuer_id, ()), as_of
@@ -325,8 +398,11 @@ def resolve_v4_sample(
             features["fund_days_since_latest_report"] = row.features.get("days_since_latest_report")
             features["fund_report_age_days"] = row.features.get("report_age_days")
             features["fund_has_recent_report"] = row.features.get("has_recent_report")
-            by_code = _normalized_facts(facts)
+            by_code, conflicts = _normalized_facts(facts)
             for name, num_code, den_code in _RATIO_SPECS:
+                if num_code in conflicts or den_code in conflicts:
+                    features[name] = None
+                    continue
                 features[name] = _ratio(by_code.get(num_code), by_code.get(den_code))
             fund_lineage.update(
                 {
@@ -339,7 +415,8 @@ def resolve_v4_sample(
                     "reporting_standard": (
                         latest.reporting_standard.value if latest else None
                     ),
-                    "missing_reason": None,
+                    "missing_reason": REASON_CONFLICTING_FACTS if conflicts else None,
+                    "conflicting_normalized_metrics": conflicts or None,
                 }
             )
 
@@ -393,22 +470,55 @@ def resolve_v4_sample(
 
 
 def v4_return_truth(session: Session) -> dict[str, Any]:
-    coverage = build_dividend_coverage_report(session)
-    payload = coverage.to_dict()
+    """Provider-aware TR diagnostic. Primary labels stay mechanical price-return."""
+    coverage = dividend_coverage_v2(session)
+    provider = get_dividend_provider().readiness()
+    events_stored = int(coverage.get("dividend_events_stored") or 0)
+    accepted = bool(provider.get("accepted"))
+    universe_wide = bool(provider.get("universe_wide"))
+    store_quality = str(coverage.get("quality") or "NOT_READY")
+    reasons = list(coverage.get("reasons") or [])
+    reasons.extend(str(item) for item in (provider.get("reasons") or []) if item not in reasons)
+
+    if events_stored <= 0:
+        enrichment = "NOT_READY"
+        reasons.append("empty_dividend_store_is_not_zero_cashflow")
+    elif not accepted:
+        enrichment = "NOT_READY"
+        reasons.append("dividend_provider_not_accepted")
+    elif not universe_wide:
+        enrichment = "PARTIAL"
+        reasons.append("dividend_provider_not_universe_wide")
+    elif str(provider.get("status") or "").upper() == "READY" and store_quality == "READY":
+        enrichment = "READY"
+        reasons.append("provider_universe_wide_and_store_ready")
+    else:
+        enrichment = "PARTIAL"
+        reasons.append("accepted_universe_wide_provider_not_fully_ready")
+
+    notes = [
+        "Empty dividend_events is NOT_READY, not zero cashflow.",
+        "V4 primary labels remain mechanical price-return (same as V3).",
+        "Bounded accepted IR coverage cannot become universe-wide Total Return READY.",
+        *(coverage.get("notes") or []),
+        *(provider.get("notes") or []),
+    ]
     return {
         "primary_label_family": "MECHANICAL_PRICE_RETURN",
         "dividend_adjusted": False,
         "total_return": False,
-        "total_return_enrichment_status": payload.get("quality") or "NOT_READY",
-        "dividend_coverage_quality": payload.get("quality") or "NOT_READY",
-        "dividend_events_stored": payload.get("dividend_events_stored", 0),
-        "instruments_with_dividend_events": payload.get("instruments_with_dividend_events", 0),
-        "reasons": list(payload.get("reasons") or []),
-        "notes": [
-            "Empty dividend_events is NOT_READY, not zero cashflow.",
-            "V4 primary labels remain mechanical price-return (same as V3).",
-            *(payload.get("notes") or []),
-        ],
+        "total_return_enrichment_status": enrichment,
+        "dividend_coverage_quality": store_quality,
+        "verdict": enrichment,
+        "coverage_quality": store_quality,
+        "provider": provider.get("provider") or provider.get("status"),
+        "provider_accepted": accepted,
+        "provider_universe_wide": universe_wide,
+        "provider_status": provider.get("status"),
+        "dividend_events_stored": events_stored,
+        "instruments_with_dividend_events": coverage.get("instruments_with_dividend_events", 0),
+        "reasons": reasons,
+        "notes": notes,
     }
 
 

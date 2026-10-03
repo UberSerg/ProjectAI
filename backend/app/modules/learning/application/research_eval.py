@@ -19,6 +19,12 @@ from app.modules.learning.dataset_config import (
     feature_names_from_manifest,
     label_names_from_manifest,
 )
+from app.modules.prediction.candidate_config import (
+    ELIGIBILITY_KEY,
+    LABEL_VALID_HORIZON,
+    TARGET_DATE_KEY,
+    TARGET_LABEL,
+)
 
 SampleKey = tuple[int, date]
 
@@ -74,6 +80,85 @@ def assert_fair_v3_v4_compare_contract() -> dict[str, Any]:
     }
 
 
+def _same_optional_float(left: Any, right: Any) -> bool:
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    try:
+        fa = float(left)
+        fb = float(right)
+    except (TypeError, ValueError):
+        return False
+    if fa != fa and fb != fb:
+        return True
+    return fa == fb
+
+
+def _same_optional_date(left: Any, right: Any) -> bool:
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    return str(left)[:10] == str(right)[:10]
+
+
+def _samples_by_key(session: Session, run_id: int) -> dict[SampleKey, DatasetSampleDaily]:
+    rows = list(
+        session.scalars(select(DatasetSampleDaily).where(DatasetSampleDaily.dataset_run_id == run_id))
+    )
+    return {(int(row.instrument_id), row.as_of_date): row for row in rows}
+
+
+def assert_v3_v4_run_population_identity(
+    session: Session,
+    *,
+    v3_run_id: int,
+    v4_run_id: int,
+) -> dict[str, Any]:
+    """Hard fail unless V3 and V4 share sample keys and 20d target semantics."""
+    sample_diff = compare_v3_v4_sample_sets(session, v3_run_id=v3_run_id, v4_run_id=v4_run_id)
+    if sample_diff.get("fair_contract_status") != "PASS":
+        raise FairCompareError(
+            "FAIR_CONTRACT_FAIL: V3/V4 sample identity differs "
+            f"(unique_v3={sample_diff.get('unique_v3_samples')}, "
+            f"unique_v4={sample_diff.get('unique_v4_samples')})"
+        )
+    by_v3 = _samples_by_key(session, v3_run_id)
+    by_v4 = _samples_by_key(session, v4_run_id)
+    mismatches: list[str] = []
+    for key in sorted(by_v3):
+        s3 = by_v3[key]
+        s4 = by_v4[key]
+        lab3 = s3.labels or {}
+        lab4 = s4.labels or {}
+        lq3 = (s3.label_quality or {}).get("label_valid") or {}
+        lq4 = (s4.label_quality or {}).get("label_valid") or {}
+        el3 = s3.training_eligibility or {}
+        el4 = s4.training_eligibility or {}
+        if not _same_optional_date(lab3.get(TARGET_DATE_KEY), lab4.get(TARGET_DATE_KEY)):
+            mismatches.append(f"{key}: {TARGET_DATE_KEY}")
+        if not _same_optional_float(lab3.get(TARGET_LABEL), lab4.get(TARGET_LABEL)):
+            mismatches.append(f"{key}: {TARGET_LABEL}")
+        if bool(lq3.get(LABEL_VALID_HORIZON)) != bool(lq4.get(LABEL_VALID_HORIZON)):
+            mismatches.append(f"{key}: label_valid_{LABEL_VALID_HORIZON}")
+        if bool(el3.get(ELIGIBILITY_KEY)) != bool(el4.get(ELIGIBILITY_KEY)):
+            mismatches.append(f"{key}: {ELIGIBILITY_KEY}")
+        if len(mismatches) >= 8:
+            break
+    if mismatches:
+        raise FairCompareError(
+            "FAIR_CONTRACT_FAIL: V3/V4 20d target semantics differ: " + "; ".join(mismatches)
+        )
+    return {
+        "sample_identity_match": True,
+        "target_identity_match": True,
+        "samples": len(by_v3),
+        "target": TARGET_LABEL,
+        "fair_contract_status": "PASS",
+    }
+
+
 def assert_fair_v3_v4_model_run_contract(
     run_v3: DatasetRun,
     run_v4: DatasetRun,
@@ -83,6 +168,7 @@ def assert_fair_v3_v4_model_run_contract(
     random_seed: int,
     spec_v3: DatasetSpec | None,
     spec_v4: DatasetSpec | None,
+    session: Session,
 ) -> dict[str, Any]:
     schema = assert_fair_v3_v4_compare_contract()
     if spec_v3 is None or spec_v3.code != PIT_DAILY_CORE_CODE or spec_v3.version != 3:
@@ -106,6 +192,9 @@ def assert_fair_v3_v4_model_run_contract(
                 f"oos_start {oos_start.isoformat()} is outside {label} run "
                 f"{run.date_from}→{run.date_to}"
             )
+    population = assert_v3_v4_run_population_identity(
+        session, v3_run_id=run_v3.id, v4_run_id=run_v4.id
+    )
     return {
         **schema,
         "fair_contract_pass": True,
@@ -117,6 +206,7 @@ def assert_fair_v3_v4_model_run_contract(
         "v3_run_id": run_v3.id,
         "v4_run_id": run_v4.id,
         "missing_feature_policy": "NATIVE_NAN",
+        "population": population,
     }
 
 
