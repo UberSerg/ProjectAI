@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,16 @@ def _strip_runtime_timestamps(obj: Any) -> Any:
 def payload_file_hash(payload: Any) -> str:
     semantic = _strip_runtime_timestamps(payload)
     return hashlib.sha256(canonical_semantic_json(semantic).encode("utf-8")).hexdigest()
+
+
+def recompute_bundle_hash(root: Path) -> str:
+    """Semantic hash of the nine on-disk JSON parts (runtime timestamps stripped)."""
+    root = Path(root)
+    file_hashes: list[str] = []
+    for name in BUNDLE_PART_NAMES:
+        payload = json.loads((root / f"{name}.json").read_text(encoding="utf-8"))
+        file_hashes.append(payload_file_hash(payload))
+    return hashlib.sha256("".join(file_hashes).encode("utf-8")).hexdigest()
 
 
 def _forced_manifest(user_part: dict[str, Any] | None) -> dict[str, Any]:

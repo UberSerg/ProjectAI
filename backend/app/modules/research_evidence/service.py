@@ -126,6 +126,14 @@ def _attach_econ_rows(
     return pd.concat(parts, ignore_index=True)
 
 
+def finalize_bundle(root: Path, parts: dict[str, Any]) -> dict[str, Any]:
+    """Write a provisional bundle, then rewrite with evidence_overview and return the FINAL hash."""
+    write_evidence_bundle(root, parts)
+    overview = overview_from_dir(root)
+    written = write_evidence_bundle(root, {**parts, "evidence_overview": overview})
+    return {**written, "overview": overview}
+
+
 def resolve_paired_runs(
     session: Session,
     *,
@@ -286,8 +294,12 @@ def run_historical_evidence(
         "schema": proof.get("schema"),
         "dataset_v3_run_id": proof["dataset_v3_run_id"],
         "dataset_v4_run_id": proof["dataset_v4_run_id"],
+        "coverage_summary": proof.get("coverage_summary"),
+        "pit_status": proof.get("pit_status"),
+        "v3": proof.get("v3"),
+        "v4": proof.get("v4"),
     }
-    written = write_evidence_bundle(
+    finalized = finalize_bundle(
         root,
         {
             "manifest": manifest,
@@ -298,28 +310,13 @@ def run_historical_evidence(
             "stability": _jsonable(stability),
             "economics": _jsonable(economics),
             "prospective": _jsonable(prospective),
-        },
-    )
-    overview = overview_from_dir(root)
-    write_evidence_bundle(
-        root,
-        {
-            "manifest": manifest,
-            "dataset_compare": _jsonable(dataset_part),
-            "model_regression": _jsonable(regression),
-            "model_ranker": _jsonable(ranker),
-            "ablation": _jsonable(ablation),
-            "stability": _jsonable(stability),
-            "economics": _jsonable(economics),
-            "prospective": _jsonable(prospective),
-            "evidence_overview": overview,
         },
     )
     return {
         "experiment_fingerprint": experiment.experiment_fingerprint,
         "artifact_root": str(root),
-        "bundle_hash": written["bundle_hash"],
-        "overview": overview,
+        "bundle_hash": finalized["bundle_hash"],
+        "overview": finalized["overview"],
         "persist_registry": False,
         "research_only": True,
     }
