@@ -35,6 +35,7 @@ RETURN_SEMANTIC = "PRICE_RETURN"
 UNIVERSE_POLICY = "historical_equity_universe_v2"
 INITIAL_CAPITAL = 1_000_000.0
 CANONICAL_EXECUTION_TIMING = CANONICAL_EXECUTION  # next_open
+SKIPPED_BY_BOUNDARY = "SKIPPED_BY_BOUNDARY"
 
 SelectionMode = Literal["strategy_top_quantile", "eligible_universe_equal_weight"]
 
@@ -70,6 +71,23 @@ def rebalance_decision_dates(
         raise EconomicsContractError("rebalance cadence must be positive")
     ordered = sorted(trading_days)
     return ordered[::every_n]
+
+
+def required_market_date_to(
+    decision_dates: list[date],
+    trading_days: list[date],
+) -> date:
+    """Bounded MarketView ``date_to``: +1 session after max decision if the calendar has it.
+
+    OPTION A for loaders: pass a calendar that can see past the last as_of so the
+    next official OPEN is in the view. If ``next_trading_day`` is missing, returns
+    max(decision) and the simulator applies OPTION B (skip, do not count).
+    """
+    if not decision_dates:
+        raise EconomicsContractError("decision_dates required for market date_to")
+    last = max(_as_date(d) for d in decision_dates)
+    nxt = next_trading_day(list(trading_days), last)
+    return nxt if nxt is not None else last
 
 
 def _as_date(value: Any) -> date:
@@ -317,7 +335,7 @@ class _RunState:
     ledger: PortfolioLedger
     adapter: HistoricalNextOpenAdapter = field(default_factory=HistoricalNextOpenAdapter)
     pending: _PendingRebalance | None = None
-    forced_exits: dict[int, str] = field(default_factory=dict)
+    forced_exits: dict[int, tuple[str, date]] = field(default_factory=dict)
     unavailable: list[dict[str, Any]] = field(default_factory=list)
     unresolved: list[dict[str, Any]] = field(default_factory=list)
     last_mark: dict[int, float] = field(default_factory=dict)
@@ -368,6 +386,11 @@ def _fill_intent(
     *,
     all_in_bps: float,
 ) -> bool:
+    if intent.execution_date <= intent.decision_date:
+        raise EconomicsContractError(
+            "execution_date must be strictly after decision_date "
+            f"(decision={intent.decision_date}, execution={intent.execution_date})"
+        )
     raw_open = _official_open(market, intent.instrument_id, intent.execution_date)
     if raw_open is None:
         _record_unavailable(
@@ -449,6 +472,16 @@ def _fill_intent(
     return True
 
 
+def _note_forced_exit(
+    state: _RunState,
+    iid: int,
+    ticker: str,
+    original_decision_date: date,
+) -> None:
+    if iid not in state.forced_exits:
+        state.forced_exits[iid] = (ticker, original_decision_date)
+
+
 def _execute_targets(
     state: _RunState,
     market: MarketView,
@@ -496,7 +529,7 @@ def _execute_targets(
                 decision_date=decision_date,
             )
             if qty > 0 and target_w <= 0:
-                state.forced_exits[iid] = ticker
+                _note_forced_exit(state, iid, ticker, decision_date)
             continue
         target_value = nav * target_w
         current_value = qty * px
@@ -552,10 +585,12 @@ def _try_forced_exits(
     *,
     all_in_bps: float,
 ) -> None:
-    for iid, ticker in list(state.forced_exits.items()):
+    for iid, (ticker, original_decision_date) in list(state.forced_exits.items()):
         qty = state.ledger.position_qty(iid)
         if qty <= 1e-12:
             state.forced_exits.pop(iid, None)
+            continue
+        if day <= original_decision_date:
             continue
         px = _official_open(market, iid, day)
         if px is None:
@@ -565,10 +600,11 @@ def _try_forced_exits(
                 iid=iid,
                 ticker=ticker,
                 reason="delist/exit OPEN missing; close was not used",
+                decision_date=original_decision_date,
             )
             continue
         intent = OrderIntent(
-            decision_date=day,
+            decision_date=original_decision_date,
             execution_date=day,
             instrument_id=iid,
             ticker=ticker,
@@ -598,6 +634,9 @@ def _limitations(*, include_imoex: bool, imoex_skipped: str | None) -> list[str]
         "current-active universe is not used.",
         "Missing official OPEN is EXECUTION_PRICE_UNAVAILABLE; close is never a substitute fill.",
         "Delists are not backdated; missing valid exit is UNRESOLVED_EXIT / PARTIAL.",
+        "Terminal next-open policy is OPTION B: if the next execution session is outside "
+        "the preloaded MarketView, the rebalance is SKIPPED_BY_BOUNDARY and is not counted. "
+        "Loaders may use required_market_date_to() (OPTION A, +1 session only) so that OPEN exists.",
         "Held names without a session mark are carried at last observed raw price for NAV only.",
     ]
     if imoex_skipped:
@@ -626,6 +665,15 @@ def _assumptions_blob(*, all_in_bps: int) -> dict[str, Any]:
         "assumed_all_in_cost_bps_per_side": all_in_bps,
         "cost_note": "research assumption, not actual Sber fee",
         "corporate_actions": "mechanical SPLIT/REVERSE_SPLIT quantity only; RAW prices",
+        "terminal_next_open_policy": "OPTION_B_SKIPPED_BY_BOUNDARY",
+        "terminal_next_open_note": (
+            "Skip (do not count) a rebalance when next_trading_day is None. "
+            "required_market_date_to() is OPTION A: bounded +1 session after max decision."
+        ),
+        "forced_exit_dates": (
+            "original EOD decision_date; fill at a later official OPEN as execution_date; "
+            "execution_date > decision_date always, including retries"
+        ),
     }
 
 
@@ -704,9 +752,12 @@ def run_research_economics(
         raise EconomicsContractError("market view has no preloaded trading days")
 
     pred_dates = set(frame["decision_date"].tolist())
-    rebalance_days = [
+    scheduled_rebalance_days = [
         d for d in rebalance_decision_dates(trading_days) if d <= max(pred_dates)
     ]
+    executed_rebalance_days: list[date] = []
+    skipped_rebalance_dates: list[date] = []
+    terminal_rebalance_without_execution_session: str | None = None
     state = _RunState(ledger=PortfolioLedger(cash=float(initial_capital), peak_nav=float(initial_capital)))
     by_day = {d: g.copy() for d, g in frame.groupby("decision_date", sort=False)}
     for d, g in by_day.items():
@@ -734,20 +785,12 @@ def run_research_economics(
         )
         state.ledger.record_snapshot(day, _mark_closes(market, state, day))
 
-        if day not in rebalance_days:
+        if day not in scheduled_rebalance_days:
             continue
         exec_day = next_trading_day(trading_days, day)
         if exec_day is None:
-            for iid, pos in list(state.ledger.positions.items()):
-                state.unresolved.append(
-                    {
-                        "status": "UNRESOLVED_EXIT",
-                        "instrument_id": iid,
-                        "ticker": pos.ticker,
-                        "reason": "no next eligible session for official OPEN",
-                        "decision_date": day.isoformat(),
-                    }
-                )
+            skipped_rebalance_dates.append(day)
+            terminal_rebalance_without_execution_session = SKIPPED_BY_BOUNDARY
             continue
         day_frame = by_day.get(day)
         if day_frame is None or day_frame.empty:
@@ -763,13 +806,14 @@ def run_research_economics(
         eligible_now = set(targets)
         for iid in dropped - eligible_now:
             if state.ledger.position_qty(iid) > 1e-12:
-                state.forced_exits.setdefault(iid, _ticker(market, iid))
+                _note_forced_exit(state, iid, _ticker(market, iid), day)
         state.pending = _PendingRebalance(
             decision_date=day,
             execution_date=exec_day,
             targets=targets,
             tickers=tickers,
         )
+        executed_rebalance_days.append(day)
         state.ledger.rebalance_count += 1
         if day in pred_dates and exec_day <= day:
             raise EconomicsContractError("same-session execution is forbidden")
@@ -788,7 +832,7 @@ def run_research_economics(
                 )
         state.pending = None
 
-    for iid, ticker in list(state.forced_exits.items()):
+    for iid, (ticker, original_decision_date) in list(state.forced_exits.items()):
         if state.ledger.position_qty(iid) > 1e-12:
             state.unresolved.append(
                 {
@@ -796,6 +840,7 @@ def run_research_economics(
                     "instrument_id": iid,
                     "ticker": ticker,
                     "reason": "no valid official OPEN exit after delist/drop; exit was not invented",
+                    "decision_date": original_decision_date.isoformat(),
                 }
             )
 
@@ -836,7 +881,12 @@ def run_research_economics(
         "final_cash": state.ledger.cash,
         "final_nav": metrics["end_nav"],
         "ledger": state.ledger,
-        "rebalance_dates": [d.isoformat() for d in rebalance_days],
+        "rebalance_dates": [d.isoformat() for d in executed_rebalance_days],
+        "skipped_rebalance_dates": [d.isoformat() for d in skipped_rebalance_dates],
+        "terminal_rebalance_without_execution_session": (
+            terminal_rebalance_without_execution_session
+        ),
+        "terminal_next_open_policy": "OPTION_B_SKIPPED_BY_BOUNDARY",
     }
 
 
@@ -910,6 +960,11 @@ def run_research_economics_cost_grid(
         },
         "imoex": strategy[0]["imoex"],
         "rebalance_dates": strategy[0]["rebalance_dates"],
+        "skipped_rebalance_dates": strategy[0]["skipped_rebalance_dates"],
+        "terminal_rebalance_without_execution_session": strategy[0][
+            "terminal_rebalance_without_execution_session"
+        ],
+        "terminal_next_open_policy": strategy[0]["terminal_next_open_policy"],
         "unavailable_executions": strategy[0]["metrics"]["unavailable_executions"],
         "unresolved_exits": strategy[0]["metrics"]["unresolved_exits"],
         "_strategy_runs": strategy,

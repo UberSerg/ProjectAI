@@ -12,8 +12,10 @@ from app.modules.market.application.mechanical_adjustment import MechanicalActio
 from app.modules.research_evidence.economics import (
     ASSUMED_ALL_IN_COST_BPS_PER_SIDE,
     MODEL_VARIANTS,
+    SKIPPED_BY_BOUNDARY,
     EconomicsProvenanceError,
     rebalance_decision_dates,
+    required_market_date_to,
     run_all_model_variants,
     run_research_economics,
     run_research_economics_cost_grid,
@@ -459,3 +461,68 @@ def test_metrics_keys_short_horizon_not_annualized() -> None:
     assert metrics["annualized_return"] is None
     assert metrics["annualized_return_reason"]
     assert metrics["return_semantic"] == "PRICE_RETURN"
+
+
+def test_required_market_date_to_is_plus_one_session() -> None:
+    days = _weekdays(date(2024, 1, 2), 5)
+    assert required_market_date_to([days[0], days[2]], days) == days[3]
+    assert required_market_date_to([days[-1]], days) == days[-1]
+
+
+def test_terminal_rebalance_skipped_by_boundary_not_counted() -> None:
+    days = _weekdays(date(2024, 1, 2), 21)
+    ids = list(range(1, 11))
+    market = _market(days, ids)
+    frame = pd.DataFrame(_pred_rows(days, ids))
+    result = run_research_economics(
+        predictions=frame,
+        market=market,
+        model_variant="BASE",
+        all_in_cost_bps_per_side=0,
+    )
+    assert result["terminal_next_open_policy"] == "OPTION_B_SKIPPED_BY_BOUNDARY"
+    assert result["terminal_rebalance_without_execution_session"] == SKIPPED_BY_BOUNDARY
+    assert result["skipped_rebalance_dates"] == [days[20].isoformat()]
+    assert result["rebalance_dates"] == [days[0].isoformat()]
+    assert result["metrics"]["n_rebalances"] == 1
+    assert all(f.execution_date > f.decision_date for f in result["ledger"].fills)
+    assert all(o.execution_date > o.decision_date for o in result["ledger"].orders)
+    assert days[20].isoformat() not in result["rebalance_dates"]
+
+
+def test_forced_exit_keeps_original_decision_date_on_later_open() -> None:
+    days = _weekdays(date(2024, 1, 2), 25)
+    ids = list(range(1, 11))
+    decision = days[20]
+    miss_open = days[21]
+    fill_open = days[22]
+    opens = {(iid, d): 100.0 for iid in ids for d in days}
+    closes = {(iid, d): 100.0 for iid in ids for d in days}
+    opens[(10, miss_open)] = 0.0
+    opens[(9, miss_open)] = 0.0
+    market = _market(days, ids, opens=opens, closes=closes)
+    rows = [
+        r
+        for r in _pred_rows(days, ids)
+        if not (r["decision_date"] == decision and r["instrument_id"] in {9, 10})
+    ]
+    result = run_research_economics(
+        predictions=pd.DataFrame(rows),
+        market=market,
+        model_variant="BASE",
+        all_in_cost_bps_per_side=0,
+    )
+    forced = [
+        f
+        for f in result["ledger"].fills
+        if f.instrument_id in {9, 10} and f.side == "SELL"
+    ]
+    assert forced
+    for fill in forced:
+        assert fill.decision_date == decision
+        assert fill.execution_date == fill_open
+        assert fill.execution_date > fill.decision_date
+        assert fill.raw_open == pytest.approx(100.0)
+        assert fill.fill_price != 0.0
+    assert all(f.execution_date > f.decision_date for f in result["ledger"].fills)
+    assert all(o.execution_date > o.decision_date for o in result["ledger"].orders)
