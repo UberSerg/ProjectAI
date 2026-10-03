@@ -6,6 +6,19 @@ from app.modules.research_evidence.bundle import (
     PENDING_PART,
     write_evidence_bundle,
 )
+from app.modules.research_evidence.campaign_refresh import inspect_campaign_coverage, refresh_campaign_data
+from app.modules.research_evidence.campaign_snapshot import (
+    SNAPSHOT_VERSION,
+    build_research_data_snapshot,
+    data_snapshot_hash,
+    write_research_data_snapshot,
+)
+from app.modules.research_evidence.campaign_window import (
+    PRIMARY_DATE_FROM,
+    STATUS_INSUFFICIENT,
+    latest_mature_20d_as_of,
+    resolve_campaign_window,
+)
 from app.modules.research_evidence.economics import (
     run_all_model_variants,
     run_research_economics,
@@ -38,6 +51,16 @@ from app.modules.research_evidence.stability import slice_stability
 
 __all__ = [
     "BUNDLE_PART_NAMES",
+    "PRIMARY_DATE_FROM",
+    "SNAPSHOT_VERSION",
+    "STATUS_INSUFFICIENT",
+    "build_research_data_snapshot",
+    "data_snapshot_hash",
+    "inspect_campaign_coverage",
+    "latest_mature_20d_as_of",
+    "refresh_campaign_data",
+    "resolve_campaign_window",
+    "write_research_data_snapshot",
     "EVALUATION_WORDING",
     "EXPERIMENT_VERSION",
     "PENDING_PART",
