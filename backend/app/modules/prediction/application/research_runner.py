@@ -21,11 +21,14 @@ from app.infrastructure.learning.models import DatasetSpec
 from app.modules.learning.application.research_eval import (
     FairCompareError,
     assert_fair_model_run_contract,
+    assert_fair_v3_v4_model_run_contract,
 )
+from app.modules.learning.dataset_config import feature_names_for_spec_version
 from app.modules.prediction.application.metrics import evaluate_predictions
 from app.modules.prediction.application.research_dataset_loader import (
     EXPERIMENTAL_V3_RESEARCH,
-    FEATURE_NAMES,
+    EXPERIMENTAL_V4_RESEARCH,
+    V3_V4_FEATURE_ENRICHMENT_RESEARCH,
     load_research_frame,
     resolve_research_dataset_run,
     split_research_oos,
@@ -67,12 +70,13 @@ def run_experimental_v2_v3_oos(
     """
     if persist_registry:
         raise ValueError(
-            "EXPERIMENTAL_V3_RESEARCH must not persist production candidate registry rows"
+            "experimental research OOS must not persist production candidate registry rows"
         )
-    if dataset_spec_version not in (2, 3):
-        raise ValueError("dataset_spec_version must be 2 or 3 for research OOS")
+    if dataset_spec_version not in (2, 3, 4):
+        raise ValueError("dataset_spec_version must be 2, 3 or 4 for research OOS")
 
-    feature_names = list(FEATURE_NAMES)
+    feature_names = list(feature_names_for_spec_version(dataset_spec_version))
+    label = EXPERIMENTAL_V4_RESEARCH if dataset_spec_version == 4 else EXPERIMENTAL_V3_RESEARCH
     run, frame = load_research_frame(
         session,
         dataset_spec_version=dataset_spec_version,
@@ -91,7 +95,7 @@ def run_experimental_v2_v3_oos(
     oos_df = split["oos_df"]
 
     payload: dict[str, Any] = {
-        "label": EXPERIMENTAL_V3_RESEARCH,
+        "label": label,
         "dataset_spec_version": dataset_spec_version,
         "dataset_run_id": run.id,
         "dataset_hash": run.dataset_hash,
@@ -110,6 +114,8 @@ def run_experimental_v2_v3_oos(
         "candidate_v0_pin_unchanged": CANDIDATE_V0_LOCKED_VERSION == 2,
         "candidate_v1_pin_unchanged": CANDIDATE_V1_LOCKED_VERSION == 2,
         "persist_registry": False,
+        "missing_feature_policy": "NATIVE_NAN",
+        "feature_count": len(feature_names),
     }
 
     if len(train_df) < 100 or len(oos_df) < 20:
@@ -118,7 +124,7 @@ def run_experimental_v2_v3_oos(
         return payload
 
     model = CatBoostRegressorAdapter(
-        model_id=EXPERIMENTAL_V3_RESEARCH,
+        model_id=label,
         model_version=f"v{dataset_spec_version}",
         hyperparameters=dict(CATBOOST_HYPERPARAMETERS),
         feature_names=feature_names,
@@ -145,7 +151,7 @@ def run_experimental_v2_v3_oos(
         oos_pred[["sample_id", "instrument_id", "as_of_date", "y", "y_pred"]].to_csv(
             artifact_dir / "predictions_oos.csv", index=False
         )
-        (artifact_dir / "label.txt").write_text(EXPERIMENTAL_V3_RESEARCH, encoding="utf-8")
+        (artifact_dir / "label.txt").write_text(label, encoding="utf-8")
 
     return payload
 
@@ -207,6 +213,80 @@ def compare_experimental_model_v2_v3(
             "Same CatBoost hyperparameters, seed, chronological OOS cut, and run windows.",
             "TRAIN labels whose target_date_20d reaches or crosses oos_start are purged.",
             "Differences may reflect universe composition, not a claim that one dataset 'wins'.",
+            "Production Candidate V0/V1 remain pinned to Dataset V2; ACTIVE DatasetSpec unchanged.",
+            "No production model_registry upsert on this path.",
+        ],
+    }
+    if root is not None:
+        root.mkdir(parents=True, exist_ok=True)
+        write_json(root / "model_compare.json", out)
+    return out
+
+
+def compare_experimental_model_v3_v4(
+    session: Session,
+    *,
+    v3_run_id: int | None = None,
+    v4_run_id: int | None = None,
+    oos_start: date | None = None,
+    artifact_root: Path | None = None,
+) -> dict[str, Any]:
+    """Identical-config chronological OOS; V4 differs only by feature manifest."""
+    cut = oos_start or HOLDOUT_START
+    run_v3 = resolve_research_dataset_run(session, dataset_spec_version=3, dataset_run_id=v3_run_id)
+    run_v4 = resolve_research_dataset_run(session, dataset_spec_version=4, dataset_run_id=v4_run_id)
+    spec_v3 = session.get(DatasetSpec, run_v3.dataset_spec_id)
+    spec_v4 = session.get(DatasetSpec, run_v4.dataset_spec_id)
+    try:
+        fair = assert_fair_v3_v4_model_run_contract(
+            run_v3,
+            run_v4,
+            oos_start=cut,
+            hyperparameters=dict(CATBOOST_HYPERPARAMETERS),
+            random_seed=RANDOM_SEED,
+            spec_v3=spec_v3,
+            spec_v4=spec_v4,
+        )
+    except FairCompareError as exc:
+        raise ResearchCompareError(str(exc)) from exc
+
+    root = artifact_root
+    v3 = run_experimental_v2_v3_oos(
+        session,
+        dataset_spec_version=3,
+        dataset_run_id=run_v3.id,
+        oos_start=cut,
+        artifact_dir=(root / "v3") if root else None,
+    )
+    v4 = run_experimental_v2_v3_oos(
+        session,
+        dataset_spec_version=4,
+        dataset_run_id=run_v4.id,
+        oos_start=cut,
+        artifact_dir=(root / "v4") if root else None,
+    )
+    out = {
+        "label": V3_V4_FEATURE_ENRICHMENT_RESEARCH,
+        "artifact_kind": "v3_v4_model_research_oos",
+        "fair_contract_pass": True,
+        "fair_compare": fair,
+        "oos_start": cut.isoformat(),
+        "hyperparameters": dict(CATBOOST_HYPERPARAMETERS),
+        "random_seed": RANDOM_SEED,
+        "missing_feature_policy": "NATIVE_NAN",
+        "v3": v3,
+        "v4": v4,
+        "feature_delta": {
+            "v3_feature_count": fair.get("v3_feature_count"),
+            "v4_feature_count": fair.get("v4_feature_count"),
+            "added_features": fair.get("added_features"),
+        },
+        "persist_registry": False,
+        "interpretation": [
+            "Same CatBoost hyperparameters, seed, chronological OOS cut, universe, and labels.",
+            "Intended difference is V4 PIT fundamental/event features; missing values stay NaN.",
+            "TRAIN labels whose target_date_20d reaches or crosses oos_start are purged.",
+            "This is EXPERIMENTAL_V4_RESEARCH / V3_V4_FEATURE_ENRICHMENT_RESEARCH — not Candidate.",
             "Production Candidate V0/V1 remain pinned to Dataset V2; ACTIVE DatasetSpec unchanged.",
             "No production model_registry upsert on this path.",
         ],

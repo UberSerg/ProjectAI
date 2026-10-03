@@ -54,7 +54,7 @@ def test_oos_split_matrix_cut_2026_06_01() -> None:
     assert split["train_df"]["target_date_20d"].notna().all()
 
 
-def test_oos_split_same_rules_for_v2_and_v3_shapes() -> None:
+def test_oos_split_same_rules_for_v2_v3_v4_shapes() -> None:
     frame = pd.DataFrame(
         [
             _row(as_of=date(2026, 5, 1), target=date(2026, 5, 29), sample_id=10),

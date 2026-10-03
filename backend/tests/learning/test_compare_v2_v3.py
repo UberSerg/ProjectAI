@@ -221,7 +221,7 @@ def test_compare_missing_spec_is_clean_error(core_db) -> None:
         _require_spec(core_db, 99)
 
 
-def test_research_loader_allows_v2_v3_not_v1(core_db) -> None:
+def test_research_loader_allows_v2_v3_v4_not_v1(core_db) -> None:
     from app.modules.prediction.application.research_dataset_loader import (
         ALLOWED_RESEARCH_VERSIONS,
         ResearchDatasetError,
@@ -229,7 +229,7 @@ def test_research_loader_allows_v2_v3_not_v1(core_db) -> None:
     )
 
     seed_dataset_specs(core_db)
-    assert ALLOWED_RESEARCH_VERSIONS == frozenset({2, 3})
+    assert ALLOWED_RESEARCH_VERSIONS == frozenset({2, 3, 4})
     try:
         resolve_research_dataset_run(core_db, dataset_spec_version=1)
         raise AssertionError("expected ResearchDatasetError for v1")

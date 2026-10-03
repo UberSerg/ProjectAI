@@ -15,11 +15,109 @@ from app.modules.learning.dataset_config import (
     PIT_DAILY_CORE_CODE,
     PIT_DAILY_CORE_V2,
     PIT_DAILY_CORE_V3,
+    PIT_DAILY_CORE_V4,
     feature_names_from_manifest,
     label_names_from_manifest,
 )
 
 SampleKey = tuple[int, date]
+
+
+def assert_fair_v3_v4_compare_contract() -> dict[str, Any]:
+    """V3 and V4 share universe + mechanical labels; V4 adds a frozen fund/event pack."""
+    v3_features = feature_names_from_manifest(PIT_DAILY_CORE_V3["feature_manifest"])
+    v4_features = feature_names_from_manifest(PIT_DAILY_CORE_V4["feature_manifest"])
+    v3_labels = label_names_from_manifest(PIT_DAILY_CORE_V3["feature_manifest"])
+    v4_labels = label_names_from_manifest(PIT_DAILY_CORE_V4["feature_manifest"])
+    pins_match = (
+        PIT_DAILY_CORE_V3["basic_feature_set_code"] == PIT_DAILY_CORE_V4["basic_feature_set_code"]
+        and PIT_DAILY_CORE_V3["basic_feature_set_version"]
+        == PIT_DAILY_CORE_V4["basic_feature_set_version"]
+        and PIT_DAILY_CORE_V3["technical_feature_set_code"]
+        == PIT_DAILY_CORE_V4["technical_feature_set_code"]
+        and PIT_DAILY_CORE_V3["technical_feature_set_version"]
+        == PIT_DAILY_CORE_V4["technical_feature_set_version"]
+        and PIT_DAILY_CORE_V3["technical_model_code"] == PIT_DAILY_CORE_V4["technical_model_code"]
+        and PIT_DAILY_CORE_V3["technical_model_version"]
+        == PIT_DAILY_CORE_V4["technical_model_version"]
+        and PIT_DAILY_CORE_V3["technical_model_config_hash"]
+        == PIT_DAILY_CORE_V4["technical_model_config_hash"]
+        and PIT_DAILY_CORE_V3["relation_set_code"] == PIT_DAILY_CORE_V4["relation_set_code"]
+        and PIT_DAILY_CORE_V3["relation_set_version"] == PIT_DAILY_CORE_V4["relation_set_version"]
+        and PIT_DAILY_CORE_V3["label_spec"] == PIT_DAILY_CORE_V4["label_spec"]
+        and PIT_DAILY_CORE_V3["universe_policy"] == PIT_DAILY_CORE_V4["universe_policy"]
+    )
+    if v3_labels != v4_labels:
+        raise ValueError("V3/V4 label schema mismatch — not a fair feature-enrichment compare")
+    if not pins_match:
+        raise ValueError("V3/V4 source pins / universe / label_spec mismatch")
+    added = [name for name in v4_features if name not in v3_features]
+    removed = [name for name in v3_features if name not in v4_features]
+    if removed:
+        raise ValueError(f"V4 dropped V3 features: {removed[:8]}")
+    if not added:
+        raise ValueError("V4 feature manifest is not additive vs V3")
+    return {
+        "v3_feature_count": len(v3_features),
+        "v4_feature_count": len(v4_features),
+        "added_feature_count": len(added),
+        "added_features": added,
+        "label_names": v3_labels,
+        "pins_match": True,
+        "universe_policy": PIT_DAILY_CORE_V3["universe_policy"],
+        "primary_label_family": "MECHANICAL_PRICE_RETURN",
+        "contract": (
+            "Same date range, historical universe, source pins, and mechanical labels; "
+            f"V4 adds {len(added)} research features (PIT fundamentals/events)."
+        ),
+        "intended_difference": "V4 X includes frozen PIT fundamental/event features.",
+    }
+
+
+def assert_fair_v3_v4_model_run_contract(
+    run_v3: DatasetRun,
+    run_v4: DatasetRun,
+    *,
+    oos_start: date,
+    hyperparameters: dict[str, Any],
+    random_seed: int,
+    spec_v3: DatasetSpec | None,
+    spec_v4: DatasetSpec | None,
+) -> dict[str, Any]:
+    schema = assert_fair_v3_v4_compare_contract()
+    if spec_v3 is None or spec_v3.code != PIT_DAILY_CORE_CODE or spec_v3.version != 3:
+        raise FairCompareError("V3 run is not pit_daily_core v3")
+    if spec_v4 is None or spec_v4.code != PIT_DAILY_CORE_CODE or spec_v4.version != 4:
+        raise FairCompareError("V4 run is not pit_daily_core v4")
+    if run_v3.status not in ("SUCCESS", "WARNING"):
+        raise FairCompareError(f"V3 run status={run_v3.status}")
+    if run_v4.status not in ("SUCCESS", "WARNING"):
+        raise FairCompareError(f"V4 run status={run_v4.status}")
+    if run_v3.date_from != run_v4.date_from or run_v3.date_to != run_v4.date_to:
+        raise FairCompareError(
+            f"mismatched run windows: v3 {run_v3.date_from}→{run_v3.date_to} "
+            f"vs v4 {run_v4.date_from}→{run_v4.date_to}"
+        )
+    for run, label in ((run_v3, "v3"), (run_v4, "v4")):
+        if run.date_from is None or run.date_to is None:
+            raise FairCompareError(f"{label} run missing date_from/date_to")
+        if oos_start < run.date_from or oos_start > run.date_to:
+            raise FairCompareError(
+                f"oos_start {oos_start.isoformat()} is outside {label} run "
+                f"{run.date_from}→{run.date_to}"
+            )
+    return {
+        **schema,
+        "fair_contract_pass": True,
+        "date_from": run_v3.date_from.isoformat() if run_v3.date_from else None,
+        "date_to": run_v3.date_to.isoformat() if run_v3.date_to else None,
+        "oos_start": oos_start.isoformat(),
+        "hyperparameters": dict(hyperparameters),
+        "random_seed": random_seed,
+        "v3_run_id": run_v3.id,
+        "v4_run_id": run_v4.id,
+        "missing_feature_policy": "NATIVE_NAN",
+    }
 
 
 def assert_fair_compare_contract() -> dict[str, Any]:
@@ -334,6 +432,29 @@ def compare_sample_sets(
         "historical_names_only_in_v3_count": len(historical_only_in_v3),
         "historical_names_only_in_v3": historical_only_in_v3[:50],
         "historical_names_truncated": len(historical_only_in_v3) > 50,
+    }
+
+
+def compare_v3_v4_sample_sets(
+    session: Session,
+    *,
+    v3_run_id: int,
+    v4_run_id: int,
+) -> dict[str, Any]:
+    keys_v3 = sample_keys_for_run(session, v3_run_id)
+    keys_v4 = sample_keys_for_run(session, v4_run_id)
+    only_v3 = keys_v3 - keys_v4
+    only_v4 = keys_v4 - keys_v3
+    both = keys_v3 & keys_v4
+    identity_match = not only_v3 and not only_v4
+    return {
+        "v3_samples": len(keys_v3),
+        "v4_samples": len(keys_v4),
+        "intersection_samples": len(both),
+        "unique_v3_samples": len(only_v3),
+        "unique_v4_samples": len(only_v4),
+        "sample_identity_match": identity_match,
+        "fair_contract_status": "PASS" if identity_match else "FAIR_CONTRACT_FAIL",
     }
 
 
