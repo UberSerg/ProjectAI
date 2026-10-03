@@ -233,6 +233,7 @@ export const labels = {
     liveExperiment: "Живой эксперимент",
     lab: "Лаборатория",
     researchLab: "Лаборатория исследований",
+    researchEvidence: "Доказательства",
     researchHub: "Обзор исследований",
     advancedAnalytics: "Расширенная аналитика",
     portfolio: "Портфель",

@@ -1857,3 +1857,19 @@ details.card > summary {
   }
 }
 
+.research-evidence-prospective-divider {
+  margin: 1.5rem 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 2px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  line-height: 1.45;
+}
+.research-evidence-prospective-divider strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+.research-evidence .page-header .badge {
+  align-self: center;
+}
+

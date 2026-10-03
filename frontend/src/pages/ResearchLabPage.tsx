@@ -211,6 +211,12 @@ export function ResearchLabPage() {
             Запуск и сравнение исторических экспериментов на Development OOS.
           </p>
         </a>
+        <Link className="card cockpit-card" to="/research/evidence">
+          <h3>{labels.nav.researchEvidence}</h3>
+          <p className="muted">
+            Исторический OOS, абляция V4 и проспективные наблюдения — только research.
+          </p>
+        </Link>
         <Link className="card cockpit-card" to="/research/diagnostics">
           <h3>Диагностика моделей</h3>
           <p className="muted">
