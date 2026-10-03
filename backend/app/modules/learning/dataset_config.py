@@ -17,7 +17,8 @@ PIT_DAILY_CORE_CODE = "pit_daily_core"
 PIT_DAILY_CORE_VERSION = 1
 PIT_DAILY_CORE_V2_VERSION = 2
 PIT_DAILY_CORE_V3_VERSION = 3
-# Released contract stays active; V2/V3 are buildable but not auto-activated.
+PIT_DAILY_CORE_V4_VERSION = 4
+# Released contract stays active; V2/V3/V4 are buildable but not auto-activated.
 PIT_DAILY_CORE_ACTIVE_VERSION = 1
 # Additive alias: research builds may pin V3 explicitly; NEVER changes ACTIVE=1.
 PIT_DAILY_CORE_RESEARCH_VERSION = PIT_DAILY_CORE_V3_VERSION
@@ -34,6 +35,9 @@ RESEARCH_CORE_READY_MIN_SAMPLES = 1
 RESEARCH_CORE_READY_MIN_YEARS_WITH_SAMPLES = 1
 # Above this proxy share of eligible_from boundaries → at best PARTIAL.
 RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT = 50.0
+# V4 research-only grade (never production). Coverage is evidence, not a score.
+RESEARCH_V4_PARTIAL_CURRENT_ONLY_PCT = 50.0
+RESEARCH_V4_PARTIAL_MIN_ENRICHMENT_PCT = 10.0
 
 # Dataset V0: Relations PIT join is part of X(t). Pin is basic_relations v1 only.
 RELATIONS_JOIN_ENABLED = True
@@ -270,10 +274,92 @@ PIT_DAILY_CORE_V3: dict[str, Any] = {
     },
 }
 
+# V4: same universe + mechanical labels as V3; X adds a frozen PIT fund/event pack.
+# Ratios (not raw size) because monetary facts are not cross-sectionally comparable
+# without unit/currency identity. Missing stays None — never 0.0.
+V4_FUNDAMENTAL_FEATURE_NAMES: tuple[str, ...] = (
+    "fund_days_since_latest_report",
+    "fund_report_age_days",
+    "fund_has_recent_report",
+    "fund_net_margin",
+    "fund_operating_margin",
+    "fund_debt_to_equity",
+    "fund_cash_to_assets",
+    "fund_equity_to_assets",
+    "fund_operating_cash_flow_to_revenue",
+)
+V4_EVENT_FEATURE_NAMES: tuple[str, ...] = (
+    "event_days_since_last_split",
+    "event_split_events_365d",
+    "event_days_since_last_dividend_disclosure",
+    "event_last_disclosed_dividend_per_share",
+    "event_has_known_upcoming_dividend",
+    "event_days_to_next_dividend_record_date",
+)
+
+FEATURE_MANIFEST_V4: list[dict[str, str]] = [
+    *FEATURE_MANIFEST_V1,
+    *[{"name": name, "role": "feature", "source": "fundamentals"} for name in V4_FUNDAMENTAL_FEATURE_NAMES],
+    *[{"name": name, "role": "feature", "source": "events"} for name in V4_EVENT_FEATURE_NAMES],
+]
+
+PIT_DAILY_CORE_V4: dict[str, Any] = {
+    "code": PIT_DAILY_CORE_CODE,
+    "version": PIT_DAILY_CORE_V4_VERSION,
+    "description": (
+        "Research-only survivorship-aware PIT dataset with V3 mechanical price-return "
+        "labels plus PIT fundamental/event enrichment and explicit evidence quality."
+    ),
+    "feature_manifest": FEATURE_MANIFEST_V4,
+    "relation_contexts": RELATION_CONTEXTS_V1,
+    "label_spec": LABEL_SPEC_V2,
+    "quality_policy": {
+        **QUALITY_POLICY_V2,
+        "fundamentals_in_features": True,
+        "events_in_features": True,
+        "universe_policy": UNIVERSE_POLICY_HISTORICAL_V2,
+        "survivorship_status": "PARTIAL",
+        "no_imputation": True,
+        "missing_feature_policy": "NATIVE_NAN",
+        "primary_label_family": "MECHANICAL_PRICE_RETURN",
+        "total_return": False,
+        "total_return_enrichment": "RESEARCH_DIAGNOSTIC_ONLY",
+    },
+    "basic_feature_set_code": "basic_daily",
+    "basic_feature_set_version": 2,
+    "technical_feature_set_code": "technical_daily",
+    "technical_feature_set_version": 2,
+    "technical_model_code": RULES_V1_CODE,
+    "technical_model_version": RULES_V2_VERSION,
+    "technical_model_config_hash": RULES_V2_CONFIG_HASH,
+    "relation_set_code": "basic_relations",
+    "relation_set_version": 2,
+    "universe_policy": UNIVERSE_POLICY_HISTORICAL_V2,
+    "parameters": {
+        "relation_windows": [20, 60, 120],
+        "lag_window": 60,
+        "lags": [1, 2, 3, 4, 5],
+        "price_basis": "mechanical_adjusted",
+        "label_price_basis": "mechanical_adjusted",
+        "fundamentals_in_features": True,
+        "events_in_features": True,
+        "dividend_adjusted": False,
+        "total_return": False,
+        "total_return_enrichment": "RESEARCH_DIAGNOSTIC_ONLY",
+        "primary_label_family": "MECHANICAL_PRICE_RETURN",
+        "historical_universe_version": HISTORICAL_EQUITY_UNIVERSE_V2,
+        "use_research_cohort": False,
+        "production_activation": False,
+        "missing_feature_policy": "NATIVE_NAN",
+        "v4_fundamental_pack": "same_report_ratios_v1",
+    },
+}
+
 DATASET_SPEC_DEFINITIONS: tuple[dict[str, Any], ...] = (
     PIT_DAILY_CORE_V1,
     PIT_DAILY_CORE_V2,
     PIT_DAILY_CORE_V3,
+    PIT_DAILY_CORE_V4,
 )
 
 DATASET_BUILD_STEPS = [
@@ -328,3 +414,14 @@ def is_horizon_training_eligible(
 
 def uses_mechanical_label_basis(label_spec: dict[str, Any] | None) -> bool:
     return (label_spec or {}).get("price_basis") == "mechanical_adjusted"
+
+
+def feature_names_for_spec_version(version: int) -> list[str]:
+    """Resolve X names from the frozen DatasetSpec contract (not DB metric rows)."""
+    if version == PIT_DAILY_CORE_V4_VERSION:
+        return feature_names_from_manifest(FEATURE_MANIFEST_V4)
+    return feature_names_from_manifest(FEATURE_MANIFEST_V1)
+
+
+def uses_historical_universe_contract(version: int) -> bool:
+    return version in {PIT_DAILY_CORE_V3_VERSION, PIT_DAILY_CORE_V4_VERSION}

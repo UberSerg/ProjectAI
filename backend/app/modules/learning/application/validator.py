@@ -56,6 +56,15 @@ class PITDatasetValidator:
                 f"future relation snapshot as_of {sample.quality.relation_as_of_date} > {t}"
             )
 
+        v4 = (sample.metadata or {}).get("v4_enrichment") or {}
+        for key in ("fundamentals", "events"):
+            known = (v4.get(key) or {}).get("feature_known_at")
+            if not known:
+                continue
+            known_d = date.fromisoformat(str(known)[:10])
+            if known_d > t:
+                result.fail(f"future v4 {key} feature_known_at {known_d} > {t}")
+
         labels = sample.labels
         for h, target in (
             (1, labels.target_date_1d),

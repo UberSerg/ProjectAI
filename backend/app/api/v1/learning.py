@@ -373,6 +373,40 @@ def compare_v2_v3(body: CompareV2V3Request) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class CompareV3V4Request(BaseModel):
+    date_from: date
+    date_to: date
+    v3_run_id: int | None = None
+    v4_run_id: int | None = None
+    rebuild: bool = False
+    instrument_ids: list[int] | None = None
+
+
+@router.post("/datasets/compare-v3-v4")
+def compare_v3_v4(body: CompareV3V4Request) -> dict[str, Any]:
+    """OWNER/research: fair V3↔V4 feature-enrichment comparison. Does not activate DatasetSpec."""
+    from app.modules.learning.application.compare_v3_v4 import (
+        CompareContractError,
+        compare_v3_v4_builds,
+    )
+
+    if body.date_to < body.date_from:
+        raise HTTPException(status_code=400, detail="date_to must be >= date_from")
+    with core_session() as session:
+        try:
+            return compare_v3_v4_builds(
+                session,
+                date_from=body.date_from,
+                date_to=body.date_to,
+                instrument_ids=body.instrument_ids,
+                v3_run_id=body.v3_run_id,
+                v4_run_id=body.v4_run_id,
+                rebuild=body.rebuild,
+            )
+        except CompareContractError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/datasets/build", response_model=WorkflowStartResponse)
 def start_build(body: BuildRequest) -> WorkflowStartResponse:
     if body.date_to is not None and body.date_to < body.date_from:

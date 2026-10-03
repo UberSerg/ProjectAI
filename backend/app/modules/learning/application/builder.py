@@ -55,12 +55,18 @@ from app.modules.learning.application.universe_resolve import (
     eligibility_audit,
     resolve_dataset_universe,
 )
+from app.modules.learning.application.v4_enrichment import (
+    load_v4_enrichment_index,
+    resolve_v4_sample,
+    v4_return_truth,
+)
 from app.modules.learning.application.validator import PITDatasetValidator, assert_manifest_separation
 from app.modules.learning.dataset_config import (
     DATASET_BUILD_STEPS,
     PIT_DAILY_CORE_CODE,
     PIT_DAILY_CORE_RESEARCH_VERSION,
     PIT_DAILY_CORE_V3_VERSION,
+    PIT_DAILY_CORE_V4_VERSION,
     PIT_DAILY_CORE_VERSION,
     RESEARCH_CORE_GRADE_NOT_READY,
     RESEARCH_CORE_GRADE_PARTIAL,
@@ -68,9 +74,14 @@ from app.modules.learning.dataset_config import (
     RESEARCH_CORE_PARTIAL_PROXY_FROM_PCT,
     RESEARCH_CORE_READY_MIN_SAMPLES,
     RESEARCH_CORE_READY_MIN_YEARS_WITH_SAMPLES,
+    RESEARCH_V4_PARTIAL_CURRENT_ONLY_PCT,
+    RESEARCH_V4_PARTIAL_MIN_ENRICHMENT_PCT,
+    V4_EVENT_FEATURE_NAMES,
+    V4_FUNDAMENTAL_FEATURE_NAMES,
     is_horizon_training_eligible,
     is_sample_relation_missing,
     relation_feature_names,
+    uses_historical_universe_contract,
     uses_mechanical_label_basis,
 )
 from app.modules.market.application.historical_universe import (
@@ -291,6 +302,88 @@ def grade_v3_core_research_quality(
     }
 
 
+def grade_v4_research_quality(
+    *,
+    samples_total: int,
+    apply_date_eligibility: bool,
+    pit_violations: int,
+    fund_coverage_pct: float | None,
+    event_coverage_pct: float | None,
+    current_only_pct: float | None,
+    malformed_contract: bool,
+) -> dict[str, Any]:
+    """RESEARCH-ONLY V4 grade. Never production-ready / never a Candidate claim."""
+    reasons: list[str] = []
+    if malformed_contract:
+        reasons.append("malformed_feature_contract")
+    if not apply_date_eligibility:
+        reasons.append("historical_universe_resolution_failed")
+    if pit_violations > 0:
+        reasons.append("pit_violation")
+    if samples_total < RESEARCH_CORE_READY_MIN_SAMPLES:
+        reasons.append("insufficient_samples")
+    enrichment_pct = max(fund_coverage_pct or 0.0, event_coverage_pct or 0.0)
+    if enrichment_pct <= 0.0:
+        reasons.append("zero_v4_enrichment_coverage")
+
+    blocking = {
+        "malformed_feature_contract",
+        "historical_universe_resolution_failed",
+        "pit_violation",
+        "insufficient_samples",
+        "zero_v4_enrichment_coverage",
+    }
+    if any(r in blocking or r.startswith("pit_") for r in reasons):
+        grade = RESEARCH_CORE_GRADE_NOT_READY
+    else:
+        grade = RESEARCH_CORE_GRADE_READY
+        if (
+            fund_coverage_pct is not None
+            and 0.0 < fund_coverage_pct < RESEARCH_V4_PARTIAL_MIN_ENRICHMENT_PCT
+        ):
+            grade = RESEARCH_CORE_GRADE_PARTIAL
+            reasons.append("low_fundamentals_coverage")
+        if (
+            event_coverage_pct is not None
+            and 0.0 < event_coverage_pct < RESEARCH_V4_PARTIAL_MIN_ENRICHMENT_PCT
+        ):
+            grade = RESEARCH_CORE_GRADE_PARTIAL
+            reasons.append("event_coverage_partial")
+        if (
+            current_only_pct is not None
+            and current_only_pct > RESEARCH_V4_PARTIAL_CURRENT_ONLY_PCT
+        ):
+            grade = RESEARCH_CORE_GRADE_PARTIAL
+            reasons.append("current_only_issuer_mapping_share_material")
+
+    return {
+        "grade": grade,
+        "scope": "research_only",
+        "production_ready": False,
+        "activated": False,
+        "dataset_research_version": PIT_DAILY_CORE_V4_VERSION,
+        "thresholds": {
+            "min_samples": RESEARCH_CORE_READY_MIN_SAMPLES,
+            "partial_current_only_pct": RESEARCH_V4_PARTIAL_CURRENT_ONLY_PCT,
+            "partial_min_enrichment_pct": RESEARCH_V4_PARTIAL_MIN_ENRICHMENT_PCT,
+        },
+        "evidence": {
+            "samples_total": samples_total,
+            "pit_violations": pit_violations,
+            "fundamental_sample_coverage_pct": fund_coverage_pct,
+            "event_sample_coverage_pct": event_coverage_pct,
+            "current_only_pct": current_only_pct,
+            "apply_date_eligibility": apply_date_eligibility,
+        },
+        "reasons": reasons,
+        "notes": [
+            "READY_FOR_RESEARCH means enough evidence exists to run controlled research.",
+            "Never interpret as Candidate promotion, live-money readiness, or 'V4 wins'.",
+            "Primary labels remain MECHANICAL_PRICE_RETURN; Total Return is diagnostic only.",
+        ],
+    }
+
+
 class PITDatasetBuilder:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -381,12 +474,12 @@ class PITDatasetBuilder:
                     trace_id=(workflow.meta or {}).get("trace_id"),
                 )
                 raise
-            # V3 contract: never silently resolve to current_active / no date eligibility.
-            if int(spec.version) == PIT_DAILY_CORE_V3_VERSION and not universe.apply_date_eligibility:
+            # V3/V4: never silently resolve to current_active / no date eligibility.
+            if uses_historical_universe_contract(int(spec.version)) and not universe.apply_date_eligibility:
                 self._mark(workflow, "Resolve universe", "FAILED")
                 err = HistoricalUniverseResolutionError(
-                    "pit_daily_core v3 requires historical_equity_universe_v2 date eligibility; "
-                    "refusing current_active_instruments fallback"
+                    f"pit_daily_core v{int(spec.version)} requires historical_equity_universe_v2 "
+                    "date eligibility; refusing current_active_instruments fallback"
                 )
                 write_event(
                     self.session,
@@ -557,6 +650,15 @@ class PITDatasetBuilder:
                 for instrument_id in inst_ids:
                     actions_by_inst[instrument_id] = load_mechanical_actions(self.session, instrument_id)
 
+            v4_enabled = int(spec.version) == PIT_DAILY_CORE_V4_VERSION
+            v4_index = None
+            if v4_enabled:
+                t_v4 = time.perf_counter()
+                v4_index = load_v4_enrichment_index(self.session, instrument_ids=inst_ids)
+                timings_v4_preload = round(time.perf_counter() - t_v4, 3)
+            else:
+                timings_v4_preload = 0.0
+
             candles_by_inst: dict[int, list[PriceObservation]] = {}
             if inst_ids:
                 all_candles = list(
@@ -611,6 +713,19 @@ class PITDatasetBuilder:
                 "instruments_with_samples": set(),
                 "inactive_instruments_with_samples": set(),
                 "by_year": {},
+                "v4_fund_samples": 0,
+                "v4_event_samples": 0,
+                "v4_unmapped": 0,
+                "v4_dated": 0,
+                "v4_current_only": 0,
+                "v4_no_report": 0,
+                "v4_known_at_violations": 0,
+                "v4_by_year_fund": {},
+                "v4_by_year_event": {},
+                "v4_report_sources": {},
+                "v4_report_standards": {},
+                "v4_ambiguous": 0,
+                "v4_bank_fi_unsupported": 0,
             }
             universe_version = str(
                 (spec.parameters or {}).get("historical_universe_version")
@@ -631,6 +746,7 @@ class PITDatasetBuilder:
                 "load_analytics_sec": load_analytics_sec,
                 "load_technical_sec": load_technical_sec,
                 "load_relations_sec": load_relations_sec,
+                "v4_enrichment_preload_sec": timings_v4_preload,
                 "labels_sec": 0.0,
                 "validation_sec": 0.0,
                 "persistence_sec": 0.0,
@@ -762,6 +878,51 @@ class PITDatasetBuilder:
                         meta["relation_as_of_date"] = rel_join.as_of_date.isoformat()
                     if rel_join.age_days is not None:
                         meta["relation_age_days"] = rel_join.age_days
+
+                    v4_enrichment = None
+                    if v4_enabled and v4_index is not None:
+                        v4_enrichment = resolve_v4_sample(
+                            v4_index, instrument_id=inst.id, as_of=as_of
+                        )
+                        feature_values.update(v4_enrichment.features)
+                        meta["v4_enrichment"] = v4_enrichment.lineage
+                        if v4_enrichment.pit_violations:
+                            counters["v4_known_at_violations"] += len(v4_enrichment.pit_violations)
+                        fund_lin = v4_enrichment.lineage.get("fundamentals") or {}
+                        basis = fund_lin.get("issuer_resolution_basis")
+                        if basis == "UNMAPPED":
+                            counters["v4_unmapped"] += 1
+                        elif basis == "DATED_WINDOW":
+                            counters["v4_dated"] += 1
+                        elif basis == "CURRENT_ONLY":
+                            counters["v4_current_only"] += 1
+                        elif basis == "AMBIGUOUS":
+                            counters["v4_ambiguous"] += 1
+                        if fund_lin.get("status") == "NO_VISIBLE_REPORT":
+                            counters["v4_no_report"] += 1
+                        if fund_lin.get("status") == "UNSUPPORTED_BANK_FI":
+                            counters["v4_bank_fi_unsupported"] += 1
+                        year_key = str(as_of.year)
+                        if v4_enrichment.has_fundamental_feature:
+                            counters["v4_fund_samples"] += 1
+                            counters["v4_by_year_fund"][year_key] = (
+                                counters["v4_by_year_fund"].get(year_key, 0) + 1
+                            )
+                            src = fund_lin.get("report_source")
+                            if src:
+                                counters["v4_report_sources"][src] = (
+                                    counters["v4_report_sources"].get(src, 0) + 1
+                                )
+                            std = fund_lin.get("reporting_standard")
+                            if std:
+                                counters["v4_report_standards"][std] = (
+                                    counters["v4_report_standards"].get(std, 0) + 1
+                                )
+                        if v4_enrichment.has_event_feature:
+                            counters["v4_event_samples"] += 1
+                            counters["v4_by_year_event"][year_key] = (
+                                counters["v4_by_year_event"].get(year_key, 0) + 1
+                            )
 
                     label_prices = prices
                     if apply_date_eligibility and elig is not None:
@@ -918,6 +1079,9 @@ class PITDatasetBuilder:
                         },
                     )
                     pit = validator.validate_sample(sample)
+                    if v4_enrichment is not None:
+                        for msg in v4_enrichment.pit_violations:
+                            pit.fail(msg)
                     quality.pit_pass = pit.ok
                     quality.pit_violations = list(pit.violations)
                     if not pit.ok:
@@ -963,6 +1127,8 @@ class PITDatasetBuilder:
                     lineage_dict = sample.lineage.to_dict()
                     # Audit-only: eligible_to must never enter X(t) / content hash identity.
                     lineage_dict.update(universe_meta)
+                    if v4_enrichment is not None:
+                        lineage_dict["v4_enrichment"] = v4_enrichment.lineage
                     ch = sample_content_hash(
                         instrument_id=inst.id,
                         as_of_date=as_of.isoformat(),
@@ -1197,6 +1363,72 @@ class PITDatasetBuilder:
                 timings.setdefault("labels_sec", timings.get("build_sec"))
                 timings.setdefault("validation_sec", None)
                 timings.setdefault("persistence_sec", timings.get("persist_sec"))
+
+            if v4_enabled:
+                n_samples = max(len(samples), 1)
+                fund_n = int(counters["v4_fund_samples"])
+                event_n = int(counters["v4_event_samples"])
+                mapped_n = (
+                    int(counters["v4_dated"])
+                    + int(counters["v4_current_only"])
+                    + int(counters["v4_unmapped"])
+                )
+                current_only_pct = (
+                    round(100.0 * int(counters["v4_current_only"]) / mapped_n, 4)
+                    if mapped_n
+                    else None
+                )
+                fund_pct = round(100.0 * fund_n / len(samples), 4) if samples else 0.0
+                event_pct = round(100.0 * event_n / len(samples), 4) if samples else 0.0
+                coverage["v4"] = {
+                    "samples_with_fundamental_features": fund_n,
+                    "samples_without_fundamental_features": max(len(samples) - fund_n, 0),
+                    "fundamental_sample_coverage_pct": fund_pct,
+                    "samples_with_event_features": event_n,
+                    "samples_without_event_features": max(len(samples) - event_n, 0),
+                    "event_sample_coverage_pct": event_pct,
+                    "coverage_by_year": {
+                        "fundamentals": dict(sorted(counters["v4_by_year_fund"].items())),
+                        "events": dict(sorted(counters["v4_by_year_event"].items())),
+                    },
+                    "issuer_resolution_basis_counts": {
+                        "DATED_WINDOW": int(counters["v4_dated"]),
+                        "CURRENT_ONLY": int(counters["v4_current_only"]),
+                        "UNMAPPED": int(counters["v4_unmapped"]),
+                        "AMBIGUOUS": int(counters["v4_ambiguous"]),
+                    },
+                    "mapped_samples": int(counters["v4_dated"]) + int(counters["v4_current_only"]),
+                    "unmapped_samples": int(counters["v4_unmapped"]),
+                    "ambiguous_issuer_samples": int(counters["v4_ambiguous"]),
+                    "bank_fi_unsupported_samples": int(counters["v4_bank_fi_unsupported"]),
+                    "no_visible_report_samples": int(counters["v4_no_report"]),
+                    "report_source_counts": dict(counters["v4_report_sources"]),
+                    "reporting_standard_counts": dict(counters["v4_report_standards"]),
+                    "maximum_feature_known_at_violation_count": int(
+                        counters["v4_known_at_violations"]
+                    ),
+                    "preload_query_count": v4_index.query_count if v4_index is not None else 0,
+                    "preload_reason": v4_index.preload_reason if v4_index is not None else None,
+                    "missingness": {
+                        name: {
+                            "missing_count": int(counters["feature_missing"].get(name, 0)),
+                            "missing_share": round(
+                                counters["feature_missing"].get(name, 0) / n_samples, 4
+                            ),
+                        }
+                        for name in (*V4_FUNDAMENTAL_FEATURE_NAMES, *V4_EVENT_FEATURE_NAMES)
+                    },
+                }
+                coverage["return_truth"] = v4_return_truth(self.session)
+                coverage["research_quality"] = grade_v4_research_quality(
+                    samples_total=len(samples),
+                    apply_date_eligibility=apply_date_eligibility,
+                    pit_violations=int(dataset_run.pit_violations or 0),
+                    fund_coverage_pct=fund_pct,
+                    event_coverage_pct=event_pct,
+                    current_only_pct=current_only_pct,
+                    malformed_contract=False,
+                )
 
             manifest = {
                 "dataset_code": spec.code,

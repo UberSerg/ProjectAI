@@ -1,4 +1,4 @@
-"""Research-only dataset loader: explicit pit_daily_core v2|v3 without Candidate pins.
+"""Research-only dataset loader: explicit pit_daily_core v2|v3|v4 without Candidate pins.
 
 Does not mutate Candidate V0/V1 configs. Does not require production hash pins.
 Labeled for experimental evaluation only.
@@ -20,6 +20,8 @@ from app.modules.learning.dataset_config import (
     PIT_DAILY_CORE_CODE,
     PIT_DAILY_CORE_V2_VERSION,
     PIT_DAILY_CORE_V3_VERSION,
+    PIT_DAILY_CORE_V4_VERSION,
+    feature_names_for_spec_version,
     feature_names_from_manifest,
 )
 from app.modules.prediction.candidate_config import (
@@ -30,7 +32,11 @@ from app.modules.prediction.candidate_config import (
 )
 
 EXPERIMENTAL_V3_RESEARCH = "EXPERIMENTAL_V3_RESEARCH"
-ALLOWED_RESEARCH_VERSIONS = frozenset({PIT_DAILY_CORE_V2_VERSION, PIT_DAILY_CORE_V3_VERSION})
+EXPERIMENTAL_V4_RESEARCH = "EXPERIMENTAL_V4_RESEARCH"
+V3_V4_FEATURE_ENRICHMENT_RESEARCH = "V3_V4_FEATURE_ENRICHMENT_RESEARCH"
+ALLOWED_RESEARCH_VERSIONS = frozenset(
+    {PIT_DAILY_CORE_V2_VERSION, PIT_DAILY_CORE_V3_VERSION, PIT_DAILY_CORE_V4_VERSION}
+)
 FEATURE_NAMES: list[str] = feature_names_from_manifest(FEATURE_MANIFEST_V1)
 
 
@@ -45,10 +51,10 @@ def resolve_research_dataset_run(
     dataset_run_id: int | None = None,
     dataset_spec_code: str = PIT_DAILY_CORE_CODE,
 ) -> DatasetRun:
-    """Resolve a SUCCESS/WARNING run for explicit research version 2 or 3.
+    """Resolve a SUCCESS/WARNING run for explicit research version 2, 3, or 4.
 
     Unlike Candidate V0 ``resolve_pinned_dataset_run``, this path:
-    - accepts version 2 or 3;
+    - accepts version 2, 3 or 4;
     - does not enforce production values_hash / dataset_hash pins;
     - never reads or writes Candidate V0/V1 preferred run IDs.
     """
@@ -110,8 +116,12 @@ def load_research_frame(
     eligibility_key: str = ELIGIBILITY_KEY,
     label_valid_horizon: str = LABEL_VALID_HORIZON,
 ) -> tuple[DatasetRun, pd.DataFrame]:
-    """Load samples for research evaluation (identical feature schema for v2 and v3)."""
-    names = list(feature_names or FEATURE_NAMES)
+    """Load samples for research evaluation.
+
+    Feature names come from the DatasetSpec contract for that version.
+    Missing V4 keys become NaN, never 0.0.
+    """
+    names = list(feature_names or feature_names_for_spec_version(dataset_spec_version))
     run = resolve_research_dataset_run(
         session,
         dataset_spec_version=dataset_spec_version,

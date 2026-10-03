@@ -20,8 +20,16 @@ from pathlib import Path
 
 from app.infrastructure.db.session import core_session
 from app.modules.learning.application.compare_v2_v3 import (
-    CompareContractError,
+    CompareContractError as CompareV2V3Error,
+)
+from app.modules.learning.application.compare_v2_v3 import (
     compare_v2_v3_builds,
+)
+from app.modules.learning.application.compare_v3_v4 import (
+    CompareContractError as CompareV3V4Error,
+)
+from app.modules.learning.application.compare_v3_v4 import (
+    compare_v3_v4_builds,
 )
 
 
@@ -37,9 +45,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--date-from", type=date.fromisoformat, required=True)
     parser.add_argument("--date-to", type=date.fromisoformat, required=True)
+    parser.add_argument(
+        "--pair",
+        choices=("v2-v3", "v3-v4"),
+        default="v2-v3",
+        help="Fair compare pair (v2-v3 universe-only; v3-v4 feature enrichment)",
+    )
     parser.add_argument("--instrument-ids", type=str, default=None)
     parser.add_argument("--v2-run-id", type=int, default=None)
     parser.add_argument("--v3-run-id", type=int, default=None)
+    parser.add_argument("--v4-run-id", type=int, default=None)
     parser.add_argument(
         "--no-rebuild",
         action="store_true",
@@ -56,18 +71,30 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         with core_session() as session:
-            artifact = compare_v2_v3_builds(
-                session,
-                date_from=args.date_from,
-                date_to=args.date_to,
-                instrument_ids=_parse_ids(args.instrument_ids),
-                baseline_commit=args.baseline_commit,
-                v2_run_id=args.v2_run_id,
-                v3_run_id=args.v3_run_id,
-                rebuild=not args.no_rebuild,
-            )
+            if args.pair == "v3-v4":
+                artifact = compare_v3_v4_builds(
+                    session,
+                    date_from=args.date_from,
+                    date_to=args.date_to,
+                    instrument_ids=_parse_ids(args.instrument_ids),
+                    baseline_commit=args.baseline_commit,
+                    v3_run_id=args.v3_run_id,
+                    v4_run_id=args.v4_run_id,
+                    rebuild=not args.no_rebuild,
+                )
+            else:
+                artifact = compare_v2_v3_builds(
+                    session,
+                    date_from=args.date_from,
+                    date_to=args.date_to,
+                    instrument_ids=_parse_ids(args.instrument_ids),
+                    baseline_commit=args.baseline_commit,
+                    v2_run_id=args.v2_run_id,
+                    v3_run_id=args.v3_run_id,
+                    rebuild=not args.no_rebuild,
+                )
             session.commit()
-    except CompareContractError as exc:
+    except (CompareV2V3Error, CompareV3V4Error) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
 
@@ -80,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "written": str(args.out),
-                "isolation_ok": artifact["active_dataset_spec"]["isolation_ok"],
+                "isolation_ok": artifact["active_dataset_spec"].get("unchanged"),
             },
             ensure_ascii=False,
             indent=2,
