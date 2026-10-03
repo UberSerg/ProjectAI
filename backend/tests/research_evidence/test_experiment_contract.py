@@ -327,3 +327,17 @@ def test_finalize_bundle_returns_recomputed_final_hash(tmp_path: Path) -> None:
     assert "experiment" in result["overview"]
     provisional = write_evidence_bundle(tmp_path / "c" / "exp", parts_a)
     assert result["bundle_hash"] != provisional["bundle_hash"]
+
+
+def test_finalize_bundle_nan_metrics_match_on_disk_hash(tmp_path: Path) -> None:
+    parts = {
+        "manifest": {"note": "nan-metrics"},
+        "model_regression": {
+            "status": "ok",
+            "metrics": {"mean_ic": float("nan"), "mae": float("inf"), "n": 0},
+        },
+    }
+    written = write_evidence_bundle(tmp_path / "nan", parts)
+    assert written["bundle_hash"] == recompute_bundle_hash(tmp_path / "nan")
+    finalized = finalize_bundle(tmp_path / "nan-final", parts)
+    assert finalized["bundle_hash"] == recompute_bundle_hash(tmp_path / "nan-final")

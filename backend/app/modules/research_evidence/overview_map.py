@@ -86,6 +86,12 @@ ISSUER_BASIS_DENOMINATOR_KEYS: tuple[str, ...] = (
 )
 CURRENT_ONLY_SHARE_DENOMINATOR = "DATED_WINDOW+CURRENT_ONLY+UNMAPPED+AMBIGUOUS"
 _RANKER_FORBIDDEN_UI = frozenset({"rmse", "mae"})
+_V4_COVERAGE_KEYS = (
+    "fundamental_sample_coverage_pct",
+    "event_sample_coverage_pct",
+    "issuer_resolution_basis_counts",
+    "bank_fi_unsupported_samples",
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -186,11 +192,16 @@ def current_only_share_from_counts(counts: Any) -> float | None:
     return current_only / denom
 
 
+def _looks_like_v4_coverage(payload: Any) -> bool:
+    return isinstance(payload, dict) and any(key in payload for key in _V4_COVERAGE_KEYS)
+
+
 def extract_v4_coverage_blocks(dataset: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Normalize path A (run.coverage_summary on proof) and path B (compare artifact).
 
     Path A: ``v4.coverage_summary['v4']`` + ``v4.coverage_summary['return_truth']``.
     Path B: ``dataset_compare['v4']['v4']`` + ``dataset_compare['v4']['return_truth']``.
+    Also accept coverage_summary (or v4 side) that already *is* the v4 key block.
     """
     v4_side = dataset.get("v4") if isinstance(dataset.get("v4"), dict) else {}
     coverage_summary = None
@@ -205,25 +216,22 @@ def extract_v4_coverage_blocks(dataset: dict[str, Any]) -> tuple[dict[str, Any],
         inner = coverage_summary.get("v4")
         if isinstance(inner, dict):
             v4_cov = inner
+        elif _looks_like_v4_coverage(coverage_summary):
+            v4_cov = coverage_summary
         if isinstance(coverage_summary.get("return_truth"), dict):
             return_truth = coverage_summary["return_truth"]
 
     nested = v4_side.get("v4") if isinstance(v4_side.get("v4"), dict) else None
     if v4_cov is None and nested is not None:
-        if any(
-            key in nested
-            for key in (
-                "fundamental_sample_coverage_pct",
-                "event_sample_coverage_pct",
-                "issuer_resolution_basis_counts",
-                "bank_fi_unsupported_samples",
-            )
-        ):
+        if _looks_like_v4_coverage(nested):
             v4_cov = nested
         elif isinstance(nested.get("v4"), dict):
             v4_cov = nested["v4"]
             if return_truth is None and isinstance(nested.get("return_truth"), dict):
                 return_truth = nested["return_truth"]
+
+    if v4_cov is None and _looks_like_v4_coverage(v4_side):
+        v4_cov = v4_side
 
     if return_truth is None and isinstance(v4_side.get("return_truth"), dict):
         return_truth = v4_side["return_truth"]

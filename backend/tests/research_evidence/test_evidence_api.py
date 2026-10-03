@@ -156,6 +156,21 @@ def test_v4_coverage_path_a_run_coverage_summary(tmp_path: Path) -> None:
     _assert_realistic_coverage(payload["dataset"])
 
 
+def test_v4_coverage_path_coverage_summary_is_v4_key_block(tmp_path: Path) -> None:
+    write_evidence_bundle(
+        tmp_path,
+        {
+            "manifest": {"experiment_fingerprint": "cov-flat", "research_only": True},
+            "dataset_compare": {
+                "sample_identity_match": True,
+                "coverage_summary": {**REALISTIC_V4, "return_truth": REALISTIC_RETURN_TRUTH},
+            },
+        },
+    )
+    payload = overview_from_dir(tmp_path)
+    _assert_realistic_coverage(payload["dataset"])
+
+
 def test_v4_coverage_path_b_compare_artifact(tmp_path: Path) -> None:
     write_evidence_bundle(
         tmp_path,

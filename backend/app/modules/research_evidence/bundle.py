@@ -91,7 +91,6 @@ def write_evidence_bundle(root: Path, parts: dict[str, Any] | None = None) -> di
     supplied = parts or {}
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    file_hashes: list[str] = []
     written: dict[str, str] = {}
     for name in BUNDLE_PART_NAMES:
         if name == "manifest":
@@ -102,11 +101,10 @@ def write_evidence_bundle(root: Path, parts: dict[str, Any] | None = None) -> di
             payload = dict(PENDING_PART)
         path = root / f"{name}.json"
         write_json(path, payload)
-        file_hashes.append(payload_file_hash(payload))
         written[name] = str(path)
-    bundle_hash = hashlib.sha256("".join(file_hashes).encode("utf-8")).hexdigest()
+    # Hash the nine on-disk files (write_json may coerce NaN/Inf); never hash in-memory payload.
     return {
-        "bundle_hash": bundle_hash,
+        "bundle_hash": recompute_bundle_hash(root),
         "files": written,
         "root": str(root),
     }
