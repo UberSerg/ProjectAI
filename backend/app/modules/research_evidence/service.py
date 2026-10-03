@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ from app.modules.research_evidence.oos import run_chronological_oos
 from app.modules.research_evidence.overview_map import empty_overview, overview_from_dir
 from app.modules.research_evidence.paired_delta import paired_v4_vs_base
 from app.modules.research_evidence.pairing import prove_paired_v3_v4
-from app.modules.research_evidence.paths import experiment_dir, list_experiment_dirs
+from app.modules.research_evidence.paths import experiment_dir, find_experiment_dir, list_experiment_dirs
 from app.modules.research_evidence.prospective import build_prospective_evidence_v1
 from app.modules.research_evidence.stability import slice_stability
 from app.modules.simulator.application.market_view import load_market_view
@@ -48,6 +49,35 @@ def _jsonable(obj: Any) -> Any:
     if isinstance(obj, date):
         return obj.isoformat()
     return obj
+
+
+def resolve_frozen_run_ids(
+    experiment_id: str,
+    *,
+    artifact_root: Path | None = None,
+) -> dict[str, int] | None:
+    """Read frozen dataset_v3_run_id / dataset_v4_run_id from manifest.identity.
+
+    Returns None if the experiment directory or identity is missing.
+    """
+    path = find_experiment_dir(experiment_id, root=artifact_root)
+    if path is None:
+        return None
+    manifest_path = path / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    identity = raw.get("identity") if isinstance(raw.get("identity"), dict) else {}
+    v3 = identity.get("dataset_v3_run_id")
+    v4 = identity.get("dataset_v4_run_id")
+    if not isinstance(v3, int) or isinstance(v3, bool) or not isinstance(v4, int) or isinstance(v4, bool):
+        return None
+    return {"dataset_v3_run_id": v3, "dataset_v4_run_id": v4}
 
 
 def get_latest_evidence(*, artifact_root: Path | None = None) -> dict[str, Any]:

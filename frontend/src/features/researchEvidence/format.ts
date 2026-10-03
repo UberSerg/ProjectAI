@@ -182,6 +182,12 @@ export function isOverviewPartial(overview?: ResearchEvidenceOverview | null): b
 export function isProspectiveEmpty(prospective?: ProspectiveSummary | null): boolean {
   if (!prospective) return true;
   if (prospective.empty === true) return true;
-  const n = prospective.n_observations ?? prospective.observations?.length ?? 0;
-  return n === 0 && prospective.rank_ic == null;
+  const pdm = prospective.personal_decision_memory;
+  const fwd = prospective.forward_predictions;
+  const captures = pdm?.captures_total ?? 0;
+  const maturedPdm = (pdm?.horizons ?? []).reduce((sum, row) => sum + (row.matured_count ?? 0), 0);
+  const fwdMatured = fwd?.freshness?.matured_count ?? 0;
+  const hasForward = fwd?.latest_batch?.batch_id != null || fwdMatured > 0;
+  if (captures > 0 || maturedPdm > 0 || hasForward) return false;
+  return prospective.rank_ic == null;
 }

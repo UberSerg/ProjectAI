@@ -24,6 +24,22 @@ export interface EvidenceExperiment {
   notes?: string | null;
 }
 
+export interface EvidenceV4Coverage {
+  fundamental_sample_coverage_pct?: number | null;
+  event_sample_coverage_pct?: number | null;
+  issuer_resolution_basis_counts?: Record<string, number> | null;
+  bank_fi_unsupported_samples?: number | null;
+  current_only_share?: number | null;
+  current_only_share_denominator?: string | null;
+}
+
+export interface EvidenceReturnTruth {
+  primary_label_family?: string | null;
+  total_return?: boolean | null;
+  total_return_enrichment_status?: string | null;
+  dividend_adjusted?: boolean | null;
+}
+
 export interface EvidenceDataset {
   universe_v3?: number | null;
   universe_v4?: number | null;
@@ -37,6 +53,8 @@ export interface EvidenceDataset {
   event_coverage?: number | null;
   current_only_share?: number | null;
   bank_fi_unsupported?: number | null;
+  v4_coverage?: EvidenceV4Coverage | null;
+  return_truth?: EvidenceReturnTruth | null;
   total_return_status?: string | null;
   date_from?: string | null;
   date_to?: string | null;
@@ -113,11 +131,75 @@ export interface EconomicsSummary {
   partial?: boolean | null;
 }
 
-export interface ProspectiveObservation {
-  as_of?: string | null;
-  n?: number | null;
-  rank_ic?: number | null;
-  notes?: string | null;
+export interface ProspectiveHorizonRow {
+  horizon_sessions?: number | null;
+  matured_count?: number | null;
+  pending_count?: number | null;
+  unavailable_count?: number | null;
+  status?: string | null;
+  price_return?: {
+    n?: number | null;
+    status?: string | null;
+    mean_price_return?: string | number | null;
+    median_price_return?: string | number | null;
+  } | null;
+  direction_alignment?: {
+    n?: number | null;
+    status?: string | null;
+    alignment_rate?: string | number | null;
+    aligned_count?: number | null;
+    not_aligned_count?: number | null;
+    note?: string | null;
+  } | null;
+}
+
+export interface ProspectivePdm {
+  captures_total?: number | null;
+  return_type?: string | null;
+  horizons?: ProspectiveHorizonRow[] | null;
+  confirmed_operation_links?: {
+    count?: number | null;
+    role?: string | null;
+    causality_claim?: boolean | null;
+    linked_trade_means_recommendation_caused_trade?: boolean | null;
+    note?: string | null;
+  } | null;
+}
+
+export interface ProspectiveForwardMetrics {
+  prediction_semantic?: string | null;
+  status?: string | null;
+  batch_id?: number | null;
+  as_of_date?: string | null;
+  evaluated_count?: number | null;
+  pending_count?: number | null;
+  mae?: number | null;
+  rmse?: number | null;
+  spearman_rank_ic?: number | null;
+  mean_predicted?: number | null;
+  mean_realized?: number | null;
+}
+
+export interface ProspectiveForward {
+  latest_batch?: {
+    batch_id?: number | null;
+    as_of_date?: string | null;
+    prediction_semantic?: string | null;
+  } | null;
+  latest_evaluated_batch?: {
+    batch_id?: number | null;
+    status?: string | null;
+    evaluated_at?: string | null;
+    prediction_semantic?: string | null;
+    evaluated_count?: number | null;
+    pending_count?: number | null;
+  } | null;
+  freshness?: {
+    matured_count?: number | null;
+    pending_count?: number | null;
+  } | null;
+  expected_return?: ProspectiveForwardMetrics | null;
+  ranking_score?: ProspectiveForwardMetrics | null;
 }
 
 export interface ProspectiveSummary {
@@ -127,8 +209,9 @@ export interface ProspectiveSummary {
   date_to?: string | null;
   rank_ic?: number | null;
   notes?: string | null;
-  observations?: ProspectiveObservation[] | null;
   empty?: boolean | null;
+  personal_decision_memory?: ProspectivePdm | null;
+  forward_predictions?: ProspectiveForward | null;
 }
 
 export interface EvidenceLimitation {

@@ -32,6 +32,7 @@ from app.modules.prediction.infrastructure.forward_outcome_models import (
     ForwardBatchEvaluation,
     ForwardPredictionOutcome,
 )
+from app.modules.research_evidence.overview_map import map_prospective_ui
 from app.modules.research_evidence.prospective import (
     LINK_NOT_CAUSALITY_NOTE,
     MIN_SAMPLE,
@@ -486,3 +487,67 @@ def test_fake_session_select_roundtrip_matches_sqlalchemy_entity() -> None:
     assert select(ForwardPrediction).column_descriptions[0]["entity"] is ForwardPrediction
     assert select(ForwardPredictionOutcome).column_descriptions[0]["entity"] is ForwardPredictionOutcome
     assert select(ForwardBatchEvaluation).column_descriptions[0]["entity"] is ForwardBatchEvaluation
+
+
+def test_map_ui_horizons_not_by_horizon_and_forward_freshness() -> None:
+    pdm = summarize_personal_decision_memory(
+        [_record(rec_id=i) for i in range(1, 11)],
+        [_action(action_id=i, record_id=i) for i in range(1, 11)],
+        [_outcome(action_id=i, horizon=20, status=OUTCOME_PENDING, fwd=None, alignment=None) for i in range(1, 11)],
+        [],
+    )
+    assert "by_horizon" not in pdm
+    assert pdm["captures_total"] == 10
+    h20 = next(h for h in pdm["horizons"] if h["horizon_sessions"] == 20)
+    assert h20["matured_count"] == 0
+    ui = map_prospective_ui({"personal_decision_memory": pdm, "forward_predictions": {}})
+    assert ui["status"] != "OBSERVED"
+    assert ui["personal_decision_memory"]["captures_total"] == 10
+
+    three = summarize_personal_decision_memory(
+        [_record()],
+        [_action(action_id=i) for i in range(1, 4)],
+        [_outcome(action_id=i, horizon=20, fwd="0.01") for i in range(1, 4)],
+        [],
+    )
+    h20_small = next(h for h in three["horizons"] if h["horizon_sessions"] == 20)
+    assert h20_small["matured_count"] == 3
+    assert h20_small["price_return"]["status"] == STATUS_INSUFFICIENT_SAMPLE
+    ui_small = map_prospective_ui({"personal_decision_memory": three, "forward_predictions": {}})
+    mapped_small = next(
+        h for h in ui_small["personal_decision_memory"]["horizons"] if h["horizon_sessions"] == 20
+    )
+    assert mapped_small["status"] == STATUS_INSUFFICIENT_SAMPLE
+
+    six = summarize_personal_decision_memory(
+        [_record()],
+        [_action(action_id=i, instrument_id=10 + i) for i in range(1, 7)],
+        [_outcome(action_id=i, horizon=20, fwd=str(0.01 * i)) for i in range(1, 7)],
+        [],
+    )
+    h20_ok = next(h for h in six["horizons"] if h["horizon_sessions"] == 20)
+    assert h20_ok["matured_count"] == 6
+    assert h20_ok["price_return"]["status"] == "OBSERVED"
+    ui_ok = map_prospective_ui({"personal_decision_memory": six, "forward_predictions": {}})
+    mapped_ok = next(h for h in ui_ok["personal_decision_memory"]["horizons"] if h["horizon_sessions"] == 20)
+    assert mapped_ok["status"] == "OBSERVED"
+
+    forward = summarize_forward_predictions(
+        batches=[_batch(batch_id=8, semantic="RANKING_SCORE")],
+        evaluations=[_evaluation(batch_id=8, status="EVALUATED", evaluated_count=7, pending_count=0)],
+        predictions=[
+            _pred(pred_id=i, batch_id=8, semantic="RANKING_SCORE", score=float(i), status="EVALUATED")
+            for i in range(1, 8)
+        ],
+        outcomes=[
+            _fwd_outcome(pred_id=i, batch_id=8, predicted=float(i), realized=0.01 * i, status="EVALUATED")
+            for i in range(1, 8)
+        ],
+    )
+    assert forward["freshness"]["matured_count"] == 7
+    ui_fwd = map_prospective_ui({"personal_decision_memory": {}, "forward_predictions": forward})
+    assert ui_fwd["forward_predictions"]["freshness"]["matured_count"] == 7
+    ranking = ui_fwd["forward_predictions"]["ranking_score"]
+    assert ranking is not None
+    assert "rmse" not in str(ranking).lower()
+    assert "mae" not in str(ranking).lower()

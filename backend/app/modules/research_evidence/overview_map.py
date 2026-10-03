@@ -76,6 +76,17 @@ _ABLATION_UI = {
     VARIANT_V4_FULL: "full_v4",
 }
 
+# CURRENT_ONLY share = CURRENT_ONLY / (DATED_WINDOW + CURRENT_ONLY + UNMAPPED + AMBIGUOUS).
+# Missing any of the four counts → null (do not fabricate). Explicit 0 is kept.
+ISSUER_BASIS_DENOMINATOR_KEYS: tuple[str, ...] = (
+    "DATED_WINDOW",
+    "CURRENT_ONLY",
+    "UNMAPPED",
+    "AMBIGUOUS",
+)
+CURRENT_ONLY_SHARE_DENOMINATOR = "DATED_WINDOW+CURRENT_ONLY+UNMAPPED+AMBIGUOUS"
+_RANKER_FORBIDDEN_UI = frozenset({"rmse", "mae"})
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -134,21 +145,156 @@ def _first_int(*values: Any) -> int | None:
     return None
 
 
+def _first_float(*values: Any) -> float | None:
+    """Keep explicit 0.0; never coerce missing / NaN to 0."""
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return float(value)
+        if isinstance(value, float) and value == value and value not in (float("inf"), float("-inf")):
+            return float(value)
+    return None
+
+
+def _status_token(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _is_insufficient_status(value: Any) -> bool:
+    return _status_token(value) == "INSUFFICIENT"
+
+
+def current_only_share_from_counts(counts: Any) -> float | None:
+    """Share of CURRENT_ONLY among DATED_WINDOW+CURRENT_ONLY+UNMAPPED+AMBIGUOUS."""
+    if not isinstance(counts, dict):
+        return None
+    parts: list[int] = []
+    for key in ISSUER_BASIS_DENOMINATOR_KEYS:
+        if key not in counts:
+            return None
+        n = _first_int(counts.get(key))
+        if n is None:
+            return None
+        parts.append(n)
+    denom = sum(parts)
+    if denom == 0:
+        return None
+    current_only = _first_int(counts.get("CURRENT_ONLY"))
+    if current_only is None:
+        return None
+    return current_only / denom
+
+
+def extract_v4_coverage_blocks(dataset: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Normalize path A (run.coverage_summary on proof) and path B (compare artifact).
+
+    Path A: ``v4.coverage_summary['v4']`` + ``v4.coverage_summary['return_truth']``.
+    Path B: ``dataset_compare['v4']['v4']`` + ``dataset_compare['v4']['return_truth']``.
+    """
+    v4_side = dataset.get("v4") if isinstance(dataset.get("v4"), dict) else {}
+    coverage_summary = None
+    if isinstance(v4_side.get("coverage_summary"), dict):
+        coverage_summary = v4_side["coverage_summary"]
+    elif isinstance(dataset.get("coverage_summary"), dict):
+        coverage_summary = dataset["coverage_summary"]
+
+    v4_cov: dict[str, Any] | None = None
+    return_truth: dict[str, Any] | None = None
+    if isinstance(coverage_summary, dict):
+        inner = coverage_summary.get("v4")
+        if isinstance(inner, dict):
+            v4_cov = inner
+        if isinstance(coverage_summary.get("return_truth"), dict):
+            return_truth = coverage_summary["return_truth"]
+
+    nested = v4_side.get("v4") if isinstance(v4_side.get("v4"), dict) else None
+    if v4_cov is None and nested is not None:
+        if any(
+            key in nested
+            for key in (
+                "fundamental_sample_coverage_pct",
+                "event_sample_coverage_pct",
+                "issuer_resolution_basis_counts",
+                "bank_fi_unsupported_samples",
+            )
+        ):
+            v4_cov = nested
+        elif isinstance(nested.get("v4"), dict):
+            v4_cov = nested["v4"]
+            if return_truth is None and isinstance(nested.get("return_truth"), dict):
+                return_truth = nested["return_truth"]
+
+    if return_truth is None and isinstance(v4_side.get("return_truth"), dict):
+        return_truth = v4_side["return_truth"]
+
+    return (v4_cov or {}, return_truth)
+
+
+def map_v4_coverage_ui(dataset: dict[str, Any]) -> dict[str, Any]:
+    v4_cov, return_truth = extract_v4_coverage_blocks(dataset)
+    counts = (
+        v4_cov.get("issuer_resolution_basis_counts")
+        if isinstance(v4_cov.get("issuer_resolution_basis_counts"), dict)
+        else None
+    )
+    fund_pct = _first_float(v4_cov.get("fundamental_sample_coverage_pct"))
+    event_pct = _first_float(v4_cov.get("event_sample_coverage_pct"))
+    bank_fi = _first_int(v4_cov.get("bank_fi_unsupported_samples"))
+    share = current_only_share_from_counts(counts)
+    total_return_status = "incomplete"
+    if isinstance(return_truth, dict):
+        enrichment = return_truth.get("total_return_enrichment_status")
+        if return_truth.get("total_return") is True and str(enrichment or "").upper() == "READY":
+            total_return_status = "complete"
+        elif enrichment:
+            total_return_status = "incomplete"
+    v4_coverage = {
+        "fundamental_sample_coverage_pct": fund_pct,
+        "event_sample_coverage_pct": event_pct,
+        "issuer_resolution_basis_counts": counts,
+        "bank_fi_unsupported_samples": bank_fi,
+        "current_only_share": share,
+        "current_only_share_denominator": CURRENT_ONLY_SHARE_DENOMINATOR,
+    }
+    return {
+        "v4_coverage": v4_coverage,
+        "return_truth": return_truth,
+        "fund_coverage": fund_pct,
+        "event_coverage": event_pct,
+        "current_only_share": share,
+        "bank_fi_unsupported": bank_fi,
+        "total_return_status": total_return_status,
+    }
+
+
 def _signal(part: dict[str, Any], *, family: str) -> dict[str, Any]:
     if _pending(part):
         return {"family": family, "available": False, "notes": "CHRONOLOGICAL OOS RESEARCH ещё не посчитан."}
+    if _is_insufficient_status(part.get("status")):
+        return {
+            "family": family,
+            "available": False,
+            "rank_ic": None,
+            "spread": None,
+            "n": None,
+            "fold_year": [],
+            "consistent": None,
+            "notes": part.get("reason") or part.get("note") or "INSUFFICIENT: выборки недостаточно для OOS-метрик.",
+        }
     metrics = part.get("metrics") if isinstance(part.get("metrics"), dict) else None
     folds = part.get("folds") if isinstance(part.get("folds"), list) else []
     fold_year = []
     for fold in folds:
         m = fold.get("metrics") if isinstance(fold, dict) else None
+        insufficient_fold = isinstance(fold, dict) and _is_insufficient_status(fold.get("status"))
         fold_year.append(
             {
                 "fold": str(fold.get("fold_id")) if isinstance(fold, dict) else None,
                 "year": None,
-                "rank_ic": _ic(m if isinstance(m, dict) else None),
-                "spread": _spread(m if isinstance(m, dict) else None),
-                "n": _n(m if isinstance(m, dict) else None),
+                "rank_ic": None if insufficient_fold else _ic(m if isinstance(m, dict) else None),
+                "spread": None if insufficient_fold else _spread(m if isinstance(m, dict) else None),
+                "n": None if insufficient_fold else _n(m if isinstance(m, dict) else None),
             }
         )
     ics = [row["rank_ic"] for row in fold_year if isinstance(row.get("rank_ic"), int | float)]
@@ -157,7 +303,7 @@ def _signal(part: dict[str, Any], *, family: str) -> dict[str, Any]:
         consistent = (max(ics) - min(ics)) < 0.5
     return {
         "family": family,
-        "available": part.get("status") not in {None, "PENDING", "insufficient"},
+        "available": True,
         "rank_ic": _ic(metrics),
         "spread": _spread(metrics),
         "n": _n(metrics, part),
@@ -281,40 +427,129 @@ def _economics_ui(econ: dict[str, Any], experiment_id: str) -> dict[str, Any]:
     }
 
 
+def _strip_ranker_error_metrics(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    for key in list(out):
+        if str(key).lower() in _RANKER_FORBIDDEN_UI:
+            out.pop(key, None)
+    nested = out.get("metrics")
+    if isinstance(nested, dict):
+        cleaned = dict(nested)
+        for key in list(cleaned):
+            if str(key).lower() in _RANKER_FORBIDDEN_UI:
+                cleaned.pop(key, None)
+        out["metrics"] = cleaned
+    return out
+
+
+def _map_pdm_ui(pdm: dict[str, Any]) -> dict[str, Any]:
+    horizons_raw = pdm.get("horizons") if isinstance(pdm.get("horizons"), list) else []
+    horizons: list[dict[str, Any]] = []
+    for row in horizons_raw:
+        if not isinstance(row, dict):
+            continue
+        price = row.get("price_return") if isinstance(row.get("price_return"), dict) else {}
+        align = row.get("direction_alignment") if isinstance(row.get("direction_alignment"), dict) else {}
+        matured = _first_int(row.get("matured_count")) or 0
+        status = price.get("status") or (
+            "INSUFFICIENT_SAMPLE" if 0 < matured < 5 else ("OBSERVED" if matured >= 5 else "EMPTY")
+        )
+        horizons.append(
+            {
+                "horizon_sessions": row.get("horizon_sessions"),
+                "matured_count": matured,
+                "pending_count": _first_int(row.get("pending_count")) or 0,
+                "unavailable_count": _first_int(row.get("unavailable_count")) or 0,
+                "status": status,
+                "price_return": price,
+                "direction_alignment": align,
+            }
+        )
+    links = (
+        pdm.get("confirmed_operation_links")
+        if isinstance(pdm.get("confirmed_operation_links"), dict)
+        else {}
+    )
+    return {
+        "captures_total": _first_int(pdm.get("captures_total")) or 0,
+        "return_type": pdm.get("return_type") or "PRICE_RETURN",
+        "horizons": horizons,
+        "confirmed_operation_links": {
+            "count": _first_int(links.get("count")) or 0,
+            "role": links.get("role") or "METADATA_ONLY",
+            "causality_claim": False,
+            "linked_trade_means_recommendation_caused_trade": False,
+            "note": links.get("note")
+            or "Подтверждённая связь с PersonalOperation — только метаданные, не причинность.",
+        },
+    }
+
+
+def _map_forward_ui(fwd: dict[str, Any]) -> dict[str, Any]:
+    freshness = fwd.get("freshness") if isinstance(fwd.get("freshness"), dict) else {}
+    ranking = _strip_ranker_error_metrics(fwd.get("ranking_score"))
+    expected = fwd.get("expected_return") if isinstance(fwd.get("expected_return"), dict) else None
+    latest_batch = fwd.get("latest_batch") if isinstance(fwd.get("latest_batch"), dict) else {}
+    latest_eval = (
+        fwd.get("latest_evaluated_batch")
+        if isinstance(fwd.get("latest_evaluated_batch"), dict)
+        else {}
+    )
+    return {
+        "latest_batch": latest_batch,
+        "latest_evaluated_batch": latest_eval,
+        "freshness": {
+            "matured_count": _first_int(freshness.get("matured_count")) or 0,
+            "pending_count": _first_int(freshness.get("pending_count")) or 0,
+            "pending_remains_pending": freshness.get("pending_remains_pending", True),
+            "fabricated_immature_outcomes": False,
+        },
+        "expected_return": expected,
+        "ranking_score": ranking,
+    }
+
+
 def map_prospective_ui(prospective: dict[str, Any]) -> dict[str, Any]:
-    if _pending(prospective):
+    """Map PDM horizons[] and Forward freshness.matured_count. Never treat captures as OBSERVED."""
+    notes = (
+        "Проспективные наблюдения отделены от исторического OOS. "
+        "Захваты (captures) не являются matured-доказательством. "
+        "Связь с PersonalOperation не доказывает причинность. "
+        "Нет комбинированной «точности Kraken»."
+    )
+    if _pending(prospective) and not isinstance(prospective.get("personal_decision_memory"), dict):
         return {
             "status": "EMPTY",
             "empty": True,
-            "n_observations": 0,
             "notes": "Проспективные наблюдения не загружены.",
-            "observations": [],
+            "personal_decision_memory": None,
+            "forward_predictions": None,
         }
-    pdm = prospective.get("personal_decision_memory") if isinstance(
-        prospective.get("personal_decision_memory"), dict
-    ) else {}
-    fwd = prospective.get("forward_predictions") if isinstance(
-        prospective.get("forward_predictions"), dict
-    ) else {}
+    pdm_raw = (
+        prospective.get("personal_decision_memory")
+        if isinstance(prospective.get("personal_decision_memory"), dict)
+        else {}
+    )
+    fwd_raw = (
+        prospective.get("forward_predictions")
+        if isinstance(prospective.get("forward_predictions"), dict)
+        else {}
+    )
+    pdm = _map_pdm_ui(pdm_raw)
+    fwd = _map_forward_ui(fwd_raw)
     captures = int(pdm.get("captures_total") or 0)
-    matured = 0
-    by_h = pdm.get("by_horizon") if isinstance(pdm.get("by_horizon"), dict) else {}
-    for blob in by_h.values():
-        if isinstance(blob, dict):
-            matured += int(blob.get("matured") or blob.get("n_ready") or 0)
-    fwd_n = int(fwd.get("matured_observations") or fwd.get("evaluated_count") or 0)
-    n = captures + fwd_n
-    empty = n == 0 and matured == 0
+    matured_pdm = sum(int(row.get("matured_count") or 0) for row in pdm["horizons"])
+    fwd_matured = int((fwd.get("freshness") or {}).get("matured_count") or 0)
+    latest_id = (fwd.get("latest_batch") or {}).get("batch_id")
+    empty = captures == 0 and matured_pdm == 0 and fwd_matured == 0 and latest_id is None
     return {
-        "status": "INSUFFICIENT_SAMPLE" if n and n < 5 else ("EMPTY" if empty else "OBSERVED"),
+        "status": "EMPTY" if empty else "SEPARATE_PROSPECTIVE",
         "empty": empty,
-        "n_observations": n,
-        "notes": (
-            "Проспективные наблюдения отделены от исторического OOS. "
-            "Связь с PersonalOperation не доказывает причинность. "
-            "Нет комбинированной «точности Kraken»."
-        ),
-        "observations": [],
+        "notes": notes,
+        "personal_decision_memory": pdm,
+        "forward_predictions": fwd,
     }
 
 
@@ -353,9 +588,9 @@ def empty_overview() -> dict[str, Any]:
         "prospective": {
             "status": "EMPTY",
             "empty": True,
-            "n_observations": 0,
             "notes": "Проспективный блок отделён от исторического OOS.",
-            "observations": [],
+            "personal_decision_memory": None,
+            "forward_predictions": None,
         },
         "limitations": list(REQUIRED_LIMITATIONS),
     }
@@ -386,7 +621,7 @@ def overview_from_dir(path: Path) -> dict[str, Any]:
     pop = dataset.get("population") if isinstance(dataset.get("population"), dict) else {}
     v3 = dataset.get("v3") if isinstance(dataset.get("v3"), dict) else {}
     v4 = dataset.get("v4") if isinstance(dataset.get("v4"), dict) else {}
-    cov = v4.get("coverage_summary") if isinstance(v4.get("coverage_summary"), dict) else {}
+    coverage_ui = map_v4_coverage_ui(dataset)
     paired = ablation.get("paired_delta") if isinstance(ablation.get("paired_delta"), dict) else None
 
     payload = {
@@ -417,14 +652,20 @@ def overview_from_dir(path: Path) -> dict[str, Any]:
                 v4.get("pit_violations"),
                 v3.get("pit_violations"),
             ),
-            "fund_coverage": cov.get("fundamental_coverage_pct") or cov.get("fundamentals_coverage"),
-            "event_coverage": cov.get("event_coverage_pct") or cov.get("events_coverage"),
-            "current_only_share": cov.get("current_only_share") or cov.get("current_only_pct"),
-            "bank_fi_unsupported": cov.get("bank_fi_unsupported_samples"),
-            "total_return_status": "incomplete",
+            "fund_coverage": coverage_ui["fund_coverage"],
+            "event_coverage": coverage_ui["event_coverage"],
+            "current_only_share": coverage_ui["current_only_share"],
+            "bank_fi_unsupported": coverage_ui["bank_fi_unsupported"],
+            "v4_coverage": coverage_ui["v4_coverage"],
+            "return_truth": coverage_ui["return_truth"],
+            "total_return_status": coverage_ui["total_return_status"],
             "date_from": identity.get("date_from"),
             "date_to": identity.get("date_to"),
             "partial": dataset.get("status") == "PENDING",
+            "notes": (
+                "CURRENT_ONLY share = CURRENT_ONLY / "
+                f"({CURRENT_ONLY_SHARE_DENOMINATOR.replace('+', ' + ')})."
+            ),
         },
         "historical_models": {
             "regression": _signal(regression, family="regression"),
@@ -432,7 +673,7 @@ def overview_from_dir(path: Path) -> dict[str, Any]:
         },
         "ablation": {
             "rows": _ablation_rows(ablation, paired),
-            "partial": _pending(ablation),
+            "partial": _pending(ablation) or _is_insufficient_status(ablation.get("status")),
             "notes": "Одна и та же выборка и y; отличается только маска признаков (NATIVE_NAN).",
         },
         "stability": {
