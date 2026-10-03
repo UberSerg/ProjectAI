@@ -17,6 +17,23 @@ def experiment_dir(fingerprint: str, *, root: Path | None = None) -> Path:
     return research_evidence_root(root) / fingerprint
 
 
+def campaign_runtime_dir(workflow_id: int | str, *, root: Path | None = None) -> Path:
+    return research_evidence_root(root) / "campaign_runtime" / str(workflow_id)
+
+
+def campaigns_root(*, root: Path | None = None) -> Path:
+    return research_evidence_root(root) / "campaigns"
+
+
+def list_campaign_dirs(*, root: Path | None = None) -> list[Path]:
+    base = campaigns_root(root=root)
+    if not base.exists():
+        return []
+    dirs = [p for p in base.iterdir() if p.is_dir()]
+    dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return dirs
+
+
 def list_experiment_dirs(*, root: Path | None = None) -> list[Path]:
     base = research_evidence_root(root)
     if not base.exists():

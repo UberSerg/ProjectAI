@@ -6,7 +6,24 @@ from app.modules.research_evidence.bundle import (
     PENDING_PART,
     write_evidence_bundle,
 )
+from app.modules.research_evidence.campaign_contract import (
+    CAMPAIGN_VERSION,
+    CanonicalEvidenceCampaignV1,
+)
+from app.modules.research_evidence.campaign_dossier import (
+    build_evidence_dossier_v1,
+    persist_evidence_dossier,
+)
 from app.modules.research_evidence.campaign_refresh import inspect_campaign_coverage, refresh_campaign_data
+from app.modules.research_evidence.campaign_runner import (
+    CAMPAIGN_WORKFLOW_STEPS,
+    PUBLIC_CAMPAIGN_VERSION,
+    jsonable_campaign_payload,
+    list_campaign_summaries,
+    load_campaign_dossier,
+    run_canonical_evidence_campaign_v1,
+    stamp_oos_predictions_for_economics,
+)
 from app.modules.research_evidence.campaign_snapshot import (
     SNAPSHOT_VERSION,
     build_research_data_snapshot,
@@ -51,15 +68,26 @@ from app.modules.research_evidence.stability import slice_stability
 
 __all__ = [
     "BUNDLE_PART_NAMES",
+    "CAMPAIGN_VERSION",
+    "CAMPAIGN_WORKFLOW_STEPS",
+    "CanonicalEvidenceCampaignV1",
     "PRIMARY_DATE_FROM",
+    "PUBLIC_CAMPAIGN_VERSION",
     "SNAPSHOT_VERSION",
     "STATUS_INSUFFICIENT",
+    "build_evidence_dossier_v1",
     "build_research_data_snapshot",
     "data_snapshot_hash",
     "inspect_campaign_coverage",
+    "jsonable_campaign_payload",
     "latest_mature_20d_as_of",
+    "list_campaign_summaries",
+    "load_campaign_dossier",
+    "persist_evidence_dossier",
     "refresh_campaign_data",
     "resolve_campaign_window",
+    "run_canonical_evidence_campaign_v1",
+    "stamp_oos_predictions_for_economics",
     "write_research_data_snapshot",
     "EVALUATION_WORDING",
     "EXPERIMENT_VERSION",

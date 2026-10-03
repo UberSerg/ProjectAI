@@ -6,11 +6,19 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.infrastructure.db.session import core_session, memory_session
 from app.infrastructure.learning.models import DatasetRun
 from app.modules.market.application.workflows import create_workflow
+from app.modules.research_evidence.campaign_runner import (
+    CAMPAIGN_WORKFLOW_STEPS,
+    PUBLIC_CAMPAIGN_VERSION,
+    find_completed_canonical_campaign,
+    list_campaign_summaries,
+    load_campaign_dossier,
+    load_campaign_summary,
+)
 from app.modules.research_evidence.overview_map import FORBIDDEN_OVERVIEW_KEYS, map_prospective_ui
 from app.modules.research_evidence.prospective import build_prospective_evidence_v1
 from app.modules.research_evidence.service import get_evidence, get_latest_evidence, resolve_frozen_run_ids
@@ -35,6 +43,13 @@ class EvidenceRunRequest(BaseModel):
     date_to: date | None = None
     instrument_ids: list[int] | None = None
     rebuild: bool = False
+
+
+class CanonicalCampaignLaunchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_version: str
+    exact_rerun: bool = False
 
 
 def _strip_forbidden(payload: dict[str, Any]) -> dict[str, Any]:
@@ -162,6 +177,68 @@ def evidence_run(body: EvidenceRunRequest) -> dict[str, Any]:
         instrument_ids=body.instrument_ids,
         rebuild=body.rebuild,
     )
+
+
+@router.get("/campaigns")
+def list_evidence_campaigns() -> dict[str, Any]:
+    return list_campaign_summaries()
+
+
+@router.post("/campaigns/canonical-v1")
+def launch_canonical_campaign_v1(body: CanonicalCampaignLaunchRequest) -> dict[str, Any]:
+    if body.campaign_version != PUBLIC_CAMPAIGN_VERSION:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "UNSUPPORTED_CAMPAIGN_VERSION",
+                "message": f"Only {PUBLIC_CAMPAIGN_VERSION} can be launched.",
+            },
+        )
+    if not body.exact_rerun:
+        existing = find_completed_canonical_campaign()
+        if existing is not None:
+            return {
+                "status": existing.get("status"),
+                "message": "Найдена уже завершённая каноническая кампания; повтор не запускался.",
+                "fingerprint": existing.get("fingerprint"),
+                "campaign_version": PUBLIC_CAMPAIGN_VERSION,
+                "existing": True,
+                "exact_rerun": False,
+            }
+    with core_session() as session:
+        workflow = create_workflow(
+            session,
+            PUBLIC_CAMPAIGN_VERSION,
+            PUBLIC_CAMPAIGN_VERSION,
+            list(CAMPAIGN_WORKFLOW_STEPS),
+        )
+        session.commit()
+        worker_tasks.canonical_evidence_campaign_v1.delay(workflow.id, bool(body.exact_rerun))
+        return {
+            "status": "RUNNING",
+            "message": "Запущена CanonicalEvidenceCampaignV1. Это не промоушен Candidate.",
+            "fingerprint": None,
+            "campaign_version": PUBLIC_CAMPAIGN_VERSION,
+            "existing": False,
+            "exact_rerun": bool(body.exact_rerun),
+            "workflow_id": str(workflow.id),
+        }
+
+
+@router.get("/campaigns/{fingerprint}/dossier")
+def evidence_campaign_dossier(fingerprint: str) -> dict[str, Any]:
+    payload = load_campaign_dossier(fingerprint)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Кампания не найдена")
+    return payload
+
+
+@router.get("/campaigns/{fingerprint}")
+def evidence_campaign(fingerprint: str) -> dict[str, Any]:
+    payload = load_campaign_summary(fingerprint)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Кампания не найдена")
+    return payload
 
 
 @router.get("/{experiment_id}/economics")
