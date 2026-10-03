@@ -19,6 +19,7 @@ from app.api.v1.personal_portfolios import router as personal_portfolios_router
 from app.api.v1.predictions import router as predictions_router
 from app.api.v1.relations import router as relations_router
 from app.api.v1.research_cycle import router as research_cycle_router
+from app.api.v1.research_evidence import router as research_evidence_router
 from app.api.v1.research_lab import router as research_lab_router
 from app.api.v1.shadow import router as shadow_router
 from app.api.v1.simulator import router as simulator_router
@@ -52,6 +53,7 @@ api_router.include_router(shadow_router, prefix="/shadow", tags=["shadow"])
 api_router.include_router(simulator_router, prefix="/simulator", tags=["simulator"])
 api_router.include_router(research_lab_router, prefix="/research-lab", tags=["research-lab"])
 api_router.include_router(research_cycle_router, prefix="/research-cycle", tags=["research-cycle"])
+api_router.include_router(research_evidence_router, prefix="/research/evidence", tags=["research-evidence"])
 api_router.include_router(model_edge_router, tags=["model-edge"])
 api_router.include_router(fundamentals_router, prefix="/fundamentals", tags=["fundamentals"])
 api_router.include_router(investment_router, tags=["investment"])

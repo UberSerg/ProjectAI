@@ -52,6 +52,7 @@ const ownerNav: NavGroupDef[] = [
       { to: "/simulator", label: labels.nav.historicalSimulations },
       { to: "/shadow", label: labels.nav.liveExperiment },
       { to: "/research", label: labels.nav.researchLab },
+      { to: "/research/evidence", label: labels.nav.researchEvidence },
     ],
   },
   {

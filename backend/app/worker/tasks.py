@@ -540,3 +540,55 @@ def sync_credit_ratings() -> dict:
         result = sync_credit_ratings_noop(session)
         session.commit()
         return result
+
+
+@celery_app.task(name="projectai.research_evidence_run")
+def research_evidence_run(
+    workflow_id: int,
+    v3_run_id: int | None = None,
+    v4_run_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    instrument_ids: list[int] | None = None,
+    rebuild: bool = False,
+) -> dict:
+    """Research-only evidence pipeline. persist_registry is always false."""
+    from datetime import date as date_cls
+
+    from app.modules.market.application.workflows import finish_workflow, get_step, update_step
+    from app.modules.research_evidence.service import run_historical_evidence
+
+    with core_session() as session:
+        workflow = session.get(Workflow, workflow_id)
+        if workflow is None:
+            raise ValueError(f"Workflow {workflow_id} not found")
+        try:
+            update_step(session, get_step(workflow, "Pair datasets"), "RUNNING")
+            session.commit()
+            result = run_historical_evidence(
+                session,
+                v3_run_id=v3_run_id,
+                v4_run_id=v4_run_id,
+                date_from=date_cls.fromisoformat(date_from) if date_from else None,
+                date_to=date_cls.fromisoformat(date_to) if date_to else None,
+                instrument_ids=instrument_ids,
+                rebuild=rebuild,
+                persist_registry=False,
+            )
+            update_step(session, get_step(workflow, "Pair datasets"), "SUCCESS")
+            update_step(session, get_step(workflow, "Chronological OOS"), "SUCCESS")
+            update_step(session, get_step(workflow, "Write bundle"), "SUCCESS")
+            update_step(session, get_step(workflow, "Finish"), "SUCCESS")
+            finish_workflow(session, workflow, "SUCCESS")
+            session.commit()
+            return {
+                "workflow_id": workflow_id,
+                "experiment_fingerprint": result.get("experiment_fingerprint"),
+                "persist_registry": False,
+            }
+        except Exception as exc:
+            update_step(session, get_step(workflow, "Finish"), "ERROR")
+            finish_workflow(session, workflow, "ERROR")
+            session.commit()
+            logger.exception("research_evidence_run_failed", extra={"error": str(exc)})
+            raise
