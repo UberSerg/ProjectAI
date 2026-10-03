@@ -26,6 +26,7 @@ from app.modules.research_evidence.prospective import PROSPECTIVE_EVIDENCE_VERSI
 
 EVIDENCE_DOSSIER_VERSION = "EvidenceDossierV1"
 PROSPECTIVE_SNAPSHOT_VERSION = "ProspectiveEvidenceSnapshotV1"
+# Public/UI campaign name. Frozen identity hash uses campaign_contract.CAMPAIGN_VERSION.
 CAMPAIGN_VERSION = "CanonicalEvidenceCampaignV1"
 DOSSIER_FILENAME = "evidence_dossier.json"
 

@@ -108,6 +108,27 @@ def sessions_on_calendar(
     return [day for day in ordered if calendar.is_trading_day(day)]
 
 
+def campaign_primary_bounds(window: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """Read frozen primary ``date_from`` / mature ``date_to`` from the window payload.
+
+    ``resolve_campaign_window`` nests bounds under ``primary``; some fixtures flatten
+    them. ``date_to`` may also be ``latest_mature_20d_as_of``. Never reads IC/returns.
+    """
+    if not isinstance(window, dict):
+        return None, None
+    primary = window.get("primary") if isinstance(window.get("primary"), dict) else {}
+    date_from = window.get("date_from") or primary.get("date_from")
+    date_to = (
+        window.get("date_to")
+        or primary.get("date_to")
+        or window.get("latest_mature_20d_as_of")
+    )
+    return (
+        str(date_from) if date_from else None,
+        str(date_to) if date_to else None,
+    )
+
+
 def resolve_campaign_window(
     session_dates: Sequence[date],
     *,

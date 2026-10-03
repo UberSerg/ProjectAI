@@ -22,6 +22,7 @@ from app.modules.research_evidence.campaign_contract import CanonicalEvidenceCam
 from app.modules.research_evidence.campaign_dossier import (
     DOSSIER_FILENAME,
     STATUS_BLOCKED,
+    STATUS_PARTIAL,
     STATUS_PENDING,
     build_evidence_dossier_v1,
     build_prospective_snapshot_v1,
@@ -36,13 +37,22 @@ from app.modules.research_evidence.campaign_snapshot import (
     build_research_data_snapshot,
     write_research_data_snapshot,
 )
-from app.modules.research_evidence.campaign_window import STATUS_INSUFFICIENT as CAMPAIGN_DATA_INSUFFICIENT
+from app.modules.research_evidence.campaign_window import (
+    STATUS_INSUFFICIENT as CAMPAIGN_DATA_INSUFFICIENT,
+)
+from app.modules.research_evidence.campaign_window import (
+    campaign_primary_bounds,
+)
 from app.modules.research_evidence.economics import required_market_date_to
 from app.modules.research_evidence.experiment import fingerprint_identity
 from app.modules.research_evidence.paths import campaign_runtime_dir, list_campaign_dirs
 from app.modules.simulator.application.market_view import load_market_view
 
+# API/UI version string. Identity hash stays campaign_contract.CAMPAIGN_VERSION.
 PUBLIC_CAMPAIGN_VERSION = "CanonicalEvidenceCampaignV1"
+_OOS_SPLITS = frozenset(
+    {"oos", "val", "validation", "out_of_sample", "chrono_oos", "chronological_oos"}
+)
 CAMPAIGN_WORKFLOW_STEPS: tuple[str, ...] = (
     "DATA_SNAPSHOT",
     "SAFE_DATA_REFRESH",
@@ -147,10 +157,21 @@ def stamp_oos_predictions_for_economics(
     """Stamp chronological OOS val-fold predictions for the economics provenance contract.
 
     Ranking score is a rank score, not a return percent.
+    ``is_oos`` is True only for chronological validation rows, never train/in-sample.
     """
     if frame is None or frame.empty:
         return pd.DataFrame()
     df = frame.copy()
+    if "split" in df.columns:
+        split = df["split"].astype(str).str.lower().str.strip()
+        df = df.loc[split.isin(_OOS_SPLITS)].copy()
+    elif "is_oos" in df.columns:
+        flag = df["is_oos"].map(
+            lambda v: v is True or str(v).strip().lower() in {"true", "1", "yes"}
+        )
+        df = df.loc[flag].copy()
+    if df.empty:
+        return pd.DataFrame()
     mapped = ABLATION_TO_ECONOMICS.get(str(model_variant), str(model_variant))
     if "decision_date" not in df.columns and "as_of_date" in df.columns:
         df["decision_date"] = pd.to_datetime(df["as_of_date"]).map(
@@ -272,31 +293,76 @@ def _window_from_snapshot(snapshot: dict[str, Any] | None) -> dict[str, Any]:
 
 def _pre_pair_identity(snapshot: dict[str, Any]) -> str:
     window = _window_from_snapshot(snapshot)
+    date_from, date_to = campaign_primary_bounds(window)
     return fingerprint_identity(
         {
             "campaign_version": PUBLIC_CAMPAIGN_VERSION,
             "data_snapshot_hash": snapshot.get("data_snapshot_hash"),
-            "date_from": window.get("date_from"),
-            "date_to": window.get("date_to"),
+            "date_from": date_from,
+            "date_to": date_to,
         }
     )
 
 
-def _pit_failed(proof: dict[str, Any] | None) -> bool:
+def _pit_count(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value == value:
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pit_pass(proof: dict[str, Any] | None) -> bool:
+    """Missing PIT is not PASS. Explicit PASS and zero violations are required."""
     if not isinstance(proof, dict):
         return False
-    if str(proof.get("pit_status") or "").upper() in {"FAIL", "PIT_FAIL"}:
-        return True
-    violations = proof.get("pit_violations")
-    if isinstance(violations, int) and violations != 0:
-        return True
+    status = str(proof.get("pit_status") or "").strip().upper()
+    if status != "PASS":
+        return False
+    violations = _pit_count(proof.get("pit_violations"))
+    if violations != 0:
+        return False
     for key in ("v3", "v4"):
         side = proof.get(key)
-        if isinstance(side, dict):
-            pit = side.get("pit_violations")
-            if isinstance(pit, int) and pit != 0:
-                return True
-    return False
+        if not isinstance(side, dict):
+            continue
+        side_status = side.get("pit_status")
+        if side_status is not None and str(side_status).strip().upper() != "PASS":
+            return False
+        side_n = _pit_count(side.get("pit_violations"))
+        if side_n is not None and side_n != 0:
+            return False
+    return True
+
+
+def _economics_artifact_status(econ_result: dict[str, Any] | None) -> str | None:
+    if not isinstance(econ_result, dict):
+        return None
+    if econ_result.get("status") == STATUS_BLOCKED:
+        return STATUS_BLOCKED
+    primary = econ_result.get("primary")
+    strategy = None
+    if isinstance(primary, dict):
+        strategy = primary.get("strategy") if isinstance(primary.get("strategy"), dict) else primary
+    events: list[Any] = []
+    strat_status = None
+    if isinstance(strategy, dict):
+        strat_status = strategy.get("status")
+        raw_events = strategy.get("unresolved_exit_events")
+        if isinstance(raw_events, list):
+            events = raw_events
+    if events or strat_status == STATUS_PARTIAL:
+        return STATUS_PARTIAL
+    if strat_status:
+        return str(strat_status)
+    if "primary" in econ_result:
+        return "COMPLETE"
+    return econ_result.get("status")
 
 
 def _blocked(reason: str, code: str) -> dict[str, Any]:
@@ -371,8 +437,6 @@ def map_data_quality(
     pit = None
     if isinstance(proof, dict):
         pit = proof.get("pit_status")
-        if pit is None and proof.get("pit_violations") == 0:
-            pit = "PASS"
     issuer = None
     fund_ev = snapshot.get("fundamentals") if isinstance(snapshot.get("fundamentals"), dict) else {}
     store = fund_ev.get("store") if isinstance(fund_ev.get("store"), dict) else {}
@@ -746,14 +810,16 @@ def run_canonical_evidence_campaign_v1(
     else:
         if not all(resume_ok(name, state.data.get("fingerprint") or pre_id) for name in PAIR_STAGES):
             _emit(step_hook, "BUILD_V3", "RUNNING")
-            date_from = date.fromisoformat(str(window["date_from"])) if window.get("date_from") else None
-            date_to = date.fromisoformat(str(window["date_to"])) if window.get("date_to") else None
+            bound_from, bound_to = campaign_primary_bounds(window)
+            date_from = date.fromisoformat(bound_from) if bound_from else None
+            date_to = date.fromisoformat(bound_to) if bound_to else None
             try:
                 builder_pair = pair_fn or build_or_load_paired_v3_v4
                 pair_payload = builder_pair(
                     core_session,
                     date_from=date_from,
                     date_to=date_to,
+                    instrument_ids=None,
                     persist_registry=False,
                     data_snapshot_hash=snapshot.get("data_snapshot_hash"),
                 )
@@ -771,18 +837,19 @@ def run_canonical_evidence_campaign_v1(
                     raise
             if pair_payload and not block_code:
                 proof = pair_payload.get("proof") if isinstance(pair_payload.get("proof"), dict) else pair_payload
-                if _pit_failed(proof if isinstance(proof, dict) else None):
-                    block_code = "PIT_FAIL"
-                    block_reason = "PIT violations on paired V3/V4 runs"
-                elif (
+                fair_fail = (
                     isinstance(proof, dict)
                     and (
                         proof.get("fair_contract_status") == "FAIR_CONTRACT_FAIL"
                         or pair_payload.get("fair_contract_status") == "FAIR_CONTRACT_FAIL"
                     )
-                ):
+                )
+                if fair_fail:
                     block_code = "FAIR_CONTRACT_FAIL"
                     block_reason = "paired V3/V4 identity failed"
+                elif not _pit_pass(proof if isinstance(proof, dict) else None):
+                    block_code = "PIT_FAIL"
+                    block_reason = "missing PIT is not PASS; campaign stops before OOS"
             _write_artifact(runtime_dir / "pair_proof.json", pair_payload or {})
             if block_code:
                 _mark_group_blocked(
@@ -893,19 +960,25 @@ def run_canonical_evidence_campaign_v1(
                 market = loader(core_session, instrument_ids=ids, date_from=d0, date_to=needed)
                 runner_e = economics_fn or run_economic_robustness_campaign
                 econ_result = runner_e(predictions=stamped, market=market)
-            primary_status = None
-            if isinstance(econ_result, dict) and "primary" in econ_result:
-                primary_status = "COMPLETE"
-            elif isinstance(econ_result, dict):
-                primary_status = econ_result.get("status")
+            primary_status = _economics_artifact_status(
+                econ_result if isinstance(econ_result, dict) else None
+            )
+            unresolved: list[Any] = []
+            primary_row = (econ_result or {}).get("primary") if isinstance(econ_result, dict) else None
+            if isinstance(primary_row, dict):
+                strat = primary_row.get("strategy") if isinstance(primary_row.get("strategy"), dict) else primary_row
+                if isinstance(strat, dict) and isinstance(strat.get("unresolved_exit_events"), list):
+                    unresolved = strat["unresolved_exit_events"]
             primary = {
                 "status": primary_status,
                 "primary_settings": (econ_result or {}).get("primary_settings"),
                 "primary": (econ_result or {}).get("primary"),
+                "unresolved_exit_events": unresolved,
                 "variants_under_primary_settings": jsonable_campaign_payload(
                     (econ_result or {}).get("variants_under_primary_settings")
                 ),
                 "prediction_semantic": "RANKING",
+                "score_is_not_return_pct": True,
                 "variant": "V4_FULL",
             }
             robustness = {
@@ -948,11 +1021,12 @@ def run_canonical_evidence_campaign_v1(
         if not identity and fingerprint:
             try:
                 # Fingerprint-only placeholder when pair never completed.
+                bound_from, bound_to = campaign_primary_bounds(window)
                 identity = {
                     "campaign_version": PUBLIC_CAMPAIGN_VERSION,
                     "data_snapshot_hash": snapshot.get("data_snapshot_hash"),
-                    "date_from": window.get("date_from"),
-                    "date_to": window.get("date_to"),
+                    "date_from": bound_from,
+                    "date_to": bound_to,
                 }
             except Exception:  # noqa: BLE001
                 identity = {"campaign_version": PUBLIC_CAMPAIGN_VERSION}

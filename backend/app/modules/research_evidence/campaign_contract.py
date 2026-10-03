@@ -23,6 +23,9 @@ from app.modules.prediction.candidate_v1_config import CATBOOST_RANKER_HYPERPARA
 from app.modules.research_evidence.ablation import ABLATION_VARIANTS
 from app.modules.research_evidence.experiment import fingerprint_identity
 
+# Frozen fingerprint identity. Public API/UI maps this to CanonicalEvidenceCampaignV1
+# (see campaign_runner.PUBLIC_CAMPAIGN_VERSION). Do not swap the two: changing this
+# string would rewrite campaign fingerprints.
 CAMPAIGN_VERSION = "canonical_evidence_campaign_v1"
 PRIMARY_TARGET = TARGET_LABEL
 PRIMARY_WINDOW_START = date(2022, 4, 1)
