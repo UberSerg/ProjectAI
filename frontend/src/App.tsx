@@ -23,6 +23,7 @@ import { ResearchAdvancedPage } from "./pages/ResearchAdvancedPage";
 import { ResearchComparePage } from "./pages/ResearchComparePage";
 import { ResearchDiagnosticsPage } from "./pages/ResearchDiagnosticsPage";
 import { ResearchExperimentPage } from "./pages/ResearchExperimentPage";
+import { ResearchEvidencePage } from "./pages/ResearchEvidencePage";
 import { ResearchHubPage } from "./pages/ResearchHubPage";
 import { ResearchLabPage } from "./pages/ResearchLabPage";
 import { ResearchProspectiveModelsPage } from "./pages/ResearchProspectiveModelsPage";
@@ -74,6 +75,7 @@ export function App() {
         <Route path="/research/compare" element={<ResearchComparePage />} />
         <Route path="/research/diagnostics" element={<ResearchDiagnosticsPage />} />
         <Route path="/research/prospective-models" element={<ResearchProspectiveModelsPage />} />
+        <Route path="/research/evidence" element={<ResearchEvidencePage />} />
         <Route path="/research/:runId" element={<ResearchExperimentPage />} />
         <Route path="/research" element={<ResearchLabPage />} />
         <Route path="/simulator" element={<SimulatorRunsPage />} />
