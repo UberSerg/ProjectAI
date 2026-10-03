@@ -38,6 +38,12 @@ describe("researchEvidence format helpers", () => {
   it("does not treat missing prospective as historical data", () => {
     expect(isProspectiveEmpty(null)).toBe(true);
     expect(isProspectiveEmpty({ n_observations: 0 })).toBe(true);
+    expect(
+      isProspectiveEmpty({
+        empty: false,
+        personal_decision_memory: { captures_total: 10, horizons: [{ horizon_sessions: 20, matured_count: 0 }] },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -104,5 +110,108 @@ describe("ProspectiveSection", () => {
       "Проспективные наблюдения",
     );
     expect(screen.getByText(/не смешиваются с историческим OOS/i)).toBeInTheDocument();
+  });
+
+  it("shows captures without treating them as matured evidence", () => {
+    render(
+      <ProspectiveSection
+        prospective={{
+          empty: false,
+          personal_decision_memory: {
+            captures_total: 10,
+            horizons: [
+              { horizon_sessions: 5, matured_count: 0, pending_count: 10, unavailable_count: 0 },
+              {
+                horizon_sessions: 20,
+                matured_count: 0,
+                pending_count: 10,
+                unavailable_count: 0,
+                price_return: { n: 0, status: "INSUFFICIENT_SAMPLE" },
+              },
+              { horizon_sessions: 60, matured_count: 0, pending_count: 10, unavailable_count: 0 },
+            ],
+          },
+          forward_predictions: { freshness: { matured_count: 0, pending_count: 0 } },
+        }}
+      />,
+    );
+    const text = screen.getByTestId("evidence-prospective").textContent ?? "";
+    expect(text).toMatch(/Personal Decision Memory/);
+    expect(text).toMatch(/Forward Predictions/);
+    expect(text).not.toMatch(/\bOBSERVED\b/);
+    expect(text).not.toMatch(/10 matured/i);
+    expect(screen.getByTestId("evidence-pdm-horizon-20")).not.toHaveTextContent("OBSERVED");
+    expect(screen.getByTestId("evidence-pdm")).toHaveTextContent("10");
+  });
+
+  it("marks 3 matured 20d as INSUFFICIENT_SAMPLE and 6 as OBSERVED", () => {
+    const { rerender } = render(
+      <ProspectiveSection
+        prospective={{
+          empty: false,
+          personal_decision_memory: {
+            captures_total: 3,
+            horizons: [
+              {
+                horizon_sessions: 20,
+                matured_count: 3,
+                pending_count: 0,
+                unavailable_count: 0,
+                status: "INSUFFICIENT_SAMPLE",
+                price_return: { n: 3, status: "INSUFFICIENT_SAMPLE" },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("evidence-pdm-horizon-20")).toHaveTextContent("INSUFFICIENT_SAMPLE");
+    rerender(
+      <ProspectiveSection
+        prospective={{
+          empty: false,
+          personal_decision_memory: {
+            captures_total: 6,
+            horizons: [
+              {
+                horizon_sessions: 20,
+                matured_count: 6,
+                pending_count: 0,
+                unavailable_count: 0,
+                status: "OBSERVED",
+                price_return: { n: 6, status: "OBSERVED" },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("evidence-pdm-horizon-20")).toHaveTextContent("OBSERVED");
+  });
+
+  it("shows forward matured_count and never RMSE/MAE for RANKING_SCORE", () => {
+    render(
+      <ProspectiveSection
+        prospective={{
+          empty: false,
+          forward_predictions: {
+            latest_batch: { batch_id: 8, prediction_semantic: "RANKING_SCORE" },
+            latest_evaluated_batch: { batch_id: 8, evaluated_count: 7 },
+            freshness: { matured_count: 7, pending_count: 0 },
+            expected_return: { prediction_semantic: "EXPECTED_RETURN", mae: 0.02, rmse: 0.03, status: "EVALUATED" },
+            ranking_score: {
+              prediction_semantic: "RANKING_SCORE",
+              spearman_rank_ic: 0.2,
+              mae: 0.99,
+              rmse: 1.23,
+            },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("evidence-forward")).toHaveTextContent("7");
+    expect(screen.getByTestId("evidence-forward-expected")).toHaveTextContent("MAE");
+    expect(screen.getByTestId("evidence-forward-ranking").textContent ?? "").not.toMatch(/rmse/i);
+    expect(screen.getByTestId("evidence-forward-ranking").textContent ?? "").not.toMatch(/mae/i);
   });
 });

@@ -41,6 +41,9 @@ export function DatasetCard({ dataset }: { dataset?: EvidenceDataset | null }) {
       <p className="field-hint" data-testid="evidence-dataset-labels">
         Labels: {labels}
       </p>
+      <p className="field-hint" data-testid="evidence-current-only-denominator">
+        Доля CURRENT_ONLY = CURRENT_ONLY / (DATED_WINDOW + CURRENT_ONLY + UNMAPPED + AMBIGUOUS).
+      </p>
       {dataset.notes ? <p className="muted">{dataset.notes}</p> : null}
     </div>
   );

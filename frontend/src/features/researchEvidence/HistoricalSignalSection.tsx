@@ -41,7 +41,9 @@ function ModelBlock({
   signal?: HistoricalModelSignal | null;
   testId: string;
 }) {
+  const unavailable = signal?.available === false;
   const empty =
+    unavailable ||
     !signal ||
     (signal.rank_ic == null && signal.spread == null && signal.n == null && !signal.fold_year?.length);
 
@@ -49,7 +51,11 @@ function ModelBlock({
     <div className="card" data-testid={testId}>
       <h3>{title}</h3>
       {empty ? (
-        <p className="muted">Исторический OOS-сигнал для этой модели ещё не собран.</p>
+        <p className="muted">
+          {unavailable
+            ? signal?.notes ?? "Исторический OOS недоступен: недостаточно выборки, метрики не показываются."
+            : "Исторический OOS-сигнал для этой модели ещё не собран."}
+        </p>
       ) : (
         <>
           <div className="metric-grid diagnostics-summary-grid">

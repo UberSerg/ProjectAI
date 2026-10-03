@@ -63,12 +63,16 @@ export function ResearchEvidencePage() {
     return () => controller.abort();
   }, []);
 
+  const experimentId = overview?.experiment?.id ?? null;
+  const canExactRerun = Boolean(experimentId);
+
   const onRun = async () => {
+    if (!experimentId) return;
     setBusy(true);
     setRunMsg(null);
     setError(null);
     try {
-      const result = await runResearchEvidence({ experiment_id: overview?.experiment?.id ?? null });
+      const result = await runResearchEvidence({ experiment_id: experimentId });
       setRunMsg(result.message ?? result.status ?? "Запрос на пересчёт отправлен.");
     } catch (reason: unknown) {
       setError(errorMessage(reason));
@@ -128,9 +132,19 @@ export function ResearchEvidencePage() {
 
       {isOwner ? (
         <p className="page-actions" style={{ marginBottom: "1rem" }}>
-          <button type="button" className="secondary" disabled={busy} onClick={() => void onRun()}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy || !canExactRerun}
+            onClick={() => void onRun()}
+          >
             Пересчитать доказательства
           </button>
+          <span className="field-hint" data-testid="evidence-rerun-hint">
+            {canExactRerun
+              ? "Пересчёт строго по замороженным DatasetRun этого эксперимента, без текущей вселенной."
+              : "Нужен существующий эксперимент или явные dataset_v3_run_id / dataset_v4_run_id. Скрытый пересчёт по текущей вселенной недоступен."}
+          </span>
         </p>
       ) : null}
 

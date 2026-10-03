@@ -9,10 +9,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.infrastructure.db.session import core_session, memory_session
+from app.infrastructure.learning.models import DatasetRun
 from app.modules.market.application.workflows import create_workflow
 from app.modules.research_evidence.overview_map import FORBIDDEN_OVERVIEW_KEYS, map_prospective_ui
 from app.modules.research_evidence.prospective import build_prospective_evidence_v1
-from app.modules.research_evidence.service import get_evidence, get_latest_evidence
+from app.modules.research_evidence.service import get_evidence, get_latest_evidence, resolve_frozen_run_ids
 from app.worker import tasks as worker_tasks
 
 router = APIRouter()
@@ -58,20 +59,16 @@ def evidence_prospective() -> dict[str, Any]:
         return map_prospective_ui({"status": "PENDING"})
 
 
-@router.post("/run")
-def evidence_run(body: EvidenceRunRequest) -> dict[str, Any]:
-    """OWNER research run. Does not block on model training; uses existing Workflow/Celery."""
-    if body.v3_run_id is None or body.v4_run_id is None:
-        if body.date_from is None or body.date_to is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Нужны v3_run_id и v4_run_id либо явный интервал date_from/date_to. "
-                    "Скрытая текущая вселенная не используется."
-                ),
-            )
-        if body.date_to < body.date_from:
-            raise HTTPException(status_code=400, detail="date_to должен быть >= date_from")
+def _enqueue_evidence_run(
+    *,
+    experiment_id: str | None,
+    v3_run_id: int | None,
+    v4_run_id: int | None,
+    date_from: date | None,
+    date_to: date | None,
+    instrument_ids: list[int] | None,
+    rebuild: bool,
+) -> dict[str, Any]:
     with core_session() as session:
         workflow = create_workflow(
             session,
@@ -82,19 +79,89 @@ def evidence_run(body: EvidenceRunRequest) -> dict[str, Any]:
         session.commit()
         worker_tasks.research_evidence_run.delay(
             workflow.id,
-            body.v3_run_id,
-            body.v4_run_id,
-            body.date_from.isoformat() if body.date_from else None,
-            body.date_to.isoformat() if body.date_to else None,
-            body.instrument_ids,
-            body.rebuild,
+            v3_run_id,
+            v4_run_id,
+            date_from.isoformat() if date_from else None,
+            date_to.isoformat() if date_to else None,
+            instrument_ids,
+            rebuild,
         )
         return {
             "status": "RUNNING",
             "message": "Запущен research-only пересчёт. Это не промоушен Candidate.",
-            "experiment_id": body.experiment_id,
+            "experiment_id": experiment_id,
             "workflow_id": str(workflow.id),
+            "v3_run_id": v3_run_id,
+            "v4_run_id": v4_run_id,
         }
+
+
+@router.post("/run")
+def evidence_run(body: EvidenceRunRequest) -> dict[str, Any]:
+    """OWNER research run. Frozen experiment IDs only — never a hidden current universe."""
+    if body.experiment_id:
+        frozen = resolve_frozen_run_ids(body.experiment_id)
+        if frozen is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "EXPERIMENT_NOT_FOUND",
+                    "message": "Эксперимент доказательств не найден.",
+                },
+            )
+        v3_run_id = frozen["dataset_v3_run_id"]
+        v4_run_id = frozen["dataset_v4_run_id"]
+        with core_session() as session:
+            run_v3 = session.get(DatasetRun, v3_run_id)
+            run_v4 = session.get(DatasetRun, v4_run_id)
+        if run_v3 is None or run_v4 is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "FROZEN_RUN_MISSING",
+                    "message": (
+                        "Замороженные DatasetRun эксперимента недоступны "
+                        f"(v3={v3_run_id}, v4={v4_run_id}). "
+                        "Скрытая текущая вселенная и новое окно не используются."
+                    ),
+                },
+            )
+        return _enqueue_evidence_run(
+            experiment_id=body.experiment_id,
+            v3_run_id=v3_run_id,
+            v4_run_id=v4_run_id,
+            date_from=None,
+            date_to=None,
+            instrument_ids=None,
+            rebuild=False,
+        )
+
+    if body.v3_run_id is None or body.v4_run_id is None:
+        if body.date_from is None or body.date_to is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "EXPLICIT_IDS_OR_WINDOW_REQUIRED",
+                    "message": (
+                        "Нужны v3_run_id и v4_run_id либо явный интервал date_from/date_to. "
+                        "Скрытая текущая вселенная не используется."
+                    ),
+                },
+            )
+        if body.date_to < body.date_from:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_DATE_WINDOW", "message": "date_to должен быть >= date_from"},
+            )
+    return _enqueue_evidence_run(
+        experiment_id=body.experiment_id,
+        v3_run_id=body.v3_run_id,
+        v4_run_id=body.v4_run_id,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        instrument_ids=body.instrument_ids,
+        rebuild=body.rebuild,
+    )
 
 
 @router.get("/{experiment_id}/economics")

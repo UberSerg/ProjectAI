@@ -108,10 +108,21 @@ describe("ResearchEvidencePage", () => {
 
   it("keeps historical OOS and prospective visually separate", async () => {
     vi.mocked(evidenceApi.getResearchEvidenceProspective).mockResolvedValue({
-      status: "ACTIVE",
-      n_observations: 3,
-      rank_ic: 0.01,
-      observations: [{ as_of: "2026-09-01", n: 3, rank_ic: 0.01 }],
+      empty: false,
+      personal_decision_memory: {
+        captures_total: 3,
+        horizons: [
+          {
+            horizon_sessions: 20,
+            matured_count: 3,
+            pending_count: 0,
+            unavailable_count: 0,
+            status: "INSUFFICIENT_SAMPLE",
+            price_return: { status: "INSUFFICIENT_SAMPLE" },
+          },
+        ],
+      },
+      forward_predictions: { freshness: { matured_count: 2, pending_count: 1 } },
     });
     renderPage();
     expect(await screen.findByTestId("evidence-historical-oos")).toBeInTheDocument();
@@ -119,7 +130,8 @@ describe("ResearchEvidencePage", () => {
     expect(screen.getByTestId("evidence-ranker")).toHaveTextContent("Ranker");
     const divider = screen.getByTestId("evidence-prospective-divider");
     expect(divider).toHaveTextContent("Проспективные наблюдения");
-    expect(screen.getByTestId("evidence-prospective")).toHaveTextContent("Rank IC (prospective)");
+    expect(screen.getByTestId("evidence-pdm")).toHaveTextContent("Personal Decision Memory");
+    expect(screen.getByTestId("evidence-forward")).toHaveTextContent("Forward Predictions");
     expect(screen.getByTestId("evidence-historical-oos")).not.toHaveTextContent("Проспективные наблюдения");
   });
 
@@ -170,18 +182,37 @@ describe("ResearchEvidencePage", () => {
     expect(screen.queryByRole("button", { name: "Пересчитать доказательства" })).not.toBeInTheDocument();
   });
 
-  it("lets OWNER request a run without dumping prediction rows", async () => {
+  it("lets OWNER request an exact frozen rerun without dumping prediction rows", async () => {
     vi.mocked(evidenceApi.runResearchEvidence).mockResolvedValue({
       status: "queued",
       message: "Пересчёт поставлен в очередь.",
       experiment_id: "exp-v4-1",
     });
     renderPage("OWNER");
-    await screen.findByRole("button", { name: "Пересчитать доказательства" });
-    fireEvent.click(screen.getByRole("button", { name: "Пересчитать доказательства" }));
+    const button = await screen.findByRole("button", { name: "Пересчитать доказательства" });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
     await waitFor(() => {
       expect(screen.getByTestId("evidence-run-result")).toHaveTextContent("Пересчёт поставлен в очередь.");
     });
-    expect(evidenceApi.runResearchEvidence).toHaveBeenCalled();
+    expect(evidenceApi.runResearchEvidence).toHaveBeenCalledWith({ experiment_id: "exp-v4-1" });
+  });
+
+  it("disables OWNER rerun without an existing experiment", async () => {
+    vi.mocked(evidenceApi.getResearchEvidenceOverview).mockResolvedValue({
+      experiment: null,
+      dataset: null,
+      historical_models: { regression: null, ranker: null },
+      ablation: null,
+      economics: null,
+      prospective: { empty: true },
+      limitations: [],
+    });
+    renderPage("OWNER");
+    const button = await screen.findByRole("button", { name: "Пересчитать доказательства" });
+    expect(button).toBeDisabled();
+    expect(screen.getByTestId("evidence-rerun-hint")).toHaveTextContent(
+      /существующий эксперимент или явные dataset_v3_run_id/,
+    );
   });
 });
