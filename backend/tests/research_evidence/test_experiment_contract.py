@@ -99,6 +99,33 @@ def test_paired_mismatch_hard_fails_with_fair_contract_fail() -> None:
                 prove_paired_v3_v4(session, 1, 2)
 
 
+def test_paired_population_without_pass_is_not_defaulted_to_pass() -> None:
+    session = MagicMock()
+    run3 = MagicMock()
+    run3.dataset_hash = "h3"
+    run3.manifest = {}
+    run3.date_from = datetime(2020, 1, 2).date()
+    run3.date_to = datetime(2024, 12, 30).date()
+    run3.pit_violations = 0
+    run4 = MagicMock()
+    run4.dataset_hash = "h4"
+    run4.manifest = {}
+    run4.date_from = run3.date_from
+    run4.date_to = run3.date_to
+    run4.pit_violations = 2
+    session.get.side_effect = lambda _model, pk: {1: run3, 2: run4}[int(pk)]
+    with patch(
+        "app.modules.research_evidence.pairing.assert_fair_v3_v4_compare_contract",
+        return_value={"pins_match": True},
+    ):
+        with patch(
+            "app.modules.research_evidence.pairing.assert_v3_v4_run_population_identity",
+            return_value={"sample_identity_match": True, "target_identity_match": True},
+        ):
+            with pytest.raises(FairCompareError, match="FAIR_CONTRACT_FAIL"):
+                prove_paired_v3_v4(session, 1, 2)
+
+
 def test_paired_same_contract_passes() -> None:
     session = MagicMock()
     run3 = MagicMock()
@@ -106,11 +133,13 @@ def test_paired_same_contract_passes() -> None:
     run3.manifest = {"values_hash": "v3"}
     run3.date_from = datetime(2020, 1, 2).date()
     run3.date_to = datetime(2024, 12, 30).date()
+    run3.pit_violations = 0
     run4 = MagicMock()
     run4.dataset_hash = "h4"
     run4.manifest = {"values_hash": "v4"}
     run4.date_from = run3.date_from
     run4.date_to = run3.date_to
+    run4.pit_violations = 0
 
     def _get(_model: object, pk: int) -> object:
         return {1: run3, 2: run4}[int(pk)]
@@ -133,6 +162,8 @@ def test_paired_same_contract_passes() -> None:
             proof = prove_paired_v3_v4(session, 1, 2)
     assert proof["fair_contract_status"] == "PASS"
     assert proof["sample_identity_match"] is True
+    assert proof["pit_violations"] == 0
+    assert proof["v4"]["pit_violations"] == 0
     assert proof["dataset_v3_hash"] == "h3"
     assert proof["dataset_v4_values_hash"] == "v4"
     session.get.assert_any_call(DatasetRun, 1)

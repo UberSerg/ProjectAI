@@ -67,6 +67,39 @@ def test_latest_evidence_empty(tmp_path: Path) -> None:
     assert payload["experiment"]["status"] == "EMPTY"
 
 
+def test_missing_pit_violations_are_not_coerced_to_zero(tmp_path: Path) -> None:
+    write_evidence_bundle(
+        tmp_path,
+        {
+            "manifest": {"experiment_fingerprint": "no-pit", "research_only": True},
+            "dataset_compare": {
+                "sample_identity_match": True,
+                "schema": {"v3_feature_count": 10, "v4_feature_count": 20},
+                "v4": {},
+                "v3": {},
+            },
+        },
+    )
+    payload = overview_from_dir(tmp_path)
+    assert payload["dataset"]["pit_violations"] is None
+
+
+def test_zero_pit_violations_not_replaced_by_other_side(tmp_path: Path) -> None:
+    write_evidence_bundle(
+        tmp_path,
+        {
+            "manifest": {"experiment_fingerprint": "pit-zero", "research_only": True},
+            "dataset_compare": {
+                "sample_identity_match": True,
+                "v4": {"pit_violations": 0},
+                "v3": {"pit_violations": 5},
+            },
+        },
+    )
+    payload = overview_from_dir(tmp_path)
+    assert payload["dataset"]["pit_violations"] == 0
+
+
 def test_run_requires_explicit_ids_or_window() -> None:
     from app.api.v1.research_evidence import EvidenceRunRequest, evidence_run
 

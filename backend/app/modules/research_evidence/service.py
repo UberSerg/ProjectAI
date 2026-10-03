@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import core_session
 from app.modules.learning.application.compare_v3_v4 import compare_v3_v4_builds
+from app.modules.learning.application.research_eval import FairCompareError
 from app.modules.prediction.application.research_dataset_loader import load_research_frame
 from app.modules.research_evidence.ablation import run_v4_ablation
 from app.modules.research_evidence.bundle import write_evidence_bundle
@@ -185,6 +186,13 @@ def run_historical_evidence(
         instrument_ids=instrument_ids,
         rebuild=rebuild,
     )
+    if (
+        proof.get("fair_contract_status") != "PASS"
+        or proof.get("sample_identity_match") is not True
+    ):
+        raise FairCompareError(
+            "FAIR_CONTRACT_FAIL: model and economics steps must not run without paired V3/V4 identity"
+        )
     experiment = ResearchEvidenceExperimentV1(
         dataset_v3_run_id=int(proof["dataset_v3_run_id"]),
         dataset_v4_run_id=int(proof["dataset_v4_run_id"]),

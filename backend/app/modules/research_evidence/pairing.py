@@ -20,6 +20,17 @@ def _values_hash(run: DatasetRun) -> str | None:
     return str(raw) if raw is not None else None
 
 
+def _pit_count(run: DatasetRun) -> int | None:
+    raw = getattr(run, "pit_violations", None)
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float) and raw == raw:
+        return int(raw)
+    return None
+
+
 def _ensure_fair_contract_fail(exc: BaseException) -> FairCompareError:
     text = str(exc)
     if "FAIR_CONTRACT_FAIL" not in text:
@@ -46,6 +57,17 @@ def prove_paired_v3_v4(session: Session, v3_run_id: int, v4_run_id: int) -> dict
             "FAIR_CONTRACT_FAIL: DatasetRun row missing for paired V3/V4 proof "
             f"(v3_run_id={v3_run_id}, v4_run_id={v4_run_id})"
         )
+    status = population.get("fair_contract_status")
+    if (
+        status != "PASS"
+        or population.get("sample_identity_match") is not True
+        or population.get("target_identity_match") is not True
+    ):
+        raise FairCompareError(
+            "FAIR_CONTRACT_FAIL: paired V3/V4 sample/target identity was not proven"
+        )
+    pit_v3 = _pit_count(run_v3)
+    pit_v4 = _pit_count(run_v4)
     return {
         "dataset_v3_hash": run_v3.dataset_hash,
         "dataset_v3_run_id": int(v3_run_id),
@@ -55,11 +77,14 @@ def prove_paired_v3_v4(session: Session, v3_run_id: int, v4_run_id: int) -> dict
         "dataset_v4_values_hash": _values_hash(run_v4),
         "date_from": run_v3.date_from.isoformat() if run_v3.date_from else None,
         "date_to": run_v3.date_to.isoformat() if run_v3.date_to else None,
-        "fair_contract_status": population.get("fair_contract_status", "PASS"),
+        "fair_contract_status": "PASS",
         "population": population,
-        "sample_identity_match": bool(population.get("sample_identity_match")),
+        "sample_identity_match": True,
         "schema": schema,
-        "target_identity_match": bool(population.get("target_identity_match")),
+        "target_identity_match": True,
+        "v3": {"pit_violations": pit_v3},
+        "v4": {"pit_violations": pit_v4},
+        "pit_violations": pit_v4 if pit_v4 is not None else pit_v3,
     }
 
 

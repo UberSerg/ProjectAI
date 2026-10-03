@@ -122,6 +122,18 @@ def _n(metrics: dict[str, Any] | None, fallback: dict[str, Any] | None = None) -
     return None
 
 
+def _first_int(*values: Any) -> int | None:
+    """Keep explicit 0; never coerce missing / NaN to 0."""
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value == value and value not in (float("inf"), float("-inf")):
+            return int(value)
+    return None
+
+
 def _signal(part: dict[str, Any], *, family: str) -> dict[str, Any]:
     if _pending(part):
         return {"family": family, "available": False, "notes": "CHRONOLOGICAL OOS RESEARCH ещё не посчитан."}
@@ -400,7 +412,11 @@ def overview_from_dir(path: Path) -> dict[str, Any]:
             if isinstance(dataset.get("schema"), dict)
             else None,
             "sample_identity_match": bool(dataset.get("sample_identity_match") or pop.get("sample_identity_match")),
-            "pit_violations": int(v4.get("pit_violations") or v3.get("pit_violations") or 0),
+            "pit_violations": _first_int(
+                dataset.get("pit_violations"),
+                v4.get("pit_violations"),
+                v3.get("pit_violations"),
+            ),
             "fund_coverage": cov.get("fundamental_coverage_pct") or cov.get("fundamentals_coverage"),
             "event_coverage": cov.get("event_coverage_pct") or cov.get("events_coverage"),
             "current_only_share": cov.get("current_only_share") or cov.get("current_only_pct"),
