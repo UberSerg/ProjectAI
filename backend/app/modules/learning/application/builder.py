@@ -379,7 +379,7 @@ def grade_v4_research_quality(
         "reasons": reasons,
         "notes": [
             "READY_FOR_RESEARCH means enough evidence exists to run controlled research.",
-            "Never interpret as Candidate promotion, live-money readiness, or 'V4 wins'.",
+            "Never interpret as Candidate promotion, live-money readiness, or a V4 superiority claim.",
             "Primary labels remain MECHANICAL_PRICE_RETURN; Total Return is diagnostic only.",
         ],
     }

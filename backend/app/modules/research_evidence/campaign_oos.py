@@ -58,6 +58,11 @@ PAIRED_DELTA_SPECS: tuple[tuple[str, str], ...] = (
 )
 
 _WINNER_WORDING = re.compile(r"\b(winner|winners|wins|champion|champions)\b", re.IGNORECASE)
+_WINNER_DISCLAIMER = re.compile(
+    r"(never interpret|not a claim|no automatic winner|not a winner|"
+    r"not an automatic verdict|superiority claim)",
+    re.IGNORECASE,
+)
 
 
 def _walk_keys(obj: Any) -> set[str]:
@@ -89,10 +94,17 @@ def _collect_text(obj: Any) -> list[str]:
 
 
 def assert_no_winner_wording(payload: Any) -> None:
-    """Campaign artifacts must not declare a model winner."""
+    """Campaign artifacts must not declare a model winner.
+
+    Disclaimer sentences that forbid a winner claim (including stored DatasetRun
+    coverage notes) are not themselves a verdict.
+    """
     for text in _collect_text(payload):
-        if _WINNER_WORDING.search(text):
-            raise ResearchOosError("campaign payload must not use winner wording")
+        if not _WINNER_WORDING.search(text):
+            continue
+        if _WINNER_DISCLAIMER.search(text):
+            continue
+        raise ResearchOosError(f"campaign payload must not use winner wording: {text[:240]}")
 
 
 def assert_ranking_metrics_clean(payload: dict[str, Any]) -> None:

@@ -296,6 +296,20 @@ def test_campaign_insufficient_honest() -> None:
     assert "holdout" not in out["evaluation_kind"].lower()
 
 
+def test_winner_wording_allows_coverage_disclaimer() -> None:
+    from app.modules.research_evidence.campaign_oos import assert_no_winner_wording
+
+    assert_no_winner_wording(
+        {
+            "notes": [
+                "Never interpret as Candidate promotion, live-money readiness, or 'V4 wins'.",
+            ]
+        }
+    )
+    with pytest.raises(ResearchOosError, match="winner wording"):
+        assert_no_winner_wording({"note": "V4 wins the campaign"})
+
+
 def test_campaign_no_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Any] = []
 
