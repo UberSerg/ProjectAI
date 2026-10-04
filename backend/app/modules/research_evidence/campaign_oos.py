@@ -34,6 +34,11 @@ from app.modules.research_evidence.ablation import (
     VARIANT_V4_FULL,
     run_v4_ablation,
 )
+from app.modules.research_evidence.campaign_window import (
+    assert_canonical_oos_schedule,
+    campaign_development_end_exclusive,
+    expanding_oos_fold_count,
+)
 from app.modules.research_evidence.oos import (
     EVALUATION_KIND,
     MISSING_FEATURE_POLICY,
@@ -42,6 +47,7 @@ from app.modules.research_evidence.oos import (
     STATUS_OK,
     ResearchOosError,
     assert_no_registry_persist,
+    normalize_folds,
     run_chronological_oos,
 )
 from app.modules.research_evidence.paired_delta import paired_v4_vs_base
@@ -199,6 +205,9 @@ def run_paired_v3_v4_evidence_campaign(
     feature_names: list[str] | None = None,
     folds: list[WalkForwardFold] | list[dict[str, Any]] | None = None,
     development_end_exclusive: date | None = None,
+    expected_fold_count: int | None = None,
+    campaign_date_from: date | None = None,
+    campaign_date_to: date | None = None,
     min_train_n: int = 100,
     min_val_n: int = 20,
     random_seed: int = RANDOM_SEED,
@@ -216,11 +225,33 @@ def run_paired_v3_v4_evidence_campaign(
         frame, session=session, v3_run_id=v3_run_id, v4_run_id=v4_run_id
     )
     names = list(feature_names or feature_names_for_spec_version(4))
+    resolved_folds = folds
+    if campaign_date_to is not None:
+        exclusive = development_end_exclusive or campaign_development_end_exclusive(campaign_date_to)
+        date_from = campaign_date_from
+        if date_from is None:
+            as_of = pd.to_datetime(resolved["as_of_date"])
+            date_from = as_of.min().date()
+        fold_list = normalize_folds(
+            folds, resolved, development_end_exclusive=exclusive, config=config
+        )
+        expected = expected_fold_count
+        if expected is None:
+            expected = expanding_oos_fold_count(date_from=date_from, date_to=campaign_date_to, config=config)
+        assert_canonical_oos_schedule(
+            fold_list,
+            date_from=date_from,
+            date_to=campaign_date_to,
+            expected_fold_count=int(expected),
+            development_end_exclusive=exclusive,
+        )
+        resolved_folds = fold_list
+        development_end_exclusive = exclusive
     shared = {
         "persist_registry": False,
         "model_factory": model_factory,
         "feature_names": names,
-        "folds": folds,
+        "folds": resolved_folds,
         "development_end_exclusive": development_end_exclusive,
         "min_train_n": min_train_n,
         "min_val_n": min_val_n,

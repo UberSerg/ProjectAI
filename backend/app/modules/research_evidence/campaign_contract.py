@@ -7,7 +7,7 @@ Does not train models and does not activate DatasetSpec.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.modules.market.application.historical_universe import HISTORICAL_EQUITY_UNIVERSE_V2
@@ -35,6 +35,11 @@ PRIMARY_COST_BPS_PER_SIDE = 30
 COST_BPS_GRID: tuple[int, ...] = (0, 10, 30, 50)
 REBALANCE_SESSIONS_GRID: tuple[int, ...] = (10, 20, 40)
 TOP_PERCENT_GRID: tuple[int, ...] = (10, 20, 30)
+EVALUATION_END_POLICY = "CAMPAIGN_DATE_TO_INCLUSIVE"
+# First COMPLETE dossier evaluated OOS only to Candidate HOLDOUT_START. Immutable audit.
+SUPERSEDED_CAMPAIGN_FINGERPRINTS: dict[str, str] = {
+    "caf1d5703aae7c2c008015e82cc1086cf68d0fa71f138eb05eb39bec2a25cd75": "OOS_EVALUATION_BOUNDARY_MISMATCH",
+}
 
 
 def frozen_catboost_config_hash(hyperparameters: dict[str, Any]) -> str:
@@ -66,6 +71,7 @@ def default_walk_forward_contract() -> dict[str, Any]:
         "step_months": STEP_MONTHS,
         "target_horizon_sessions": 20,
         "validation_months": VALIDATION_MONTHS,
+        "evaluation_end_policy": EVALUATION_END_POLICY,
     }
 
 
@@ -161,6 +167,12 @@ class CanonicalEvidenceCampaignV1:
             )
         object.__setattr__(self, "date_from", _iso_date(self.date_from))
         object.__setattr__(self, "date_to", _iso_date(self.date_to))
+        date_to = date.fromisoformat(str(self.date_to))
+        walk = {**default_walk_forward_contract(), **dict(self.walk_forward_contract)}
+        walk["evaluation_end_policy"] = EVALUATION_END_POLICY
+        walk["evaluation_end_inclusive"] = date_to.isoformat()
+        walk["development_end_exclusive"] = (date_to + timedelta(days=1)).isoformat()
+        object.__setattr__(self, "walk_forward_contract", walk)
 
     def identity_payload(self) -> dict[str, Any]:
         """Canonical frozen fields. Dict insertion order does not affect the hash."""
@@ -208,6 +220,7 @@ class CanonicalEvidenceCampaignV1:
 
 __all__ = [
     "CAMPAIGN_VERSION",
+    "EVALUATION_END_POLICY",
     "PRIMARY_COST_BPS_PER_SIDE",
     "PRIMARY_REBALANCE_SESSIONS",
     "PRIMARY_TARGET",
@@ -222,4 +235,5 @@ __all__ = [
     "frozen_catboost_config_hash",
     "ranker_model_config_hash",
     "regression_model_config_hash",
+    "SUPERSEDED_CAMPAIGN_FINGERPRINTS",
 ]

@@ -80,6 +80,9 @@ def test_deterministic_fingerprint_and_identity_fields() -> None:
     assert wf["kind"] == "expanding_walk_forward"
     assert wf["random_split"] is False
     assert wf["optuna"] is False
+    assert wf["evaluation_end_policy"] == "CAMPAIGN_DATE_TO_INCLUSIVE"
+    assert wf["evaluation_end_inclusive"] == "2026-01-15"
+    assert wf["development_end_exclusive"] == "2026-01-16"
     assert wf["label_purge"]["target_date_20d_lt_validation_start"] is True
     primary = identity["economic_primary_contract"]
     assert primary == default_economic_primary_contract()

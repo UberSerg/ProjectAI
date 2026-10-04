@@ -28,6 +28,10 @@ Same window, `historical_equity_universe_v2`, mechanical `forward_return_20d`. S
 
 Expanding chronological OOS with 20d purge. Frozen CatBoost hypers, no search. Ablation BASE / +FUNDAMENTALS / +EVENTS / V4 FULL, same rows/y, NATIVE_NAN. Paired date bootstrap deltas with CI; **no winner**.
 
+Canonical OOS evaluates through campaign ``date_to`` inclusive (``development_end_exclusive = date_to + 1 day``). It does **not** use Candidate ``HOLDOUT_START``.
+
+First COMPLETE dossier ``caf1d5703aae7c2c008015e82cc1086cf68d0fa71f138eb05eb39bec2a25cd75`` is an immutable audit of an ``OOS_EVALUATION_BOUNDARY_MISMATCH`` run and is not the canonical final dossier.
+
 ## Economics
 
 **Primary (predeclared):** ranking V4_FULL, long-only top 20% EW fractional, rebalance 20 sessions, EOD → next OPEN, 30 bps/side **assumed**, PRICE_RETURN, dividends excluded, EW eligible-universe benchmark.

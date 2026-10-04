@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.modules.memory.domain.decision_memory import HORIZONS
 from app.modules.prediction.infrastructure.artifacts import write_json
 from app.modules.research_evidence.bundle import RUNTIME_TIMESTAMP_KEYS, payload_file_hash
+from app.modules.research_evidence.campaign_contract import SUPERSEDED_CAMPAIGN_FINGERPRINTS
 from app.modules.research_evidence.experiment import EVALUATION_WORDING, fingerprint_identity
 from app.modules.research_evidence.overview_map import FORBIDDEN_OVERVIEW_KEYS, map_prospective_ui
 from app.modules.research_evidence.paths import research_evidence_root
@@ -392,6 +393,11 @@ def persist_evidence_dossier(
     """Write dossier under campaign fingerprint. Reuse same semantics; refuse different overwrite."""
     identity = dossier.get("identity") if isinstance(dossier.get("identity"), dict) else {}
     fingerprint = str(dossier.get("campaign_fingerprint") or fingerprint_campaign_identity(identity))
+    reason = SUPERSEDED_CAMPAIGN_FINGERPRINTS.get(fingerprint)
+    if reason:
+        raise DossierImmutabilityError(
+            f"campaign fingerprint {fingerprint} is superseded ({reason}); refuse overwrite"
+        )
     dest = campaign_artifact_dir(fingerprint, root=artifact_root)
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / DOSSIER_FILENAME

@@ -12,7 +12,8 @@ import json
 import sys
 from pathlib import Path
 
-NIGHT_WORKFLOW_ID = "live-canonical-v1-20261003-retry-specs"
+NIGHT_WORKFLOW_ID = "live-canonical-v1-20261004-oos-boundary"
+SUPERSEDED_WORKFLOW_ID = "live-canonical-v1-20261003-retry-specs"
 
 
 def _print(payload: dict) -> None:

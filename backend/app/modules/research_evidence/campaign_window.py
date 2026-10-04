@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.prediction.application.splits import build_expanding_folds
-from app.modules.prediction.candidate_config import CANDIDATE_V0_CONFIG, CandidateV0Config
+from app.modules.prediction.candidate_config import CANDIDATE_V0_CONFIG, HOLDOUT_START, CandidateV0Config
 
 PRIMARY_DATE_FROM = date(2022, 4, 1)
 MIN_VIABLE_MATURE_AS_OF = date(2024, 4, 1)
@@ -28,6 +28,71 @@ PRIMARY_START_RATIONALE = (
     "Practical beginning of useful online FNS RAS known_at coverage around spring 2022 "
     "(data availability, not outcome optimization)."
 )
+EVALUATION_END_POLICY = "CAMPAIGN_DATE_TO_INCLUSIVE"
+
+
+class CampaignOosBoundaryError(ValueError):
+    """Canonical OOS schedule does not match the frozen campaign window."""
+
+
+def campaign_development_end_exclusive(date_to: date) -> date:
+    """Fold builder exclusive end: campaign ``date_to`` inclusive."""
+    return date_to + timedelta(days=1)
+
+
+def assert_canonical_oos_schedule(
+    folds: Sequence[Any],
+    *,
+    date_from: date,
+    date_to: date,
+    expected_fold_count: int,
+    development_end_exclusive: date,
+) -> None:
+    """Fail hard if generated folds do not evaluate the frozen campaign window."""
+    expected_end = campaign_development_end_exclusive(date_to)
+    if development_end_exclusive != expected_end:
+        raise CampaignOosBoundaryError(
+            "canonical OOS development_end_exclusive must be campaign date_to + 1 day "
+            f"(got {development_end_exclusive.isoformat()}, expected {expected_end.isoformat()})"
+        )
+    if date_to > HOLDOUT_START and development_end_exclusive <= HOLDOUT_START:
+        raise CampaignOosBoundaryError(
+            "canonical OOS must not truncate at Candidate HOLDOUT_START when "
+            f"campaign date_to={date_to.isoformat()} is later"
+        )
+    if expected_fold_count < 1:
+        raise CampaignOosBoundaryError("canonical expanding_oos.fold_count must be >= 1")
+    if len(folds) != int(expected_fold_count):
+        raise CampaignOosBoundaryError(
+            "canonical OOS fold count must match campaign_window.expanding_oos.fold_count "
+            f"(got {len(folds)}, expected {expected_fold_count})"
+        )
+    first = folds[0]
+    last = folds[-1]
+    first_train = getattr(first, "train_start", None)
+    last_end = getattr(last, "validation_end", None)
+    if isinstance(first, dict):
+        first_train = first.get("train_start")
+    if isinstance(last, dict):
+        last_end = last.get("validation_end")
+    if isinstance(first_train, str):
+        first_train = date.fromisoformat(first_train)
+    if isinstance(last_end, str):
+        last_end = date.fromisoformat(last_end)
+    if first_train != date_from:
+        raise CampaignOosBoundaryError(
+            "canonical OOS first train_start must equal campaign date_from "
+            f"(got {first_train}, expected {date_from.isoformat()})"
+        )
+    if last_end != expected_end:
+        raise CampaignOosBoundaryError(
+            "final canonical validation fold must clip to campaign date_to inclusive "
+            f"(validation_end={last_end}, expected {expected_end.isoformat()})"
+        )
+    if date_to > HOLDOUT_START and last_end <= HOLDOUT_START:
+        raise CampaignOosBoundaryError(
+            "final canonical validation fold must extend past Candidate HOLDOUT_START"
+        )
 
 
 class TradingDayCalendar(Protocol):

@@ -18,12 +18,16 @@ from sqlalchemy.orm import Session
 from app.modules.learning.application.research_eval import FairCompareError
 from app.modules.prediction.infrastructure.artifacts import write_json
 from app.modules.research_evidence.bundle import payload_file_hash
-from app.modules.research_evidence.campaign_contract import CanonicalEvidenceCampaignV1
+from app.modules.research_evidence.campaign_contract import (
+    SUPERSEDED_CAMPAIGN_FINGERPRINTS,
+    CanonicalEvidenceCampaignV1,
+)
 from app.modules.research_evidence.campaign_dossier import (
     DOSSIER_FILENAME,
     STATUS_BLOCKED,
     STATUS_PARTIAL,
     STATUS_PENDING,
+    DossierImmutabilityError,
     build_evidence_dossier_v1,
     build_prospective_snapshot_v1,
     campaign_artifact_dir,
@@ -51,7 +55,9 @@ from app.modules.research_evidence.campaign_window import (
     STATUS_INSUFFICIENT as CAMPAIGN_DATA_INSUFFICIENT,
 )
 from app.modules.research_evidence.campaign_window import (
+    campaign_development_end_exclusive,
     campaign_primary_bounds,
+    expanding_oos_fold_count,
 )
 from app.modules.research_evidence.economics import required_market_date_to
 from app.modules.research_evidence.experiment import fingerprint_identity
@@ -131,6 +137,16 @@ _JSON_ARTIFACTS = (
 )
 
 StepHook = Callable[[str, str, str | None], None]
+
+
+def _refuse_superseded_fingerprint(fingerprint: str | None) -> None:
+    if not fingerprint:
+        return
+    reason = SUPERSEDED_CAMPAIGN_FINGERPRINTS.get(str(fingerprint))
+    if reason:
+        raise DossierImmutabilityError(
+            f"campaign fingerprint {fingerprint} is superseded ({reason}); refuse overwrite"
+        )
 
 
 def jsonable_campaign_payload(obj: Any) -> Any:
@@ -926,6 +942,7 @@ def run_canonical_evidence_campaign_v1(
                 fingerprint = str((pair_payload or {}).get("campaign_fingerprint") or "")
                 if not fingerprint and isinstance(campaign_record, dict):
                     fingerprint = str(campaign_record.get("campaign_fingerprint") or "")
+                _refuse_superseded_fingerprint(fingerprint)
                 state.data["fingerprint"] = fingerprint
                 dest = campaign_artifact_dir(fingerprint, root=artifact_root)
                 dest.mkdir(parents=True, exist_ok=True)
@@ -944,6 +961,7 @@ def run_canonical_evidence_campaign_v1(
                 dest = campaign_artifact_dir(str(fingerprint), root=artifact_root)
 
     identity_key = str(fingerprint or pre_id)
+    _refuse_superseded_fingerprint(fingerprint)
     if dest is None and fingerprint:
         dest = campaign_artifact_dir(str(fingerprint), root=artifact_root)
     artifact_dir = dest or runtime_dir
@@ -964,6 +982,26 @@ def run_canonical_evidence_campaign_v1(
                 "v4_run_id": int(v4_id) if v4_id is not None else None,
                 "persist_registry": False,
             }
+            bound_from_s, bound_to_s = campaign_primary_bounds(window)
+            if bound_to_s:
+                date_to_oos = date.fromisoformat(str(bound_to_s)[:10])
+                exclusive = campaign_development_end_exclusive(date_to_oos)
+                oos_kwargs["development_end_exclusive"] = exclusive
+                oos_kwargs["campaign_date_to"] = date_to_oos
+                if bound_from_s:
+                    date_from_oos = date.fromisoformat(str(bound_from_s)[:10])
+                    oos_kwargs["campaign_date_from"] = date_from_oos
+                else:
+                    date_from_oos = None
+                fold_n = ((snapshot.get("campaign_window") or {}).get("expanding_oos") or {}).get(
+                    "fold_count"
+                )
+                if fold_n is None and date_from_oos is not None:
+                    fold_n = expanding_oos_fold_count(
+                        date_from=date_from_oos, date_to=date_to_oos
+                    )
+                if fold_n is not None:
+                    oos_kwargs["expected_fold_count"] = int(fold_n)
             if oos_fn is None:
 
                 def _fold_progress(info: dict[str, Any]) -> None:
