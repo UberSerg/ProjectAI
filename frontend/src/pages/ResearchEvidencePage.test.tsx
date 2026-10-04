@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import * as evidenceApi from "../api/researchEvidence";
-import type { ResearchEvidenceOverview } from "../api/researchEvidence";
+import type { EvidenceDossierV1, ResearchEvidenceOverview } from "../api/researchEvidence";
 import { HelpProvider } from "../help";
 import { KrakenRoleProvider } from "../role/KrakenRoleContext";
 import { ROLE_STORAGE_KEY } from "../role/types";
@@ -66,6 +66,67 @@ const fullOverview: ResearchEvidenceOverview = {
   limitations: [],
 };
 
+const sampleDossier: EvidenceDossierV1 = {
+  identity: {
+    campaign_version: "CanonicalEvidenceCampaignV1",
+    fingerprint: "deadbeefcafebabe00112233",
+    fingerprint_short: "deadbeefcafe",
+    v3_run_id: 11,
+    v4_run_id: 12,
+    date_from: "2022-04-01",
+    date_to: "2025-08-01",
+    data_snapshot_hash: "snapsha256abc",
+  },
+  data_quality: {
+    price_coverage: 0.91,
+    pit_status: "PASS",
+    v4_fundamental_coverage: { missing: true },
+    event_coverage: { missing: true },
+    issuer_identity_basis: { missing: true },
+    bank_fi_unsupported: { missing: true },
+    total_return_status: "incomplete",
+  },
+  historical_oos: {
+    rows: [
+      { variant: "base", rank_ic: 0.02, spread: 0.01, n: 200, ci_low: 0, ci_high: 0.04 },
+      { variant: "fund", rank_ic: 0.022, spread: 0.01, n: 200, ci_low: -0.01, ci_high: 0.05 },
+      { variant: "events", rank_ic: 0.021, spread: 0.01, n: 200, ci_low: -0.01, ci_high: 0.04 },
+      { variant: "full_v4", rank_ic: 0.03, spread: 0.012, n: 200, ci_low: 0.01, ci_high: 0.05 },
+    ],
+  },
+  stability: {
+    years: [{ year: 2023, rank_ic: 0.02, n: 80 }],
+    folds: [{ fold: "F1", rank_ic: 0.01, n: 40 }],
+    identity_basis: [{ label: "CURRENT_ONLY", rank_ic: 0.01, n: 20 }],
+    activity: [{ label: "active", rank_ic: 0.03, n: 50 }],
+  },
+  economics_primary: {
+    rebalance_sessions: 20,
+    selection_top_pct: 20,
+    cost_bps_per_side: 30,
+    cumulative_price_return: 0.08,
+    benchmark_return: 0.05,
+    max_drawdown: -0.2,
+    turnover: 3.1,
+    average_cash_weight: 0.12,
+    unresolved_exits: 0,
+  },
+  economics_robustness: {
+    cells: [
+      { rebalance_sessions: 20, selection_top_pct: 20, cost_bps: 30, total_return: 0.08 },
+      { rebalance_sessions: 10, selection_top_pct: 10, cost_bps: 0, total_return: 0.4 },
+    ],
+  },
+  prospective: { empty: true },
+  evidence_completeness: {
+    data_integrity: "PARTIAL",
+    historical_oos: "COMPLETE",
+    economics: "COMPLETE",
+    prospective: "EMPTY",
+    owner_review_state: "EVIDENCE_DOSSIER_COMPLETE",
+  },
+};
+
 function renderPage(role: "OWNER" | "USER" = "OWNER") {
   localStorage.setItem(ROLE_STORAGE_KEY, role);
   return render(
@@ -90,6 +151,12 @@ describe("ResearchEvidencePage", () => {
       n_observations: 0,
     });
     vi.mocked(evidenceApi.getResearchEvidenceEconomics).mockResolvedValue(fullOverview.economics!);
+    vi.mocked(evidenceApi.listResearchEvidenceCampaigns).mockResolvedValue({ items: [] });
+    vi.mocked(evidenceApi.getResearchEvidenceCampaignDossier).mockResolvedValue({ empty: true });
+    vi.mocked(evidenceApi.launchCanonicalEvidenceCampaignV1).mockResolvedValue({
+      status: "queued",
+      campaign_version: "CanonicalEvidenceCampaignV1",
+    });
   });
 
   it("shows research-only badges and never accuracy or production-ready wording", async () => {
@@ -180,6 +247,7 @@ describe("ResearchEvidencePage", () => {
     renderPage("USER");
     await screen.findByTestId("research-evidence-page");
     expect(screen.queryByRole("button", { name: "Пересчитать доказательства" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Запустить каноническое исследование" })).not.toBeInTheDocument();
   });
 
   it("lets OWNER request an exact frozen rerun without dumping prediction rows", async () => {
@@ -212,7 +280,107 @@ describe("ResearchEvidencePage", () => {
     const button = await screen.findByRole("button", { name: "Пересчитать доказательства" });
     expect(button).toBeDisabled();
     expect(screen.getByTestId("evidence-rerun-hint")).toHaveTextContent(
-      /существующий эксперимент или явные dataset_v3_run_id/,
+      /существующий эксперимент/,
     );
+  });
+
+  it("shows empty canonical dossier without crashing", async () => {
+    renderPage();
+    expect(await screen.findByText("Каноническое досье ещё не собрано")).toBeInTheDocument();
+    expect(screen.getByTestId("campaign-history")).toBeInTheDocument();
+  });
+
+  it("lets OWNER launch CanonicalEvidenceCampaignV1 without a free-form universe", async () => {
+    vi.mocked(evidenceApi.launchCanonicalEvidenceCampaignV1).mockResolvedValue({
+      status: "queued",
+      message: "Каноническое исследование поставлено в очередь.",
+      fingerprint: "deadbeefcafebabe00112233",
+      campaign_version: "CanonicalEvidenceCampaignV1",
+    });
+    vi.mocked(evidenceApi.listResearchEvidenceCampaigns)
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            fingerprint: "deadbeefcafebabe00112233",
+            fingerprint_short: "deadbeefcafe",
+            date_from: "2022-04-01",
+            date_to: "2025-08-01",
+            status: "RUNNING",
+            created_at: "2026-10-03T00:00:00Z",
+          },
+        ],
+      });
+    vi.mocked(evidenceApi.getResearchEvidenceCampaignDossier).mockResolvedValue(sampleDossier);
+    renderPage("OWNER");
+    const button = await screen.findByRole("button", { name: "Запустить каноническое исследование" });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(evidenceApi.launchCanonicalEvidenceCampaignV1).toHaveBeenCalledWith({
+        campaign_version: "CanonicalEvidenceCampaignV1",
+        exact_rerun: null,
+      });
+    });
+    expect(evidenceApi.launchCanonicalEvidenceCampaignV1).not.toHaveBeenCalledWith(
+      expect.objectContaining({ instrument_ids: expect.anything() }),
+    );
+    expect(await screen.findByTestId("campaign-identity")).toHaveTextContent("CanonicalEvidenceCampaignV1");
+    expect(screen.getByTestId("campaign-identity")).toHaveTextContent("deadbeefcafe");
+    expect(screen.getByTestId("data-quality-fund")).toHaveTextContent("нет данных");
+    expect(screen.getByTestId("campaign-primary-economics")).toHaveTextContent("PRIMARY RESEARCH CONTRACT");
+    expect(screen.getByTestId("campaign-primary-economics")).toHaveTextContent("30 bps");
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/LIVE READY|PRODUCTION READY|WINNER/i);
+    expect(text).not.toMatch(/\baccuracy\b/i);
+  });
+
+  it("shows existing campaign artifact and exact rerun with the same semantics", async () => {
+    vi.mocked(evidenceApi.listResearchEvidenceCampaigns).mockResolvedValue({
+      items: [
+        {
+          fingerprint: "deadbeefcafebabe00112233",
+          fingerprint_short: "deadbeefcafe",
+          date_from: "2022-04-01",
+          date_to: "2025-08-01",
+          status: "COMPLETE",
+          created_at: "2026-10-02T00:00:00Z",
+        },
+        {
+          fingerprint: "olderfp0001",
+          date_from: "2022-04-01",
+          date_to: "2024-01-01",
+          status: "COMPLETE",
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    vi.mocked(evidenceApi.getResearchEvidenceCampaignDossier).mockResolvedValue(sampleDossier);
+    renderPage("OWNER");
+    expect(await screen.findByTestId("campaign-identity")).toHaveTextContent("V3 run");
+    expect(screen.getByTestId("campaign-history").textContent).toMatch(/deadbeefcafe[\s\S]*olderfp0001|deadbeefcafe/);
+    const rows = screen.getAllByRole("row");
+    const bodyText = rows.map((row) => row.textContent).join(" | ");
+    expect(bodyText.indexOf("deadbeefcafe")).toBeLessThan(bodyText.indexOf("olderfp0001"));
+    const rerun = await screen.findByRole("button", { name: "Точный пересчёт с теми же семантиками" });
+    fireEvent.click(rerun);
+    await waitFor(() => {
+      expect(evidenceApi.launchCanonicalEvidenceCampaignV1).toHaveBeenCalledWith({
+        campaign_version: "CanonicalEvidenceCampaignV1",
+        exact_rerun: true,
+      });
+    });
+  });
+
+  it("renders structured campaign dossier errors in Russian without [object Object]", async () => {
+    vi.mocked(evidenceApi.listResearchEvidenceCampaigns).mockResolvedValue({
+      items: [{ fingerprint: "broken-fp", status: "COMPLETE", created_at: "2026-10-03T00:00:00Z" }],
+    });
+    vi.mocked(evidenceApi.getResearchEvidenceCampaignDossier).mockRejectedValue(
+      new ApiError("Ошибка запроса (404)", 404, { detail: { message: "Досье кампании не найдено" } }),
+    );
+    renderPage();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Досье кампании не найдено");
+    expect(alert.textContent).not.toContain("[object Object]");
   });
 });

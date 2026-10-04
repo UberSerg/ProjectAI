@@ -238,6 +238,179 @@ export interface ResearchEvidenceOverview {
   limitations?: Array<EvidenceLimitation | string> | null;
 }
 
+/** Frozen campaign identity. Orchestrator implements persistence later. */
+export const CANONICAL_CAMPAIGN_VERSION = "CanonicalEvidenceCampaignV1";
+
+export interface CampaignIdentity {
+  campaign_version?: string | null;
+  fingerprint?: string | null;
+  fingerprint_short?: string | null;
+  v3_run_id?: number | string | null;
+  v4_run_id?: number | string | null;
+  v3_dataset_hash?: string | null;
+  v4_dataset_hash?: string | null;
+  v3_values_hash?: string | null;
+  v4_values_hash?: string | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  data_snapshot_hash?: string | null;
+  data_snapshot_at?: string | null;
+  universe_version?: string | null;
+}
+
+export interface EvidenceCampaignSummary {
+  fingerprint: string;
+  fingerprint_short?: string | null;
+  campaign_version?: string | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  finalized_at?: string | null;
+}
+
+export interface EvidenceCampaignList {
+  items?: EvidenceCampaignSummary[] | null;
+  campaigns?: EvidenceCampaignSummary[] | null;
+}
+
+export interface DataQualityField {
+  status?: string | null;
+  value?: number | string | null;
+  missing?: boolean | null;
+  notes?: string | null;
+  counts?: Record<string, number | null> | null;
+}
+
+export interface CampaignDataQuality {
+  price_coverage?: DataQualityField | number | string | null;
+  pit_status?: DataQualityField | string | null;
+  v4_fundamental_coverage?: DataQualityField | number | string | null;
+  event_coverage?: DataQualityField | number | string | null;
+  issuer_identity_basis?: DataQualityField | Record<string, number | null> | null;
+  bank_fi_unsupported?: DataQualityField | number | string | null;
+  total_return_status?: DataQualityField | string | null;
+}
+
+export interface CampaignOosRow {
+  variant: string;
+  label?: string | null;
+  rank_ic?: number | null;
+  mean_rank_ic?: number | null;
+  spread?: number | null;
+  n?: number | null;
+  ci_low?: number | null;
+  ci_high?: number | null;
+  bootstrap_ci_low?: number | null;
+  bootstrap_ci_high?: number | null;
+  delta_vs_base?: number | null;
+  delta_ci_low?: number | null;
+  delta_ci_high?: number | null;
+}
+
+export interface CampaignOosTable {
+  rows?: CampaignOosRow[] | null;
+  notes?: string | null;
+  partial?: boolean | null;
+}
+
+export interface StabilitySliceRow {
+  key?: string | null;
+  label?: string | null;
+  fold?: string | null;
+  year?: number | string | null;
+  rank_ic?: number | null;
+  spread?: number | null;
+  n?: number | null;
+}
+
+export interface CampaignStability {
+  years?: StabilitySliceRow[] | null;
+  folds?: StabilitySliceRow[] | null;
+  identity_basis?: StabilitySliceRow[] | null;
+  activity?: StabilitySliceRow[] | null;
+  notes?: string | null;
+}
+
+export interface PrimaryResearchContract {
+  rebalance_sessions?: number | null;
+  selection_top_pct?: number | null;
+  cost_bps_per_side?: number | null;
+  model_semantic?: string | null;
+  variant?: string | null;
+  return_kind?: EvidenceReturnKind | string | null;
+  cumulative_price_return?: number | null;
+  benchmark_return?: number | null;
+  excess_vs_benchmark?: number | null;
+  max_drawdown?: number | null;
+  turnover?: number | null;
+  average_cash_weight?: number | null;
+  unresolved_exits?: number | null;
+  unavailable_open_executions?: number | null;
+  notes?: string | null;
+  partial?: boolean | null;
+}
+
+export interface RobustnessMatrixCell {
+  rebalance_sessions?: number | null;
+  selection_top_pct?: number | null;
+  cost_bps?: number | null;
+  total_return?: number | null;
+  max_drawdown?: number | null;
+  turnover?: number | null;
+  n?: number | null;
+}
+
+export interface EconomicsRobustness {
+  rebalance_sessions?: number[] | null;
+  selection_top_pct?: number[] | null;
+  cost_bps?: number[] | null;
+  cells?: RobustnessMatrixCell[] | null;
+  notes?: string | null;
+}
+
+export interface EvidenceCompleteness {
+  data_integrity?: string | null;
+  historical_oos?: string | null;
+  economics?: string | null;
+  prospective?: string | null;
+  owner_review_state?: string | null;
+}
+
+export interface EvidenceDossierV1 {
+  identity?: CampaignIdentity | null;
+  data_snapshot?: {
+    hash?: string | null;
+    observed_at?: string | null;
+    created_at?: string | null;
+  } | null;
+  data_quality?: CampaignDataQuality | null;
+  historical_oos?: CampaignOosTable | null;
+  ablation?: AblationTable | null;
+  stability?: CampaignStability | EvidenceStability | null;
+  economics_primary?: PrimaryResearchContract | null;
+  economics_robustness?: EconomicsRobustness | null;
+  prospective?: ProspectiveSummary | null;
+  limitations?: Array<EvidenceLimitation | string> | null;
+  evidence_completeness?: EvidenceCompleteness | null;
+  status?: string | null;
+  empty?: boolean | null;
+}
+
+export interface CanonicalCampaignLaunchRequest {
+  campaign_version: typeof CANONICAL_CAMPAIGN_VERSION;
+  exact_rerun?: boolean | null;
+}
+
+export interface CanonicalCampaignLaunchResponse {
+  status?: string | null;
+  message?: string | null;
+  fingerprint?: string | null;
+  campaign_version?: string | null;
+  existing?: boolean | null;
+  exact_rerun?: boolean | null;
+}
+
 export interface ResearchEvidenceExperimentDetail {
   experiment?: EvidenceExperiment | null;
   dataset?: EvidenceDataset | null;
@@ -295,4 +468,37 @@ export function runResearchEvidence(body: ResearchEvidenceRunRequest = {}, signa
     body,
     signal,
   });
+}
+
+export function listResearchEvidenceCampaigns(signal?: AbortSignal) {
+  return apiRequest<EvidenceCampaignList>(`${BASE}/campaigns`, { signal });
+}
+
+export function getResearchEvidenceCampaign(fingerprint: string, signal?: AbortSignal) {
+  return apiRequest<EvidenceCampaignSummary>(
+    `${BASE}/campaigns/${encodeURIComponent(fingerprint)}`,
+    { signal },
+  );
+}
+
+/** OWNER-only. Body is CanonicalEvidenceCampaignV1 — no free-form universe. */
+export function launchCanonicalEvidenceCampaignV1(
+  body: CanonicalCampaignLaunchRequest = { campaign_version: CANONICAL_CAMPAIGN_VERSION },
+  signal?: AbortSignal,
+) {
+  return apiRequest<CanonicalCampaignLaunchResponse>(`${BASE}/campaigns/canonical-v1`, {
+    method: "POST",
+    body: {
+      campaign_version: CANONICAL_CAMPAIGN_VERSION,
+      ...(body.exact_rerun ? { exact_rerun: true } : {}),
+    },
+    signal,
+  });
+}
+
+export function getResearchEvidenceCampaignDossier(fingerprint: string, signal?: AbortSignal) {
+  return apiRequest<EvidenceDossierV1>(
+    `${BASE}/campaigns/${encodeURIComponent(fingerprint)}/dossier`,
+    { signal },
+  );
 }

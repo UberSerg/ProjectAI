@@ -94,6 +94,8 @@ def run_v4_ablation(
     random_seed: int = RANDOM_SEED,
     config: CandidateV0Config = CANDIDATE_V0_CONFIG,
     variants: tuple[str, ...] = ABLATION_VARIANTS,
+    fold_progress: Callable[[dict[str, Any]], None] | None = None,
+    variant_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Same V4 rows, same y, same folds, same hypers, same seed; only the NaN mask differs."""
     assert_no_registry_persist(persist_registry)
@@ -132,11 +134,22 @@ def run_v4_ablation(
             min_val_n=min_val_n,
             random_seed=random_seed,
             config=config,
+            fold_progress=fold_progress,
         )
         result["ablation_variant"] = variant
         result["masked_columns"] = list(columns_to_mask(variant))
         result["n_rows"] = int(len(masked))
         out["variants"][variant] = result
+        if variant_progress is not None:
+            variant_progress(
+                {
+                    "variant": variant,
+                    "semantic": semantic,
+                    "index": len(out["variants"]),
+                    "total": len(variants),
+                    "folds_done": len(result.get("folds") or []),
+                }
+            )
     row_counts = {name: payload.get("n_rows") for name, payload in out["variants"].items()}
     if any(n != n_rows for n in row_counts.values()):
         out["same_rows"] = False

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 from app.core.logging import get_logger
-from app.infrastructure.db.session import core_session
+from app.infrastructure.db.session import core_session, memory_session
 from app.infrastructure.market.models import Workflow
 from app.modules.market.application.data_quality import DataQualityContext, run_data_quality_checks
 from app.modules.market.application.ingest import MarketIngestionService
@@ -591,4 +591,56 @@ def research_evidence_run(
             finish_workflow(session, workflow, "ERROR")
             session.commit()
             logger.exception("research_evidence_run_failed", extra={"error": str(exc)})
+            raise
+
+
+@celery_app.task(name="projectai.canonical_evidence_campaign_v1")
+def canonical_evidence_campaign_v1(workflow_id: int, exact_rerun: bool = False) -> dict:
+    """Canonical Evidence Campaign V1. persist_registry is always false."""
+    from app.modules.market.application.workflows import finish_workflow, get_step, update_step
+    from app.modules.prediction.application.forward_outcome import evaluate_forward_outcomes
+    from app.modules.research_evidence.campaign_runner import (
+        run_canonical_evidence_campaign_v1,
+    )
+
+    def _official_refresh() -> None:
+        with core_session() as session:
+            evaluate_forward_outcomes(session)
+
+    with core_session() as session, memory_session() as memory:
+        workflow = session.get(Workflow, workflow_id)
+        if workflow is None:
+            raise ValueError(f"Workflow {workflow_id} not found")
+
+        def _hook(name: str, status: str, error: str | None = None) -> None:
+            update_step(session, get_step(workflow, name), status, error=error)
+            session.commit()
+
+        try:
+            result = run_canonical_evidence_campaign_v1(
+                session,
+                memory,
+                workflow_id=workflow_id,
+                exact_rerun=bool(exact_rerun),
+                persist_registry=False,
+                official_refresh=_official_refresh,
+                step_hook=_hook,
+            )
+            finish_status = "WARNING" if result.get("block_code") else "SUCCESS"
+            finish_workflow(session, workflow, finish_status, error=result.get("block_reason"))
+            session.commit()
+            return {
+                "workflow_id": workflow_id,
+                "fingerprint": result.get("fingerprint"),
+                "persist_registry": False,
+                "status": result.get("status"),
+            }
+        except Exception as exc:
+            try:
+                update_step(session, get_step(workflow, "FINALIZE"), "ERROR", error=str(exc))
+            except Exception:  # noqa: BLE001
+                pass
+            finish_workflow(session, workflow, "ERROR", error=str(exc))
+            session.commit()
+            logger.exception("canonical_evidence_campaign_v1_failed", extra={"error": str(exc)})
             raise
