@@ -32,6 +32,11 @@ from app.modules.research_evidence.campaign_dossier import (
 from app.modules.research_evidence.campaign_economics import run_economic_robustness_campaign
 from app.modules.research_evidence.campaign_oos import run_paired_v3_v4_evidence_campaign
 from app.modules.research_evidence.campaign_pair import build_or_load_paired_v3_v4
+from app.modules.research_evidence.campaign_recovery import (
+    find_reusable_dataset_run,
+    interrupt_stale_campaign_dataset_builds,
+    verify_research_specs,
+)
 from app.modules.research_evidence.campaign_refresh import inspect_campaign_coverage, refresh_campaign_data
 from app.modules.research_evidence.campaign_snapshot import (
     build_research_data_snapshot,
@@ -103,7 +108,8 @@ _JSON_DROP_KEYS = frozenset(
         "frame",
     }
 )
-_STAGE_DONE = frozenset({"SUCCESS", "SKIPPED_RESUME", "BLOCKED", "WARNING"})
+_STAGE_RESUME = frozenset({"SUCCESS", "SKIPPED_RESUME", "WARNING"})
+_STAGE_DONE = _STAGE_RESUME | frozenset({"BLOCKED"})
 _JSON_ARTIFACTS = (
     "research_data_snapshot.json",
     "refresh_audit.json",
@@ -652,7 +658,8 @@ class _CampaignState:
         return row if isinstance(row, dict) else {}
 
     def is_done(self, name: str) -> bool:
-        return self.stage(name).get("status") in _STAGE_DONE
+        """Resume only completed semantic stages. BLOCKED is audit, not reuse."""
+        return self.stage(name).get("status") in _STAGE_RESUME
 
     def mark(
         self,
@@ -814,15 +821,39 @@ def run_canonical_evidence_campaign_v1(
             date_from = date.fromisoformat(bound_from) if bound_from else None
             date_to = date.fromisoformat(bound_to) if bound_to else None
             try:
+                reuse_v3_id = None
+                reuse_v4_id = None
+                if pair_fn is None:
+                    verify_research_specs(core_session)
+                    interrupt_stale_campaign_dataset_builds(core_session)
+                    if date_from and date_to:
+                        reuse_v3 = find_reusable_dataset_run(
+                            core_session,
+                            spec_version=3,
+                            date_from=date_from,
+                            date_to=date_to,
+                        )
+                        reuse_v4 = find_reusable_dataset_run(
+                            core_session,
+                            spec_version=4,
+                            date_from=date_from,
+                            date_to=date_to,
+                        )
+                        reuse_v3_id = None if reuse_v3 is None else int(reuse_v3.id)
+                        reuse_v4_id = None if reuse_v4 is None else int(reuse_v4.id)
                 builder_pair = pair_fn or build_or_load_paired_v3_v4
-                pair_payload = builder_pair(
-                    core_session,
-                    date_from=date_from,
-                    date_to=date_to,
-                    instrument_ids=None,
-                    persist_registry=False,
-                    data_snapshot_hash=snapshot.get("data_snapshot_hash"),
-                )
+                pair_kwargs: dict[str, Any] = {
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "instrument_ids": None,
+                    "persist_registry": False,
+                    "data_snapshot_hash": snapshot.get("data_snapshot_hash"),
+                }
+                if reuse_v3_id is not None:
+                    pair_kwargs["v3_run_id"] = reuse_v3_id
+                if reuse_v4_id is not None:
+                    pair_kwargs["v4_run_id"] = reuse_v4_id
+                pair_payload = builder_pair(core_session, **pair_kwargs)
             except FairCompareError as exc:
                 block_code = "FAIR_CONTRACT_FAIL"
                 block_reason = str(exc)
