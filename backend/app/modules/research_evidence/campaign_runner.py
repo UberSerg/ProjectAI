@@ -868,7 +868,6 @@ def run_canonical_evidence_campaign_v1(
                 pair_kwargs: dict[str, Any] = {
                     "date_from": date_from,
                     "date_to": date_to,
-                    "instrument_ids": None,
                     "persist_registry": False,
                     "data_snapshot_hash": snapshot.get("data_snapshot_hash"),
                 }
@@ -884,7 +883,7 @@ def run_canonical_evidence_campaign_v1(
                         total=int(info.get("total") or 0),
                         unit=str(info.get("unit") or "samples"),
                     )
-                pair_payload = builder_pair(core_session, **pair_kwargs)
+                pair_payload = builder_pair(core_session, instrument_ids=None, **pair_kwargs)
             except FairCompareError as exc:
                 block_code = "FAIR_CONTRACT_FAIL"
                 block_reason = str(exc)
