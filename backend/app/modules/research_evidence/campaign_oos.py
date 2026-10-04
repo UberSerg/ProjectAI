@@ -191,6 +191,8 @@ def run_paired_v3_v4_evidence_campaign(
     min_val_n: int = 20,
     random_seed: int = RANDOM_SEED,
     config: CandidateV0Config = CANDIDATE_V0_CONFIG,
+    fold_progress: Callable[..., Any] | None = None,
+    variant_progress: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Run regression OOS, ranking OOS, V4 ablation, paired deltas, and stability.
 
@@ -214,14 +216,34 @@ def run_paired_v3_v4_evidence_campaign(
         "config": config,
     }
 
-    regression = run_chronological_oos(resolved, semantic="regression", **shared)
-    ranking = run_chronological_oos(resolved, semantic="ranking", **shared)
+    def _fold_cb(semantic_name: str):
+        def _inner(info: dict[str, Any]) -> None:
+            if fold_progress is None:
+                return
+            payload = dict(info)
+            payload["semantic"] = semantic_name
+            fold_progress(payload)
+
+        return _inner
+
+    regression = run_chronological_oos(
+        resolved, semantic="regression", fold_progress=_fold_cb("regression"), **shared
+    )
+    ranking = run_chronological_oos(
+        resolved, semantic="ranking", fold_progress=_fold_cb("ranking"), **shared
+    )
     assert_ranking_metrics_clean(ranking)
     for fold in ranking.get("folds") or []:
         if isinstance(fold, dict):
             assert_ranking_metrics_clean(fold)
 
-    ablation = run_v4_ablation(resolved, semantic="ranking", **shared)
+    ablation = run_v4_ablation(
+        resolved,
+        semantic="ranking",
+        fold_progress=_fold_cb("ablation"),
+        variant_progress=variant_progress,
+        **shared,
+    )
     for variant_payload in (ablation.get("variants") or {}).values():
         if isinstance(variant_payload, dict):
             assert_ranking_metrics_clean(variant_payload)

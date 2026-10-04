@@ -154,6 +154,8 @@ def build_or_load_paired_v3_v4(
     persist_registry: bool = False,
     data_snapshot_hash: str | None = None,
     created_at: datetime | str | None = None,
+    progress_callback: Any | None = None,
+    expected_samples: int | None = None,
 ) -> dict[str, Any]:
     """Load existing paired runs or build them via compare_v3_v4; then prove identity.
 
@@ -179,6 +181,8 @@ def build_or_load_paired_v3_v4(
                 v3_run_id=v3_run_id,
                 v4_run_id=v4_run_id,
                 rebuild=rebuild,
+                progress_callback=progress_callback,
+                expected_samples=expected_samples,
             )
             sample_status = (compare.get("sample_diff") or {}).get("fair_contract_status")
             if sample_status == "FAIR_CONTRACT_FAIL":

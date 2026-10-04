@@ -309,6 +309,7 @@ def run_chronological_oos(
     hyperparameters: dict[str, Any] | None = None,
     random_seed: int = RANDOM_SEED,
     config: CandidateV0Config = CANDIDATE_V0_CONFIG,
+    fold_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Walk-forward expanding OOS with mandatory 20d label purge.
 
@@ -380,6 +381,16 @@ def run_chronological_oos(
             report["metrics"] = None
             report["reason"] = "insufficient_samples"
             fold_reports.append(report)
+            if fold_progress is not None:
+                fold_progress(
+                    {
+                        "fold_id": fold.fold_id,
+                        "fold_index": len(fold_reports),
+                        "fold_total": len(fold_list),
+                        "semantic": semantic,
+                        "status": STATUS_INSUFFICIENT,
+                    }
+                )
             continue
 
         train_df = train_df.sort_values(["as_of_date", "instrument_id"], kind="mergesort")
@@ -414,6 +425,15 @@ def run_chronological_oos(
         report["metrics"] = metrics
         fold_reports.append(report)
         pred_parts.append(val_pred)
+        if fold_progress is not None:
+            fold_progress(
+                {
+                    "fold_id": fold.fold_id,
+                    "fold_index": len(fold_reports),
+                    "fold_total": len(fold_list),
+                    "semantic": semantic,
+                }
+            )
 
     payload["folds"] = fold_reports
     if not pred_parts:

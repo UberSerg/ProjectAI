@@ -32,6 +32,11 @@ from app.modules.research_evidence.campaign_dossier import (
 from app.modules.research_evidence.campaign_economics import run_economic_robustness_campaign
 from app.modules.research_evidence.campaign_oos import run_paired_v3_v4_evidence_campaign
 from app.modules.research_evidence.campaign_pair import build_or_load_paired_v3_v4
+from app.modules.research_evidence.campaign_progress import (
+    PROGRESS_FILENAME,
+    CampaignProgress,
+    wrap_step_hook,
+)
 from app.modules.research_evidence.campaign_recovery import (
     find_reusable_dataset_run,
     interrupt_stale_campaign_dataset_builds,
@@ -732,6 +737,20 @@ def run_canonical_evidence_campaign_v1(
     state.data.setdefault("created_at", created_at)
     state.save()
 
+    progress = CampaignProgress(
+        runtime_dir / PROGRESS_FILENAME,
+        campaign_id=str(workflow_id),
+        campaign_fingerprint=state.data.get("fingerprint"),
+    )
+    resumed = [
+        name
+        for name, row in (state.data.get("stages") or {}).items()
+        if isinstance(row, dict) and row.get("status") in {"SUCCESS", "SKIPPED_RESUME", "WARNING"}
+    ]
+    if resumed:
+        progress.mark_completed(resumed)
+    step_hook = wrap_step_hook(progress, step_hook)
+
     executed: list[str] = []
     skipped: list[str] = []
     fingerprint: str | None = state.data.get("fingerprint")
@@ -823,6 +842,7 @@ def run_canonical_evidence_campaign_v1(
             try:
                 reuse_v3_id = None
                 reuse_v4_id = None
+                expected_samples: int | None = None
                 if pair_fn is None:
                     verify_research_specs(core_session)
                     interrupt_stale_campaign_dataset_builds(core_session)
@@ -841,6 +861,9 @@ def run_canonical_evidence_campaign_v1(
                         )
                         reuse_v3_id = None if reuse_v3 is None else int(reuse_v3.id)
                         reuse_v4_id = None if reuse_v4 is None else int(reuse_v4.id)
+                        if reuse_v3_id is not None:
+                            progress.complete_stage("BUILD_V3")
+                        expected_samples = None if reuse_v3 is None else int(reuse_v3.samples_total or 0)
                 builder_pair = pair_fn or build_or_load_paired_v3_v4
                 pair_kwargs: dict[str, Any] = {
                     "date_from": date_from,
@@ -853,6 +876,14 @@ def run_canonical_evidence_campaign_v1(
                     pair_kwargs["v3_run_id"] = reuse_v3_id
                 if reuse_v4_id is not None:
                     pair_kwargs["v4_run_id"] = reuse_v4_id
+                if pair_fn is None:
+                    pair_kwargs["expected_samples"] = expected_samples or None
+                    pair_kwargs["progress_callback"] = lambda info: progress.update_stage_units(
+                        "BUILD_V4",
+                        current=int(info.get("current") or 0),
+                        total=int(info.get("total") or 0),
+                        unit=str(info.get("unit") or "samples"),
+                    )
                 pair_payload = builder_pair(core_session, **pair_kwargs)
             except FairCompareError as exc:
                 block_code = "FAIR_CONTRACT_FAIL"
@@ -928,12 +959,46 @@ def run_canonical_evidence_campaign_v1(
             v3_id = proof.get("dataset_v3_run_id")
             v4_id = proof.get("dataset_v4_run_id")
             runner_oos = oos_fn or run_paired_v3_v4_evidence_campaign
-            oos_payload = runner_oos(
-                session=core_session,
-                v3_run_id=int(v3_id) if v3_id is not None else None,
-                v4_run_id=int(v4_id) if v4_id is not None else None,
-                persist_registry=False,
-            )
+            oos_kwargs: dict[str, Any] = {
+                "session": core_session,
+                "v3_run_id": int(v3_id) if v3_id is not None else None,
+                "v4_run_id": int(v4_id) if v4_id is not None else None,
+                "persist_registry": False,
+            }
+            if oos_fn is None:
+
+                def _fold_progress(info: dict[str, Any]) -> None:
+                    semantic = str(info.get("semantic") or "")
+                    stage = {
+                        "regression": "OOS_REGRESSION",
+                        "ranking": "OOS_RANKER",
+                        "ablation": "ABLATION",
+                    }.get(semantic, "OOS_REGRESSION")
+                    total = int(info.get("fold_total") or 0)
+                    current = int(info.get("fold_index") or 0)
+                    progress.update_stage_units(
+                        stage,
+                        current=current,
+                        total=max(total, current),
+                        unit="folds",
+                        message=f"{stage} fold {current}/{total}",
+                    )
+
+                def _variant_progress(info: dict[str, Any]) -> None:
+                    total = int(info.get("total") or 0)
+                    current = int(info.get("index") or 0)
+                    variant = str(info.get("variant") or "")
+                    progress.update_stage_units(
+                        "ABLATION",
+                        current=current,
+                        total=max(total, current),
+                        unit="variants",
+                        message=f"{variant} {current}/{total}",
+                    )
+
+                oos_kwargs["fold_progress"] = _fold_progress
+                oos_kwargs["variant_progress"] = _variant_progress
+            oos_payload = runner_oos(**oos_kwargs)
             _write_artifact(artifact_dir / "oos_regression.json", oos_payload.get("regression") if oos_payload else {})
             _write_artifact(artifact_dir / "oos_ranker.json", oos_payload.get("ranking") if oos_payload else {})
             _write_artifact(artifact_dir / "ablation.json", oos_payload.get("ablation") if oos_payload else {})
@@ -990,7 +1055,24 @@ def run_canonical_evidence_campaign_v1(
                 needed = required_market_date_to(decisions, list(probe.trading_days))
                 market = loader(core_session, instrument_ids=ids, date_from=d0, date_to=needed)
                 runner_e = economics_fn or run_economic_robustness_campaign
-                econ_result = runner_e(predictions=stamped, market=market)
+                econ_kwargs: dict[str, Any] = {"predictions": stamped, "market": market}
+                if economics_fn is None:
+                    cells_done = {"n": 0}
+
+                    def _econ_observer(event: str, payload: Any = None) -> None:
+                        if event != "cell_metrics_finished":
+                            return
+                        cells_done["n"] += 1
+                        progress.update_stage_units(
+                            "ECONOMICS_ROBUSTNESS",
+                            current=cells_done["n"],
+                            total=36,
+                            unit="cells",
+                            message=f"ECONOMICS_ROBUSTNESS {cells_done['n']}/36",
+                        )
+
+                    econ_kwargs["observer"] = _econ_observer
+                econ_result = runner_e(**econ_kwargs)
             primary_status = _economics_artifact_status(
                 econ_result if isinstance(econ_result, dict) else None
             )
@@ -1150,7 +1232,7 @@ def run_canonical_evidence_campaign_v1(
     report_fp = fingerprint or state.data.get("dossier_fingerprint")
     state.data["fingerprint"] = fingerprint
     state.save()
-    return {
+    result = {
         "status": state.data.get("status") or ("BLOCKED" if block_code else "FINALIZED"),
         "fingerprint": report_fp,
         "workflow_id": workflow_id,
@@ -1162,6 +1244,12 @@ def run_canonical_evidence_campaign_v1(
         "skipped_stages": skipped,
         "artifact_dir": str(dest or artifact_dir),
     }
+    progress.set_fingerprint(str(report_fp) if report_fp else None)
+    if block_code:
+        progress.finish(status="BLOCKED", block_code=block_code, block_reason=block_reason)
+    else:
+        progress.finish(status="COMPLETE")
+    return result
 
 
 __all__ = [

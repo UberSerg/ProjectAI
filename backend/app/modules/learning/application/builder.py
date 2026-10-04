@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
@@ -408,6 +409,8 @@ class PITDatasetBuilder:
         instrument_ids: list[int] | None = None,
         workflow_id: int | None = None,
         seed_specs: bool = True,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        expected_samples: int | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         workflow = self._resolve_workflow(workflow_id)
@@ -754,6 +757,27 @@ class PITDatasetBuilder:
             t_build = time.perf_counter()
             labels_sec_acc = 0.0
             value_hashes: list[str] = []
+            last_progress_mono = 0.0
+            last_progress_n = 0
+
+            def _emit_build_progress(*, force: bool = False) -> None:
+                nonlocal last_progress_mono, last_progress_n
+                if progress_callback is None:
+                    return
+                n = len(samples)
+                now = time.monotonic()
+                if not force and n - last_progress_n < 500 and now - last_progress_mono < 5.0:
+                    return
+                last_progress_n = n
+                last_progress_mono = now
+                total_units = int(expected_samples) if expected_samples and expected_samples > 0 else n
+                progress_callback(
+                    {
+                        "current": n,
+                        "total": max(total_units, n),
+                        "unit": "samples",
+                    }
+                )
 
             total = len(instruments)
             for idx, inst in enumerate(instruments):
@@ -1090,6 +1114,7 @@ class PITDatasetBuilder:
                         # continue collecting to report, then raise
                     else:
                         samples.append(sample)
+                    _emit_build_progress()
 
                     counters["instruments_with_samples"].add(inst.id)
                     if not inst.is_active:
@@ -1180,6 +1205,7 @@ class PITDatasetBuilder:
                     elapsed=round(time.perf_counter() - started, 2),
                 )
 
+            _emit_build_progress(force=True)
             timings["build_sec"] = round(time.perf_counter() - t_build, 3)
             self._mark(workflow, "Build PIT features", "SUCCESS")
             self._mark(workflow, "Build labels", "SUCCESS")

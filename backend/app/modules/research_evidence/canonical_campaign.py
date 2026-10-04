@@ -79,15 +79,22 @@ def main(argv: list[str] | None = None) -> int:
         extra = f" error={error}" if error else ""
         print(f"STAGE {name} {status}{extra}", flush=True)
 
-    with core_session() as core, memory_session() as memory:
-        result = run_canonical_evidence_campaign_v1(
-            core,
-            memory,
-            workflow_id=args.workflow_id,
-            exact_rerun=bool(args.exact_rerun),
-            persist_registry=False,
-            step_hook=_hook,
-        )
+    try:
+        with core_session() as core, memory_session() as memory:
+            result = run_canonical_evidence_campaign_v1(
+                core,
+                memory,
+                workflow_id=args.workflow_id,
+                exact_rerun=bool(args.exact_rerun),
+                persist_registry=False,
+                step_hook=_hook,
+            )
+    except BaseException as exc:
+        from app.modules.research_evidence.campaign_progress import mark_progress_file_error
+
+        runtime = campaign_runtime_dir(args.workflow_id)
+        mark_progress_file_error(runtime / "progress.json", error=f"{type(exc).__name__}: {exc}")
+        raise
     _print(result)
     runtime = campaign_runtime_dir(args.workflow_id)
     print(f"RUNTIME_DIR {runtime}", flush=True)

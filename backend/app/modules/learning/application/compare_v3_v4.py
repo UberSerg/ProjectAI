@@ -7,6 +7,7 @@ Research-only — does not activate DatasetSpec and must not call seed_dataset_s
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 
@@ -92,6 +93,8 @@ def compare_v3_v4_builds(
     v3_run_id: int | None = None,
     v4_run_id: int | None = None,
     rebuild: bool = True,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    expected_samples: int | None = None,
 ) -> dict[str, Any]:
     """Run (or load) bounded V3 and V4 builds and return a coverage comparison artifact."""
     if date_to < date_from:
@@ -130,6 +133,8 @@ def compare_v3_v4_builds(
             dataset_spec_version=PIT_DAILY_CORE_V4_VERSION,
             instrument_ids=instrument_ids,
             seed_specs=False,
+            progress_callback=progress_callback,
+            expected_samples=expected_samples,
         )
         run_v4 = session.get(DatasetRun, v4_result["dataset_run_id"])
         if run_v4 is None:

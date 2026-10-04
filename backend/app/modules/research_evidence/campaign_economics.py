@@ -369,6 +369,8 @@ def run_economic_robustness_campaign(
                 include_sharpe_rf0_research=include_sharpe_rf0_research,
             )
         )
+        if observer is not None:
+            observer("cell_metrics_finished", cell)
 
     primary_row = _lookup_primary(matrix)
     if observer is not None:
