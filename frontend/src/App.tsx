@@ -6,6 +6,7 @@ import { BondsPage } from "./pages/BondsPage";
 import { BondDetailPage } from "./pages/BondDetailPage";
 import { AllocationPage } from "./pages/AllocationPage";
 import { CalibrationPage } from "./pages/CalibrationPage";
+import { CompanyIntelligencePage } from "./pages/intelligence/CompanyIntelligencePage";
 import { InvestmentDecisionPage } from "./pages/InvestmentDecisionPage";
 import { PortfolioRiskPage } from "./pages/PortfolioRiskPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -51,6 +52,7 @@ export function App() {
         <Route path="/technical" element={<TechnicalPage />} />
         <Route path="/fundamentals" element={<FundamentalsPage />} />
         <Route path="/companies" element={<FundamentalsPage />} />
+        <Route path="/intelligence" element={<CompanyIntelligencePage />} />
         <Route path="/bonds" element={<BondsPage />} />
         <Route path="/bonds/:secid" element={<BondDetailPage />} />
         <Route path="/allocation" element={<AllocationPage />} />

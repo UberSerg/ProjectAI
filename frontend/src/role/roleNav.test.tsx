@@ -32,7 +32,10 @@ describe("role presentation nav", () => {
     const labels = navGroupsForRole("OWNER").flatMap((g) => g.items.map((i) => i.label));
     expect(labels).toContain("Живой эксперимент");
     expect(labels).toContain("Система");
+    expect(labels).toContain("Company Intelligence");
     expect(pathAllowedForRole("/shadow", "OWNER")).toBe(true);
+    expect(pathAllowedForRole("/intelligence", "OWNER")).toBe(true);
+    expect(pathAllowedForRole("/intelligence", "USER")).toBe(false);
   });
 
   it("role switch persists and changes nav", () => {

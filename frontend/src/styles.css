@@ -1883,3 +1883,92 @@ details.card > summary {
   background: var(--surface-subtle);
 }
 
+/* Company Intelligence — UNKNOWN must stay visually distinct from NEUTRAL */
+.intel-page .intel-sections {
+  display: grid;
+  gap: 0.85rem;
+}
+.intel-page .intel-section h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+}
+.intel-page .intel-section h3 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.intel-page .intel-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+.intel-page .intel-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.intel-page .intel-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.65rem 1rem;
+  margin: 0;
+}
+.intel-page .intel-dl dt {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.intel-page .intel-dl dd {
+  margin: 0.15rem 0 0;
+  font-weight: 650;
+}
+.intel-page .intel-lookup {
+  grid-template-columns: 1fr 1fr auto auto;
+}
+.intel-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.intel-state-positive {
+  color: var(--success);
+  background: var(--success-bg);
+  border-color: rgba(31, 138, 76, 0.25);
+}
+.intel-state-neutral {
+  color: var(--muted);
+  background: var(--neutral-bg);
+  border-color: rgba(110, 110, 115, 0.2);
+}
+.intel-state-negative {
+  color: var(--error);
+  background: var(--error-bg);
+  border-color: rgba(215, 0, 21, 0.2);
+}
+.intel-state-abstain {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: rgba(184, 110, 0, 0.35);
+  border-style: solid;
+}
+/* UNKNOWN: dashed outline + hatch — never the same flat gray as NEUTRAL */
+.intel-state-unknown {
+  color: #2f5d73;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(47, 93, 115, 0.1),
+      rgba(47, 93, 115, 0.1) 4px,
+      rgba(47, 93, 115, 0.02) 4px,
+      rgba(47, 93, 115, 0.02) 8px
+    );
+  border: 1px dashed #2f5d73;
+}
+
