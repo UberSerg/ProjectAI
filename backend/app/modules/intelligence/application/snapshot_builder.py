@@ -359,14 +359,33 @@ class IntelligenceSnapshotBuilder:
         except ImportError:
             build_intraday_snapshot = None
 
-        if build_intraday_snapshot is not None:
-            snap = build_intraday_snapshot(
-                instrument_id=ctx.instrument_id,
-                as_of=ctx.as_of,
-                session=ctx.session,
-            )
-            if snap is not None:
-                return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
+        if build_intraday_snapshot is not None and ctx.session is not None:
+            from datetime import timedelta
+
+            partial: dict[str, Any] | None = None
+            for delta in range(0, 8):
+                day = ctx.as_of - timedelta(days=delta)
+                if day.weekday() >= 5:
+                    continue
+                snap = build_intraday_snapshot(
+                    instrument_id=ctx.instrument_id,
+                    as_of=day,
+                    session=ctx.session,
+                )
+                if snap is None:
+                    continue
+                payload = snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
+                coverage = str(payload.get("coverage_status") or "").upper()
+                if coverage == "READY":
+                    return payload
+                if (
+                    partial is None
+                    and coverage == "PARTIAL"
+                    and int(payload.get("bars_used") or 0) >= 9
+                ):
+                    partial = payload
+            if partial is not None:
+                return partial
 
         return IntradayFeatureSnapshotV1(
             instrument_id=ctx.instrument_id,

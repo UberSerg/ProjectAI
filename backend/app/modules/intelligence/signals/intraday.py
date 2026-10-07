@@ -38,15 +38,26 @@ def _features_map(snapshot: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _volume_confirmation(features: Mapping[str, Any]) -> float | None:
-    for key in ("volume_confirmation", "accumulation_volume_z", "volume_zscore"):
+    for key in (
+        "price_volume_confirmation",
+        "volume_confirmation",
+        "accumulation_volume_z",
+        "intraday_volume_zscore",
+        "volume_zscore",
+    ):
         val = optional_float(features.get(key))
         if val is not None:
             return clip(val / 2.0)
+    return None
 
 
 def _weak_close(features: Mapping[str, Any]) -> float | None:
     """close_location in [0,1] (low=weak close → adverse); or weak_close flag/score."""
-    loc = optional_float(features.get("close_location") or features.get("close_in_range"))
+    loc = optional_float(
+        features.get("close_location_in_range")
+        or features.get("close_location")
+        or features.get("close_in_range")
+    )
     if loc is not None:
         # High close supportive, weak close adverse.
         return clip(2.0 * loc - 1.0)
@@ -57,32 +68,49 @@ def _weak_close(features: Mapping[str, Any]) -> float | None:
 
 
 def _gap_structure(features: Mapping[str, Any]) -> float | None:
-    gap = optional_float(features.get("gap_return") or features.get("gap"))
+    gap = optional_float(
+        features.get("overnight_gap") or features.get("gap_return") or features.get("gap")
+    )
     cont = optional_float(features.get("gap_continuation") or features.get("gap_follow_through"))
     if cont is not None:
         return clip(cont)
     if gap is None:
         return None
     # Mild continuation bias from gap sign; reversal signal preferred when present.
-    rev = optional_float(features.get("gap_reversal"))
-    if rev is not None:
+    rev = optional_float(features.get("gap_reversal") or features.get("intraday_reversal"))
+    if rev is not None and optional_float(features.get("gap_reversal")) is not None:
         return clip(-rev if gap > 0 else rev)
     return clip(gap / 0.02)
 
 
 def _trend_quality(features: Mapping[str, Any]) -> float | None:
-    for key in ("intraday_trend_quality", "trend_quality", "session_trend"):
+    for key in (
+        "trend_efficiency",
+        "intraday_momentum",
+        "intraday_trend_quality",
+        "trend_quality",
+        "session_trend",
+    ):
         val = optional_float(features.get(key))
         if val is not None:
             return clip(val)
+    return None
 
 
 def _abnormal_vol(features: Mapping[str, Any]) -> float | None:
-    for key in ("abnormal_volatility", "realized_vol_z", "intraday_vol_z"):
+    for key in (
+        "realized_intraday_volatility",
+        "abnormal_volatility",
+        "realized_vol_z",
+        "intraday_vol_z",
+    ):
         val = optional_float(features.get(key))
         if val is not None:
-            # High abnormal vol → adverse tilt.
+            # High abnormal vol → adverse tilt (scale: ~1% session realized vol).
+            if key == "realized_intraday_volatility":
+                return clip(1.0 - (val / 0.01))
             return clip(-abs(val) / 2.0)
+    return None
 
 
 class IntradayStructureModelV1:

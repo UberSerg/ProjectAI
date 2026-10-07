@@ -43,20 +43,23 @@ def _load_technical_features(session: Session, instrument_id: int, as_of: date) 
         select(InstrumentFeatureDaily)
         .where(
             InstrumentFeatureDaily.instrument_id == instrument_id,
-            InstrumentFeatureDaily.date == as_of,
+            InstrumentFeatureDaily.date <= as_of,
             InstrumentFeatureDaily.timeframe == "1d",
         )
-        .order_by(InstrumentFeatureDaily.id.desc())
+        .order_by(InstrumentFeatureDaily.date.desc(), InstrumentFeatureDaily.id.desc())
         .limit(1)
     )
     tech = session.scalar(
         select(InstrumentTechnicalFeatureDaily)
         .where(
             InstrumentTechnicalFeatureDaily.instrument_id == instrument_id,
-            InstrumentTechnicalFeatureDaily.date == as_of,
+            InstrumentTechnicalFeatureDaily.date <= as_of,
             InstrumentTechnicalFeatureDaily.timeframe == "1d",
         )
-        .order_by(InstrumentTechnicalFeatureDaily.id.desc())
+        .order_by(
+            InstrumentTechnicalFeatureDaily.date.desc(),
+            InstrumentTechnicalFeatureDaily.id.desc(),
+        )
         .limit(1)
     )
     if basic is None and tech is None:
@@ -111,10 +114,24 @@ def _intraday_payload(session: Session, instrument_id: int, as_of: date) -> dict
         from app.modules.intelligence.intraday import build_intraday_snapshot
     except ImportError:
         return None
-    snap = build_intraday_snapshot(instrument_id=instrument_id, as_of=as_of, session=session)
-    if snap is None:
-        return None
-    return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
+    from datetime import timedelta
+
+    # Prefer completed READY session on/before as_of (today may be incomplete PARTIAL).
+    partial: dict[str, Any] | None = None
+    for delta in range(0, 8):
+        day = as_of - timedelta(days=delta)
+        if day.weekday() >= 5:
+            continue
+        snap = build_intraday_snapshot(instrument_id=instrument_id, as_of=day, session=session)
+        if snap is None:
+            continue
+        payload = snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
+        coverage = str(payload.get("coverage_status") or "").upper()
+        if coverage == "READY":
+            return payload
+        if partial is None and coverage == "PARTIAL" and int(payload.get("bars_used") or 0) >= 9:
+            partial = payload
+    return partial
 
 
 def _macro_payload(session: Session, as_of: date) -> dict[str, Any] | None:
@@ -174,6 +191,13 @@ def collect_instrument_signals(
         snapshot=macro,
         sector_sensitivity_known=False,
     )
+    from app.modules.intelligence.signals.cross_sectional_ml import CrossSectionalMLModelV1
+
+    ml = CrossSectionalMLModelV1().evaluate(
+        instrument_id=instrument_id,
+        as_of=as_of,
+        provenance=None,
+    )
     bank = unknown_signal(
         model_id="BankModelV1",
         model_version="1",
@@ -192,4 +216,4 @@ def collect_instrument_signals(
         reason="news_events_prospective_only_no_extracted_facts",
         horizon="event_window",
     )
-    return (technical, fundamental, event, intraday, macro_sig, bank, news)
+    return (technical, fundamental, event, intraday, macro_sig, ml, bank, news)

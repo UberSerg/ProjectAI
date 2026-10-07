@@ -39,8 +39,22 @@ _FRESHNESS_STALE_DAYS = 540
 
 
 def _metrics_map(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """Flatten FundamentalSnapshotV1 metrics (derived + facts) for scoring."""
     raw = snapshot.get("metrics")
-    return dict(raw) if isinstance(raw, Mapping) else {}
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, Any] = dict(raw)
+    derived = raw.get("derived")
+    if isinstance(derived, Mapping):
+        out.update(dict(derived))
+    facts = raw.get("facts")
+    if isinstance(facts, Mapping):
+        for code, payload in facts.items():
+            if isinstance(payload, Mapping) and "value" in payload:
+                out[str(code)] = payload.get("value")
+            else:
+                out[str(code)] = payload
+    return out
 
 
 def _profitability(metrics: Mapping[str, Any]) -> float | None:
