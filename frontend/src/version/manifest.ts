@@ -42,19 +42,54 @@ export const KRAKEN_VERSION =
  * Investor-visible product release key shown in «О Kraken» and the sidebar.
  * Independent of technical `VERSION` / `KRAKEN_VERSION`.
  */
-export const KRAKEN_PRODUCT_VERSION = "1.03";
+export const KRAKEN_PRODUCT_VERSION = "1.04";
 
 /**
  * Newest first. Historical entries must keep their own notes forever —
  * never render current changelog under older versions.
  *
- * 1.01 / 1.02 / 1.03 are product micro-releases (no git tag / GitHub Release).
+ * 1.01 / 1.02 / 1.03 / 1.04 are product micro-releases (no git tag / GitHub Release).
  * 1.01 notes restored from the 28.09.2026 local frontend edit on
  * feature/brain-foundation-v2 (never pushed; lost from main after BFV2 merge).
  * V1.0 date/tag/commit from GitHub Release `v1.0.0`
  * (published_at 2026-09-27T09:43:33Z, commit b815b1ae…).
  */
 export const KRAKEN_RELEASES: KrakenReleaseNotes[] = [
+  {
+    version: "1.04",
+    displayVersion: "Kraken 1.04",
+    title: "Research Evidence и каноническая кампания",
+    date: "2026-10-04",
+    summary:
+      "Kraken 1.04 завершает построение полноценного research/evidence-контура. Каноническая кампания показала, что текущий набор V4 fundamentals/events не улучшает OOS-сигнал относительно BASE. Это зафиксированный baseline для следующего этапа развития intelligence stack.",
+    highlights: [
+      "Dataset V4 research foundation",
+      "Research Evidence Engine",
+      "Каноническая кампания на локальных данных",
+      "Immutable evidence dossier",
+      "Без promotion Candidate",
+    ],
+    whatsNew: [
+      "Dataset V4 — research-only: PIT fundamentals и events, тот же historical universe и механические labels, что у V3; пропуски остаются native NaN.",
+      "Research Evidence Engine: детерминированный identity эксперимента, paired V3/V4, chronological OOS, ablation, stability, next-open economics и prospective bridge.",
+      "Завершена Canonical Evidence Campaign на реальных локальных данных: V3 run 655 и V4 run 659, по 42 988 samples, PIT PASS, 0 нарушений.",
+      "Каноническое окно 2022-04-01 → 2026-09-01; OOS оценивает date_to включительно (3 folds, 14 400 предсказаний).",
+      "Economics: 36/36 robustness-ячеек; первичный сценарий — ranking V4_FULL, top 20%, 20 сессий, 30 bps/side, EOD → next OPEN, PRICE_RETURN без дивидендов.",
+      "Текущий V4_FULL не улучшил OOS-сигнал относительно BASE. Это не winner и не production-ready сигнал.",
+      "Production isolation: ACTIVE DatasetSpec остаётся v1, Candidate V0/V1 остаются на Dataset V2. Promotion Candidate нет.",
+      "Кампания resumable: recovery прерванных DatasetBuild, live progress.json; progress не входит в semantic identity.",
+      "Первый COMPLETE dossier сохранён как immutable audit из-за неполного OOS-окна; канонический итоговый dossier — отдельный fingerprint.",
+    ],
+    technicalNotes: [
+      "Technical VERSION remains 1.0.0. No git tag / GitHub Release for Kraken 1.04.",
+      "Canonical dossier fe5609a2ced6082992d923bc57cf99655d73e2787c119564de42bc48803bf233.",
+      "Superseded audit dossier caf1d5703aae7c2c008015e82cc1086cf68d0fa71f138eb05eb39bec2a25cd75 (OOS_EVALUATION_BOUNDARY_MISMATCH).",
+      "evaluation_end_policy=CAMPAIGN_DATE_TO_INCLUSIVE; development_end_exclusive=2026-09-02.",
+      "Ablation mean rank IC: BASE +0.0138; BASE+FUNDAMENTALS +0.0010; BASE+EVENTS −0.0134; V4_FULL −0.0106.",
+      "Primary economics: strategy −30.28% vs eligible-universe EW −28.25%; max DD −41.17% / −40.05%.",
+      "PIT_DAILY_CORE_ACTIVE_VERSION=1; Candidate V0/V1 dataset_spec_version=2; persist_registry=false.",
+    ],
+  },
   {
     version: "1.03",
     displayVersion: "Kraken 1.03",
