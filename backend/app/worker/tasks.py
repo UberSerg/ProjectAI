@@ -423,6 +423,24 @@ def daily_research_cycle(workflow_id: int | None = None) -> dict:
         return run_daily_research_cycle(session, workflow_id=workflow_id)
 
 
+@celery_app.task(name="projectai.intelligence_refresh_v1")
+def intelligence_refresh_v1(
+    instrument_ids: list[int] | None = None,
+    as_of: str | None = None,
+    force: bool = False,
+) -> dict:
+    """On-demand IntelligenceRefreshV1 — OWNER/API only; not on Beat schedule."""
+    from app.modules.intelligence.operations.refresh import run_intelligence_refresh
+
+    with core_session() as session:
+        return run_intelligence_refresh(
+            session,
+            instrument_ids=instrument_ids,
+            as_of=as_of,
+            force=force,
+        )
+
+
 @celery_app.task(name="projectai.daily_research_cycle_scheduled")
 def daily_research_cycle_scheduled() -> dict:
     """Beat entrypoint — only registered when DAILY_RESEARCH_CYCLE_ENABLED=true."""
