@@ -1,0 +1,84 @@
+# First-party Kraken methodology pack — generic auditable principles only.
+# Not copyrighted book excerpts. Rules never issue trades.
+pack_id: kraken_methodology_v1
+version: "1"
+created_from: kraken_methodology
+rules:
+  - rule_id: momentum_needs_volume_confirmation
+    version: "1"
+    domain: TECHNICAL
+    title: Momentum confirmation requires volume evidence
+    principle: >
+      A directional price move without supporting volume evidence is a weak
+      confirmation and should not be treated as strong technical support alone.
+    applicability:
+      - technical_model_available
+      - volume_series_available
+    required_evidence:
+      - price_return
+      - volume_relative
+    contraindications:
+      - missing_volume
+    severity: MEDIUM
+    source_reference: Kraken methodology V1
+    source_location: docs/intelligence/knowledge_packs/kraken_methodology_v1.yaml
+
+  - rule_id: unknown_not_neutral
+    version: "1"
+    domain: RISK
+    title: Unknown is not neutral
+    principle: >
+      Missing or unsupported evidence must be marked UNKNOWN or ABSTAIN.
+      It must never be coerced into NEUTRAL or zero.
+    applicability:
+      - any_model
+    required_evidence: []
+    contraindications: []
+    severity: HIGH
+    source_reference: Kraken methodology V1
+
+  - rule_id: bank_industrial_ratios_forbidden
+    version: "1"
+    domain: BANK
+    title: Banks must not use industrial RAS ratios
+    principle: >
+      Bank and financial-institution issuers must use bank-specific metrics
+      or ABSTAIN. Industrial FNS ratios are unsupported for banks.
+    applicability:
+      - issuer_kind_bank_fi
+    required_evidence:
+      - issuer_kind
+    contraindications: []
+    severity: HIGH
+    source_reference: Kraken methodology V1
+
+  - rule_id: stale_data_blocks_confidence
+    version: "1"
+    domain: RISK
+    title: Stale data reduces confidence
+    principle: >
+      Severely stale or incomplete source data should reduce committee confidence
+      and may force ABSTAIN when core evidence is unavailable.
+    applicability:
+      - data_freshness_check
+    required_evidence:
+      - data_freshness
+    contraindications: []
+    severity: HIGH
+    source_reference: Kraken methodology V1
+
+  - rule_id: material_event_overrides_weak_trend
+    version: "1"
+    domain: EVENT
+    title: Material adverse events outweigh weak technical positives
+    principle: >
+      A high-materiality adverse event with trustworthy known_at should surface
+      as a committee counterargument / risk override against weak technical positives.
+    applicability:
+      - event_model_available
+    required_evidence:
+      - material_event
+    contraindications:
+      - event_timestamp_untrusted
+    severity: HIGH
+    source_reference: Kraken methodology V1
