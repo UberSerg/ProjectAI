@@ -42,19 +42,72 @@ export const KRAKEN_VERSION =
  * Investor-visible product release key shown in «О Kraken» and the sidebar.
  * Independent of technical `VERSION` / `KRAKEN_VERSION`.
  */
-export const KRAKEN_PRODUCT_VERSION = "1.04";
+export const KRAKEN_PRODUCT_VERSION = "1.05";
 
 /**
  * Newest first. Historical entries must keep their own notes forever —
  * never render current changelog under older versions.
  *
- * 1.01 / 1.02 / 1.03 / 1.04 are product micro-releases (no git tag / GitHub Release).
+ * 1.01 / 1.02 / 1.03 / 1.04 / 1.05 are product micro-releases (no git tag / GitHub Release).
  * 1.01 notes restored from the 28.09.2026 local frontend edit on
  * feature/brain-foundation-v2 (never pushed; lost from main after BFV2 merge).
  * V1.0 date/tag/commit from GitHub Release `v1.0.0`
  * (published_at 2026-09-27T09:43:33Z, commit b815b1ae…).
  */
 export const KRAKEN_RELEASES: KrakenReleaseNotes[] = [
+  {
+    version: "1.05",
+    displayVersion: "Kraken 1.05",
+    title: "Kraken Intelligence Stack V1",
+    date: "2026-10-07",
+    summary:
+      "Kraken получил отдельный intelligence-контур: реальные intraday, fundamental, news и macro-источники, несколько независимых аналитических моделей, risk layer и детерминированный Investment Committee. Система теперь умеет собирать разные виды evidence по компании, сохранять неопределённость и показывать владельцу единый Company Intelligence snapshot без переключения production Candidate и без реальных брокерских операций.",
+    highlights: [
+      "Company Intelligence",
+      "Independent analytical models",
+      "Investment Committee",
+      "MOEX 60m intraday",
+      "Fundamental + macro + news intelligence",
+      "Risk & scenarios",
+      "Knowledge rules",
+      "Honest UNKNOWN / ABSTAIN",
+    ],
+    whatsNew: [
+      "Добавлен Company Intelligence — единый экран анализа отдельной компании.",
+      "Kraken получил несколько независимых аналитических взглядов: Technical, Intraday Structure, Fundamental, Event, Macro и research ML.",
+      "Добавлен Investment Committee, который объединяет независимые сигналы, но не скрывает расхождения между моделями.",
+      "Добавлена 60-минутная структура торгов MOEX: gap, intraday volatility, volume structure, VWAP-related и другие внутридневные признаки без перехода к HFT/ticks.",
+      "Расширен фундаментальный анализ промышленных компаний на данных FNS GIR BO с PIT/known_at семантикой.",
+      "Банки отделены от industrial fundamentals: если подходящих bank-specific данных нет, Kraken показывает NOT_AVAILABLE / ABSTAIN, а не применяет неправильные промышленные ratios.",
+      "Добавлен ingestion новостей и публичных сообщений CBR и MOEX с deduplication, published_at / observed_at / known_at и provenance.",
+      "Добавлен macro/regime layer на публичных данных CBR/MOEX.",
+      "Добавлен Knowledge Engine с versioned rules и первым kraken_methodology_v1 pack.",
+      "Добавлен Risk / Scenario Engine. Scenario является стресс-тестом, а не прогнозом вероятности падения.",
+      "Добавлен IntelligenceRefreshV1 и рабочая OWNER-кнопка «Обновить данные», выполняющая live refresh и перечитывающая snapshot.",
+      "Реальный bounded acceptance выполнен на SBER / LKOH / MGNT.",
+      "UNKNOWN отличается от NEUTRAL, ABSTAIN остаётся first-class state. Отсутствующие данные не превращаются в нули или фиктивные сигналы.",
+      "Production Candidate не переключался. Реальное брокерское исполнение не включалось.",
+      "Ограничения этой версии: банковские фундаментальные данные не покрывают весь universe, для SBER остаётся NOT_AVAILABLE. LLM не настроен, выдуманного извлечения нет. Новости копятся вперёд — исторический news OOS за 2023 не заявлен. Event-модель в приёмке без извлечённой полярности. CrossSectionalML воздерживается без принятой research provenance. Глубокая история 60-минутных баров не заявлена. Контур advisory/research: реальной денежной автономии нет.",
+    ],
+    technicalNotes: [
+      "Technical VERSION remains 1.0.0. No git tag / GitHub Release for Kraken 1.05.",
+      "PR #79 merge 58283d8118de2cfd36bd490ad9b3a4ffd9450234. Reviewed feature HEAD df7ed50bb6235079cd3f147e9d916bb32dab276f.",
+      "Intelligence migration 20261007_0027. Separate schema intelligence. 13 intelligence tables.",
+      "Bounded acceptance as_of 2026-10-07. Committee outputs below are acceptance observations, not proven investment performance.",
+      "SBER: Technical NEUTRAL, Intraday NEUTRAL, Fundamental ABSTAIN / BANK_FI, Macro POSITIVE, ML ABSTAIN, Risk MODERATE, Committee HOLD.",
+      "LKOH: Technical POSITIVE, Intraday POSITIVE, Fundamental POSITIVE, Macro POSITIVE, ML ABSTAIN, Risk ELEVATED, Committee CONSIDER_INCREASE.",
+      "MGNT: Technical NEUTRAL, Intraday NEUTRAL, Fundamental NEUTRAL, Macro POSITIVE, ML ABSTAIN, Risk ELEVATED, Committee HOLD.",
+      "MOEX ISS 60m intraday: 249 bounded rows, 2026-10-02 -> 2026-10-07. FNS_GIR_BO industrial fundamentals.",
+      "CBR + MOEX news: 113 documents in bounded smoke; idempotent re-run produced duplicates rather than duplicate inserts.",
+      "Macro READY. Observed regime: RATE=easing, TREND=risk-on, VOL=elevated, FX=strengthening.",
+      "Knowledge kraken_methodology_v1, 5 rules. LLM_UNAVAILABLE without configured provider.",
+      "Exact reviewed PR HEAD CI: 1379 passed, 8 skipped, 3 warnings.",
+      "Bank/FI fundamentals are not universe-wide. SBER bank fundamentals remain NOT_AVAILABLE rather than an industrial fallback.",
+      "News intelligence starts prospectively; historical 2023 news OOS is not claimed. EventModel lacks real extracted polarity in acceptance.",
+      "CrossSectionalML lacks accepted research provenance in the live snapshot and ABSTAINS. Deep historical 60m coverage is not claimed.",
+      "Intelligence Stack is advisory/research intelligence. No real-money autonomy.",
+    ],
+  },
   {
     version: "1.04",
     displayVersion: "Kraken 1.04",

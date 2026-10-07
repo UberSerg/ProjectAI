@@ -10,35 +10,45 @@ import {
 import { formatReleaseDate, isCompleteReleaseNotes } from "./releaseHistory";
 
 describe("Kraken version source", () => {
-  it("keeps technical VERSION 1.0.0 and shows product Kraken 1.04", () => {
+  it("keeps technical VERSION 1.0.0 and shows product Kraken 1.05", () => {
     expect(KRAKEN_VERSION).toBe("1.0.0");
-    expect(KRAKEN_PRODUCT_VERSION).toBe("1.04");
-    expect(KRAKEN_DISPLAY_VERSION).toBe("Kraken 1.04");
+    expect(KRAKEN_PRODUCT_VERSION).toBe("1.05");
+    expect(KRAKEN_DISPLAY_VERSION).toBe("Kraken 1.05");
   });
 
-  it("current release is product 1.04 with mandatory date", () => {
+  it("current release is product 1.05 with mandatory date", () => {
     const rel = currentRelease();
-    expect(rel.version).toBe("1.04");
-    expect(rel.displayVersion).toBe("Kraken 1.04");
-    expect(rel.date).toBe("2026-10-04");
-    expect(formatReleaseDate(rel.date)).toBe("04.10.2026");
+    expect(rel.version).toBe("1.05");
+    expect(rel.displayVersion).toBe("Kraken 1.05");
+    expect(rel.date).toBe("2026-10-07");
+    expect(formatReleaseDate(rel.date)).toBe("07.10.2026");
     expect(isCompleteReleaseNotes(rel)).toBe(true);
-    expect(rel.title).toContain("каноническая кампания");
-    expect(rel.whatsNew.some((line) => line.includes("не улучшил OOS-сигнал относительно BASE"))).toBe(
-      true,
-    );
-    expect(rel.whatsNew.some((line) => /42.?988/.test(line))).toBe(true);
+    expect(rel.title).toBe("Kraken Intelligence Stack V1");
+    expect(rel.whatsNew.some((line) => line.includes("Company Intelligence"))).toBe(true);
+    expect(rel.whatsNew.some((line) => line.includes("Обновить данные"))).toBe(true);
+    expect(rel.whatsNew.some((line) => line.includes("реальной денежной автономии нет"))).toBe(true);
     expect(rel.gitTag).toBeFalsy();
+    expect(rel.technicalNotes?.some((line) => line.includes("1379 passed"))).toBe(true);
   });
 
-  it("keeps cumulative history 1.04 → 1.03 → 1.02 → 1.01 → V1.0 without inventing tags", () => {
+  it("keeps cumulative history 1.05 → 1.04 → 1.03 → 1.02 → 1.01 → V1.0 without inventing tags", () => {
     expect(KRAKEN_RELEASES.map((r) => r.version)).toEqual([
+      "1.05",
       "1.04",
       "1.03",
       "1.02",
       "1.01",
       "1.0.0",
     ]);
+
+    const v104 = KRAKEN_RELEASES.find((r) => r.version === "1.04");
+    expect(v104).toBeDefined();
+    expect(v104!.displayVersion).toBe("Kraken 1.04");
+    expect(v104!.date).toBe("2026-10-04");
+    expect(v104!.gitTag).toBeFalsy();
+    expect(v104!.whatsNew.some((line) => line.includes("не улучшил OOS-сигнал относительно BASE"))).toBe(
+      true,
+    );
 
     const v103 = KRAKEN_RELEASES.find((r) => r.version === "1.03");
     expect(v103).toBeDefined();
