@@ -32,8 +32,11 @@ _MD_RULE_HEADER = re.compile(r"^##\s+(?P<rule_id>[a-zA-Z0-9_.:-]+)\s*$", re.MULT
 
 
 def default_knowledge_packs_dir() -> Path:
-    """Repo-relative packs directory (works from backend/ or repo root cwd)."""
+    """Packs directory: package-local first (Docker mounts), then repo docs/."""
     here = Path(__file__).resolve()
+    packaged = here.parent / "packs"
+    if packaged.is_dir() and any(packaged.glob("*.yaml")):
+        return packaged
     # .../backend/app/modules/intelligence/knowledge/ingest.py → repo root
     repo_root = here.parents[5]
     return repo_root / "docs" / "intelligence" / "knowledge_packs"

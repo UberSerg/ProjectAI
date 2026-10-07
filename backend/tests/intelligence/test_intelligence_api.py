@@ -68,7 +68,14 @@ def test_subresources_and_refresh_stub(client: TestClient, instrument: Instrumen
 
     fundamentals = client.get(f"/api/v1/intelligence/instruments/{iid}/fundamentals")
     assert fundamentals.status_code == 200
-    assert fundamentals.json()["fundamentals_summary"]["status"] == "UNKNOWN"
+    # With a DB session, industrial FNS may return READY/PARTIAL/NOT_AVAILABLE;
+    # without wired facts it stays UNKNOWN. Never invent NEUTRAL/zero.
+    assert fundamentals.json()["fundamentals_summary"]["status"] in {
+        "UNKNOWN",
+        "NOT_AVAILABLE",
+        "PARTIAL",
+        "READY",
+    }
 
     committee = client.get(f"/api/v1/intelligence/instruments/{iid}/committee")
     assert committee.status_code == 200

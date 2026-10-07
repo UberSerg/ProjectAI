@@ -32,11 +32,17 @@ def _get_instrument_or_404(session: Any, instrument_id: int) -> Instrument:
     return instrument
 
 
-def _build_snapshot(instrument: Instrument, as_of: date | None) -> dict[str, Any]:
+def _build_snapshot(
+    instrument: Instrument,
+    as_of: date | None,
+    *,
+    session: Any | None = None,
+) -> dict[str, Any]:
     snap = build_intelligence_snapshot(
         instrument=instrument,
         instrument_id=int(instrument.id),
         as_of=as_of,
+        session=session,
     )
     return snap.to_dict()
 
@@ -49,7 +55,7 @@ def get_intelligence_snapshot(
     """Aggregate IntelligenceSnapshotV1 for one instrument at as_of."""
     with core_session() as session:
         instrument = _get_instrument_or_404(session, instrument_id)
-        return _build_snapshot(instrument, as_of)
+        return _build_snapshot(instrument, as_of, session=session)
 
 
 @router.get("/instruments/{instrument_id}/signals")
@@ -63,6 +69,7 @@ def get_intelligence_signals(
             instrument=instrument,
             instrument_id=int(instrument.id),
             as_of=as_of,
+            session=session,
         )
         return {
             "instrument_id": int(instrument.id),
@@ -84,6 +91,7 @@ def get_intelligence_events(
             instrument=instrument,
             instrument_id=int(instrument.id),
             as_of=as_of,
+            session=session,
         )
         return {
             "instrument_id": int(instrument.id),
@@ -109,6 +117,7 @@ def get_intelligence_fundamentals(
             instrument=instrument,
             instrument_id=int(instrument.id),
             as_of=as_of,
+            session=session,
         )
         return {
             "instrument_id": int(instrument.id),
@@ -129,6 +138,7 @@ def get_intelligence_committee(
             instrument=instrument,
             instrument_id=int(instrument.id),
             as_of=as_of,
+            session=session,
         )
         return {
             "instrument_id": int(instrument.id),

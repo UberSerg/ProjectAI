@@ -61,6 +61,7 @@ class SnapshotBuildContext:
     name: str | None
     as_of: date
     generated_at: datetime
+    session: Any | None = None
 
 
 class IntelligenceSnapshotBuilder:
@@ -73,6 +74,7 @@ class IntelligenceSnapshotBuilder:
         instrument_id: int,
         as_of: date | None = None,
         generated_at: datetime | None = None,
+        session: Any | None = None,
         signals: tuple[SignalOutputV1, ...] | None = None,
         committee: CommitteeDecisionV1 | None = None,
         risk: RiskAssessmentV1 | None = None,
@@ -94,6 +96,7 @@ class IntelligenceSnapshotBuilder:
             name=name,
             as_of=as_of_date,
             generated_at=generated,
+            session=session,
         )
 
         resolved_signals = signals if signals is not None else self._default_signals(ctx)
@@ -275,11 +278,16 @@ class IntelligenceSnapshotBuilder:
         except ImportError:
             build_fundamental_snapshot = None
 
-        if build_fundamental_snapshot is not None:
-            snap = build_fundamental_snapshot(
-                instrument_id=ctx.instrument_id,
-                as_of=ctx.as_of,
-            )
+        # Agent B signature requires a DB session; without it stay UNKNOWN (not fabricated).
+        if build_fundamental_snapshot is not None and ctx.session is not None:
+            try:
+                snap = build_fundamental_snapshot(
+                    ctx.session,
+                    ctx.instrument_id,
+                    ctx.as_of,
+                )
+            except TypeError:
+                snap = None
             if snap is not None:
                 return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
 
