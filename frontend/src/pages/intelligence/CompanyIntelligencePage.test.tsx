@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as intelligenceApi from "../../api/intelligence";
 import { CompanyIntelligencePage } from "./CompanyIntelligencePage";
 import { SignalStateBadge } from "./SignalStateBadge";
@@ -86,6 +86,11 @@ describe("SignalStateBadge", () => {
 });
 
 describe("CompanyIntelligencePage", () => {
+  beforeEach(() => {
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockReset();
+    vi.mocked(intelligenceApi.refreshIntelligence).mockReset();
+  });
+
   it("shows empty prompt without instrument id", () => {
     renderPage();
     expect(screen.getByTestId("company-intelligence-page")).toBeInTheDocument();
@@ -117,6 +122,89 @@ describe("CompanyIntelligencePage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Загрузить/i }));
     await waitFor(() => {
       expect(intelligenceApi.getIntelligenceSnapshot).toHaveBeenCalled();
+    });
+  });
+
+  it("labels refresh as a product action without stub wording", async () => {
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockResolvedValue(sampleSnapshot);
+    renderPage("/intelligence?instrument_id=42&as_of=2026-10-01");
+
+    const button = await screen.findByRole("button", { name: "Обновить данные" });
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent("Обновить данные");
+    expect(button.textContent ?? "").not.toMatch(/stub/i);
+    expect(document.body.textContent ?? "").not.toMatch(/stub/i);
+  });
+
+  it("clicking refresh forces a live fetch and reloads the snapshot", async () => {
+    const refreshed: intelligenceApi.IntelligenceSnapshot = {
+      ...sampleSnapshot,
+      freshness: "FRESH",
+      generated_at: "2026-10-07T12:00:00+00:00",
+    };
+    let releaseRefresh: (value: intelligenceApi.IntelligenceRefreshResult) => void = () => {};
+    const refreshGate = new Promise<intelligenceApi.IntelligenceRefreshResult>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot)
+      .mockResolvedValueOnce(sampleSnapshot)
+      .mockResolvedValueOnce(refreshed);
+    vi.mocked(intelligenceApi.refreshIntelligence).mockReturnValue(refreshGate);
+
+    renderPage("/intelligence?instrument_id=42&as_of=2026-10-01");
+    const button = await screen.findByRole("button", { name: "Обновить данные" });
+    expect(screen.getByText("STALE_OR_UNWIRED")).toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toBeDisabled();
+    });
+    expect(screen.getByTestId("intel-refresh-note")).toHaveTextContent("Обновление данных…");
+    expect(screen.getByText("SBER")).toBeInTheDocument();
+    expect(screen.getByText("STALE_OR_UNWIRED")).toBeInTheDocument();
+    expect(intelligenceApi.refreshIntelligence).toHaveBeenCalledTimes(1);
+    expect(intelligenceApi.refreshIntelligence).toHaveBeenCalledWith(42, {
+      as_of: "2026-10-01",
+      force: true,
+    });
+    expect(intelligenceApi.getIntelligenceSnapshot).toHaveBeenCalledTimes(1);
+
+    releaseRefresh({
+      status: "COMPLETED",
+      accepted: true,
+      instrument_id: 42,
+      as_of: "2026-10-01",
+      message: "Данные обновлены",
+    });
+
+    await waitFor(() => {
+      expect(intelligenceApi.getIntelligenceSnapshot).toHaveBeenCalledTimes(2);
+    });
+    expect(intelligenceApi.getIntelligenceSnapshot).toHaveBeenLastCalledWith(42, "2026-10-01");
+    expect(await screen.findByText("FRESH")).toBeInTheDocument();
+    expect(screen.queryByText("STALE_OR_UNWIRED")).not.toBeInTheDocument();
+    expect(screen.getByTestId("intel-refresh-note")).toHaveTextContent("Данные обновлены");
+    expect(screen.getByRole("button", { name: "Обновить данные" })).toBeEnabled();
+  });
+
+  it("failed refresh does not replace the loaded snapshot", async () => {
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockResolvedValue(sampleSnapshot);
+    vi.mocked(intelligenceApi.refreshIntelligence).mockRejectedValue(new Error("source unavailable"));
+
+    renderPage("/intelligence?instrument_id=42&as_of=2026-10-01");
+    expect(await screen.findByText("SBER")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Обновить данные" }));
+
+    expect(await screen.findByTestId("intel-refresh-note")).toHaveTextContent("source unavailable");
+    expect(screen.getByText("SBER")).toBeInTheDocument();
+    expect(screen.getByText("STALE_OR_UNWIRED")).toBeInTheDocument();
+    expect(screen.getByTestId("intel-identity")).toBeInTheDocument();
+    expect(intelligenceApi.getIntelligenceSnapshot).toHaveBeenCalledTimes(1);
+    expect(intelligenceApi.refreshIntelligence).toHaveBeenCalledWith(42, {
+      as_of: "2026-10-01",
+      force: true,
     });
   });
 });

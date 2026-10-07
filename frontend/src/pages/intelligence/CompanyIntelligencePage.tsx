@@ -31,6 +31,7 @@ export function CompanyIntelligencePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(
@@ -76,15 +77,22 @@ export function CompanyIntelligencePage() {
   }
 
   async function onRefresh() {
-    if (!snapshot) return;
+    if (!snapshot || busy) return;
+    const effectiveAsOf = searchParams.get("as_of")?.trim() || snapshot.as_of?.trim() || undefined;
+    const instrumentId = snapshot.instrument_id;
     setBusy(true);
-    setRefreshNote(null);
+    setRefreshFailed(false);
+    setRefreshNote("Обновление данных…");
     try {
-      const result = await refreshIntelligence(snapshot.instrument_id, {
-        as_of: asOfInput.trim() || undefined,
+      const result = await refreshIntelligence(instrumentId, {
+        as_of: effectiveAsOf,
+        force: true,
       });
-      setRefreshNote(result.message ?? result.status);
+      const next = await getIntelligenceSnapshot(instrumentId, effectiveAsOf);
+      setSnapshot(next);
+      setRefreshNote(result.message?.trim() || result.status || "Данные обновлены");
     } catch (reason: unknown) {
+      setRefreshFailed(true);
       setRefreshNote(errorMessage(reason));
     } finally {
       setBusy(false);
@@ -125,13 +133,23 @@ export function CompanyIntelligencePage() {
         <button type="submit" className="btn btn-primary" disabled={loading}>
           Загрузить
         </button>
-        <button type="button" className="secondary" disabled={!snapshot || busy} onClick={() => void onRefresh()}>
-          Refresh (stub)
+        <button
+          type="button"
+          className="secondary"
+          disabled={!snapshot || busy}
+          onClick={() => void onRefresh()}
+          data-testid="intel-refresh"
+        >
+          Обновить данные
         </button>
       </form>
 
       {refreshNote ? (
-        <div className="banner banner-warning" data-testid="intel-refresh-note">
+        <div
+          className={refreshFailed ? "banner banner-warning" : "banner banner-info"}
+          data-testid="intel-refresh-note"
+          role={refreshFailed ? "alert" : "status"}
+        >
           {refreshNote}
         </div>
       ) : null}
