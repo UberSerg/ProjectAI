@@ -175,6 +175,7 @@ def _run(
         "as_of": as_of,
         "dry_run": dry_run,
         "force": force,
+        "live_fetch": bool(force) and not dry_run,
         "stage_results": {},
     }
     fingerprint = _fingerprint(ctx)

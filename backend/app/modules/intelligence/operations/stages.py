@@ -188,7 +188,7 @@ def stage_finalize(session: Session, ctx: dict[str, Any]) -> StageResult:
             "production_isolation": isolation,
             "candidate_promotion": False,
             "shadow_policy_switch": False,
-            "broker_execution": False,
+            "real_money_off": True,
         },
     )
 

@@ -100,18 +100,24 @@ class IntelligenceSnapshotBuilder:
         )
 
         resolved_signals = signals if signals is not None else self._default_signals(ctx)
-        resolved_committee = (
-            committee if committee is not None else self._default_committee(ctx, resolved_signals)
-        )
         resolved_risk = risk if risk is not None else self._default_risk(ctx)
+        resolved_knowledge = (
+            knowledge_evaluations
+            if knowledge_evaluations is not None
+            else self._default_knowledge(ctx, resolved_signals)
+        )
+        resolved_committee = (
+            committee
+            if committee is not None
+            else self._default_committee(ctx, resolved_signals, resolved_risk, resolved_knowledge)
+        )
         resolved_fundamentals = (
             fundamentals_summary
             if fundamentals_summary is not None
             else self._default_fundamentals(ctx)
         )
         resolved_macro = macro_summary if macro_summary is not None else self._default_macro(ctx)
-        resolved_events = recent_events if recent_events is not None else ()
-        resolved_knowledge = knowledge_evaluations if knowledge_evaluations is not None else ()
+        resolved_events = recent_events if recent_events is not None else self._default_events(ctx)
         resolved_intraday = (
             intraday_summary if intraday_summary is not None else self._default_intraday(ctx)
         )
@@ -129,9 +135,9 @@ class IntelligenceSnapshotBuilder:
 
         limitations = (
             "advisory_research_only",
-            "independent_models_not_yet_wired",
             "committee_aborts_without_usable_votes",
             "unknown_is_not_neutral",
+            "confidence_is_not_probability_of_profit",
         )
 
         return IntelligenceSnapshotV1(
@@ -140,7 +146,11 @@ class IntelligenceSnapshotBuilder:
             name=name,
             as_of=as_of_date,
             generated_at=generated,
-            freshness="STALE_OR_UNWIRED",
+            freshness=(
+                "PARTIAL"
+                if any(s.state not in {"UNKNOWN", "ABSTAIN"} for s in resolved_signals)
+                else "STALE_OR_UNWIRED"
+            ),
             coverage=coverage,
             signals=resolved_signals,
             committee=resolved_committee,
@@ -182,6 +192,7 @@ class IntelligenceSnapshotBuilder:
         result = collect_instrument_signals(
             instrument_id=ctx.instrument_id,
             as_of=ctx.as_of,
+            session=ctx.session,
         )
         if not result:
             return None
@@ -191,17 +202,40 @@ class IntelligenceSnapshotBuilder:
         self,
         ctx: SnapshotBuildContext,
         signals: tuple[SignalOutputV1, ...],
+        risk: RiskAssessmentV1 | None = None,
+        knowledge: tuple[dict[str, Any], ...] = (),
     ) -> CommitteeDecisionV1:
         try:
             from app.modules.intelligence.committee import decide_committee  # type: ignore
+            from app.modules.intelligence.contracts.knowledge import KnowledgeRuleEvaluation
         except ImportError:
             decide_committee = None
+            KnowledgeRuleEvaluation = None  # type: ignore[assignment]
+
+        evals = ()
+        if KnowledgeRuleEvaluation is not None:
+            parsed = []
+            for item in knowledge:
+                if hasattr(item, "rule_id"):
+                    parsed.append(item)
+                elif isinstance(item, dict) and "rule_id" in item:
+                    parsed.append(
+                        KnowledgeRuleEvaluation(
+                            rule_id=str(item["rule_id"]),
+                            rule_version=str(item.get("rule_version") or "1"),
+                            state=item.get("state") or "UNKNOWN",
+                            why=str(item.get("why") or ""),
+                        )
+                    )
+            evals = tuple(parsed)
 
         if decide_committee is not None:
             decision = decide_committee(
                 instrument_id=ctx.instrument_id,
                 as_of=ctx.as_of,
                 signals=list(signals),
+                knowledge_evals=evals,
+                risk=risk,
             )
             if decision is not None:
                 return decision
@@ -256,6 +290,7 @@ class IntelligenceSnapshotBuilder:
             assessed = assess_instrument_risk(
                 instrument_id=ctx.instrument_id,
                 as_of=ctx.as_of,
+                session=ctx.session,
             )
             if assessed is not None:
                 return assessed
@@ -306,7 +341,7 @@ class IntelligenceSnapshotBuilder:
             build_macro_snapshot = None
 
         if build_macro_snapshot is not None:
-            snap = build_macro_snapshot(as_of=ctx.as_of)
+            snap = build_macro_snapshot(as_of=ctx.as_of, session=ctx.session)
             if snap is not None:
                 return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
 
@@ -328,6 +363,7 @@ class IntelligenceSnapshotBuilder:
             snap = build_intraday_snapshot(
                 instrument_id=ctx.instrument_id,
                 as_of=ctx.as_of,
+                session=ctx.session,
             )
             if snap is not None:
                 return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
@@ -338,6 +374,80 @@ class IntelligenceSnapshotBuilder:
             coverage_status="UNKNOWN",
             limitations=(NOT_WIRED_REASON,),
         ).to_dict()
+
+    def _default_events(self, ctx: SnapshotBuildContext) -> tuple[dict[str, Any], ...]:
+        if ctx.session is None:
+            return ()
+        try:
+            from app.modules.intelligence.news.models import IntelligenceSourceDocument
+        except ImportError:
+            return ()
+        from sqlalchemy import select
+
+        rows = ctx.session.scalars(
+            select(IntelligenceSourceDocument)
+            .where(
+                IntelligenceSourceDocument.instrument_id == ctx.instrument_id,
+            )
+            .order_by(IntelligenceSourceDocument.known_at.desc())
+            .limit(8)
+        ).all()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            known = row.known_at.date() if hasattr(row.known_at, "date") else row.known_at
+            if known is not None and known > ctx.as_of:
+                continue
+            out.append(
+                {
+                    "id": row.id,
+                    "provider": row.provider,
+                    "title": row.title,
+                    "canonical_url": row.canonical_url,
+                    "published_at": row.published_at.isoformat() if row.published_at else None,
+                    "observed_at": row.observed_at.isoformat() if row.observed_at else None,
+                    "known_at": row.known_at.isoformat() if row.known_at else None,
+                    "historical_eligible": False,
+                }
+            )
+        return tuple(out)
+
+    def _default_knowledge(
+        self,
+        ctx: SnapshotBuildContext,
+        signals: tuple[SignalOutputV1, ...],
+    ) -> tuple[dict[str, Any], ...]:
+        try:
+            from app.modules.intelligence.knowledge.evaluator import (
+                OBS_UNKNOWN_COERCED_TO_NEUTRAL,
+                RuleEvaluationContext,
+            )
+            from app.modules.intelligence.knowledge.service import KnowledgeEngine
+        except ImportError:
+            return ()
+        engine = KnowledgeEngine()
+        try:
+            engine.ingest_default_packs()
+        except Exception:  # noqa: BLE001
+            return ()
+        by_sem = {s.semantic: s for s in signals}
+        tech = by_sem.get("TECHNICAL")
+        obs: dict[str, Any] = {
+            OBS_UNKNOWN_COERCED_TO_NEUTRAL: False,
+            "issuer_kind": "UNKNOWN",
+        }
+        if tech is not None:
+            obs["price_move_directional"] = tech.state in {"POSITIVE", "NEGATIVE"}
+            obs["volume_confirms"] = "volume_confirmation_unavailable" not in tech.limitations
+            obs["weak_technical_positive"] = tech.state == "POSITIVE" and (tech.score or 0) < 0.45
+        ctx_eval = RuleEvaluationContext(
+            instrument_id=ctx.instrument_id,
+            as_of=ctx.as_of.isoformat(),
+            observations=obs,
+            available_evidence=frozenset({"signals"}),
+            active_applicability=frozenset({"TECHNICAL", "FUNDAMENTAL", "EVENT", "RISK", "BANK"}),
+        )
+        evals = engine.evaluate(ctx_eval)
+        return tuple(e.to_dict() for e in evals)
 
     def _coverage(
         self,

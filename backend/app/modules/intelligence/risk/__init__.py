@@ -4,6 +4,7 @@ Produces ``RiskAssessmentV1``. Risk ≠ prediction. Does not alter ``modules/ris
 """
 
 from app.modules.intelligence.risk.engine import RiskScenarioEngine, assess_risk
+from app.modules.intelligence.risk.from_market import assess_instrument_risk
 from app.modules.intelligence.risk.inputs import RiskFactorInputs
 from app.modules.intelligence.risk.persistence import (
     PersistResult,
@@ -18,6 +19,7 @@ __all__ = [
     "RiskFactorInputs",
     "RiskScenarioEngine",
     "ScoredRiskFactors",
+    "assess_instrument_risk",
     "assess_risk",
     "build_stress_scenarios",
     "persist_risk_assessment",

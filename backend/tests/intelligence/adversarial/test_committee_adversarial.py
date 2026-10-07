@@ -261,7 +261,7 @@ def test_committee_module_all_abstain_if_present() -> None:
         as_of=date(2026, 7, 1),
         instrument_id=1,
         signals=signals,
-        knowledge_evaluations=(),
+        knowledge_evals=(),
         risk=None,
     )
     advisory = getattr(result, "advisory_state", None) or result.get("advisory_state")

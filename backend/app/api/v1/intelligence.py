@@ -102,7 +102,7 @@ def get_intelligence_events(
                 (c.status for c in snap.coverage if c.domain == "events"),
                 "UNKNOWN",
             ),
-            "limitations": ("events_collector_not_integrated",),
+            "limitations": ("news_historical_eligibility_requires_trusted_published_at",),
         }
 
 
@@ -156,20 +156,23 @@ def refresh_intelligence(
     instrument_id: int,
     body: RefreshRequest | None = None,
 ) -> dict[str, Any]:
-    """Stub: refresh will be owned by intelligence.operations (agent M)."""
+    """OWNER on-demand IntelligenceRefreshV1. ``force`` enables live source fetch."""
     payload = body or RefreshRequest()
+    from app.modules.intelligence.operations.refresh import run_intelligence_refresh
+
     with core_session() as session:
         instrument = _get_instrument_or_404(session, instrument_id)
-        return {
-            "status": "STUBBED",
-            "accepted": False,
-            "instrument_id": int(instrument.id),
-            "symbol": instrument.symbol,
-            "as_of": payload.as_of.isoformat() if payload.as_of else None,
-            "force": payload.force,
-            "message": (
-                "Refresh is not wired yet; operations agent will own workflow enqueue. "
-                "No Candidate / Shadow / Daily Decision / broker side effects."
-            ),
-            "production_isolation": production_isolation_report(),
-        }
+        result = run_intelligence_refresh(
+            session,
+            instrument_ids=[int(instrument.id)],
+            as_of=payload.as_of.isoformat() if payload.as_of else None,
+            force=payload.force,
+            dry_run=not payload.force,
+            skip_lock=True,
+        )
+        result["accepted"] = result.get("status") not in {"BLOCKED", "FAILED"}
+        result["instrument_id"] = int(instrument.id)
+        result["symbol"] = instrument.symbol
+        result["force"] = payload.force
+        result["production_isolation"] = production_isolation_report()
+        return result

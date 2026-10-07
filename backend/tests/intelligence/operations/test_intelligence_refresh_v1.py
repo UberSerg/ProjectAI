@@ -339,7 +339,11 @@ def test_default_hooks_skip_missing_modules() -> None:
 
     result = stage_news(FakeSession(), {})  # type: ignore[arg-type]
     assert result.status == "SKIPPED"
-    assert result.reason in {"MODULE_NOT_AVAILABLE", "HOOK_NOT_AVAILABLE"}
+    assert result.reason in {
+        "MODULE_NOT_AVAILABLE",
+        "HOOK_NOT_AVAILABLE",
+        "LIVE_FETCH_DISABLED",
+    }
 
 
 def test_celery_task_not_on_beat_schedule() -> None:
