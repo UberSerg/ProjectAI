@@ -7,6 +7,7 @@ from app.api.v1.broker_accounts import router as broker_accounts_router
 from app.api.v1.decision_memory import router as decision_memory_router
 from app.api.v1.fundamentals import router as fundamentals_router
 from app.api.v1.instruments import router as instruments_router
+from app.api.v1.intelligence import router as intelligence_router
 from app.api.v1.intraday_market import router as intraday_market_router
 from app.api.v1.investment import router as investment_router
 from app.api.v1.learning import router as learning_router
@@ -56,5 +57,6 @@ api_router.include_router(research_cycle_router, prefix="/research-cycle", tags=
 api_router.include_router(research_evidence_router, prefix="/research/evidence", tags=["research-evidence"])
 api_router.include_router(model_edge_router, tags=["model-edge"])
 api_router.include_router(fundamentals_router, prefix="/fundamentals", tags=["fundamentals"])
+api_router.include_router(intelligence_router, prefix="/intelligence", tags=["intelligence"])
 api_router.include_router(investment_router, tags=["investment"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])

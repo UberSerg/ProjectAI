@@ -41,6 +41,7 @@ const ownerNav: NavGroupDef[] = [
       { to: "/market", label: labels.nav.quotes },
       { to: "/instruments", label: labels.nav.instruments },
       { to: "/fundamentals", label: labels.nav.companies },
+      { to: "/intelligence", label: labels.nav.companyIntelligence },
       { to: "/bonds", label: labels.nav.bonds },
     ],
   },

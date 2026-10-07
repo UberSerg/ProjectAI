@@ -219,6 +219,7 @@ export const labels = {
     fundamentals: "Фундаментал и события",
     fundamentalsShort: "Компании",
     companies: "Компании",
+    companyIntelligence: "Company Intelligence",
     bonds: "Облигации",
     allocation: "Распределение",
     investmentDecision: "Инвестиционное решение",
