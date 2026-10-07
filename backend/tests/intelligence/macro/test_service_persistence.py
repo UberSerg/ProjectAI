@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
