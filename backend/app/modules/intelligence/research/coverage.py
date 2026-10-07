@@ -296,7 +296,14 @@ def classify_pack(
             "prefer coverage matrix over giant OOS"
         )
 
-    earliest = _max_earliest(earliest_candidates)
+    # Combined pack start is the most restrictive domain earliest. If any included
+    # domain lacks an honest earliest, do not invent one from sibling domains.
+    if any(value is None for value in earliest_candidates):
+        earliest = None if pack_mode != MODE_HISTORICAL_EVALUABLE else _max_earliest(
+            earliest_candidates
+        )
+    else:
+        earliest = _max_earliest(earliest_candidates)
     historical = pack_mode == MODE_HISTORICAL_EVALUABLE
     prospective = pack_mode == MODE_PROSPECTIVE_ONLY
     return PackCoverageRow(

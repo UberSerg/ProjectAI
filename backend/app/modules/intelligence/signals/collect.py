@@ -122,7 +122,7 @@ def _macro_payload(session: Session, as_of: date) -> dict[str, Any] | None:
         from app.modules.intelligence.macro import build_macro_snapshot
     except ImportError:
         return None
-    snap = build_macro_snapshot(as_of=as_of, session=session)
+    snap = build_macro_snapshot(session, as_of)
     if snap is None:
         return None
     return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)

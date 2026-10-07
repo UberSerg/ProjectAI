@@ -9,16 +9,14 @@ from sqlalchemy.orm import Session
 
 
 def refresh_macro(session: Session, ctx: dict[str, Any]) -> dict[str, Any]:
-    from app.modules.intelligence.macro.snapshot import build_macro_snapshot
+    from app.modules.intelligence.macro.service import build_macro_snapshot
 
     as_of_raw = ctx.get("as_of")
     try:
         as_of = date.fromisoformat(str(as_of_raw)[:10]) if as_of_raw else date.today()
     except ValueError:
         as_of = date.today()
-    snap = build_macro_snapshot(as_of=as_of, session=session)
-    if snap is None:
-        return {"status": "SKIPPED", "reason": "NO_SESSION", "changed": False}
+    snap = build_macro_snapshot(session, as_of, persist=False)
     return {
         "status": "SUCCESS",
         "changed": False,

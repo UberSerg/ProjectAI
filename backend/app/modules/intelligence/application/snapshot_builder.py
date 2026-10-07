@@ -340,8 +340,8 @@ class IntelligenceSnapshotBuilder:
         except ImportError:
             build_macro_snapshot = None
 
-        if build_macro_snapshot is not None:
-            snap = build_macro_snapshot(as_of=ctx.as_of, session=ctx.session)
+        if build_macro_snapshot is not None and ctx.session is not None:
+            snap = build_macro_snapshot(ctx.session, ctx.as_of)
             if snap is not None:
                 return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
 
