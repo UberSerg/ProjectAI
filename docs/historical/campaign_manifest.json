@@ -54,26 +54,30 @@
     {
       "id": "CBR-01:discover",
       "stream": "CBR-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-01:pilot-fetch",
       "stream": "CBR-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-01:parse",
       "stream": "CBR-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-01:validate",
       "stream": "CBR-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-01:checkpoint",
@@ -84,26 +88,30 @@
     {
       "id": "CBR-02:discover",
       "stream": "CBR-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-02:pilot-fetch",
       "stream": "CBR-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-02:parse",
       "stream": "CBR-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-02:validate",
       "stream": "CBR-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-02:checkpoint",
@@ -114,26 +122,30 @@
     {
       "id": "CBR-03:discover",
       "stream": "CBR-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-03:pilot-fetch",
       "stream": "CBR-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-03:parse",
       "stream": "CBR-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-03:validate",
       "stream": "CBR-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
     },
     {
       "id": "CBR-03:checkpoint",
