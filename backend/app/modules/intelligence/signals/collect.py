@@ -229,6 +229,7 @@ def _load_instrument_events(
 
     Direction is copied as stored. UNKNOWN is not rewritten to NEUTRAL.
     ``timestamp_trusted`` is true only when ``known_at`` is present.
+    Claim identity is forwarded so the same article at two URLs is one vote.
     """
     from app.modules.intelligence.extraction.deterministic import MATERIALITY_WEIGHT
     from app.modules.intelligence.news.models import IntelligenceEvent
@@ -263,6 +264,9 @@ def _event_payload(row: Any, materiality_weight: dict[str, float | None]) -> dic
         "source_document_id": row.source_document_id,
         "timestamp_trusted": known_at is not None,
         "provider": "intelligence_events",
+        "claim_hash": payload.get("claim_hash") or None,
+        "evidence_fragment": payload.get("evidence_fragment") or None,
+        "content_hash": payload.get("content_hash") or None,
     }
 
 
