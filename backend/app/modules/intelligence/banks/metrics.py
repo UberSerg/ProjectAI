@@ -14,8 +14,8 @@ class BankMetricDefinition:
     code: str
     title_en: str
     description: str
-    # READY only when a free programmatic source can supply the metric.
-    availability: str  # CANDIDATE | NOT_AVAILABLE
+    # PARTIAL only for metrics a free programmatic source can actually supply.
+    availability: str  # PARTIAL | NOT_AVAILABLE
 
 
 # Industrial FNS metric codes that must never be treated as bank semantics.
@@ -45,19 +45,19 @@ BANK_METRIC_DEFINITIONS: tuple[BankMetricDefinition, ...] = (
     BankMetricDefinition(
         "NET_PROFIT",
         "Net profit",
-        "Bank net profit attributable to shareholders (IFRS or RAS bank form).",
-        "NOT_AVAILABLE",
+        "RAS form 0409102 symbol 61101, profit after tax, thousand RUB. Not IFRS.",
+        "PARTIAL",
     ),
     BankMetricDefinition(
         "EQUITY",
         "Equity / own funds",
-        "Shareholders' equity / own funds (bank capital definition).",
-        "NOT_AVAILABLE",
+        "Form 0409123 line 000 regulatory own funds (capital), thousand RUB. Not IFRS equity.",
+        "PARTIAL",
     ),
     BankMetricDefinition(
         "TOTAL_ASSETS",
         "Total assets",
-        "Total assets on the bank balance sheet (form 101 / IFRS).",
+        "Balance-sheet total assets. CBR form 101 SOAP data methods did not return a unique total.",
         "NOT_AVAILABLE",
     ),
     BankMetricDefinition(
@@ -93,8 +93,8 @@ BANK_METRIC_DEFINITIONS: tuple[BankMetricDefinition, ...] = (
     BankMetricDefinition(
         "CAPITAL_ADEQUACY",
         "Capital adequacy",
-        "Regulatory capital adequacy ratio (e.g. N1.0 / Basel).",
-        "NOT_AVAILABLE",
+        "Form 0409135 section 3 ratio N1.0, percent. Not an industrial RAS ratio.",
+        "PARTIAL",
     ),
     BankMetricDefinition(
         "NPL_RATIO",
