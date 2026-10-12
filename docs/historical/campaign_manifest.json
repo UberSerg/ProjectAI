@@ -180,74 +180,86 @@
     {
       "id": "CBR-06:discover",
       "stream": "CBR-06",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-06:reuse-soap",
       "stream": "CBR-06",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-06:pilot",
       "stream": "CBR-06",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-07:discover",
       "stream": "CBR-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-07:reuse-soap",
       "stream": "CBR-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-07:pilot",
       "stream": "CBR-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-08:discover",
       "stream": "CBR-08",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-08:reuse-soap",
       "stream": "CBR-08",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-08:pilot",
       "stream": "CBR-08",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-09:discover",
       "stream": "CBR-09",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-09:reuse-soap",
       "stream": "CBR-09",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-09:pilot",
       "stream": "CBR-09",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
     },
     {
       "id": "CBR-10:discover",
