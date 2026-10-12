@@ -147,6 +147,64 @@ def _macro_payload(session: Session, as_of: date) -> dict[str, Any] | None:
     return snap.to_dict() if hasattr(snap, "to_dict") else dict(snap)
 
 
+def _bank_signal(
+    instrument_id: int,
+    as_of: date,
+    fund: dict[str, Any] | None,
+) -> SignalOutputV1:
+    """PARTIAL CBR evidence abstains. Silence stays the no-data unknown signal."""
+    payload = fund or {}
+    kind = str(payload.get("issuer_kind") or "").upper()
+    status = str(payload.get("status") or "").upper()
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+    if kind == "BANK_FI" and status == "PARTIAL" and metrics:
+        known_at = payload.get("known_at")
+        parsed_known = None
+        if isinstance(known_at, datetime):
+            parsed_known = known_at
+        elif isinstance(known_at, str):
+            parsed_known = datetime.fromisoformat(known_at)
+        return SignalOutputV1(
+            model_id="BankModelV1",
+            model_version="1",
+            semantic="BANK_FI",
+            instrument_id=instrument_id,
+            as_of=as_of,
+            known_at=parsed_known,
+            horizon="reporting_cycle",
+            state="ABSTAIN",
+            score=None,
+            confidence=None,
+            abstain_reason="bank_partial_metrics_insufficient",
+            limitations=(
+                "partial_cbr_evidence_present",
+                "directional_bank_score_not_supported",
+            ),
+            evidence_refs=(
+                EvidenceRef(
+                    source_type="bank_fundamental_snapshot",
+                    provider=str(payload.get("provider") or "CBR_CREDITORGINFO_SOAP"),
+                    known_at=parsed_known,
+                    note="partial_cbr_metrics:" + ",".join(sorted(metrics)),
+                ),
+            ),
+            model_metadata={
+                "status": status,
+                "metric_codes": sorted(metrics),
+                "directional_score": False,
+            },
+        )
+    return unknown_signal(
+        model_id="BankModelV1",
+        model_version="1",
+        semantic="BANK_FI",
+        instrument_id=instrument_id,
+        as_of=as_of,
+        reason="bank_universe_metrics_not_available",
+        horizon="reporting_cycle",
+    )
+
+
 def collect_instrument_signals(
     *,
     instrument_id: int,
@@ -202,15 +260,7 @@ def collect_instrument_signals(
         as_of=as_of,
         provenance=None,
     )
-    bank = unknown_signal(
-        model_id="BankModelV1",
-        model_version="1",
-        semantic="BANK_FI",
-        instrument_id=instrument_id,
-        as_of=as_of,
-        reason="bank_universe_metrics_not_available",
-        horizon="reporting_cycle",
-    )
+    bank = _bank_signal(instrument_id, as_of, fund)
     news = _news_coverage_signal(session, instrument_id, as_of)
     return (technical, fundamental, event, intraday, macro_sig, ml, bank, news)
 
