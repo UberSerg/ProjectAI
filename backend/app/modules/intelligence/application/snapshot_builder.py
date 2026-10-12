@@ -46,6 +46,9 @@ COVERAGE_DOMAINS: tuple[str, ...] = (
 )
 
 NOT_WIRED_REASON = "model_collector_not_integrated"
+_EVENT_FETCH_LIMIT = 64
+_EXTRACTED_EVENT_LIMIT = 16
+_UNSCORED_NEWS_LIMIT = 8
 
 
 class InstrumentIdentity(Protocol):
@@ -395,40 +398,100 @@ class IntelligenceSnapshotBuilder:
         ).to_dict()
 
     def _default_events(self, ctx: SnapshotBuildContext) -> tuple[dict[str, Any], ...]:
+        """Accepted intelligence events first, then source docs with no extracted event.
+
+        IntelligenceEvent rows are the accepted facts already projected onto the
+        instrument. Direction is copied as stored: UNKNOWN and ABSTAIN stay
+        distinct and are never rewritten to NEUTRAL. A source document with no
+        visible extracted event is unscored news evidence, not a neutral vote.
+        """
         if ctx.session is None:
             return ()
         try:
-            from app.modules.intelligence.news.models import IntelligenceSourceDocument
+            from app.modules.intelligence.news.models import (
+                IntelligenceEvent,
+                IntelligenceSourceDocument,
+            )
         except ImportError:
             return ()
         from sqlalchemy import select
 
-        rows = ctx.session.scalars(
-            select(IntelligenceSourceDocument)
-            .where(
-                IntelligenceSourceDocument.instrument_id == ctx.instrument_id,
-            )
-            .order_by(IntelligenceSourceDocument.known_at.desc())
-            .limit(8)
-        ).all()
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            known = row.known_at.date() if hasattr(row.known_at, "date") else row.known_at
-            if known is not None and known > ctx.as_of:
+        cutoff = _as_of_cutoff(ctx.as_of)
+        event_rows = list(
+            ctx.session.scalars(
+                select(IntelligenceEvent)
+                .where(
+                    IntelligenceEvent.instrument_id == ctx.instrument_id,
+                    IntelligenceEvent.known_at <= cutoff,
+                )
+                .order_by(IntelligenceEvent.known_at.desc(), IntelligenceEvent.id.desc())
+                .limit(_EVENT_FETCH_LIMIT)
+            ).all()
+        )
+        document_rows = list(
+            ctx.session.scalars(
+                select(IntelligenceSourceDocument)
+                .where(
+                    IntelligenceSourceDocument.instrument_id == ctx.instrument_id,
+                    IntelligenceSourceDocument.known_at <= cutoff,
+                )
+                .order_by(
+                    IntelligenceSourceDocument.known_at.desc(),
+                    IntelligenceSourceDocument.id.desc(),
+                )
+                .limit(_EVENT_FETCH_LIMIT)
+            ).all()
+        )
+        docs_by_id: dict[int, Any] = {}
+        for row in document_rows:
+            if not _visible_row(row, cutoff):
                 continue
-            out.append(
-                {
-                    "id": row.id,
-                    "provider": row.provider,
-                    "title": row.title,
-                    "canonical_url": row.canonical_url,
-                    "published_at": row.published_at.isoformat() if row.published_at else None,
-                    "observed_at": row.observed_at.isoformat() if row.observed_at else None,
-                    "known_at": row.known_at.isoformat() if row.known_at else None,
-                    "historical_eligible": False,
-                }
-            )
-        return tuple(out)
+            docs_by_id[int(row.id)] = row
+
+        visible_events = [
+            row
+            for row in event_rows
+            if _visible_row(row, cutoff) and _same_instrument(row, ctx.instrument_id)
+        ]
+        visible_events.sort(key=_recency_key, reverse=True)
+        visible_events = visible_events[:_EXTRACTED_EVENT_LIMIT]
+
+        missing_doc_ids = [
+            int(row.source_document_id)
+            for row in visible_events
+            if row.source_document_id is not None
+            and int(row.source_document_id) not in docs_by_id
+        ]
+        if missing_doc_ids:
+            extra_docs = ctx.session.scalars(
+                select(IntelligenceSourceDocument).where(
+                    IntelligenceSourceDocument.id.in_(missing_doc_ids),
+                    IntelligenceSourceDocument.known_at <= cutoff,
+                )
+            ).all()
+            for row in extra_docs:
+                if _visible_row(row, cutoff):
+                    docs_by_id[int(row.id)] = row
+
+        used_doc_ids: set[int] = set()
+        extracted: list[dict[str, Any]] = []
+        for row in visible_events:
+            source_id = int(row.source_document_id) if row.source_document_id is not None else None
+            document = docs_by_id.get(source_id) if source_id is not None else None
+            if source_id is not None:
+                used_doc_ids.add(source_id)
+            extracted.append(_extracted_event_payload(row, document))
+
+        unscored_docs = [
+            row
+            for row in document_rows
+            if _visible_row(row, cutoff)
+            and _same_instrument(row, ctx.instrument_id)
+            and int(row.id) not in used_doc_ids
+        ]
+        unscored_docs.sort(key=_recency_key, reverse=True)
+        unscored = [_unscored_news_payload(row) for row in unscored_docs[:_UNSCORED_NEWS_LIMIT]]
+        return tuple(extracted + unscored)
 
     def _default_knowledge(
         self,
@@ -533,6 +596,107 @@ class IntelligenceSnapshotBuilder:
         order = {name: idx for idx, name in enumerate(COVERAGE_DOMAINS)}
         items.sort(key=lambda c: order.get(c.domain, 99))
         return tuple(items)
+
+
+def _as_of_cutoff(as_of: date) -> datetime:
+    """Inclusive end of the UTC calendar day. Later known_at values stay unseen."""
+    return datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, 999999, tzinfo=UTC)
+
+
+def _coerce_aware(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    return None
+
+
+def _iso_stamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return str(value)
+
+
+def _stored_direction(raw: Any) -> str | None:
+    """Copy a stored direction. Missing is not NEUTRAL; UNKNOWN and ABSTAIN stay."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    return text.upper()
+
+
+def _row_known_at(row: Any) -> datetime | None:
+    return _coerce_aware(getattr(row, "known_at", None))
+
+
+def _visible_row(row: Any, cutoff: datetime) -> bool:
+    known = _row_known_at(row)
+    return known is not None and known <= cutoff
+
+
+def _same_instrument(row: Any, instrument_id: int) -> bool:
+    raw = getattr(row, "instrument_id", None)
+    if raw is None:
+        return False
+    try:
+        return int(raw) == int(instrument_id)
+    except (TypeError, ValueError):
+        return False
+
+
+def _recency_key(row: Any) -> tuple[float, int]:
+    known = _row_known_at(row)
+    stamp = known.timestamp() if known is not None else float("-inf")
+    try:
+        ident = int(getattr(row, "id", 0) or 0)
+    except (TypeError, ValueError):
+        ident = 0
+    return (stamp, ident)
+
+
+def _extracted_event_payload(row: Any, document: Any | None) -> dict[str, Any]:
+    title = getattr(row, "title", None) or (getattr(document, "title", None) if document else None)
+    source_id = getattr(row, "source_document_id", None)
+    return {
+        "id": getattr(row, "id", None),
+        "evidence_role": "extracted_event",
+        "event_type": getattr(row, "event_type", None),
+        "materiality": getattr(row, "materiality", None),
+        "direction": _stored_direction(getattr(row, "direction", None)),
+        "published_at": _iso_stamp(getattr(row, "published_at", None)),
+        "known_at": _iso_stamp(getattr(row, "known_at", None)),
+        "observed_at": _iso_stamp(getattr(row, "observed_at", None)),
+        "provider": getattr(document, "provider", None) if document is not None else None,
+        "title": title,
+        "canonical_url": getattr(document, "canonical_url", None) if document is not None else None,
+        "source_document_id": int(source_id) if source_id is not None else None,
+        "mapping_basis": getattr(document, "mapping_basis", None) if document is not None else None,
+    }
+
+
+def _unscored_news_payload(row: Any) -> dict[str, Any]:
+    return {
+        "id": getattr(row, "id", None),
+        "evidence_role": "unscored_news",
+        "event_type": None,
+        "materiality": None,
+        "direction": None,
+        "published_at": _iso_stamp(getattr(row, "published_at", None)),
+        "known_at": _iso_stamp(getattr(row, "known_at", None)),
+        "observed_at": _iso_stamp(getattr(row, "observed_at", None)),
+        "provider": getattr(row, "provider", None),
+        "title": getattr(row, "title", None),
+        "canonical_url": getattr(row, "canonical_url", None),
+        "source_document_id": int(row.id) if getattr(row, "id", None) is not None else None,
+        "mapping_basis": getattr(row, "mapping_basis", None),
+        "historical_eligible": False,
+    }
 
 
 def _status_from_payload(raw: Any) -> str:

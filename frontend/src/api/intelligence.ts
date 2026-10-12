@@ -55,6 +55,7 @@ export interface CommitteeDecision {
   risk_overrides?: string[];
   what_would_change_decision?: string[];
   committee_policy_version?: string;
+  confidence_semantic?: string | null;
   limitations?: string[];
 }
 
