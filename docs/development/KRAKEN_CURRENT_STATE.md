@@ -9,27 +9,33 @@ Zero-memory entry: root `AGENTS.md`.
 
 ## As of
 
-**04.10.2026**
+**07.10.2026**
 
 ## Latest completed product micro-release
 
-**Kraken 1.04 — 04.10.2026**
+**Kraken 1.05 — 07.10.2026**
 
 ## Technical VERSION
 
-`1.0.0` (repository `VERSION` file). Unchanged by Kraken 1.04.
+`1.0.0` (repository `VERSION` file). Unchanged by Kraken 1.05.
 
-Product release ≠ technical VERSION ≠ git tag. No GitHub Release for 1.04.
+Product release ≠ technical VERSION ≠ git tag. No GitHub Release for 1.05.
 
 ## Baseline main at this state snapshot
 
 ```text
-BASELINE_MAIN=8cf75a70f8b1565c2568769c23e06b1f83d61054
+BASELINE_MAIN=58283d8118de2cfd36bd490ad9b3a4ffd9450234
 ```
 
-Ordinary merge of **PR #77** Canonical Evidence Campaign V1. Reviewed feature HEAD `00d946ead5ecc7a1155afcabb69f65aec8ed9e5a`.
+Ordinary merge of **PR #79** Kraken Intelligence Stack V1.
 
-This EOD release PR records the product checkpoint; it must not change research semantics.
+| Item | Value |
+|------|--------|
+| Status | COMPLETE / MERGED |
+| Reviewed feature HEAD | `df7ed50bb6235079cd3f147e9d916bb32dab276f` |
+| Merge commit | `58283d8118de2cfd36bd490ad9b3a4ffd9450234` |
+
+This EOD release PR records the product checkpoint. It must not change intelligence semantics.
 
 ## Recently completed milestones
 
@@ -38,6 +44,22 @@ This EOD release PR records the product checkpoint; it must not change research 
 | #75 | Dataset V4 Research Foundation V1 |
 | #76 | Research Evidence Engine V1 |
 | #77 | Canonical Evidence Campaign V1 |
+| #79 | Kraken Intelligence Stack V1 — COMPLETE / MERGED |
+
+## Kraken Intelligence Stack V1
+
+Status: **COMPLETE / MERGED** via PR #79.
+
+| Item | Value |
+|------|--------|
+| Migration | `20261007_0027` |
+| Schema | `intelligence` (13 tables) |
+| Bounded acceptance as_of | 2026-10-07 |
+| Exact-head CI on reviewed HEAD | 1379 passed, 8 skipped, 3 warnings |
+
+Committee states from that acceptance are observations, not proven investment performance.
+
+Production Candidate was not switched. Real broker execution was not enabled.
 
 ## Canonical Evidence Campaign V1
 
@@ -58,38 +80,48 @@ Ablation mean rank IC: BASE +0.0138; BASE+FUNDAMENTALS +0.0010; BASE+EVENTS −0
 
 ## Current major semantics (in main)
 
+- Intelligence Stack V1
+- real MOEX 60m intraday
+- FNS industrial fundamentals
+- bank-specific honest unsupported state
+- CBR/MOEX news ingestion
+- macro/regime
+- Knowledge Engine
+- independent model outputs
+- deterministic Investment Committee
+- Risk/Scenario Engine
+- Company Intelligence OWNER UI
+- IntelligenceRefreshV1
+- Intelligence Research V1
+- production isolation
 - Dataset V3/V4 research-only (`historical_equity_universe_v2`, mechanical PRICE_RETURN)
-- Research Evidence Engine V1 (OOS, ablation, next-open economics, prospective read-model, OWNER UI)
-- Canonical Evidence Campaign V1 complete; immutable dossiers
+- Research Evidence Engine V1 and Canonical Evidence Campaign V1 remain complete
 - Production Candidate V0/V1 pinned to Dataset V2; `PIT_DAILY_CORE_ACTIVE_VERSION = 1`
 
 ## Next product direction (notes only — do not implement here)
 
-**Kraken Intelligence Stack V1** — not Dataset V5 for its own sake.
+Not Dataset V5.
 
-Candidate areas when Owner asks:
-
-- Intraday / 1h market structure
-- Richer fundamental analysis
-- RSS/news/event ingestion
-- LLM structured information extraction
-- Knowledge/rule engine from investment literature
-- Independent Technical / Fundamental / Event / Macro / ML models
-- Ensemble / investment committee
+- real LLM provider integration + structured event extraction
+- richer Event/News intelligence
+- accepted bank-specific fundamental provider
+- deeper honest 60m history
+- research provenance wiring for CrossSectionalML
+- prospective accumulation of news/event evidence
+- later evidence evaluation of intelligence feature packs
 
 ## Active milestone
 
-None started. Do **not** begin Intelligence Stack V1, Dataset V5, or Kraken 1.05 unless the Owner explicitly tasks it.
+None started. Do **not** begin the next intelligence milestone, Dataset V5, or Kraken 1.06 unless the Owner explicitly tasks it.
 
 ## Explicitly not started / out of scope until Owner asks
 
-- Kraken Intelligence Stack V1 implementation
+- Next intelligence work: real LLM provider, richer event/news, bank-specific fundamental provider, deeper 60m history, CrossSectionalML provenance, prospective news accumulation, later evidence evaluation of intelligence feature packs
 - Broker real execution / real-money autonomy
 - Dataset V5 / production Candidate V2
 - New ML production promotion
 - Aggregate «Kraken accuracy %»
 - Universe-wide Total Return labels
-- Kraken 1.05
 
 ## How a new AI should resume
 
