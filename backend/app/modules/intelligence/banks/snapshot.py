@@ -56,6 +56,8 @@ def build_bank_fundamental_snapshot(
     cbr_catalog: Mapping[str, Any] | None = None,
     sources: tuple[BankSourceStatus, ...] | None = None,
     provider_override: str | None = None,
+    extra_facts: tuple[dict[str, Any], ...] | None = None,
+    extra_limitations: tuple[str, ...] | None = None,
 ) -> FundamentalSnapshotV1:
     """Bank/FI snapshot.
 
@@ -104,6 +106,8 @@ def build_bank_fundamental_snapshot(
         limitations.append(
             f"rejected_industrial_codes:{','.join(rejected_industrial)}"
         )
+    if extra_limitations:
+        limitations.extend(extra_limitations)
     if not clean_metrics:
         limitations.append(REASON_BANK_METRICS_UNAVAILABLE)
 
@@ -146,8 +150,11 @@ def build_bank_fundamental_snapshot(
             }
         )
         limitations.append("cbr_html_catalog_partial_no_metric_values")
+    if extra_facts:
+        facts.extend(extra_facts)
 
     # Snapshot status: READY only with bank metrics; else layer PARTIAL/NOT_AVAILABLE.
+    # Supplied bank metrics stay PARTIAL until a full bank metric contract exists.
     if clean_metrics:
         status = "PARTIAL"  # never claim READY until full bank metric contract exists
     else:
