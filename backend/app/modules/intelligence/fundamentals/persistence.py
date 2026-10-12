@@ -26,7 +26,7 @@ def schema_ready(session: Session) -> bool:
             """
         )
     ).scalar()
-    return bool(row)
+    return row is True
 
 
 def _known_at_ts(value: date | datetime | None) -> datetime | None:
