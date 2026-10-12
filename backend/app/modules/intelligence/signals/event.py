@@ -61,6 +61,15 @@ def _recency_weight(as_of: date, known_at: date | datetime) -> float:
     return float(0.5 ** (age / _HALF_LIFE_DAYS))
 
 
+def _evidence_document_id(event: Mapping[str, Any]) -> str | None:
+    """Prefer the source document. Fall back to the event id used by older payloads."""
+    for key in ("source_document_id", "event_id"):
+        value = event.get(key)
+        if value is not None and str(value) != "":
+            return str(value)
+    return None
+
+
 def _event_weight(event: Mapping[str, Any], as_of: date, known_at: date | datetime) -> float:
     materiality = optional_float(event.get("materiality"))
     if materiality is None:
@@ -179,7 +188,7 @@ class EventModelV1:
             EvidenceRef(
                 source_type="structured_event",
                 provider=str(e.get("provider") or "events"),
-                source_document_id=str(e["event_id"]) if e.get("event_id") is not None else None,
+                source_document_id=_evidence_document_id(e),
                 known_at=parse_known_at(e.get("known_at")),
                 content_hash=str(e["content_hash"]) if e.get("content_hash") else None,
                 note=str(e.get("event_type") or "event"),
