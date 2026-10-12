@@ -300,26 +300,30 @@
     {
       "id": "MOEX-01:discover",
       "stream": "MOEX-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-01:pilot-fetch",
       "stream": "MOEX-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-01:parse",
       "stream": "MOEX-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-01:validate",
       "stream": "MOEX-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-02:discover",
@@ -348,26 +352,30 @@
     {
       "id": "MOEX-04:discover",
       "stream": "MOEX-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-04:pilot-fetch",
       "stream": "MOEX-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-04:parse",
       "stream": "MOEX-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-04:validate",
       "stream": "MOEX-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
     },
     {
       "id": "MOEX-04:checkpoint",
