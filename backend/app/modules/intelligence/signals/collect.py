@@ -6,14 +6,16 @@ Does not combine models. Missing session → None (builder emits UNKNOWN stubs).
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.intelligence.contracts.provenance import EvidenceRef
 from app.modules.intelligence.contracts.signal import SignalOutputV1, unknown_signal
+from app.modules.intelligence.signals.base import optional_float
 from app.modules.intelligence.signals.event import EventModelV1
 from app.modules.intelligence.signals.fundamental import FundamentalModelV1
 from app.modules.intelligence.signals.intraday import IntradayStructureModelV1
@@ -172,10 +174,12 @@ def collect_instrument_signals(
         as_of=as_of,
         snapshot=fund,
     )
+    # Session exists, so the payload is a list. [] abstains with no_valid_events.
+    # None is reserved for the no-session return above (events_payload_missing).
     event = EventModelV1().evaluate(
         instrument_id=instrument_id,
         as_of=as_of,
-        events=None,
+        events=_load_instrument_events(session, instrument_id, as_of),
     )
     intraday = IntradayStructureModelV1().evaluate(
         instrument_id=instrument_id,
@@ -207,13 +211,109 @@ def collect_instrument_signals(
         reason="bank_universe_metrics_not_available",
         horizon="reporting_cycle",
     )
-    news = unknown_signal(
+    news = _news_coverage_signal(session, instrument_id, as_of)
+    return (technical, fundamental, event, intraday, macro_sig, ml, bank, news)
+
+
+def _known_at_cutoff(as_of: date) -> datetime:
+    """Inclusive end of the UTC calendar day. Later known_at values stay unseen."""
+    return datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, 999999, tzinfo=UTC)
+
+
+def _load_instrument_events(
+    session: Session,
+    instrument_id: int,
+    as_of: date,
+) -> list[dict[str, Any]]:
+    """PIT events for EventModel. Empty list means the query ran and found none.
+
+    Direction is copied as stored. UNKNOWN is not rewritten to NEUTRAL.
+    ``timestamp_trusted`` is true only when ``known_at`` is present.
+    """
+    from app.modules.intelligence.extraction.deterministic import MATERIALITY_WEIGHT
+    from app.modules.intelligence.news.models import IntelligenceEvent
+
+    cutoff = _known_at_cutoff(as_of)
+    rows = session.scalars(
+        select(IntelligenceEvent)
+        .where(
+            IntelligenceEvent.instrument_id == instrument_id,
+            IntelligenceEvent.known_at <= cutoff,
+        )
+        .order_by(IntelligenceEvent.known_at.asc(), IntelligenceEvent.id.asc())
+    ).all()
+    return [_event_payload(row, MATERIALITY_WEIGHT) for row in rows]
+
+
+def _event_payload(row: Any, materiality_weight: dict[str, float | None]) -> dict[str, Any]:
+    payload = dict(row.payload or {})
+    if "materiality_weight" in payload:
+        materiality = optional_float(payload.get("materiality_weight"))
+    else:
+        materiality = materiality_weight.get(str(row.materiality or "UNKNOWN").upper())
+    known_at = row.known_at
+    direction = row.direction
+    return {
+        "event_id": row.id,
+        "event_type": row.event_type,
+        "direction": direction,
+        "materiality": materiality,
+        "known_at": known_at,
+        "confidence": optional_float(payload.get("confidence")),
+        "source_document_id": row.source_document_id,
+        "timestamp_trusted": known_at is not None,
+        "provider": "intelligence_events",
+    }
+
+
+def _news_coverage_signal(session: Session, instrument_id: int, as_of: date) -> SignalOutputV1:
+    """NEWS reports which documents are in coverage. It does not vote a direction.
+
+    EventModel is the only directional consumer of the same extracted events.
+    """
+    from app.modules.intelligence.news.models import IntelligenceSourceDocument
+
+    cutoff = _known_at_cutoff(as_of)
+    documents = list(
+        session.scalars(
+            select(IntelligenceSourceDocument)
+            .where(
+                IntelligenceSourceDocument.instrument_id == instrument_id,
+                IntelligenceSourceDocument.known_at <= cutoff,
+            )
+            .order_by(IntelligenceSourceDocument.known_at.asc(), IntelligenceSourceDocument.id.asc())
+        ).all()
+    )
+    limitations = ["news_source_coverage_only", "news_does_not_cast_directional_vote"]
+    if documents:
+        limitations.append("source_documents_in_coverage")
+    evidence = tuple(
+        EvidenceRef(
+            source_type=document.source_type or "source_document",
+            provider=document.provider or "news",
+            source_document_id=str(document.id),
+            content_hash=document.content_hash,
+            known_at=document.known_at,
+            note="coverage_only",
+        )
+        for document in documents[:10]
+    )
+    return SignalOutputV1(
         model_id="NewsModelV1",
         model_version="1",
         semantic="NEWS",
         instrument_id=instrument_id,
         as_of=as_of,
-        reason="news_events_prospective_only_no_extracted_facts",
+        known_at=documents[-1].known_at if documents else None,
         horizon="event_window",
+        state="UNKNOWN",
+        score=None,
+        confidence=None,
+        evidence_refs=evidence,
+        limitations=tuple(limitations),
+        abstain_reason="news_source_coverage_only",
+        model_metadata={
+            "source_document_count": len(documents),
+            "directional_vote": False,
+        },
     )
-    return (technical, fundamental, event, intraday, macro_sig, ml, bank, news)
