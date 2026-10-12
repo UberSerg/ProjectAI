@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 EXTRACTOR_VERSION = "intelligence_extractor_v1"
 
+# Legacy labels stay valid. The names below them are an additive taxonomy used by
+# the deterministic extractor (deterministic_extractor_v1). Do not remove legacy labels.
 EventType = Literal[
     "EARNINGS",
     "GUIDANCE",
@@ -26,6 +28,15 @@ EventType = Literal[
     "LITIGATION",
     "CREDIT_RATING",
     "OTHER",
+    "EARNINGS_RESULTS",
+    "M_AND_A",
+    "SPO_SECONDARY",
+    "DEBT_FINANCING",
+    "SANCTION_REGULATORY",
+    "LEGAL",
+    "CORPORATE_ACTION",
+    "OTHER_MATERIAL",
+    "UNKNOWN",
 ]
 
 EVENT_TYPES: frozenset[str] = frozenset(
@@ -47,6 +58,15 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "LITIGATION",
         "CREDIT_RATING",
         "OTHER",
+        "EARNINGS_RESULTS",
+        "M_AND_A",
+        "SPO_SECONDARY",
+        "DEBT_FINANCING",
+        "SANCTION_REGULATORY",
+        "LEGAL",
+        "CORPORATE_ACTION",
+        "OTHER_MATERIAL",
+        "UNKNOWN",
     }
 )
 
