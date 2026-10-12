@@ -1,5 +1,6 @@
 """LLM structured information extraction — optional provider, evidence-grounded facts."""
 
+from app.modules.intelligence.extraction.deterministic import DETERMINISTIC_EXTRACTOR_VERSION
 from app.modules.intelligence.extraction.fake import DeterministicFakeExtractor
 from app.modules.intelligence.extraction.provider import (
     IntelligenceExtractor,
@@ -24,6 +25,7 @@ from app.modules.intelligence.extraction.service import (
 )
 
 __all__ = [
+    "DETERMINISTIC_EXTRACTOR_VERSION",
     "EXTRACTOR_VERSION",
     "DIRECTION_VALUES",
     "EVENT_TYPES",
