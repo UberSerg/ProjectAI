@@ -1,0 +1,231 @@
+{
+  "fixture_origin": "live_capture",
+  "captured_at": "2026-10-12T20:25:00+00:00",
+  "inn": "7708004767",
+  "secid": "LKOH",
+  "full_bfo_sha256": "c2906d79d3ab738b6f01355928824c29ba5d2bb2de8d65ba52c18a6c88614bf0",
+  "search_url": "https://bo.nalog.gov.ru/advanced-search/organizations/search?query=7708004767&page=0&size=10",
+  "bfo_url": "https://bo.nalog.gov.ru/nbo/organizations/6681478/bfo/",
+  "search": {
+    "content": [
+      {
+        "id": 6681478,
+        "inn": "<strong>7708004767</strong>",
+        "ogrn": "1027700035769",
+        "shortName": "ПАО \"ЛУКОЙЛ\"",
+        "bfo": {
+          "isCb": false,
+          "period": "2025",
+          "actualBfoDate": "2026-03-20"
+        }
+      }
+    ]
+  },
+  "periods": [
+    {
+      "id": 13682663,
+      "period": "2021",
+      "isCb": false,
+      "actualBfoDate": "2022-03-16",
+      "actualCorrectionNumber": 0,
+      "actualCorrectionDate": "2022-03-16",
+      "publishedCorrectionDate": "2023-10-19",
+      "knd": "0710099",
+      "organizationInfo": {
+        "inn": "7708004767",
+        "fullName": "Публичное акционерное общество \"Нефтяная компания \"ЛУКОЙЛ\""
+      },
+      "typeCorrections": [
+        {
+          "type": 12,
+          "correction": {
+            "id": 41185526,
+            "datePresent": "2022-03-16T00:00:00",
+            "periodType": 12,
+            "correctionVersion": 0,
+            "knd": "0710099",
+            "balance": {
+              "current1600": 2100950742.0,
+              "current1300": 1024625023.0,
+              "current1250": 76949573.0,
+              "current1410": 170872980.0,
+              "current1510": 540193211.0
+            },
+            "financialResult": {
+              "current2110": 2389317290.0,
+              "current2200": 708678659.0,
+              "current2400": 635708387.0
+            },
+            "fundsMovement": {
+              "current4100": 2219547606.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 27306568,
+      "period": "2025",
+      "isCb": false,
+      "actualBfoDate": "2026-03-20",
+      "actualCorrectionNumber": 0,
+      "actualCorrectionDate": "2026-03-20",
+      "publishedCorrectionDate": "2026-03-24",
+      "knd": "0710099",
+      "organizationInfo": {
+        "inn": "7708004767",
+        "fullName": "Публичное акционерное общество \"Нефтяная компания \"ЛУКОЙЛ\""
+      },
+      "typeCorrections": [
+        {
+          "type": 12,
+          "correction": {
+            "id": 54723849,
+            "datePresent": "2026-03-20T12:12:40",
+            "periodType": 12,
+            "correctionVersion": 0,
+            "knd": "0710099",
+            "balance": {
+              "current1600": 2724370748.0,
+              "current1300": 1110183683.0,
+              "current1250": 529000696.0,
+              "current1410": 62480604.0,
+              "current1510": 708222745.0
+            },
+            "financialResult": {
+              "current2110": 3453224535.0,
+              "current2200": 1384144385.0,
+              "current2400": 403734771.0
+            },
+            "fundsMovement": {
+              "current4100": 2262748444.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 19193587,
+      "period": "2022",
+      "isCb": false,
+      "actualBfoDate": "2023-03-31",
+      "actualCorrectionNumber": 0,
+      "actualCorrectionDate": "2023-03-31",
+      "publishedCorrectionDate": "2023-10-19",
+      "knd": "0710099",
+      "organizationInfo": {
+        "inn": "7708004767",
+        "fullName": "Публичное акционерное общество \"Нефтяная компания \"ЛУКОЙЛ\""
+      },
+      "typeCorrections": [
+        {
+          "type": 12,
+          "correction": {
+            "id": 46432306,
+            "datePresent": "2023-03-31T00:00:00",
+            "periodType": 12,
+            "correctionVersion": 0,
+            "knd": "0710099",
+            "balance": {
+              "current1600": 2284260472.0,
+              "current1300": 1265167013.0,
+              "current1250": 314899487.0,
+              "current1410": 78389174.0,
+              "current1510": 571192801.0
+            },
+            "financialResult": {
+              "current2110": 2874037264.0,
+              "current2200": 936067229.0,
+              "current2400": 790120077.0
+            },
+            "fundsMovement": {
+              "current4100": 2801718777.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 24177749,
+      "period": "2024",
+      "isCb": false,
+      "actualBfoDate": "2025-03-24",
+      "actualCorrectionNumber": 0,
+      "actualCorrectionDate": "2025-03-24",
+      "publishedCorrectionDate": "2025-03-24",
+      "knd": "0710099",
+      "organizationInfo": {
+        "inn": "7708004767",
+        "fullName": "Публичное акционерное общество \"Нефтяная компания \"ЛУКОЙЛ\""
+      },
+      "typeCorrections": [
+        {
+          "type": 12,
+          "correction": {
+            "id": 51519051,
+            "datePresent": "2025-03-24T00:00:00",
+            "periodType": 12,
+            "correctionVersion": 0,
+            "knd": "0710099",
+            "balance": {
+              "current1600": 2863934119.0,
+              "current1300": 1339944216.0,
+              "current1250": 177845757.0,
+              "current1410": 113319179.0,
+              "current1510": 573977529.0
+            },
+            "financialResult": {
+              "current2110": 3046943699.0,
+              "current2200": 705282794.0,
+              "current2400": 732516214.0
+            },
+            "fundsMovement": {
+              "current4100": 3405522870.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 20820722,
+      "period": "2023",
+      "isCb": false,
+      "actualBfoDate": "2024-03-15",
+      "actualCorrectionNumber": 0,
+      "actualCorrectionDate": "2024-03-15",
+      "publishedCorrectionDate": "2024-03-17",
+      "knd": "0710099",
+      "organizationInfo": {
+        "inn": "7708004767",
+        "fullName": "Публичное акционерное общество \"Нефтяная компания \"ЛУКОЙЛ\""
+      },
+      "typeCorrections": [
+        {
+          "type": 12,
+          "correction": {
+            "id": 48079388,
+            "datePresent": "2024-03-15T00:00:00",
+            "periodType": 12,
+            "correctionVersion": 0,
+            "knd": "0710099",
+            "balance": {
+              "current1600": 2710708856.0,
+              "current1300": 1308113431.0,
+              "current1250": 280247833.0,
+              "current1410": 99955099.0,
+              "current1510": 571757876.0
+            },
+            "financialResult": {
+              "current2110": 2753475003.0,
+              "current2200": 683751011.0,
+              "current2400": 655289456.0
+            },
+            "fundsMovement": {
+              "current4100": 2464024302.0
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
