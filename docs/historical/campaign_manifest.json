@@ -492,20 +492,23 @@
     {
       "id": "ROS-01:discover",
       "stream": "ROS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "ROS-01:pilot-fetch",
       "stream": "ROS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "ROS-01:parse",
       "stream": "ROS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "ROS-02:discover",
@@ -714,38 +717,44 @@
     {
       "id": "INT-01:discover",
       "stream": "INT-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "INT-01:pilot-fetch",
       "stream": "INT-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "INT-01:parse",
       "stream": "INT-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "INT-02:discover",
       "stream": "INT-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "INT-02:pilot-fetch",
       "stream": "INT-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "INT-02:parse",
       "stream": "INT-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
     },
     {
       "id": "INT-03:discover",
