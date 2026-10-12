@@ -414,38 +414,44 @@
     {
       "id": "FNS-01:discover",
       "stream": "FNS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
     },
     {
       "id": "FNS-01:pilot-fetch",
       "stream": "FNS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
     },
     {
       "id": "FNS-01:parse",
       "stream": "FNS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
     },
     {
       "id": "FNS-01:validate",
       "stream": "FNS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
     },
     {
       "id": "FNS-02:discover",
       "stream": "FNS-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
     },
     {
       "id": "FNS-02:identity-map",
       "stream": "FNS-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
     },
     {
       "id": "FNS-03:discover",
