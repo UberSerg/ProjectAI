@@ -207,4 +207,131 @@ describe("CompanyIntelligencePage", () => {
       force: true,
     });
   });
+
+  it("renders negative and unknown events without styling unknown as neutral", async () => {
+    const withEvents: intelligenceApi.IntelligenceSnapshot = {
+      ...sampleSnapshot,
+      freshness: "PARTIAL",
+      fundamentals_summary: {
+        status: "PARTIAL",
+        issuer_kind: "BANK_FI",
+        provider: "cbr_forms",
+        period_end: "2026-06-30",
+        metrics: { NET_PROFIT: 1200, EQUITY: 800 },
+        missing_metrics: ["NIM"],
+        limitations: ["bank_metrics_partial"],
+      },
+      macro_summary: {
+        status: "PARTIAL",
+        regimes: { rates: "RESTRICTIVE" },
+        observations: { key_rate: { value: 16 } },
+        sources: ["cbr"],
+      },
+      committee: {
+        ...sampleSnapshot.committee!,
+        advisory_state: "HOLD",
+        confidence: 0.42,
+        confidence_semantic: "AGREEMENT",
+        disagreement_score: 0.2,
+        primary_drivers: ["event:EARNINGS"],
+        counterarguments: ["risk_flags"],
+        data_gaps: ["macro_partial"],
+      },
+      signals: [
+        {
+          ...sampleSnapshot.signals[0],
+          state: "NEGATIVE",
+          score: -0.4,
+          confidence: 0.5,
+          confidence_semantic: "EVIDENCE_COMPLETENESS",
+          limitations: ["thin_history"],
+        },
+      ],
+      recent_events: [
+        {
+          evidence_role: "extracted_event",
+          event_type: "EARNINGS",
+          materiality: "HIGH",
+          direction: "NEGATIVE",
+          published_at: "2026-09-28T08:00:00+00:00",
+          known_at: "2026-09-28T09:00:00+00:00",
+          provider: "interfax",
+          title: "SBER profit drop",
+          source_document_id: 7,
+          mapping_basis: "ticker_exact",
+        },
+        {
+          evidence_role: "extracted_event",
+          event_type: "OTHER",
+          materiality: "UNKNOWN",
+          direction: "UNKNOWN",
+          published_at: "2026-09-20T08:00:00+00:00",
+          known_at: "2026-09-20T09:00:00+00:00",
+          provider: "moex",
+          title: "Unclear filing",
+          source_document_id: 8,
+          mapping_basis: "issuer_name",
+        },
+        {
+          evidence_role: "extracted_event",
+          event_type: "GUIDANCE",
+          materiality: "LOW",
+          direction: "ABSTAIN",
+          published_at: "2026-09-10T08:00:00+00:00",
+          known_at: "2026-09-10T09:00:00+00:00",
+          provider: "moex",
+          title: "No stance",
+          source_document_id: 9,
+          mapping_basis: "manual",
+        },
+        {
+          evidence_role: "unscored_news",
+          event_type: null,
+          materiality: null,
+          direction: null,
+          provider: "interfax",
+          title: "Bare headline",
+          source_document_id: 10,
+          mapping_basis: "headline_only",
+        },
+      ],
+    };
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockResolvedValue(withEvents);
+    renderPage("/intelligence?instrument_id=42&as_of=2026-10-01");
+
+    const negative = await screen.findByTestId("intel-event-direction-0");
+    expect(negative).toHaveAttribute("data-state", "NEGATIVE");
+    expect(negative).toHaveClass("intel-state-negative");
+    expect(negative).not.toHaveClass("intel-state-neutral");
+    expect(screen.getByTestId("intel-event-materiality-0")).toHaveTextContent("HIGH");
+    expect(screen.getByTestId("intel-event-0")).toHaveTextContent("SBER profit drop");
+    expect(screen.getByTestId("intel-event-0")).toHaveTextContent("ticker_exact");
+
+    const unknown = screen.getByTestId("intel-event-direction-1");
+    expect(unknown).toHaveAttribute("data-state", "UNKNOWN");
+    expect(unknown).toHaveClass("intel-state-unknown");
+    expect(unknown).not.toHaveClass("intel-state-neutral");
+
+    const abstain = screen.getByTestId("intel-event-direction-2");
+    expect(abstain).toHaveAttribute("data-state", "ABSTAIN");
+    expect(abstain).toHaveClass("intel-state-abstain");
+    expect(abstain).not.toHaveClass("intel-state-neutral");
+
+    const unscored = screen.getByTestId("intel-event-3");
+    expect(unscored).toHaveAttribute("data-evidence-role", "unscored_news");
+    expect(screen.getByTestId("intel-event-direction-3")).toHaveAttribute("data-state", "UNSCORED");
+    expect(screen.getByTestId("intel-event-direction-3")).toHaveTextContent("не оценено");
+    expect(unscored.querySelector(".intel-state-neutral")).toBeNull();
+    expect(unscored).not.toHaveTextContent("NEUTRAL");
+
+    expect(screen.getByTestId("intel-fundamentals")).toHaveTextContent("Bank fundamentals");
+    expect(screen.getByTestId("intel-fundamentals")).toHaveTextContent("NET_PROFIT");
+    expect(screen.getByTestId("intel-macro")).toHaveTextContent("RESTRICTIVE");
+    expect(screen.getByTestId("intel-primary-drivers")).toHaveTextContent("event:EARNINGS");
+    expect(screen.getByTestId("intel-committee-confidence-semantic")).toHaveTextContent("AGREEMENT");
+    expect(screen.getByRole("button", { name: "Обновить данные" })).toBeEnabled();
+
+    const body = document.body.textContent ?? "";
+    expect(body).not.toMatch(/accuracy|probability of profit|AI certainty/i);
+  });
 });
