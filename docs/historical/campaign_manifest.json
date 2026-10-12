@@ -1,0 +1,943 @@
+{
+  "campaign": "historical-data-swarm-v1",
+  "base": "b7d778a57912ddc08e03e2e686a3e2132e3bac82",
+  "task_count": 156,
+  "tasks": [
+    {
+      "id": "PLT:contracts",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:storage-checkpoint",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:adapter-registry",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:raw-artifact-store",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:idempotent-import",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:reprocess-versions",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:production-isolation",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:migration-owner",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-01:discover",
+      "stream": "CBR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-01:pilot-fetch",
+      "stream": "CBR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-01:parse",
+      "stream": "CBR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-01:validate",
+      "stream": "CBR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-01:checkpoint",
+      "stream": "CBR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-02:discover",
+      "stream": "CBR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-02:pilot-fetch",
+      "stream": "CBR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-02:parse",
+      "stream": "CBR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-02:validate",
+      "stream": "CBR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-02:checkpoint",
+      "stream": "CBR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-03:discover",
+      "stream": "CBR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-03:pilot-fetch",
+      "stream": "CBR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-03:parse",
+      "stream": "CBR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-03:validate",
+      "stream": "CBR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-03:checkpoint",
+      "stream": "CBR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-04:discover",
+      "stream": "CBR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-04:pilot-fetch",
+      "stream": "CBR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-04:parse",
+      "stream": "CBR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-04:validate",
+      "stream": "CBR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-05:discover",
+      "stream": "CBR-05",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-05:access-check",
+      "stream": "CBR-05",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-06:discover",
+      "stream": "CBR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-06:reuse-soap",
+      "stream": "CBR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-06:pilot",
+      "stream": "CBR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-07:discover",
+      "stream": "CBR-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-07:reuse-soap",
+      "stream": "CBR-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-07:pilot",
+      "stream": "CBR-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-08:discover",
+      "stream": "CBR-08",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-08:reuse-soap",
+      "stream": "CBR-08",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-08:pilot",
+      "stream": "CBR-08",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-09:discover",
+      "stream": "CBR-09",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-09:reuse-soap",
+      "stream": "CBR-09",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-09:pilot",
+      "stream": "CBR-09",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-10:discover",
+      "stream": "CBR-10",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-10:access-check",
+      "stream": "CBR-10",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-11:discover",
+      "stream": "CBR-11",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-11:access-check",
+      "stream": "CBR-11",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-01:discover",
+      "stream": "MOEX-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-01:pilot-fetch",
+      "stream": "MOEX-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-01:parse",
+      "stream": "MOEX-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-01:validate",
+      "stream": "MOEX-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-02:discover",
+      "stream": "MOEX-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-02:pilot",
+      "stream": "MOEX-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-03:discover",
+      "stream": "MOEX-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-03:pilot",
+      "stream": "MOEX-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-04:discover",
+      "stream": "MOEX-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-04:pilot-fetch",
+      "stream": "MOEX-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-04:parse",
+      "stream": "MOEX-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-04:validate",
+      "stream": "MOEX-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-04:checkpoint",
+      "stream": "MOEX-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-05:discover",
+      "stream": "MOEX-05",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-05:pilot",
+      "stream": "MOEX-05",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-06:discover",
+      "stream": "MOEX-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-06:pilot-fetch",
+      "stream": "MOEX-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-06:parse",
+      "stream": "MOEX-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-06:validate",
+      "stream": "MOEX-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-07:discover",
+      "stream": "MOEX-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-07:access-check",
+      "stream": "MOEX-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-08:discover",
+      "stream": "MOEX-08",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-08:pilot",
+      "stream": "MOEX-08",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-01:discover",
+      "stream": "FNS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-01:pilot-fetch",
+      "stream": "FNS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-01:parse",
+      "stream": "FNS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-01:validate",
+      "stream": "FNS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-02:discover",
+      "stream": "FNS-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-02:identity-map",
+      "stream": "FNS-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-03:discover",
+      "stream": "FNS-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "FNS-03:revisions",
+      "stream": "FNS-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-01:discover",
+      "stream": "ROS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-01:pilot-fetch",
+      "stream": "ROS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-01:parse",
+      "stream": "ROS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-02:discover",
+      "stream": "ROS-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-02:access-check",
+      "stream": "ROS-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-03:discover",
+      "stream": "ROS-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-03:access-check",
+      "stream": "ROS-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-04:discover",
+      "stream": "ROS-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ROS-04:publication-meta",
+      "stream": "ROS-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-01:discover",
+      "stream": "IR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-01:xlsx-pilot",
+      "stream": "IR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-02:discover",
+      "stream": "IR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-02:access-check",
+      "stream": "IR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-03:discover",
+      "stream": "IR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-03:access-check",
+      "stream": "IR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-04:discover",
+      "stream": "IR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-04:access-check",
+      "stream": "IR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-05:discover",
+      "stream": "IR-05",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-05:dividend-archive",
+      "stream": "IR-05",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-06:discover",
+      "stream": "IR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-06:access-check",
+      "stream": "IR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-07:discover",
+      "stream": "IR-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-07:xlsx-pilot",
+      "stream": "IR-07",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "DISC-01:discover",
+      "stream": "DISC-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "DISC-01:access-check",
+      "stream": "DISC-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "DISC-02:discover",
+      "stream": "DISC-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "DISC-02:access-check",
+      "stream": "DISC-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "DISC-03:discover",
+      "stream": "DISC-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "DISC-03:dedup-design",
+      "stream": "DISC-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-01:discover",
+      "stream": "NEWS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-01:metadata-pilot",
+      "stream": "NEWS-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-02:discover",
+      "stream": "NEWS-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-02:access-check",
+      "stream": "NEWS-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-03:discover",
+      "stream": "NEWS-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-03:metadata-only",
+      "stream": "NEWS-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "NEWS-04:dedup-design",
+      "stream": "NEWS-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-01:discover",
+      "stream": "INT-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-01:pilot-fetch",
+      "stream": "INT-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-01:parse",
+      "stream": "INT-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-02:discover",
+      "stream": "INT-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-02:pilot-fetch",
+      "stream": "INT-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-02:parse",
+      "stream": "INT-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-03:discover",
+      "stream": "INT-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-03:access-check",
+      "stream": "INT-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INT-04:context-map",
+      "stream": "INT-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENT:inn-ogrn",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENT:isin-secid",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENT:ambiguous-hold",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENT:no-subsidiary-substitution",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENT:identifier-history",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:classify",
+      "stream": "PIT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:no-backdate",
+      "stream": "PIT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:research-only-default",
+      "stream": "PIT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:publication-evidence",
+      "stream": "PIT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:schema",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:units",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:percent-vs-pp",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:missing-vs-zero",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:quarantine",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:independent-sample",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:checkpoint",
+      "stream": "BKF",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:resume",
+      "stream": "BKF",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:rate-limit",
+      "stream": "BKF",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:stage-1000-gate",
+      "stream": "BKF",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:no-unbounded-download",
+      "stream": "BKF",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:yoy",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:qoq",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:ttm",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:bank-ratios-separate",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:no-raw-overwrite",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:recompute",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:celery-split",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:coverage-report",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:diagnostics",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:no-aggressive-poll",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-a-contracts",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-b-official",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-c-documents",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-d-enrichment",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:ci-once",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    }
+  ]
+}
