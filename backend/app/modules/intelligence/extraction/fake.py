@@ -8,9 +8,15 @@ from typing import Any
 from app.modules.intelligence.contracts.snapshots_domain import SourceDocumentV1
 from app.modules.intelligence.extraction.sanitize import (
     document_contains_injection,
+    interpret_llm_output,
     sanitize_provider_payload,
 )
-from app.modules.intelligence.extraction.schema import EXTRACTOR_VERSION, ExtractionResultV1
+from app.modules.intelligence.extraction.schema import (
+    EXTRACTOR_VERSION,
+    LLM_EXTRACTOR_VERSION,
+    ExtractionResultV1,
+    unavailable_result,
+)
 
 _DIVIDEND_RE = re.compile(
     r"dividend\s+of\s+(?P<value>\d+(?:\.\d+)?)\s*(?P<currency>[A-Z]{3})?",
@@ -148,4 +154,55 @@ class DeterministicFakeExtractor:
             provider_name=self.name,
             payload=payload,
             source_text=text,
+        )
+
+
+class ScriptedLLMExtractor:
+    """Test double that feeds one raw model string through the LLM validator.
+
+    It is not the runtime default and it does not open a network connection.
+    """
+
+    name = "scripted_llm"
+    version = LLM_EXTRACTOR_VERSION
+
+    def __init__(self, raw_output: str, *, available: bool = True) -> None:
+        self._raw_output = raw_output
+        self._available = available
+
+    def available(self) -> bool:
+        return self._available
+
+    def readiness(self) -> dict[str, Any]:
+        if not self._available:
+            return {
+                "status": "LLM_UNAVAILABLE",
+                "provider": self.name,
+                "extractor_version": self.version,
+                "available": False,
+                "reason": "scripted_provider_disabled",
+                "fabricates_facts": False,
+            }
+        return {
+            "status": "OK",
+            "provider": self.name,
+            "extractor_version": self.version,
+            "available": True,
+            "deterministic": False,
+            "fabricates_facts": False,
+            "note": "test-only; must not be default runtime provider",
+        }
+
+    def extract(self, document: SourceDocumentV1) -> ExtractionResultV1:
+        if not self._available:
+            return unavailable_result(
+                source_document_id=document.id,
+                provider_name=self.name,
+                reason="scripted_provider_disabled",
+            )
+        return interpret_llm_output(
+            document=document,
+            raw_output=self._raw_output,
+            provider_name=self.name,
+            extractor_version=self.version,
         )
