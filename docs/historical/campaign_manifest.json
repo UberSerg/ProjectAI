@@ -600,26 +600,30 @@
     {
       "id": "DISC-01:discover",
       "stream": "DISC-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
     },
     {
       "id": "DISC-01:access-check",
       "stream": "DISC-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
     },
     {
       "id": "DISC-02:discover",
       "stream": "DISC-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
     },
     {
       "id": "DISC-02:access-check",
       "stream": "DISC-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
     },
     {
       "id": "DISC-03:discover",
@@ -648,14 +652,16 @@
     {
       "id": "NEWS-02:discover",
       "stream": "NEWS-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
     },
     {
       "id": "NEWS-02:access-check",
       "stream": "NEWS-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
     },
     {
       "id": "NEWS-03:discover",
