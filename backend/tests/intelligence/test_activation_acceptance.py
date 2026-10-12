@@ -131,7 +131,25 @@ def test_force_refresh_stores_partial_cbr_and_get_does_not_fetch(
     assert direct.state == "ABSTAIN"
 
 
-def test_second_prospective_capture_does_not_rewrite_the_first(core_db: Session) -> None:
+def test_second_prospective_capture_does_not_rewrite_the_first(
+    core_db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.modules.intelligence.application.snapshot_builder import (
+        build_intelligence_snapshot as real_build,
+    )
+
+    built: list[dict] = []
+
+    def _build(**kwargs):
+        snapshot = real_build(**kwargs)
+        built.append(snapshot.to_dict())
+        return snapshot
+
+    monkeypatch.setattr(
+        "app.modules.intelligence.application.snapshot_builder.build_intelligence_snapshot",
+        _build,
+    )
     instrument = _instrument(core_db)
     ctx = {
         "instrument_ids": [instrument.id],
@@ -154,3 +172,22 @@ def test_second_prospective_capture_does_not_rewrite_the_first(core_db: Session)
     assert again is not None
     assert again["payload_hash"] == first_hash
     assert again["payload"]["captured_at"] == read_back["payload"]["captured_at"]
+    canonical = built[0]
+    stored = read_back["payload"]
+    for key in (
+        "signals",
+        "committee",
+        "risk",
+        "knowledge_evaluations",
+        "fundamentals_summary",
+        "recent_events",
+        "macro_summary",
+        "intraday_summary",
+        "production_isolation",
+    ):
+        assert stored[key] == canonical[key]
+    assert stored["policy_version"] == canonical["committee"]["committee_policy_version"]
+    assert stored["model_versions"] == {
+        item["model_id"]: item["model_version"] for item in canonical["signals"]
+    }
+    assert stored["captured_at"] == canonical["generated_at"]
