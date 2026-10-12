@@ -61,6 +61,31 @@ def _recency_weight(as_of: date, known_at: date | datetime) -> float:
     return float(0.5 ** (age / _HALF_LIFE_DAYS))
 
 
+def _evidence_document_id(event: Mapping[str, Any]) -> str | None:
+    """Prefer the source document. Fall back to the event id used by older payloads."""
+    for key in ("source_document_id", "event_id"):
+        value = event.get(key)
+        if value is not None and str(value) != "":
+            return str(value)
+    return None
+
+
+def _content_identity(event: Mapping[str, Any]) -> str | None:
+    """One article copied to another URL is still one directional contribution."""
+    claim = event.get("claim_hash")
+    if isinstance(claim, str) and claim.strip():
+        return "claim:" + claim.strip()
+    evidence = event.get("evidence_fragment")
+    if isinstance(evidence, str) and evidence.strip():
+        kind = str(event.get("event_type") or "")
+        normalized = " ".join(evidence.casefold().split())
+        return f"evidence:{kind}:{normalized}"
+    content = event.get("content_hash")
+    if isinstance(content, str) and content.strip():
+        return "content:" + content.strip()
+    return None
+
+
 def _event_weight(event: Mapping[str, Any], as_of: date, known_at: date | datetime) -> float:
     materiality = optional_float(event.get("materiality"))
     if materiality is None:
@@ -122,6 +147,8 @@ class EventModelV1:
         weighted: list[tuple[float, float, Mapping[str, Any]]] = []
         skipped_untrusted = 0
         skipped_pit = 0
+        skipped_duplicate = 0
+        seen_content: set[str] = set()
         for event in events:
             known_at = parse_known_at(event.get("known_at"))
             if known_at is None:
@@ -137,6 +164,12 @@ class EventModelV1:
             if score is None:
                 skipped_untrusted += 1
                 continue
+            identity = _content_identity(event)
+            if identity is not None:
+                if identity in seen_content:
+                    skipped_duplicate += 1
+                    continue
+                seen_content.add(identity)
             score = clip(score)
             w = _event_weight(event, as_of_d, known_at)
             if w <= 0:
@@ -179,7 +212,7 @@ class EventModelV1:
             EvidenceRef(
                 source_type="structured_event",
                 provider=str(e.get("provider") or "events"),
-                source_document_id=str(e["event_id"]) if e.get("event_id") is not None else None,
+                source_document_id=_evidence_document_id(e),
                 known_at=parse_known_at(e.get("known_at")),
                 content_hash=str(e["content_hash"]) if e.get("content_hash") else None,
                 note=str(e.get("event_type") or "event"),
@@ -194,6 +227,8 @@ class EventModelV1:
             limitations.append("future_known_at_excluded")
         if skipped_untrusted:
             limitations.append("untrusted_events_excluded")
+        if skipped_duplicate:
+            limitations.append("duplicate_content_collapsed")
 
         latest_known: date | datetime | None = None
         latest_key: date | None = None
@@ -224,6 +259,7 @@ class EventModelV1:
                 "events_used": len(weighted),
                 "events_skipped_pit": skipped_pit,
                 "events_skipped_untrusted": skipped_untrusted,
+                "events_skipped_duplicate": skipped_duplicate,
                 "conflict_score": conflict,
                 "weight_sum": w_sum,
                 "candidate_promotion": False,

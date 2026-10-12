@@ -91,10 +91,13 @@ def bank_source_registry() -> tuple[BankSourceStatus, ...]:
             programmatic=False,
             auth="NONE",
             notes=(
-                "Public HTML form pages exist for SBER (regnum 1481) with multi-year "
-                "coverage. No stable JSON API, no Excel export on form pages, no "
-                "universe-wide SECID→regnum registry in this module. Metric extraction "
-                "from HTML is intentionally not claimed as READY."
+                "Public HTML form pages exist for SBER (regnum 1481). Re-checked "
+                "2026-10-12: pages are captcha-free and captions state тыс. рублей "
+                "(0409101/0409102/0409123) and процент for form 0409135. HTML is "
+                "unit and cross-check evidence only. Form 101 has several "
+                "'Итого по активу (баланс)' rows across chapters, so it is not a "
+                "unique assets total. Metric values are read from CreditOrgInfo SOAP, "
+                "not from HTML cells."
             ),
             candidate_metrics=(
                 "TOTAL_ASSETS",
@@ -107,11 +110,60 @@ def bank_source_registry() -> tuple[BankSourceStatus, ...]:
                 "no_universe_wide_regnum_map",
                 "known_at_policy_not_established",
                 "metric_parser_not_accepted",
+                "form101_balance_total_not_unique_across_chapters",
             ),
             evidence_urls=(
                 "https://www.cbr.ru/finorg/foinfo/reports/?ogrn=1027700132195",
                 "https://www.cbr.ru/banking_sector/credit/coinfo/f101?regnum=1481&dt=2026-09-01",
             ),
+            audit_date="2026-10-12",
+        ),
+        BankSourceStatus(
+            provider_id="CBR_CREDITORGINFO_SOAP",
+            title="CBR CreditOrgInfo SOAP forms 102/123/135",
+            status="PARTIAL",
+            programmatic=True,
+            auth="NONE",
+            notes=(
+                "Official free SOAP at CreditOrgInfo.asmx, documented at "
+                "cbr.ru/development/WSCO/, no CAPTCHA. SBER regnum 1481 resolves "
+                "through RegNumToIntCode to internal code 1315037838265; "
+                "CreditInfoByIntCodeEx confirms regnum 1481 and OGRN 1027700132195. "
+                "INN is not in that payload. Form methods take regnum: the internal "
+                "code overflows SOAP xsd:int (HTTP 500) and Data101FullExV2XML "
+                "returns NotFound. Proved fields: form 123 line 000 own funds, "
+                "form 135 ratio N1.0, form 102 symbol 61101 profit after tax. "
+                "Data101FullXML for regnum 1481 returns an empty FD table, so "
+                "assets, loans, and deposits are not emitted. known_at is "
+                "CURRENT_ONLY. Not IFRS. Not READY."
+            ),
+            candidate_metrics=(
+                "NET_PROFIT",
+                "EQUITY",
+                "CAPITAL_ADEQUACY",
+            ),
+            limitations=(
+                "sber_regnum_only",
+                "known_at_policy_CURRENT_ONLY",
+                "period_end_is_not_known_at",
+                "not_ifrs",
+                "form101_data_methods_empty",
+                "loan_deposit_and_total_assets_not_proved",
+                "intcode_overflows_soap_int",
+                "inn_not_in_creditinfo_payload",
+                "f102_symbol_definition_pinned_to_latest_symset",
+                "unit_thousand_rub_from_html_caption",
+                "n1_0_unit_percent_from_html_column",
+                "partial_metric_contract_not_ready",
+            ),
+            evidence_urls=(
+                "https://www.cbr.ru/development/WSCO/",
+                "https://www.cbr.ru/CreditInfoWebServ/CreditOrgInfo.asmx",
+                "https://www.cbr.ru/CreditInfoWebServ/CreditOrgInfo.asmx?op=Data123FormFullXML",
+                "https://www.cbr.ru/CreditInfoWebServ/CreditOrgInfo.asmx?op=Data135FormFullXML",
+                "https://www.cbr.ru/CreditInfoWebServ/CreditOrgInfo.asmx?op=Data102FormXML",
+            ),
+            audit_date="2026-10-12",
         ),
         BankSourceStatus(
             provider_id="CBR_RATINGS_PORTAL",

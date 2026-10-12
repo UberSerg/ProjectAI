@@ -30,6 +30,10 @@ STATE_SCORE: Final[dict[str, float]] = {
 }
 
 # Explicit equal weights by semantic family — do NOT retune on walk-forward returns.
+# NEWS is source-coverage only and must not cast a directional vote. EventModel is
+# the only directional consumer of extracted events. When an EVENT signal is present,
+# decide() zeroes NEWS weight so one article cannot produce two equal votes.
+# Disagreement among the remaining models stays intact.
 SEMANTIC_WEIGHTS: Final[dict[str, float]] = {
     "TECHNICAL": 1.0,
     "FUNDAMENTAL": 1.0,
@@ -88,3 +92,4 @@ NON_VOTING_STATES: Final[frozenset[str]] = frozenset({"ABSTAIN", "UNKNOWN"})
 LIMITATION_ADVISORY_ONLY: Final[str] = "advisory_only_no_broker_orders"
 LIMITATION_PREDECLARED: Final[str] = "weights_predeclared_not_tuned_to_returns"
 LIMITATION_DISAGREEMENT_PRESERVED: Final[str] = "disagreement_preserved_not_averaged_away"
+LIMITATION_NEWS_ZEROED_WHEN_EVENT: Final[str] = "news_weight_zeroed_when_event_present"

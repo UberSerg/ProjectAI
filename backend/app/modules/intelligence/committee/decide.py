@@ -272,16 +272,30 @@ def decide(
         if sig.as_of != as_of:
             data_gaps.append(f"as_of_mismatch:{sig.model_id}")
 
+    # NEWS is coverage only. Zero its weight when EVENT is present so one article
+    # cannot cast two equal votes. Remaining models still disagree on their own.
+    event_signal_present = any(sig.semantic.strip().upper() == "EVENT" for sig in signals)
+    if event_signal_present and any(sig.semantic.strip().upper() == "NEWS" for sig in signals):
+        limitations.append(P.LIMITATION_NEWS_ZEROED_WHEN_EVENT)
+
     votes: list[ModelVote] = []
     valid: list[SignalOutputV1] = []
     for sig in signals:
-        weight = _vote_weight(sig) if _is_valid(sig) else None
-        note = None
-        if sig.state in P.NON_VOTING_STATES:
+        news_zeroed = event_signal_present and sig.semantic.strip().upper() == "NEWS"
+        if news_zeroed:
+            weight = 0.0
+            note = P.LIMITATION_NEWS_ZEROED_WHEN_EVENT
+        elif _is_valid(sig):
+            weight = _vote_weight(sig)
+            note = None
+        else:
+            weight = None
             note = sig.abstain_reason or sig.state.lower()
-            data_gaps.append(f"{sig.model_id}:{sig.state}:{note}")
+        if sig.state in P.NON_VOTING_STATES:
+            gap_note = sig.abstain_reason or sig.state.lower()
+            data_gaps.append(f"{sig.model_id}:{sig.state}:{gap_note}")
         score_for_vote = sig.score
-        if score_for_vote is None and _is_valid(sig):
+        if score_for_vote is None and _is_valid(sig) and not news_zeroed:
             score_for_vote = _signed_score(sig)
         votes.append(
             ModelVote(
@@ -293,7 +307,7 @@ def decide(
                 note=note,
             )
         )
-        if _is_valid(sig):
+        if _is_valid(sig) and not news_zeroed:
             valid.append(sig)
 
     triggered = _triggered_rules(knowledge_evals)

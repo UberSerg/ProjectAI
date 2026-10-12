@@ -155,9 +155,22 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
 
 
 def _text(node: ET.Element | None) -> str | None:
-    if node is None or node.text is None:
+    """Element content as text. Child markup is serialized, not executed."""
+    if node is None:
         return None
-    value = node.text.strip()
+    if len(node) == 0:
+        if node.text is None:
+            return None
+        value = node.text.strip()
+        return value or None
+    parts: list[str] = []
+    if node.text:
+        parts.append(node.text)
+    for child in list(node):
+        parts.append(ET.tostring(child, encoding="unicode"))
+        if child.tail:
+            parts.append(child.tail)
+    value = "".join(parts).strip()
     return value or None
 
 

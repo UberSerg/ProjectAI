@@ -35,7 +35,7 @@ class NewsHttpClient:
         self._last_fetch_at: dict[str, float] = {}
         self._client = httpx.Client(
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             transport=transport,
             headers={"User-Agent": USER_AGENT, "Accept": "*/*"},
         )
@@ -57,6 +57,10 @@ class NewsHttpClient:
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._client.get(target)
+                if 300 <= response.status_code < 400:
+                    raise NewsHttpError(
+                        f"redirect blocked for {source.source_id}: redirects are not followed"
+                    )
                 if response.status_code in {429, 500, 502, 503, 504}:
                     response.raise_for_status()
                 response.raise_for_status()

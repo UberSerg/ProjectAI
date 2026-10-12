@@ -58,6 +58,9 @@ def test_provider_registry_has_honest_statuses() -> None:
     by_id = {p["provider_id"]: p for p in report["providers"]}
     assert by_id["FNS_GIR_BO_INDUSTRIAL_RAS"]["status"] == "NOT_AVAILABLE"
     assert by_id["CBR_CREDIT_ORG_FORMS_HTML"]["status"] == "PARTIAL"
+    assert by_id["CBR_CREDITORGINFO_SOAP"]["status"] == "PARTIAL"
+    assert by_id["CBR_CREDITORGINFO_SOAP"]["status"] != "READY"
+    assert report["overall_status"] != "READY"
     assert by_id["CBR_RATINGS_PORTAL"]["status"] == "REJECTED"
     assert by_id["ISSUER_IR_IFRS"]["status"] == "RESEARCH_ONLY"
     assert "SBER" in report["curated_cbr_credit_orgs"]

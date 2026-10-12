@@ -26,7 +26,7 @@ def schema_ready(session: Session) -> bool:
             """
         )
     ).scalar()
-    return bool(row)
+    return row is True
 
 
 def _known_at_ts(value: date | datetime | None) -> datetime | None:
@@ -42,6 +42,69 @@ def _known_at_ts(value: date | datetime | None) -> datetime | None:
 def _snapshot_hash(payload: dict[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def load_latest_fundamental_snapshot(
+    session: Session,
+    instrument_id: int,
+    as_of: date,
+    *,
+    issuer_kind: str,
+) -> FundamentalSnapshotV1 | None:
+    """Read the newest stored snapshot known at ``as_of``. Does not fetch sources."""
+    if not schema_ready(session):
+        return None
+    cutoff = datetime(as_of.year, as_of.month, as_of.day, 23, 59, 59, 999999, tzinfo=UTC)
+    row = session.execute(
+        text(
+            """
+            SELECT instrument_id, as_of, known_at, period_end, issuer_kind, status,
+                   metrics, missing_metrics, facts_used, limitations, provider
+            FROM intelligence.fundamental_snapshots
+            WHERE instrument_id = :instrument_id
+              AND issuer_kind = :issuer_kind
+              AND known_at <= :cutoff
+            ORDER BY known_at DESC, id DESC
+            LIMIT 1
+            """
+        ),
+        {
+            "instrument_id": int(instrument_id),
+            "issuer_kind": issuer_kind,
+            "cutoff": cutoff,
+        },
+    ).mappings().first()
+    if row is None:
+        return None
+    return FundamentalSnapshotV1(
+        instrument_id=int(row["instrument_id"]),
+        as_of=row["as_of"],
+        known_at=row["known_at"],
+        period_end=row["period_end"],
+        issuer_kind=str(row["issuer_kind"]),
+        status=str(row["status"]),
+        metrics=dict(_json_obj(row["metrics"])),
+        missing_metrics=tuple(_json_list(row["missing_metrics"])),
+        facts_used=tuple(_json_list(row["facts_used"])),
+        limitations=tuple(str(item) for item in _json_list(row["limitations"])),
+        provider=row["provider"],
+    )
+
+
+def _json_obj(value: Any) -> dict[str, Any]:
+    parsed = _json_value(value)
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _json_list(value: Any) -> list[Any]:
+    parsed = _json_value(value)
+    return list(parsed) if isinstance(parsed, list) else []
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
 
 
 def persist_fundamental_snapshot(

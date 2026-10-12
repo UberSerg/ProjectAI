@@ -83,7 +83,9 @@ def resolve_issuer_kind(
     issuer: Issuer | None,
 ) -> tuple[str, tuple[str, ...]]:
     """BANK_FI when ticker or FNS support_status says so — never apply industrial ratios."""
-    secid = _mapping_secid(session, instrument_id)
+    secid = _mapping_secid(session, instrument_id) or _symbol_for_instrument(
+        session, instrument_id
+    )
     fns = _issuer_fns_meta(issuer)
     if (secid and secid in BANK_FI_SECIDS) or fns.get("support_status") == SUPPORT_BANK:
         return ISSUER_KIND_BANK_FI, (LIMITATION_BANK_FI,)
@@ -162,6 +164,18 @@ def build_fundamental_snapshot(
     issuer_kind, kind_limits = resolve_issuer_kind(session, instrument_id, issuer)
 
     if issuer_kind == ISSUER_KIND_BANK_FI:
+        from app.modules.intelligence.fundamentals.persistence import (
+            load_latest_fundamental_snapshot,
+        )
+
+        stored = load_latest_fundamental_snapshot(
+            session,
+            instrument_id,
+            as_of,
+            issuer_kind=ISSUER_KIND_BANK_FI,
+        )
+        if stored is not None:
+            return stored
         return _empty_snapshot(
             instrument_id=instrument_id,
             as_of=as_of,

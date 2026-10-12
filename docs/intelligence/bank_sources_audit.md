@@ -31,7 +31,9 @@ Live re-check 2026-10-07: FNS GIR BO search for SBER INN `7707083893` → `total
 | SBER honest semantics | **BANK_FI + PARTIAL/UNKNOWN metrics** | no fake industrial ratios |
 
 **Overall provider status for Intelligence Stack V1:** `PARTIAL`  
-(Reason: CBR HTML form catalog + MOEX identity exist; no accepted free metric parser.)
+(Reason: CreditOrgInfo SOAP can supply three SBER RAS/regulatory fields.
+Historical `known_at` is not proved. Form 101 assets/loans/deposits are not.
+See section 9.)
 
 ## 3. Source-by-source findings
 
@@ -100,18 +102,19 @@ Form URL pattern:
 |---|---|
 | NET_INTEREST_INCOME | NOT_AVAILABLE |
 | NET_FEE_INCOME | NOT_AVAILABLE |
-| NET_PROFIT | NOT_AVAILABLE |
-| EQUITY | NOT_AVAILABLE |
-| TOTAL_ASSETS | NOT_AVAILABLE |
+| NET_PROFIT | PARTIAL — form 0409102 symbol 61101, thousand RUB, not IFRS |
+| EQUITY | PARTIAL — form 0409123 line 000 own funds, thousand RUB, not IFRS equity |
+| TOTAL_ASSETS | NOT_AVAILABLE — form 101 SOAP data methods empty; HTML totals are not unique |
 | LOAN_BOOK | NOT_AVAILABLE |
 | DEPOSITS | NOT_AVAILABLE |
 | NIM | NOT_AVAILABLE |
 | ROE | NOT_AVAILABLE |
 | COST_INCOME | NOT_AVAILABLE |
-| CAPITAL_ADEQUACY | NOT_AVAILABLE |
+| CAPITAL_ADEQUACY | PARTIAL — form 0409135 ratio Н1.0, percent |
 | NPL_RATIO | NOT_AVAILABLE |
 
-Codes exist as vocabulary only. Values require a future accepted bank provider with lineage.
+NET_PROFIT, EQUITY, and CAPITAL_ADEQUACY can be filled from CreditOrgInfo SOAP
+with the definitions in section 9. The other codes stay vocabulary only.
 
 ## 5. SBER contract (minimum honesty)
 
@@ -119,7 +122,8 @@ Codes exist as vocabulary only. Values require a future accepted bank provider w
 
 - `issuer_kind = BANK_FI`
 - `status = PARTIAL` (CBR/MOEX surfaces exist) or `NOT_AVAILABLE` if layer collapses
-- `metrics = {}` unless an explicit bank-capable metric payload is supplied
+- `metrics = {}` unless SOAP fixtures/live fetch or an explicit bank-capable payload is supplied
+- default call does not hit the network and does not embed probed numbers
 - industrial ratio codes rejected even if injected
 - limitations include `bank_fi_industrial_fns_unsupported` and `INDUSTRIAL_FNS_FALLBACK_FORBIDDEN`
 - optional `cbr_form_catalog` fact = coverage metadata, **not** metric values
@@ -151,3 +155,34 @@ SBER never receives industrial FNS interpretation.
 | MOEX SBER securities | 200 JSON identity |
 | ratings.cbr.ru | 200 HTML (automation rejected) |
 | sberbank.com IR | SSL verify failed in audit env |
+
+## 9. Agent D re-audit (2026-10-12) — SBER SOAP
+
+Official free surface: [WSCO](https://www.cbr.ru/development/WSCO/) /
+`CreditOrgInfo.asmx`. No CAPTCHA. No paid feed.
+
+Identity: `RegNumToIntCode(1481) = 1315037838265`. `CreditInfoByIntCodeEx`
+returns regnum 1481, OGRN `1027700132195`, name ПАО Сбербанк. The payload has
+no INN field. Curated INN `7707083893` was not re-proved by this method.
+
+Form calls must pass **regnum 1481**. The internal code overflows SOAP `xsd:int`
+(HTTP 500). `Data101FullExV2XML` with that internal code returns `NotFound`.
+
+| Field | Method | Proved value at 2026-09-01 | Definition |
+|---|---|---|---|
+| EQUITY | `Data123FormFullXML` line `000` | 8092364887 thousand RUB | «Собственные средства (капитал), итого». HTML caption `тыс. рублей`. Same digits on the HTML form. Not IFRS equity. |
+| CAPITAL_ADEQUACY | `Data135FormFullXML` `Н1.0` | 13.095 percent | Section 3 actual value. HTML column «Фактическое значение, процент» shows 13,095. |
+| NET_PROFIT | `Data102FormXML` symbol `61101` | 1332707281 thousand RUB | Latest indicator symset name: profit after tax. HTML row 61101 shows the same digits. Not IFRS. The series is not summed. |
+
+`known_at` policy: **CURRENT_ONLY**. SOAP exposes `OnDate` / `DT` only.
+`period_end` is that report date and is not `known_at`. No historical
+publication timestamp is manufactured.
+
+Blockers left in force:
+
+- `Data101FullXML` for regnum 1481 and indicator 20202 returns an empty `FD`
+  table. Assets, loan book, and deposits are not emitted.
+- HTML form 101 contains several «Итого по активу (баланс)» rows (different
+  chapters). That is not a unique total-assets field.
+- Status stays **PARTIAL**, not READY: three fields, SBER regnum only, no IFRS,
+  no historical PIT.
