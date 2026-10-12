@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <KeyRateXMLResponse xmlns="http://web.cbr.ru/">
+      <KeyRateXMLResult>
+        <KeyRate xmlns="">
+          <KR><DT>2023-12-01T00:00:00+03:00</DT><Rate>15.00</Rate></KR>
+          <KR><DT>2023-12-15T00:00:00+03:00</DT><Rate>15.00</Rate></KR>
+          <KR><DT>2023-12-18T00:00:00+03:00</DT><Rate>16.00</Rate></KR>
+          <KR><DT>2024-02-15T00:00:00+03:00</DT><Rate>16.00</Rate></KR>
+        </KeyRate>
+      </KeyRateXMLResult>
+    </KeyRateXMLResponse>
+  </soap:Body>
+</soap:Envelope>

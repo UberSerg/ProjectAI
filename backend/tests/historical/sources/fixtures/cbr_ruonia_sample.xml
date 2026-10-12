@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <RuoniaXMLResponse xmlns="http://web.cbr.ru/">
+      <RuoniaXMLResult>
+        <Ruonia xmlns="">
+          <ro><D0>2023-12-01T00:00:00+03:00</D0><ruo>14.9000</ruo><vol>1005.5600</vol><DateUpdate>2023-12-04T14:10:49.32+03:00</DateUpdate></ro>
+          <ro><D0>2024-02-15T00:00:00+03:00</D0><ruo>15.7500</ruo><vol>415.3700</vol><DateUpdate>2024-02-16T14:06:53.037+03:00</DateUpdate></ro>
+        </Ruonia>
+      </RuoniaXMLResult>
+    </RuoniaXMLResponse>
+  </soap:Body>
+</soap:Envelope>
