@@ -1,8 +1,10 @@
 """Extraction refresh.
 
 Live fetch still runs the deterministic extractor when the LLM provider is
-unavailable. LLM output is never fabricated: the provider is not invoked and
-no row is written with extractor_version intelligence_extractor_v1.
+unavailable. The default configured adapter has no live provider, so runtime
+stays LLM_UNAVAILABLE, provider_invoked false, and events_fabricated false.
+An explicit available extractor may insert llm_extractor_v1 rows after the
+deterministic pass. It never updates deterministic_extractor_v1 rows.
 Dry-run and live_fetch disabled stay SKIPPED.
 """
 
@@ -53,6 +55,38 @@ def refresh_extract_events(session: Session, ctx: dict[str, Any]) -> dict[str, A
     summary["changed"] = changed
     summary["extraction_readiness"] = ready
     summary["llm"] = _llm_report(ready)
+    return _enrich_if_configured(session, ctx, summary)
+
+
+def _enrich_if_configured(
+    session: Session, ctx: dict[str, Any], summary: dict[str, Any]
+) -> dict[str, Any]:
+    """Optional second pass. No-op when the configured adapter is inactive."""
+    extractor = ctx.get("llm_extractor")
+    if extractor is None:
+        from app.modules.intelligence.extraction.provider import configured_extractor_from_settings
+
+        extractor = configured_extractor_from_settings()
+    if not extractor.available():
+        return summary
+
+    from app.modules.intelligence.extraction.persist import run_llm_enrichment_pass
+
+    enrichment = run_llm_enrichment_pass(session, ctx, extractor)
+    summary["llm"] = {
+        "status": enrichment["status"],
+        "available": True,
+        "provider_invoked": bool(enrichment["provider_invoked"]),
+        "events_fabricated": False,
+    }
+    summary["llm_facts_inserted"] = enrichment["facts_inserted"]
+    summary["llm_events_inserted"] = enrichment["events_inserted"]
+    if enrichment["facts_inserted"] or enrichment["events_inserted"]:
+        summary["changed"] = True
+        summary["status"] = "SUCCESS"
+        summary["reason"] = "DETERMINISTIC_PASS_LLM_ENRICHED"
+    elif enrichment["provider_invoked"]:
+        summary["reason"] = "DETERMINISTIC_PASS_LLM_REJECTED"
     return summary
 
 

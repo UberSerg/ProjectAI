@@ -1,8 +1,9 @@
 """LLM structured information extraction — optional provider, evidence-grounded facts."""
 
 from app.modules.intelligence.extraction.deterministic import DETERMINISTIC_EXTRACTOR_VERSION
-from app.modules.intelligence.extraction.fake import DeterministicFakeExtractor
+from app.modules.intelligence.extraction.fake import DeterministicFakeExtractor, ScriptedLLMExtractor
 from app.modules.intelligence.extraction.provider import (
+    ConfiguredLLMExtractor,
     IntelligenceExtractor,
     UnavailableIntelligenceExtractor,
     resolve_extractor,
@@ -11,6 +12,7 @@ from app.modules.intelligence.extraction.schema import (
     DIRECTION_VALUES,
     EVENT_TYPES,
     EXTRACTOR_VERSION,
+    LLM_EXTRACTOR_VERSION,
     MATERIALITY_VALUES,
     ExtractedClaimV1,
     ExtractedEventV1,
@@ -27,10 +29,13 @@ from app.modules.intelligence.extraction.service import (
 __all__ = [
     "DETERMINISTIC_EXTRACTOR_VERSION",
     "EXTRACTOR_VERSION",
+    "LLM_EXTRACTOR_VERSION",
     "DIRECTION_VALUES",
     "EVENT_TYPES",
     "MATERIALITY_VALUES",
+    "ConfiguredLLMExtractor",
     "DeterministicFakeExtractor",
+    "ScriptedLLMExtractor",
     "ExtractedClaimV1",
     "ExtractedEventV1",
     "ExtractionResultV1",

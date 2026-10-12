@@ -7,6 +7,54 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 EXTRACTOR_VERSION = "intelligence_extractor_v1"
+# Persisted only by the optional LLM enrichment path. Never written onto
+# deterministic_extractor_v1 rows, and never used to update an older revision.
+LLM_EXTRACTOR_VERSION = "llm_extractor_v1"
+
+MAX_LLM_INPUT_CHARS = 12_000
+MAX_LLM_OUTPUT_CHARS = 8_000
+LLM_TIMEOUT_SECONDS = 20.0
+
+# Strict provider JSON. Unknown keys are rejected. Metadata is not a scratchpad.
+LLM_PAYLOAD_KEYS: frozenset[str] = frozenset({"events", "summary", "metadata"})
+LLM_EVENT_KEYS: frozenset[str] = frozenset(
+    {
+        "event_type",
+        "materiality",
+        "direction",
+        "affected_horizon",
+        "claims",
+        "facts",
+        "entities",
+        "rationale",
+        "confidence",
+        "limitations",
+    }
+)
+LLM_CLAIM_KEYS: frozenset[str] = frozenset(
+    {
+        "claim_id",
+        "text",
+        "source_document_id",
+        "evidence_fragment",
+        "extractor_version",
+        "confidence",
+        "numerical",
+        "claim_type",
+    }
+)
+LLM_NUMERICAL_KEYS: frozenset[str] = frozenset(
+    {
+        "value",
+        "unit",
+        "currency",
+        "period",
+        "effective_date",
+        "evidence_fragment",
+        "status",
+    }
+)
+LLM_METADATA_KEYS: frozenset[str] = frozenset({"fabricated", "prompt_injection_obeyed"})
 
 # Legacy labels stay valid. The names below them are an additive taxonomy used by
 # the deterministic extractor (deterministic_extractor_v1). Do not remove legacy labels.
@@ -209,6 +257,7 @@ class ExtractedEventV1:
     rationale: str = ""
     confidence: float | None = None
     limitations: tuple[str, ...] = ()
+    entities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.event_type not in EVENT_TYPES:
@@ -221,6 +270,8 @@ class ExtractedEventV1:
             raise ValueError(f"direction must not be a trading action: {self.direction!r}")
         if self.confidence is not None and not (0.0 <= float(self.confidence) <= 1.0):
             raise ValueError("ExtractedEventV1.confidence must be in [0, 1] when set")
+        if any(not isinstance(item, str) or not item.strip() for item in self.entities):
+            raise ValueError("ExtractedEventV1.entities must be non-empty strings")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -232,6 +283,7 @@ class ExtractedEventV1:
             "rationale": self.rationale,
             "confidence": self.confidence,
             "limitations": list(self.limitations),
+            "entities": list(self.entities),
         }
 
 
