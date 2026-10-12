@@ -852,8 +852,9 @@
     {
       "id": "ENR:yoy",
       "stream": "ENR",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
     },
     {
       "id": "ENR:qoq",
@@ -870,20 +871,23 @@
     {
       "id": "ENR:bank-ratios-separate",
       "stream": "ENR",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
     },
     {
       "id": "ENR:no-raw-overwrite",
       "stream": "ENR",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
     },
     {
       "id": "ENR:recompute",
       "stream": "ENR",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
     },
     {
       "id": "OPS:celery-split",
