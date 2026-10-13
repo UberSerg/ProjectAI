@@ -103,6 +103,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "identity by INN and OGRN for one industrial issuer",
         ),
         SourceRegistration(
+            "IR-05",
+            "historical.sources.issuer_dividends",
+            "PARTIAL",
+            "30 Lukoil rows with registry date and per-share amount; no payment date",
+        ),
+        SourceRegistration(
             "ROS-01",
             "historical.sources.macro",
             "PARTIAL",

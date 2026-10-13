@@ -34,9 +34,10 @@
     {
       "id": "PLT:idempotent-import",
       "stream": "PLT",
-      "status": "PARTIAL",
-      "owner": "HDS-ORCH",
-      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
+      "status": "READY",
+      "owner": "HDS-W2-IMPORT",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1",
+      "commit": "7b52e031dbe38d76427c67d1370ca56960f8ae13"
     },
     {
       "id": "PLT:reprocess-versions",
@@ -621,14 +622,16 @@
     {
       "id": "IR-05:discover",
       "stream": "IR-05",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-DIV",
+      "commit": "d455f0bb8b2179aeeaf2ad41d1f66499705d1760"
     },
     {
       "id": "IR-05:dividend-archive",
       "stream": "IR-05",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-DIV",
+      "commit": "d455f0bb8b2179aeeaf2ad41d1f66499705d1760"
     },
     {
       "id": "IR-06:discover",

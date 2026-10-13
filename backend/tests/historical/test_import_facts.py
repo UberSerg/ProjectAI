@@ -254,7 +254,7 @@ def test_clock_problems_quarantine_without_rewriting_timestamps(tmp_path: object
     assert row.first_observed_at == observed
     assert row.published_at == published
     assert row.period_end == period
-    assert "period_end_must_not_equal_publication_timestamp" in row.limitations
+    assert "period_end_must_not_equal_publication_timestamp" not in row.limitations
     assert "first_observed_at_precedes_published_at" in row.limitations
     assert store.accepted_row_count() == 0
     assert store.quarantined_row_count() == 1

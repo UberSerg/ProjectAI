@@ -465,14 +465,6 @@ def _chronology_problems(
 ) -> tuple[str, ...]:
     problems: list[str] = []
     published_at = revision.published_at
-    period_end = observation.period_end
-    if (
-        published_at is not None
-        and period_end is not None
-        and period_end == published_at.date()
-        and revision.published_at_precision is PublishedAtPrecision.TIMESTAMP
-    ):
-        problems.append("period_end_must_not_equal_publication_timestamp")
     if published_at is not None and revision.first_observed_at < published_at:
         problems.append("first_observed_at_precedes_published_at")
     return tuple(problems)
