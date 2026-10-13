@@ -584,14 +584,16 @@
     {
       "id": "IR-01:discover",
       "stream": "IR-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
     },
     {
       "id": "IR-01:xlsx-pilot",
       "stream": "IR-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
     },
     {
       "id": "IR-02:discover",
@@ -658,14 +660,16 @@
     {
       "id": "IR-07:discover",
       "stream": "IR-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
     },
     {
       "id": "IR-07:xlsx-pilot",
       "stream": "IR-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
     },
     {
       "id": "DISC-01:discover",

@@ -133,6 +133,18 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "30 Lukoil rows with registry date and per-share amount; no payment date",
         ),
         SourceRegistration(
+            "IR-01",
+            "historical.sources.issuer_statements",
+            "READY",
+            "seven IFRS lines from the Lukoil 2021 databook, RESEARCH_ONLY",
+        ),
+        SourceRegistration(
+            "IR-07",
+            "historical.sources.issuer_statements",
+            "BLOCKED",
+            "the same databook has no RAS statements; zero invented rows",
+        ),
+        SourceRegistration(
             "FNS-03",
             "historical.sources.fns",
             "BLOCKED",
