@@ -423,3 +423,27 @@ def test_sqlite_schema_excludes_live_decision_tables(tmp_path: object) -> None:
     for forbidden in FORBIDDEN_WRITE_TARGETS:
         assert forbidden not in script
         assert forbidden not in names
+
+
+def test_new_parser_generation_keeps_the_original_row(tmp_path: object) -> None:
+    path = tmp_path / "facts.sqlite"  # type: ignore[operator]
+    store = FactRevisionStore(path)
+    original = store.import_observation(_obs(normalization_version="fns_ras_v1"), _revision("rev-1"))
+    generated = store.import_observation(
+        _obs(normalization_version="fns_ras_v2", value=101.0),
+        _revision("rev-1"),
+    )
+
+    assert generated.action is ImportAction.INSERTED
+    assert original.row_id in generated.superseded_row_ids
+    rows = store.revisions_for(_obs())
+    assert len(rows) == 2
+    assert rows[0].normalization_version == "fns_ras_v1"
+    assert rows[0].value == 100.0
+    assert rows[0].superseded is True
+    assert rows[1].normalization_version == "fns_ras_v2"
+    assert rows[1].value == 101.0
+    assert rows[1].superseded is False
+    assert store.stored_row_count() == 2
+    assert store.accepted_row_count() == 2
+    assert store.current_accepted_row_count() == 1

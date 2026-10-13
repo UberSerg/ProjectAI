@@ -161,3 +161,89 @@ class CheckpointStore:
             quarantined=quarantined_count,
             updated_at=updated_at,
         )
+
+    def advance_after_commit(
+        self,
+        source_id: str,
+        content_hash: str,
+        next_cursor: str,
+        accepted: bool,
+        stage: str,
+        *,
+        run_new_items: int,
+    ) -> StoredCheckpoint:
+        """Move the cursor after the caller has committed the facts.
+
+        ``run_new_items`` is the size of this bounded run. A later run may
+        continue past rows already stored by an earlier run. A hash that is
+        already stored does not change the counts.
+        """
+        if stage not in STAGE_LIMITS:
+            raise ValueError(f"unknown backfill stage: {stage}")
+        if run_new_items < 0:
+            raise ValueError("run_new_items must be zero or positive")
+        limit = STAGE_LIMITS[stage]
+        if run_new_items > limit:
+            raise ValueError(f"requested {run_new_items} exceeds {stage} limit {limit}")
+        if not content_hash or not next_cursor:
+            raise ValueError("content hash and cursor are required")
+        try:
+            current = self._connection.execute(
+                """
+                SELECT cursor, accepted, quarantined
+                FROM checkpoints
+                WHERE source_id = ?
+                """,
+                (source_id,),
+            ).fetchone()
+            accepted_count = int(current["accepted"]) if current is not None else 0
+            quarantined_count = int(current["quarantined"]) if current is not None else 0
+            inserted = self._connection.execute(
+                """
+                INSERT OR IGNORE INTO seen_hashes (source_id, content_hash)
+                VALUES (?, ?)
+                """,
+                (source_id, content_hash),
+            )
+            if inserted.rowcount == 1:
+                if accepted:
+                    accepted_count += 1
+                else:
+                    quarantined_count += 1
+            elif current is not None:
+                next_cursor = str(current["cursor"])
+            updated_at = datetime.now(UTC).isoformat()
+            self._connection.execute(
+                """
+                INSERT INTO checkpoints (
+                    source_id, cursor, stage, accepted, quarantined, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    cursor = excluded.cursor,
+                    stage = excluded.stage,
+                    accepted = excluded.accepted,
+                    quarantined = excluded.quarantined,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    source_id,
+                    next_cursor,
+                    stage,
+                    accepted_count,
+                    quarantined_count,
+                    updated_at,
+                ),
+            )
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+        return StoredCheckpoint(
+            source_id=source_id,
+            cursor=next_cursor,
+            stage=stage,
+            accepted=accepted_count,
+            quarantined=quarantined_count,
+            updated_at=updated_at,
+        )

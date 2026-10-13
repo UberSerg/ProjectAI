@@ -132,3 +132,49 @@ def test_sources_do_not_share_a_content_hash(tmp_path: Path) -> None:
         assert second.quarantined == 1
         assert store.load("CBR-01") == "cbr-cursor"
         assert store.load("MOEX-04") == "moex-cursor"
+
+
+def test_advance_after_commit_uses_this_run_not_the_lifetime(tmp_path: Path) -> None:
+    path = tmp_path / "checkpoints.sqlite"
+    with CheckpointStore(path) as store:
+        for index in range(100):
+            store.admit("CBR-03", f"hash-{index}", f"cursor-{index}", True, "pilot")
+        with pytest.raises(ValueError, match="exceeds"):
+            store.advance_after_commit(
+                "CBR-03",
+                "hash-over",
+                "cursor-over",
+                True,
+                "pilot",
+                run_new_items=101,
+            )
+        continued = store.advance_after_commit(
+            "CBR-03",
+            "hash-next-run",
+            "cursor-next-run",
+            True,
+            "pilot",
+            run_new_items=1,
+        )
+        replay = store.advance_after_commit(
+            "CBR-03",
+            "hash-next-run",
+            "cursor-rewound",
+            True,
+            "pilot",
+            run_new_items=0,
+        )
+
+    assert continued.accepted == 101
+    assert continued.cursor == "cursor-next-run"
+    assert replay.accepted == 101
+    assert replay.cursor == "cursor-next-run"
+    with CheckpointStore(path) as reopened:
+        assert reopened.load("CBR-03") == "cursor-next-run"
+        with sqlite3.connect(path) as connection:
+            extra = connection.execute(
+                "SELECT COUNT(*) FROM seen_hashes WHERE source_id = ? AND content_hash = ?",
+                ("CBR-03", "hash-over"),
+            ).fetchone()
+        assert extra is not None
+        assert extra[0] == 0

@@ -4,10 +4,12 @@ The caller supplies a SQLite file path. Nothing here opens PostgreSQL, the
 network, or a paid LLM, and nothing writes the live decision tables.
 
 A fact key is ``source_id + metric_id + period_end + issuer identity``.
-The same content hash for that key is a no-op. A new revision identifier
-inserts another row and marks the previous row superseded. Prior rows stay
-in the file: their content is not deleted or overwritten, and
-``first_observed_at`` is not moved earlier. ``period_end`` is never stored
+The same content hash and normalization version for that key is a no-op.
+A new parser generation (``normalization_version``) inserts another row
+even when the source revision identifier and the raw hash are unchanged.
+A new source revision identifier does the same. The previous row is marked
+superseded and stays in the file: its content is not deleted or overwritten,
+and ``first_observed_at`` is not moved earlier. ``period_end`` is never stored
 as ``published_at``.
 """
 
@@ -58,8 +60,8 @@ _SCHEMA = (
         published_at_precision TEXT NOT NULL,
         first_observed_at TEXT NOT NULL,
         superseded INTEGER NOT NULL CHECK (superseded IN (0, 1)),
-        UNIQUE (fact_key, content_hash),
-        UNIQUE (fact_key, revision_identifier)
+        UNIQUE (fact_key, content_hash, normalization_version),
+        UNIQUE (fact_key, revision_identifier, normalization_version)
     )
     """,
     f"""
@@ -273,6 +275,51 @@ class FactRevisionStore:
     def quarantined_row_count(self) -> int:
         return self._count("quality_status = ?", (RecordQuality.QUARANTINE.value,))
 
+    def current_accepted_row_count(self) -> int:
+        """ACCEPTED rows that are still the current revision."""
+        return self._count(
+            "quality_status = ? AND superseded = 0",
+            (RecordQuality.ACCEPTED.value,),
+        )
+
+    def current_quarantined_row_count(self) -> int:
+        return self._count(
+            "quality_status = ? AND superseded = 0",
+            (RecordQuality.QUARANTINE.value,),
+        )
+
+    def coverage_by_source(self) -> tuple[tuple[str, str, int, str | None, str | None], ...]:
+        """Aggregate observations. Rows are source, quality, count, earliest, latest."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT source_id, quality_status, COUNT(*), MIN(period_end), MAX(period_end)
+                FROM {_FACT_TABLE}
+                WHERE superseded = 0
+                GROUP BY source_id, quality_status
+                ORDER BY source_id, quality_status
+                """
+            ).fetchall()
+        return tuple(
+            (
+                str(row[0]),
+                str(row[1]),
+                int(row[2]),
+                None if row[3] is None else str(row[3]),
+                None if row[4] is None else str(row[4]),
+            )
+            for row in rows
+        )
+
+    def distinct_issuer_count(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT COUNT(DISTINCT issuer_identity_key) FROM {_FACT_TABLE}"
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row[0])
+
     def _count(self, where: str, params: tuple[object, ...] = ()) -> int:
         with self._connect() as connection:
             row = connection.execute(
@@ -295,9 +342,9 @@ class FactRevisionStore:
             f"""
             SELECT row_id, quality_status, revision_identifier
             FROM {_FACT_TABLE}
-            WHERE fact_key = ? AND content_hash = ?
+            WHERE fact_key = ? AND content_hash = ? AND normalization_version = ?
             """,
-            (key, observation.content_hash),
+            (key, observation.content_hash, observation.normalization_version),
         ).fetchone()
         if existing_hash is not None:
             return _skipped(
@@ -313,9 +360,9 @@ class FactRevisionStore:
             f"""
             SELECT row_id, quality_status
             FROM {_FACT_TABLE}
-            WHERE fact_key = ? AND revision_identifier = ?
+            WHERE fact_key = ? AND revision_identifier = ? AND normalization_version = ?
             """,
-            (key, identifier),
+            (key, identifier, observation.normalization_version),
         ).fetchone()
         if existing_revision is not None:
             return _skipped(
