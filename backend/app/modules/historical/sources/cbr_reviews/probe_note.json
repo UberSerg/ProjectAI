@@ -1,0 +1,14 @@
+{
+  "task": "CBR-05",
+  "probed_on": "2026-10-13",
+  "url": "https://www.cbr.ru/analytics/bank_sector/review/",
+  "method": "GET",
+  "user_agent": "ProjectAI-historical-cbr-reviews/1.0",
+  "http_status": 404,
+  "rows": 0,
+  "pit": "RESEARCH_ONLY",
+  "body_retained": false,
+  "follow_up_requests": 0,
+  "soap_forms_called": false,
+  "note": "Single GET of the long-standing banking-sector review catalog. urllib raised HTTP Error 404: Not Found before a body prefix was saved. No second URL was requested. No metrics were invented."
+}
