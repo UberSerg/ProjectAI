@@ -1,0 +1,68 @@
+{
+  "probed_on": "2026-10-13",
+  "issuer_on_page": "ПАО «Магнит»",
+  "secid_on_page": null,
+  "url": "https://www.magnit.com/ru/shareholders-and-investors/key-figures/",
+  "http_status": 200,
+  "content_type": "text/html; charset=UTF-8",
+  "bytes": 52244,
+  "content_sha256": "a843f9153f627f58232bcd2adc08b01b8734cc6f0a47b5f5571b711556ba252d",
+  "antibot": false,
+  "operating_section": "Операционные показатели",
+  "operating_rows_seen": 5,
+  "aligned_rows": 4,
+  "numeric_observations": 20,
+  "unaligned_row": {
+    "label": "Количество сотрудников, тыс. чел.",
+    "indexes": [0, 1, 2, 3, 4, 4],
+    "visible_text": ["357", "361", "361", "368", "394"],
+    "reason": "Two cells use index 4 and index 5 is absent. 368 and 394 were not assigned to 2024 or 2025."
+  },
+  "year_columns": ["2021", "2022", "2023", "2024", "2025"],
+  "row_cap": 24,
+  "rows_capped": false,
+  "financial_kpi_table_present": true,
+  "financial_rows_parsed": 0,
+  "publication_timestamp_present": false,
+  "published_at": null,
+  "pit": "RESEARCH_ONLY",
+  "xlsx_not_fetched": [
+    "/upload/ru_files/shareholders-and-investors/key-figures-ru.xlsx",
+    "/upload/iblock/7d8/onc1lbpvg92iir11jac5u00za9oxxwzo/Magnit Databook 1H 2026.xlsx"
+  ],
+  "note": "Excerpt fixture magnit_key_figures.html is the operating table plus one financial row. It is not the full 52244-byte response. The databook xlsx link was visible in page JSON and was not downloaded. Annual key figures are not a monthly retail-sales or production series.",
+  "tasks": {
+    "IR-02": {
+      "claimed": false,
+      "distinguished": false,
+      "reason": "Financial KPI table is not labeled RAS or РСБУ. The financial-statements page was not fetched."
+    },
+    "IR-03": {
+      "claimed": true,
+      "distinguished": true,
+      "status": "PARTIAL",
+      "http_status": 200,
+      "rows": 4,
+      "pit": "RESEARCH_ONLY",
+      "reason": "Public HTML table «Операционные показатели». Four rows align to year columns. The employees row repeats index 4, so those cells were not dated. No publication timestamp."
+    },
+    "IR-04": {
+      "claimed": false,
+      "distinguished": false,
+      "reason": "This document is not a press release. The press-release page was not fetched."
+    },
+    "IR-06": {
+      "claimed": false,
+      "distinguished": false,
+      "reason": "This document is not a board or shareholder decision. The meeting page was not fetched."
+    }
+  },
+  "blocked_listing": {
+    "url": "https://www.magnit.com/files/ru/shareholders-and-investors/",
+    "http_status": 403,
+    "bytes": 146,
+    "content_sha256": "32f2fa940d4b4fe19aca1e53a24e5aac29c57b7c5ee78588325b87f1b649c864",
+    "operating_rows": 0,
+    "note": "Directory listing is forbidden. It is not the operating sample and no figures were taken from it."
+  }
+}
