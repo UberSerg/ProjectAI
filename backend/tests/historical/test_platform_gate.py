@@ -31,6 +31,8 @@ def test_registry_matches_verified_pilots() -> None:
     assert by_id["IR-05"] == "PARTIAL"
     assert by_id["IR-07"] == "BLOCKED"
     assert by_id["ROS-01"] == "PARTIAL"
+    assert by_id["ROS-02"] == "PARTIAL"
+    assert by_id["ROS-04"] == "PARTIAL"
     assert by_id["INT-01"] == "BLOCKED"
     assert by_id["INT-03"] == "READY"
     assert by_id["INT-04"] == "PARTIAL"

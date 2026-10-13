@@ -181,6 +181,24 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "72 CPI months, 2017-2022, RESEARCH_ONLY",
         ),
         SourceRegistration(
+            "ROS-02",
+            "historical.sources.macro",
+            "PARTIAL",
+            "72 industrial-production months, 2017-2022; 2023-2026 returned zero rows",
+        ),
+        SourceRegistration(
+            "ROS-03",
+            "historical.sources.macro",
+            "PARTIAL",
+            "30 unemployment points, 2017-2022; later years absent",
+        ),
+        SourceRegistration(
+            "ROS-04",
+            "historical.sources.macro",
+            "PARTIAL",
+            "passport update date is not a per-point publication time",
+        ),
+        SourceRegistration(
             "INT-01",
             "historical.sources.macro",
             "BLOCKED",

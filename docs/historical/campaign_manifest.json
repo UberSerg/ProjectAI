@@ -554,38 +554,44 @@
     {
       "id": "ROS-02:discover",
       "stream": "ROS-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
     },
     {
       "id": "ROS-02:access-check",
       "stream": "ROS-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
     },
     {
       "id": "ROS-03:discover",
       "stream": "ROS-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
     },
     {
       "id": "ROS-03:access-check",
       "stream": "ROS-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
     },
     {
       "id": "ROS-04:discover",
       "stream": "ROS-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
     },
     {
       "id": "ROS-04:publication-meta",
       "stream": "ROS-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
     },
     {
       "id": "IR-01:discover",
