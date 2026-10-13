@@ -185,14 +185,19 @@ def test_empty_content_hash_is_quarantined() -> None:
 
 
 def test_chronology_errors_are_taken_from_the_artifact_method(monkeypatch) -> None:
-    artifact = _artifact(
+    same_day = _artifact(
         published_at_precision=PublishedAtPrecision.TIMESTAMP,
         published_at=datetime(2023, 12, 31, 18, 30, tzinfo=UTC),
     )
+    assert same_day.chronology_errors() == ()
+    artifact = _artifact(
+        published_at=datetime(2026, 10, 13, tzinfo=UTC),
+        first_observed_at=datetime(2026, 10, 12, tzinfo=UTC),
+    )
     result = validate_observation(artifact, _observation())
-    assert artifact.chronology_errors() == ("period_end_must_not_equal_publication_timestamp",)
+    assert artifact.chronology_errors() == ("first_observed_at_precedes_published_at",)
     assert result.quality_status == RecordQuality.QUARANTINE
-    assert "period_end_must_not_equal_publication_timestamp" in result.limitations
+    assert "first_observed_at_precedes_published_at" in result.limitations
 
     def _marker(self: HistoricalArtifact) -> tuple[str, ...]:
         return ("synthetic_chronology_marker",)

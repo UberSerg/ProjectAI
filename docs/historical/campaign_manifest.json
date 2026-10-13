@@ -868,14 +868,16 @@
     {
       "id": "QA:missing-vs-zero",
       "stream": "QA",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-VALIDATE",
+      "commit": "57e07c7ef302aba3f552d53d9aaffc058beb05da"
     },
     {
       "id": "QA:quarantine",
       "stream": "QA",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-VALIDATE",
+      "commit": "57e07c7ef302aba3f552d53d9aaffc058beb05da"
     },
     {
       "id": "QA:independent-sample",
@@ -886,14 +888,16 @@
     {
       "id": "BKF:checkpoint",
       "stream": "BKF",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-CHECKPOINT",
+      "commit": "15540be6c928857a01f783204fc5e76dc5cc602a"
     },
     {
       "id": "BKF:resume",
       "stream": "BKF",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-CHECKPOINT",
+      "commit": "15540be6c928857a01f783204fc5e76dc5cc602a"
     },
     {
       "id": "BKF:rate-limit",
@@ -904,14 +908,16 @@
     {
       "id": "BKF:stage-1000-gate",
       "stream": "BKF",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ORCH",
+      "commit": "7066194e27cb700b62f829e51272178653b6bb17"
     },
     {
       "id": "BKF:no-unbounded-download",
       "stream": "BKF",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-ORCH",
+      "commit": "7066194e27cb700b62f829e51272178653b6bb17"
     },
     {
       "id": "ENR:yoy",
