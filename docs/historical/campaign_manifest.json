@@ -161,26 +161,30 @@
     {
       "id": "CBR-04:discover",
       "stream": "CBR-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
     },
     {
       "id": "CBR-04:pilot-fetch",
       "stream": "CBR-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
     },
     {
       "id": "CBR-04:parse",
       "stream": "CBR-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
     },
     {
       "id": "CBR-04:validate",
       "stream": "CBR-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
     },
     {
       "id": "CBR-05:discover",
@@ -796,20 +800,23 @@
     {
       "id": "ENT:inn-ogrn",
       "stream": "ENT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ENT",
+      "commit": "bee7bd86997ac0fa5c9310157dd2e5982ee8d6c3"
     },
     {
       "id": "ENT:isin-secid",
       "stream": "ENT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ENT",
+      "commit": "bee7bd86997ac0fa5c9310157dd2e5982ee8d6c3"
     },
     {
       "id": "ENT:ambiguous-hold",
       "stream": "ENT",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-ENT",
+      "commit": "bee7bd86997ac0fa5c9310157dd2e5982ee8d6c3"
     },
     {
       "id": "ENT:no-subsidiary-substitution",
@@ -826,8 +833,9 @@
     {
       "id": "PIT:classify",
       "stream": "PIT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-PIT",
+      "commit": "8a47b114e0049de907f3db5b8afcf1992e9898ad"
     },
     {
       "id": "PIT:no-backdate",
@@ -844,8 +852,9 @@
     {
       "id": "PIT:publication-evidence",
       "stream": "PIT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-PIT",
+      "commit": "8a47b114e0049de907f3db5b8afcf1992e9898ad"
     },
     {
       "id": "QA:schema",

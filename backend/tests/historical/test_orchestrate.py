@@ -36,8 +36,8 @@ def _catalog(count: int, *, page_size: int) -> tuple[Fetch, list[str]]:
 
 
 def test_unknown_source_raises_before_fetch() -> None:
-    with pytest.raises(ValueError, match="unknown historical source: CBR-04"):
-        run_bounded("CBR-04", stage="pilot", requested=101, fetch_page=_refuse_fetch)
+    with pytest.raises(ValueError, match="unknown historical source: CBR-05"):
+        run_bounded("CBR-05", stage="pilot", requested=101, fetch_page=_refuse_fetch)
     with pytest.raises(ValueError, match="unknown historical source"):
         require_registered("NOT-A-SOURCE")
 
@@ -170,7 +170,8 @@ def test_partial_source_can_run_and_registry_entries_stay() -> None:
     assert by_id["MOEX-06"] == "BLOCKED"
     assert by_id["DISC-01"] == "BLOCKED"
     assert by_id["INT-01"] == "BLOCKED"
-    assert "CBR-04" not in by_id
+    assert by_id["CBR-04"] == "READY"
+    assert "CBR-05" not in by_id
 
 
 def test_runner_source_does_not_touch_network_or_storage() -> None:

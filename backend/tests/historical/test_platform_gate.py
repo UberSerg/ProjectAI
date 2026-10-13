@@ -14,6 +14,7 @@ def test_registry_matches_verified_pilots() -> None:
     by_id = {item.source_id: item.pilot_status for item in registered_sources()}
     assert by_id["CBR-01"] == "READY"
     assert by_id["CBR-03"] == "READY"
+    assert by_id["CBR-04"] == "READY"
     assert by_id["MOEX-04"] == "READY"
     assert by_id["MOEX-06"] == "BLOCKED"
     assert by_id["FNS-01"] == "READY"
@@ -21,7 +22,7 @@ def test_registry_matches_verified_pilots() -> None:
     assert by_id["INT-01"] == "BLOCKED"
     assert by_id["DISC-01"] == "BLOCKED"
     assert by_id["NEWS-02"] == "PARTIAL"
-    assert "CBR-04" not in by_id
+    assert "CBR-05" not in by_id
 
 
 def test_backfill_refuses_an_unbounded_request() -> None:

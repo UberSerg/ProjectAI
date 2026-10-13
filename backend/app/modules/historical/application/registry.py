@@ -34,7 +34,13 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "CBR-03",
             "historical.sources.cbr_rates",
             "READY",
-            "RUONIA DateUpdate can be PIT_VERIFIED",
+            "RUONIA DateUpdate is a feed stamp, so the sample stays PIT_PROXY",
+        ),
+        SourceRegistration(
+            "CBR-04",
+            "historical.sources.cbr_macro",
+            "READY",
+            "16 CBR gold accounting prices, 2024-01-10..2024-01-31, RESEARCH_ONLY",
         ),
         SourceRegistration(
             "CBR-06",
