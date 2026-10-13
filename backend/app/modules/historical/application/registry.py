@@ -97,6 +97,18 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "29 sessions for SBER, LKOH, MGNT; PIT_PROXY",
         ),
         SourceRegistration(
+            "MOEX-02",
+            "historical.sources.moex_listing",
+            "BLOCKED",
+            "listing.json has history windows only; no identifier-change journal",
+        ),
+        SourceRegistration(
+            "MOEX-03",
+            "historical.sources.moex_listing",
+            "PARTIAL",
+            "35 share boards and 51 SBER board windows; snapshot, not a board history",
+        ),
+        SourceRegistration(
             "MOEX-05",
             "historical.sources.moex_index",
             "READY",

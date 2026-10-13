@@ -345,26 +345,30 @@
     {
       "id": "MOEX-02:discover",
       "stream": "MOEX-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
     },
     {
       "id": "MOEX-02:pilot",
       "stream": "MOEX-02",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
     },
     {
       "id": "MOEX-03:discover",
       "stream": "MOEX-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
     },
     {
       "id": "MOEX-03:pilot",
       "stream": "MOEX-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
     },
     {
       "id": "MOEX-04:discover",

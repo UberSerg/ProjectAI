@@ -56,6 +56,7 @@ def test_blocked_sources_are_refused_for_backfill(source_id: str) -> None:
         "FNS-03",
         "CBR-05",
         "IR-07",
+        "MOEX-02",
     }
     with pytest.raises(ValueError, match=f"BLOCKED source: {source_id}"):
         run_bounded(source_id, stage="pilot", requested=1, fetch_page=_refuse_fetch)
