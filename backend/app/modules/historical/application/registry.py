@@ -79,6 +79,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "29 sessions for SBER, LKOH, MGNT; PIT_PROXY",
         ),
         SourceRegistration(
+            "MOEX-05",
+            "historical.sources.moex_index",
+            "READY",
+            "30 IMOEX sessions, 2026-09-01..2026-10-12, PIT_PROXY",
+        ),
+        SourceRegistration(
             "MOEX-06",
             "historical.sources.moex_corporate_actions",
             "BLOCKED",

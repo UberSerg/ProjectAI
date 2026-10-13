@@ -134,7 +134,7 @@ def test_live_probe_matches_the_saved_window() -> None:
     assert note["close_missing"] == 0
     assert note["duplicate_trade_dates"] is False
     assert note["pit_quality"] == "PIT_PROXY"
-    assert note["bytes"] == len(raw)
+    assert note["bytes"] == len(raw.replace(b"\r\n", b"\n"))
     assert {row["SECID"] for row in rows} == {SECID}
 
 

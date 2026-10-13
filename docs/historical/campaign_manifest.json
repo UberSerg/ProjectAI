@@ -396,14 +396,16 @@
     {
       "id": "MOEX-05:discover",
       "stream": "MOEX-05",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-INDEX",
+      "commit": "09434db0c7299fb786f904bfcd8139270633c2e9"
     },
     {
       "id": "MOEX-05:pilot",
       "stream": "MOEX-05",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-INDEX",
+      "commit": "09434db0c7299fb786f904bfcd8139270633c2e9"
     },
     {
       "id": "MOEX-06:discover",
