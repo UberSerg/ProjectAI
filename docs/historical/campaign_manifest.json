@@ -287,26 +287,30 @@
     {
       "id": "CBR-10:discover",
       "stream": "CBR-10",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
     },
     {
       "id": "CBR-10:access-check",
       "stream": "CBR-10",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
     },
     {
       "id": "CBR-11:discover",
       "stream": "CBR-11",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
     },
     {
       "id": "CBR-11:access-check",
       "stream": "CBR-11",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
     },
     {
       "id": "MOEX-01:discover",

@@ -15,6 +15,8 @@ def test_registry_matches_verified_pilots() -> None:
     assert by_id["CBR-01"] == "READY"
     assert by_id["CBR-03"] == "READY"
     assert by_id["CBR-04"] == "READY"
+    assert by_id["CBR-10"] == "READY"
+    assert by_id["CBR-11"] == "READY"
     assert by_id["MOEX-04"] == "READY"
     assert by_id["MOEX-05"] == "READY"
     assert by_id["MOEX-06"] == "BLOCKED"

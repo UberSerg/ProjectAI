@@ -67,6 +67,18 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "one live N1.0 slice, PIT_PROXY",
         ),
         SourceRegistration(
+            "CBR-10",
+            "historical.sources.cbr_news",
+            "READY",
+            "14 current press RSS items with pubDate, PIT_PROXY; not an archive",
+        ),
+        SourceRegistration(
+            "CBR-11",
+            "historical.sources.cbr_news",
+            "READY",
+            "20 of 1000 regulatory RSS items, PIT_PROXY; act files not downloaded",
+        ),
+        SourceRegistration(
             "MOEX-01",
             "historical.sources.moex_market",
             "READY",
