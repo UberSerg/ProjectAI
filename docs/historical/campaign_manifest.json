@@ -610,14 +610,16 @@
     {
       "id": "IR-03:discover",
       "stream": "IR-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-OPS",
+      "commit": "9930677bc54be12f81b0c4b13a725b31cbadfa1c"
     },
     {
       "id": "IR-03:access-check",
       "stream": "IR-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-OPS",
+      "commit": "9930677bc54be12f81b0c4b13a725b31cbadfa1c"
     },
     {
       "id": "IR-04:discover",

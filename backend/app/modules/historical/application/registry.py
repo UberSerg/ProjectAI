@@ -139,6 +139,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "seven IFRS lines from the Lukoil 2021 databook, RESEARCH_ONLY",
         ),
         SourceRegistration(
+            "IR-03",
+            "historical.sources.issuer_operating",
+            "PARTIAL",
+            "20 Magnit operating figures for 2021-2025, RESEARCH_ONLY; no publication date",
+        ),
+        SourceRegistration(
             "IR-07",
             "historical.sources.issuer_statements",
             "BLOCKED",
