@@ -678,14 +678,16 @@
     {
       "id": "DISC-03:discover",
       "stream": "DISC-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-DISC",
+      "commit": "91f1ab4ac6ea60bdaf7a8551c2ccc1cf330e824b"
     },
     {
       "id": "DISC-03:dedup-design",
       "stream": "DISC-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-DISC",
+      "commit": "91f1ab4ac6ea60bdaf7a8551c2ccc1cf330e824b"
     },
     {
       "id": "NEWS-01:discover",
