@@ -27,8 +27,9 @@
     {
       "id": "PLT:raw-artifact-store",
       "stream": "PLT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-RAW",
+      "commit": "4bcca2f8b58bf112d74b045f0b6a0966078a9a92"
     },
     {
       "id": "PLT:idempotent-import",
