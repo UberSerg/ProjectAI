@@ -91,6 +91,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "CCI dividends are subscriber-only; zero payout rows",
         ),
         SourceRegistration(
+            "MOEX-07",
+            "historical.sources.moex_announcements",
+            "PARTIAL",
+            "20 IR-calendar rows without published_at; corp-actions stay subscriber-only",
+        ),
+        SourceRegistration(
             "FNS-01",
             "historical.sources.fns",
             "READY",
@@ -107,6 +113,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "historical.sources.issuer_dividends",
             "PARTIAL",
             "30 Lukoil rows with registry date and per-share amount; no payment date",
+        ),
+        SourceRegistration(
+            "FNS-03",
+            "historical.sources.fns",
+            "BLOCKED",
+            "public GIR BO returns only the latest correction; prior revisions are absent",
         ),
         SourceRegistration(
             "ROS-01",
@@ -127,6 +139,18 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "EIA natural gas API_KEY_MISSING",
         ),
         SourceRegistration(
+            "INT-03",
+            "historical.sources.official_macro",
+            "READY",
+            "88 CBR precious-metal quotes, September 2026, RESEARCH_ONLY",
+        ),
+        SourceRegistration(
+            "INT-04",
+            "historical.sources.official_macro",
+            "PARTIAL",
+            "metal codes mapped from the CBR table; the XML has no unit",
+        ),
+        SourceRegistration(
             "DISC-01",
             "historical.sources.disclosure",
             "BLOCKED",
@@ -143,6 +167,18 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "historical.sources.disclosure",
             "PARTIAL",
             "20 MOEX headlines with published_at; bodies not fetched",
+        ),
+        SourceRegistration(
+            "NEWS-01",
+            "historical.sources.issuer_news",
+            "READY",
+            "20 Lukoil press cards, 2026-05-13..2026-10-09, PIT_PROXY, bodies not stored",
+        ),
+        SourceRegistration(
+            "NEWS-03",
+            "historical.sources.issuer_news",
+            "READY",
+            "same 20 Lukoil cards; Sber TLS failed and Magnit had no dated list",
         ),
     )
 

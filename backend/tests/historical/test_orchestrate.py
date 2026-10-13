@@ -47,7 +47,7 @@ def test_unknown_source_raises_before_fetch() -> None:
     [item.source_id for item in registered_sources() if item.pilot_status == "BLOCKED"],
 )
 def test_blocked_sources_are_refused_for_backfill(source_id: str) -> None:
-    assert source_id in {"MOEX-06", "DISC-01", "DISC-02", "INT-01", "INT-02"}
+    assert source_id in {"MOEX-06", "DISC-01", "DISC-02", "INT-01", "INT-02", "FNS-03"}
     with pytest.raises(ValueError, match=f"BLOCKED source: {source_id}"):
         run_bounded(source_id, stage="pilot", requested=1, fetch_page=_refuse_fetch)
 

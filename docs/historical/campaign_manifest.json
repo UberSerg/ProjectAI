@@ -439,14 +439,16 @@
     {
       "id": "MOEX-07:discover",
       "stream": "MOEX-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-ANN",
+      "commit": "396ce1250244c691ce6ffd9e8d2426f7f6f02f1f"
     },
     {
       "id": "MOEX-07:access-check",
       "stream": "MOEX-07",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-ANN",
+      "commit": "396ce1250244c691ce6ffd9e8d2426f7f6f02f1f"
     },
     {
       "id": "MOEX-08:discover",
@@ -505,14 +507,16 @@
     {
       "id": "FNS-03:discover",
       "stream": "FNS-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-FNS-REV",
+      "commit": "acae04d9b6db73b415c73d5e8f18a2958f1b3504"
     },
     {
       "id": "FNS-03:revisions",
       "stream": "FNS-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-FNS-REV",
+      "commit": "acae04d9b6db73b415c73d5e8f18a2958f1b3504"
     },
     {
       "id": "ROS-01:discover",
@@ -702,14 +706,16 @@
     {
       "id": "NEWS-01:discover",
       "stream": "NEWS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
     },
     {
       "id": "NEWS-01:metadata-pilot",
       "stream": "NEWS-01",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
     },
     {
       "id": "NEWS-02:discover",
@@ -728,20 +734,23 @@
     {
       "id": "NEWS-03:discover",
       "stream": "NEWS-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
     },
     {
       "id": "NEWS-03:metadata-only",
       "stream": "NEWS-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
     },
     {
       "id": "NEWS-04:dedup-design",
       "stream": "NEWS-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
     },
     {
       "id": "INT-01:discover",
@@ -788,20 +797,23 @@
     {
       "id": "INT-03:discover",
       "stream": "INT-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-COMMODITY",
+      "commit": "9ce69cd6070e0849ba9264dbedfdca80bd431def"
     },
     {
       "id": "INT-03:access-check",
       "stream": "INT-03",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-COMMODITY",
+      "commit": "9ce69cd6070e0849ba9264dbedfdca80bd431def"
     },
     {
       "id": "INT-04:context-map",
       "stream": "INT-04",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-W2-COMMODITY",
+      "commit": "9ce69cd6070e0849ba9264dbedfdca80bd431def"
     },
     {
       "id": "ENT:inn-ogrn",
