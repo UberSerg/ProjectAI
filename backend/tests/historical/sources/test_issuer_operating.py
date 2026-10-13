@@ -271,8 +271,9 @@ def test_probe_note_matches_the_checked_task_only() -> None:
     )
     assert result.table_rows == probe["aligned_rows"]
     assert len(result.observations) == probe["numeric_observations"]
-    forbidden = fixture_bytes("magnit_files_403.html")
-    assert len(forbidden) == probe["blocked_listing"]["bytes"]
+    forbidden = fixture_bytes("magnit_files_403.html").replace(b"\r\n", b"\n")
+    recorded = probe["blocked_listing"]["bytes"]
+    assert recorded in {len(forbidden), len(forbidden) + forbidden.count(b"\n")}
 
 
 def test_module_does_not_call_llm_or_write_prospective_memory() -> None:
