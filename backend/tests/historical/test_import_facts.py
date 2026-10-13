@@ -91,8 +91,8 @@ def test_new_revision_is_appended_beside_the_previous_row(tmp_path: object) -> N
     outcomes = import_facts(
         path,
         (
-            (original, _revision("2023-original")),
-            (corrected, _revision("2024-correction")),
+            (original, _revision("2023-original", revision_sequence=1)),
+            (corrected, _revision("2024-correction", revision_sequence=2)),
         ),
     )
 
@@ -166,11 +166,11 @@ def test_same_content_hash_with_another_revision_id_does_not_supersede(tmp_path:
 def test_same_revision_identifier_does_not_duplicate_or_overwrite(tmp_path: object) -> None:
     path = tmp_path / "facts.sqlite"  # type: ignore[operator]
     store = FactRevisionStore(path)
-    store.import_observation(_obs(content_hash="hash-1", value=100.0), _revision("r1"))
-    store.import_observation(_obs(content_hash="hash-2", value=110.0), _revision("r2"))
+    store.import_observation(_obs(content_hash="hash-1", value=100.0), _revision("r1", revision_sequence=1))
+    store.import_observation(_obs(content_hash="hash-2", value=110.0), _revision("r2", revision_sequence=2))
     skipped = store.import_observation(
         _obs(content_hash="hash-3", value=999.0),
-        _revision("r1"),
+        _revision("r1", revision_sequence=1),
     )
 
     assert skipped.action is ImportAction.SKIPPED
@@ -290,14 +290,14 @@ def test_quarantine_rows_are_stored_but_not_accepted(tmp_path: object) -> None:
 
 def test_quarantine_revision_keeps_the_accepted_row(tmp_path: object) -> None:
     store = FactRevisionStore(tmp_path / "facts.sqlite")  # type: ignore[operator]
-    store.import_observation(_obs(content_hash="hash-1", value=100.0), _revision("r1"))
+    store.import_observation(_obs(content_hash="hash-1", value=100.0), _revision("r1", revision_sequence=1))
     quarantined = _obs(
         content_hash="hash-2",
         value=5.0,
         quality_status=RecordQuality.QUARANTINE,
         evidence=None,
     )
-    outcome = store.import_observation(quarantined, _revision("r2"))
+    outcome = store.import_observation(quarantined, _revision("r2", revision_sequence=2))
 
     assert outcome.counted_as_accepted is False
     rows = store.revisions_for(_obs())

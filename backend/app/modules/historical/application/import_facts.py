@@ -5,12 +5,19 @@ network, or a paid LLM, and nothing writes the live decision tables.
 
 A fact key is ``source_id + metric_id + period_end + issuer identity``.
 The same content hash and normalization version for that key is a no-op.
+The same source revision identifier and normalization version is a no-op.
 A new parser generation (``normalization_version``) inserts another row
-even when the source revision identifier and the raw hash are unchanged.
-A new source revision identifier does the same. The previous row is marked
-superseded and stays in the file: its content is not deleted or overwritten,
-and ``first_observed_at`` is not moved earlier. ``period_end`` is never stored
-as ``published_at``.
+even when the source revision identifier and the raw hash are unchanged,
+and may mark the previous generation superseded. The old row stays.
+
+Within one fact key and one normalization version, source order is
+``revision_sequence`` when both rows have one. A higher sequence is newer.
+When both sequences are missing, a later ``published_at`` is newer.
+``first_observed_at`` is the import clock and does not decide which revision
+is newer. When neither sequence nor ``published_at`` can order the pair,
+the already-current row stays current and the incoming row is stored
+superseded. Nothing is deleted or overwritten, and ``period_end`` is never
+stored as ``published_at``.
 """
 
 from __future__ import annotations
@@ -28,11 +35,13 @@ from typing import Any
 from app.modules.historical.application.isolation import assert_research_only_target
 from app.modules.historical.domain.evidence import (
     ParsedObservation,
+    PitQuality,
     PublishedAtPrecision,
     RecordQuality,
 )
 
 _FACT_TABLE = "fact_revisions"
+_PIT_LABELS = frozenset(quality.value for quality in PitQuality)
 
 _SCHEMA = (
     f"""
@@ -46,6 +55,7 @@ _SCHEMA = (
         issuer_identity_json TEXT NOT NULL,
         content_hash TEXT NOT NULL,
         revision_identifier TEXT NOT NULL,
+        revision_sequence INTEGER,
         normalization_version TEXT NOT NULL,
         quality_status TEXT NOT NULL,
         value REAL,
@@ -59,6 +69,11 @@ _SCHEMA = (
         published_at TEXT,
         published_at_precision TEXT NOT NULL,
         first_observed_at TEXT NOT NULL,
+        historical_pit_quality TEXT CHECK (
+            historical_pit_quality IS NULL
+            OR historical_pit_quality IN ('PIT_VERIFIED', 'PIT_PROXY', 'RESEARCH_ONLY')
+        ),
+        pit_evidence TEXT,
         superseded INTEGER NOT NULL CHECK (superseded IN (0, 1)),
         UNIQUE (fact_key, content_hash, normalization_version),
         UNIQUE (fact_key, revision_identifier, normalization_version)
@@ -88,6 +103,7 @@ _SCHEMA = (
         OR NEW.issuer_identity_json IS NOT OLD.issuer_identity_json
         OR NEW.content_hash IS NOT OLD.content_hash
         OR NEW.revision_identifier IS NOT OLD.revision_identifier
+        OR NEW.revision_sequence IS NOT OLD.revision_sequence
         OR NEW.normalization_version IS NOT OLD.normalization_version
         OR NEW.quality_status IS NOT OLD.quality_status
         OR NEW.value IS NOT OLD.value
@@ -101,6 +117,13 @@ _SCHEMA = (
         OR NEW.published_at IS NOT OLD.published_at
         OR NEW.published_at_precision IS NOT OLD.published_at_precision
         OR NEW.first_observed_at IS NOT OLD.first_observed_at
+        OR (
+            OLD.historical_pit_quality IS NOT NULL
+            AND (
+                NEW.historical_pit_quality IS NOT OLD.historical_pit_quality
+                OR NEW.pit_evidence IS NOT OLD.pit_evidence
+            )
+        )
     BEGIN
         SELECT RAISE(ABORT, 'fact revision content is immutable');
     END
@@ -123,14 +146,19 @@ class SourceRevision:
     """Publication identity of one source snapshot.
 
     ``published_at`` is supplied by the caller. The importer does not copy
-    ``period_end`` into it. ``first_observed_at`` is the clock of this
-    observation and must already be timezone-aware.
+    ``period_end`` into it and does not invent a publication time.
+    ``revision_sequence`` is the source order, not the import clock.
+    ``first_observed_at`` is the clock of this observation and must already
+    be timezone-aware. It does not decide which revision is newer.
     """
 
     revision_identifier: str
     first_observed_at: datetime
     published_at: datetime | None = None
     published_at_precision: PublishedAtPrecision = PublishedAtPrecision.UNKNOWN
+    revision_sequence: int | None = None
+    historical_pit_quality: str | None = None
+    pit_evidence: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +185,7 @@ class StoredRevision:
     issuer_identity: dict[str, str]
     content_hash: str
     revision_identifier: str
+    revision_sequence: int | None
     normalization_version: str
     quality_status: RecordQuality
     value: float | None
@@ -169,6 +198,8 @@ class StoredRevision:
     published_at: datetime | None
     published_at_precision: PublishedAtPrecision
     first_observed_at: datetime
+    historical_pit_quality: str | None
+    pit_evidence: str | None
     superseded: bool
 
 
@@ -209,7 +240,9 @@ class FactRevisionStore:
         self.path = Path(database_path)
         assert_research_only_target(_FACT_TABLE)
         with self._connect() as connection:
-            for statement in _SCHEMA:
+            connection.execute(_SCHEMA[0])
+            _ensure_pit_columns(connection)
+            for statement in _SCHEMA[1:]:
                 connection.execute(statement)
 
     def import_observation(
@@ -218,6 +251,23 @@ class FactRevisionStore:
         revision: SourceRevision,
     ) -> ImportOutcome:
         return self.import_all(((observation, revision),))[0]
+
+    def backfill_pit(self, row_id: int, quality: str, evidence: str | None) -> bool:
+        """Fill a missing PIT label once. A stored label is not rewritten."""
+        label = _canonical_pit_label(quality, required=True)
+        with self._connect(write=True) as connection:
+            connection.execute(
+                f"""
+                UPDATE {_FACT_TABLE}
+                SET historical_pit_quality = ?, pit_evidence = ?
+                WHERE row_id = ? AND historical_pit_quality IS NULL
+                """,
+                (label, evidence, row_id),
+            )
+            changed = connection.execute("SELECT changes()").fetchone()
+        if changed is None:
+            return False
+        return int(changed[0]) == 1
 
     def import_all(
         self,
@@ -376,20 +426,29 @@ class FactRevisionStore:
 
         quality, limitations = _stored_quality(observation, revision)
         published_at = revision.published_at.isoformat() if revision.published_at is not None else None
+        pit_quality = _canonical_pit_label(revision.historical_pit_quality)
+        become_current, retire_ids = _current_decision(
+            connection,
+            fact_key=key,
+            normalization_version=observation.normalization_version,
+            revision=revision,
+        )
         cursor = connection.execute(
             f"""
             INSERT INTO {_FACT_TABLE} (
                 fact_key, source_id, metric_id, period_end, issuer_identity_key,
                 issuer_identity_json, content_hash, revision_identifier,
-                normalization_version, quality_status, value, unit, currency,
-                period, reporting_standard, evidence, limitations_json, extra_json,
-                published_at, published_at_precision, first_observed_at, superseded
+                revision_sequence, normalization_version, quality_status, value,
+                unit, currency, period, reporting_standard, evidence,
+                limitations_json, extra_json, published_at, published_at_precision,
+                first_observed_at, historical_pit_quality, pit_evidence, superseded
             ) VALUES (
                 ?, ?, ?, ?, ?,
                 ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, 0
+                ?, ?, ?, ?,
+                ?, ?, ?, ?
             )
             """,
             (
@@ -401,6 +460,7 @@ class FactRevisionStore:
                 _dump_mapping(observation.issuer_identity),
                 observation.content_hash,
                 identifier,
+                revision.revision_sequence,
                 observation.normalization_version,
                 quality.value,
                 observation.value,
@@ -414,28 +474,24 @@ class FactRevisionStore:
                 published_at,
                 revision.published_at_precision.value,
                 revision.first_observed_at.isoformat(),
+                pit_quality,
+                revision.pit_evidence,
+                0 if become_current else 1,
             ),
         )
         new_id = cursor.lastrowid
         if new_id is None:
             raise RuntimeError("fact revision insert did not return a row id")
-        previous = connection.execute(
-            f"""
-            SELECT row_id FROM {_FACT_TABLE}
-            WHERE fact_key = ? AND superseded = 0 AND row_id != ?
-            ORDER BY row_id
-            """,
-            (key, new_id),
-        ).fetchall()
-        superseded_row_ids = tuple(int(row["row_id"]) for row in previous)
+        superseded_row_ids = retire_ids if become_current else ()
         if superseded_row_ids:
+            placeholders = ", ".join("?" for _ in superseded_row_ids)
             connection.execute(
                 f"""
                 UPDATE {_FACT_TABLE}
                 SET superseded = 1
-                WHERE fact_key = ? AND superseded = 0 AND row_id != ?
+                WHERE row_id IN ({placeholders})
                 """,
-                (key, new_id),
+                superseded_row_ids,
             )
         return ImportOutcome(
             action=ImportAction.INSERTED,
@@ -484,7 +540,28 @@ def _validate(observation: ParsedObservation, revision: SourceRevision) -> str:
     _require_aware(revision.first_observed_at, "first_observed_at")
     if revision.published_at is not None:
         _require_aware(revision.published_at, "published_at")
+    _canonical_pit_label(revision.historical_pit_quality)
     return identifier
+
+
+def _canonical_pit_label(value: str | None, *, required: bool = False) -> str | None:
+    if value is None:
+        if required:
+            raise ValueError("historical_pit_quality is required")
+        return None
+    if value not in _PIT_LABELS:
+        raise ValueError("historical_pit_quality must be PIT_VERIFIED, PIT_PROXY, or RESEARCH_ONLY")
+    return str(value)
+
+
+def _ensure_pit_columns(connection: sqlite3.Connection) -> None:
+    """Add PIT columns to a database created before they existed."""
+    present = {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({_FACT_TABLE})")}
+    for column in ("historical_pit_quality", "pit_evidence"):
+        if column not in present:
+            connection.execute(f"ALTER TABLE {_FACT_TABLE} ADD COLUMN {column} TEXT")
+    if "revision_sequence" not in present:
+        connection.execute(f"ALTER TABLE {_FACT_TABLE} ADD COLUMN revision_sequence INTEGER")
 
 
 def _require_aware(value: datetime, name: str) -> None:
@@ -504,6 +581,69 @@ def _stored_quality(
     if observation.quality_status is RecordQuality.QUARANTINE or problems:
         return RecordQuality.QUARANTINE, tuple(limitations)
     return observation.quality_status, tuple(limitations)
+
+
+def _current_decision(
+    connection: sqlite3.Connection,
+    *,
+    fact_key: str,
+    normalization_version: str,
+    revision: SourceRevision,
+) -> tuple[bool, tuple[int, ...]]:
+    """Decide whether the incoming row becomes current.
+
+    Comparison is limited to the same fact key and the same normalization
+    version. A different normalization version is a new parser generation:
+    it becomes current and may retire the previous generation.
+    """
+    peers = connection.execute(
+        f"""
+        SELECT row_id, revision_sequence, published_at, superseded
+        FROM {_FACT_TABLE}
+        WHERE fact_key = ? AND normalization_version = ?
+        ORDER BY row_id
+        """,
+        (fact_key, normalization_version),
+    ).fetchall()
+    if not peers:
+        previous = connection.execute(
+            f"""
+            SELECT row_id FROM {_FACT_TABLE}
+            WHERE fact_key = ? AND superseded = 0
+            ORDER BY row_id
+            """,
+            (fact_key,),
+        ).fetchall()
+        return True, tuple(int(row["row_id"]) for row in previous)
+
+    current_peers = [row for row in peers if int(row["superseded"]) == 0]
+    if not current_peers:
+        return False, ()
+    newer_than_current = all(_incoming_is_newer(revision, row) is True for row in current_peers)
+    if not newer_than_current:
+        return False, ()
+    return True, tuple(int(row["row_id"]) for row in current_peers)
+
+
+def _incoming_is_newer(incoming: SourceRevision, current: sqlite3.Row) -> bool | None:
+    """True when ``incoming`` is newer, False when it is older, None when unordered.
+
+    ``first_observed_at`` is ignored. Publication time is used only when both
+    source sequences are missing.
+    """
+    incoming_sequence = incoming.revision_sequence
+    current_sequence = None if current["revision_sequence"] is None else int(current["revision_sequence"])
+    if incoming_sequence is not None and current_sequence is not None:
+        if incoming_sequence != current_sequence:
+            return incoming_sequence > current_sequence
+        return None
+    if incoming_sequence is not None or current_sequence is not None:
+        return None
+    incoming_published = incoming.published_at
+    current_published = _parse_datetime(current["published_at"])
+    if incoming_published is not None and current_published is not None and incoming_published != current_published:
+        return incoming_published > current_published
+    return None
 
 
 def _chronology_problems(
@@ -555,6 +695,7 @@ def _stored_from_row(row: sqlite3.Row) -> StoredRevision:
         issuer_identity={str(key): str(value) for key, value in identity.items()},
         content_hash=str(row["content_hash"]),
         revision_identifier=str(row["revision_identifier"]),
+        revision_sequence=None if row["revision_sequence"] is None else int(row["revision_sequence"]),
         normalization_version=str(row["normalization_version"]),
         quality_status=RecordQuality(row["quality_status"]),
         value=None if row["value"] is None else float(row["value"]),
@@ -567,8 +708,16 @@ def _stored_from_row(row: sqlite3.Row) -> StoredRevision:
         published_at=_parse_datetime(row["published_at"]),
         published_at_precision=PublishedAtPrecision(row["published_at_precision"]),
         first_observed_at=observed,
+        historical_pit_quality=_optional_text(row["historical_pit_quality"]),
+        pit_evidence=_optional_text(row["pit_evidence"]),
         superseded=bool(row["superseded"]),
     )
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _parse_datetime(value: str | None) -> datetime | None:

@@ -28,6 +28,7 @@ def test_schema_has_checkpoint_and_seen_hash_tables(tmp_path: Path) -> None:
     assert [row[0] for row in tables] == ["checkpoints", "seen_hashes"]
     assert [(row[1], row[2], row[3], row[5]) for row in checkpoints] == [
         ("source_id", "TEXT", 1, 1),
+        ("partition", "TEXT", 1, 2),
         ("cursor", "TEXT", 1, 0),
         ("stage", "TEXT", 1, 0),
         ("accepted", "INTEGER", 1, 0),
@@ -36,7 +37,10 @@ def test_schema_has_checkpoint_and_seen_hash_tables(tmp_path: Path) -> None:
     ]
     assert [(row[1], row[2], row[3], row[5]) for row in seen_hashes] == [
         ("source_id", "TEXT", 1, 1),
-        ("content_hash", "TEXT", 1, 2),
+        ("partition", "TEXT", 1, 2),
+        ("content_hash", "TEXT", 1, 3),
+        ("committed", "INTEGER", 1, 0),
+        ("complete", "INTEGER", 1, 0),
     ]
 
 

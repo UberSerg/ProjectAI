@@ -262,6 +262,35 @@ def test_research_only_does_not_become_an_accepted_fact(tmp_path: object) -> Non
     assert facts.current_quarantined_row_count() == 1
     stored = facts.revisions_for(_observation(body, source_id="CBR-01", metric_id="macro.key_rate"))
     assert RESEARCH_ONLY_EXCLUDED in stored[0].limitations
+    assert stored[0].historical_pit_quality == "RESEARCH_ONLY"
+    assert stored[0].published_at is None
+
+
+def test_verified_mode_keeps_a_proxy_label_and_quarantines_it(tmp_path: object) -> None:
+    raw_store, facts, checkpoints = _stores(tmp_path)
+    body = b"<ruonia>proxy</ruonia>"
+    artifact = _artifact(body)
+
+    result = commit_fetched(
+        raw_store=raw_store,
+        facts=facts,
+        checkpoints=checkpoints,
+        raw=body,
+        artifacts=(artifact,),
+        parse=lambda _artifact, _raw: (_observation(body),),
+        stage="stage_1000",
+        run_new_items=0,
+        next_cursor="2024-01-15",
+        pit_mode="verified",
+    )
+
+    assert result.accepted_inserted == 0
+    assert result.quarantined_inserted == 1
+    stored = facts.revisions_for(_observation(body))
+    assert stored[0].historical_pit_quality == "PIT_PROXY"
+    assert stored[0].pit_evidence == "cbr_ruonia_DateUpdate"
+    assert "pit_proxy_excluded_from_verified_replay" in stored[0].limitations
+    assert stored[0].published_at == _PUBLISHED
 
 
 def test_new_parser_generation_replays_the_stored_body(tmp_path: object) -> None:
