@@ -32,7 +32,7 @@ def test_registry_matches_verified_pilots() -> None:
     assert by_id["NEWS-01"] == "READY"
     assert by_id["NEWS-02"] == "PARTIAL"
     assert by_id["NEWS-03"] == "READY"
-    assert "CBR-05" not in by_id
+    assert by_id["CBR-05"] == "BLOCKED"
 
 
 def test_backfill_refuses_an_unbounded_request() -> None:

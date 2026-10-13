@@ -283,11 +283,12 @@ def test_date_column_is_the_period_and_not_the_publication_time() -> None:
     assert artifact.first_observed_at == CLOCK
 
 
-def test_same_day_timestamp_is_reported_by_chronology() -> None:
+def test_same_day_timestamp_is_not_a_chronology_error() -> None:
     source, _transport = _source(_http(200, COLLISION, "text/csv"))
     artifact = source.fetch_sample()[0]
     assert artifact.published_at_precision is PublishedAtPrecision.TIMESTAMP
-    assert "period_end_must_not_equal_publication_timestamp" in artifact.chronology_errors()
+    assert artifact.period_end == artifact.published_at.date()
+    assert artifact.chronology_errors() == ()
 
 
 def test_naive_timestamp_is_proxy_not_verified() -> None:

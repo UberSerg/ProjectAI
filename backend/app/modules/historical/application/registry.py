@@ -43,6 +43,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "16 CBR gold accounting prices, 2024-01-10..2024-01-31, RESEARCH_ONLY",
         ),
         SourceRegistration(
+            "CBR-05",
+            "historical.sources.cbr_reviews",
+            "BLOCKED",
+            "banking-sector review catalog returned HTTP 404; zero metrics",
+        ),
+        SourceRegistration(
             "CBR-06",
             "historical.sources.cbr_banks",
             "PARTIAL",

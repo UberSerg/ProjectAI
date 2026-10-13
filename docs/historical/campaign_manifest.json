@@ -191,14 +191,16 @@
     {
       "id": "CBR-05:discover",
       "stream": "CBR-05",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-CBR-REVIEWS",
+      "commit": "32a4d5166f3f468289d64e41e85fefda2967fb49"
     },
     {
       "id": "CBR-05:access-check",
       "stream": "CBR-05",
-      "status": "PENDING",
-      "owner": null
+      "status": "BLOCKED",
+      "owner": "HDS-W2-CBR-REVIEWS",
+      "commit": "32a4d5166f3f468289d64e41e85fefda2967fb49"
     },
     {
       "id": "CBR-06:discover",

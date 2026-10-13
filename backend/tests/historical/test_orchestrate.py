@@ -36,8 +36,8 @@ def _catalog(count: int, *, page_size: int) -> tuple[Fetch, list[str]]:
 
 
 def test_unknown_source_raises_before_fetch() -> None:
-    with pytest.raises(ValueError, match="unknown historical source: CBR-05"):
-        run_bounded("CBR-05", stage="pilot", requested=101, fetch_page=_refuse_fetch)
+    with pytest.raises(ValueError, match="unknown historical source: ROS-02"):
+        run_bounded("ROS-02", stage="pilot", requested=101, fetch_page=_refuse_fetch)
     with pytest.raises(ValueError, match="unknown historical source"):
         require_registered("NOT-A-SOURCE")
 
@@ -47,7 +47,7 @@ def test_unknown_source_raises_before_fetch() -> None:
     [item.source_id for item in registered_sources() if item.pilot_status == "BLOCKED"],
 )
 def test_blocked_sources_are_refused_for_backfill(source_id: str) -> None:
-    assert source_id in {"MOEX-06", "DISC-01", "DISC-02", "INT-01", "INT-02", "FNS-03"}
+    assert source_id in {"MOEX-06", "DISC-01", "DISC-02", "INT-01", "INT-02", "FNS-03", "CBR-05"}
     with pytest.raises(ValueError, match=f"BLOCKED source: {source_id}"):
         run_bounded(source_id, stage="pilot", requested=1, fetch_page=_refuse_fetch)
 
@@ -171,7 +171,8 @@ def test_partial_source_can_run_and_registry_entries_stay() -> None:
     assert by_id["DISC-01"] == "BLOCKED"
     assert by_id["INT-01"] == "BLOCKED"
     assert by_id["CBR-04"] == "READY"
-    assert "CBR-05" not in by_id
+    assert by_id["CBR-05"] == "BLOCKED"
+    assert "ROS-02" not in by_id
 
 
 def test_runner_source_does_not_touch_network_or_storage() -> None:
