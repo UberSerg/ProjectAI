@@ -8,8 +8,10 @@ Forms:
 
 Does not reimplement SOAP and does not write prospective captures.
 ``known_at`` / ``first_observed_at`` is the observation
-clock, never the form's reporting period. PIT is ``PIT_PROXY`` unless that
-form's own payload contains a publication timestamp.
+clock, never the form's reporting period. CreditOrgInfo SOAP exposes report
+dates (``OnDate``, ``DT``) only. PIT stays ``PIT_PROXY`` (or ``RESEARCH_ONLY``
+when the form has no metrics). An undocumented element is not a publication
+timestamp and is not copied from the fetch clock.
 """
 
 from __future__ import annotations
@@ -51,10 +53,12 @@ from app.modules.intelligence.banks.providers import CBR_CREDIT_ORG_BY_SECID
 NORMALIZATION_VERSION = "cbr_banks_historical_v1"
 SECID = "SBER"
 PIT_PROXY_EVIDENCE = "cbr_reporting_period_not_verified_archive_snapshot"
-PIT_VERIFIED_EVIDENCE = "payload_publication_timestamp"
 FORM101_EVIDENCE = "form101_not_in_soap_bundle_assets_loans_deposits_not_proved"
+UNDOCUMENTED_PUBLICATION_LIMITATION = "undocumented_publication_element_not_a_publication_timestamp"
 
-_PUBLICATION_TAGS = frozenset(
+# Not CreditOrgInfo fields. The proved SOAP payload has OnDate and DT only,
+# and those are report dates. A hit is recorded and is not publication proof.
+_UNDOCUMENTED_PUBLICATION_TAGS = frozenset(
     {"PubDate", "PublicationDate", "PublishedAt", "DatePublish", "publication_timestamp"}
 )
 _BALANCE_METRICS = frozenset({"TOTAL_ASSETS", "LOAN_BOOK", "DEPOSITS"})
@@ -124,10 +128,11 @@ def _local(tag: str) -> str:
 
 
 def _publication_timestamps(xml_chunks: tuple[str, ...]) -> tuple[datetime, ...] | None:
-    """Return publication timestamps found on this form.
+    """Return clocks found on tags that are not CreditOrgInfo fields.
 
-    ``None`` means the tags disagree. An empty tuple means none were present.
-    Reporting dates (``OnDate``, ``DT``) are not publication timestamps.
+    ``None`` means those tags disagree. An empty tuple means none were present.
+    Reporting dates (``OnDate``, ``DT``) are not publication timestamps, and
+    neither is any name in ``_UNDOCUMENTED_PUBLICATION_TAGS``.
     """
     found: list[datetime] = []
     for chunk in xml_chunks:
@@ -136,7 +141,7 @@ def _publication_timestamps(xml_chunks: tuple[str, ...]) -> tuple[datetime, ...]
         except ET.ParseError:
             continue
         for element in root.iter():
-            if _local(element.tag) not in _PUBLICATION_TAGS:
+            if _local(element.tag) not in _UNDOCUMENTED_PUBLICATION_TAGS:
                 continue
             raw = " ".join((element.text or "").split())
             if "T" not in raw:
@@ -282,20 +287,22 @@ def wrap_sber_soap_bundle(
         published_at: datetime | None = None
         precision = PublishedAtPrecision.PERIOD_ONLY if period_end is not None else PublishedAtPrecision.UNKNOWN
         availability = PIT_PROXY_EVIDENCE
+        saw_undocumented = publication is not None or publication_note == "publication_timestamp_ambiguous"
+        if saw_undocumented:
+            form_limitations.append(UNDOCUMENTED_PUBLICATION_LIMITATION)
         if spec["form"] == "0409101" and not form_metrics:
             pit = PitQuality.RESEARCH_ONLY
             precision = PublishedAtPrecision.UNKNOWN
             availability = FORM101_EVIDENCE
             form_limitations.append("assets_loans_deposits_absent")
-        elif publication is not None and period_end is not None and publication.date() == period_end:
+        if publication is not None and period_end is not None and publication.date() == period_end:
+            # Same calendar day is allowed. Do not store the report date as a
+            # publication timestamp; that would be a chronology error.
             form_limitations.append("publication_timestamp_equals_period_end_not_used")
-        elif publication is not None and observed_at < publication:
+        if publication is not None and publication == observed_at:
+            form_limitations.append("publication_timestamp_equals_fetch_clock_not_used")
+        if publication is not None and observed_at < publication:
             form_limitations.append("publication_timestamp_after_first_observed_at_not_used")
-        elif publication is not None:
-            pit = PitQuality.PIT_VERIFIED
-            published_at = publication
-            precision = PublishedAtPrecision.TIMESTAMP
-            availability = PIT_VERIFIED_EVIDENCE
 
         if period_end is not None and period_end == observed_at.date():
             form_limitations.append("period_end_equals_first_observed_at")
@@ -473,7 +480,7 @@ class CbrBanksHistoricalSource:
             limitations=(
                 "sber_regnum_1481_only",
                 "historical_span_not_verified",
-                "pit_proxy_unless_payload_publication_timestamp",
+                "pit_proxy_creditorginfo_soap_has_no_official_publication_timestamp",
                 "form101_assets_loans_deposits_not_proved_by_current_parser",
                 "industrial_fns_ratios_forbidden",
                 "partial_not_ready",
