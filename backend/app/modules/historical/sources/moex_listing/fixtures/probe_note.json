@@ -1,0 +1,159 @@
+{
+  "probed_on": "2026-10-13",
+  "row_cap": 100,
+  "moex_02_status": "BLOCKED",
+  "moex_02_pit": "RESEARCH_ONLY",
+  "moex_03_status": "PARTIAL",
+  "moex_03_pit": "RESEARCH_ONLY",
+  "listing_history_list_delist_fields_present": false,
+  "description_treated_as_listing_event": false,
+  "period_end_used_as_first_observed_at": false,
+  "note": "Public ISS JSON only. listing.json has history windows, not list/delist dates and not an identifier-change series. listed_from and listed_till exist on the security boards block. The description block was inspected and is not a listing event.",
+  "endpoints": [
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/listing.json?iss.meta=off&start=0",
+      "role": "MOEX-02 listing history page",
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "rows": 100,
+      "block": "securities",
+      "columns": ["SECID", "SHORTNAME", "NAME", "BOARDID", "decimals", "history_from", "history_till"],
+      "absent_columns": ["listed_from", "listed_till", "listdate", "delistdate", "ISIN", "old_secid"],
+      "cursor_present": false,
+      "fixture": "listing_shares_page1.json"
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/listing.json?iss.data=off",
+      "role": "listing schema",
+      "http_status": 200,
+      "metadata_columns": ["SECID", "SHORTNAME", "NAME", "BOARDID", "decimals", "history_from", "history_till"],
+      "observed": "Schema dates are history_from and history_till only."
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/listing.json?iss.meta=off&securities.columns=SECID,BOARDID,history_from,history_till,listed_from,listed_till&start=0",
+      "role": "requested list dates were dropped",
+      "http_status": 200,
+      "rows": 100,
+      "columns_returned": ["SECID", "BOARDID", "history_from", "history_till"],
+      "observed": "listed_from and listed_till are not columns. ISS omitted them."
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/listing.json?iss.meta=off&iss.only=securities.cursor",
+      "role": "cursor probe",
+      "http_status": 200,
+      "cursor_present": false,
+      "observed": "iss.only=securities.cursor was ignored. The response was the securities table, 100 rows, no cursor block."
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/boards/TQBR/listing.json?iss.meta=off&limit=5",
+      "role": "same listing table filtered by board",
+      "http_status": 200,
+      "rows": 100,
+      "columns": ["SECID", "SHORTNAME", "NAME", "BOARDID", "decimals", "history_from", "history_till"],
+      "observed": "limit=5 was ignored. Page size stayed 100. Same columns, still no list/delist date."
+    },
+    {
+      "url": "https://iss.moex.com/iss/engines/stock/markets/shares/boards.json?iss.meta=off",
+      "role": "MOEX-03 board dictionary",
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "rows": 35,
+      "block": "boards",
+      "columns": ["id", "board_group_id", "boardid", "title", "is_traded"],
+      "absent_columns": ["secid", "listed_from", "listed_till", "history_from", "history_till"],
+      "fixture": "shares_boards.json"
+    },
+    {
+      "url": "https://iss.moex.com/iss/securities/SBER.json?iss.meta=off&iss.only=boards",
+      "role": "MOEX-03 SBER board windows",
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "rows": 51,
+      "block": "boards",
+      "columns": [
+        "secid",
+        "boardid",
+        "title",
+        "board_group_id",
+        "market_id",
+        "market",
+        "engine_id",
+        "engine",
+        "is_traded",
+        "decimals",
+        "history_from",
+        "history_till",
+        "listed_from",
+        "listed_till",
+        "is_primary",
+        "currencyid",
+        "unit"
+      ],
+      "listed_from_empty": 0,
+      "listed_till_empty": 0,
+      "history_from_empty": 16,
+      "history_till_empty": 16,
+      "fixture": "sber_boards.json",
+      "observed": "TQBR listed_till 2026-10-13 matches the probe date and is_traded=1. That is a snapshot bound, not a delist event. EQBR listed_till 2013-08-30 is the board window end in the same snapshot."
+    },
+    {
+      "url": "https://iss.moex.com/iss/securities/SBER.json?iss.meta=off&iss.only=description",
+      "role": "rejected description snapshot",
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "rows": 28,
+      "block": "description",
+      "description_names": [
+        "SECID",
+        "ISSUENAME",
+        "NAME",
+        "SHORTNAME",
+        "ISIN",
+        "REGNUMBER",
+        "ISSUESIZE",
+        "FACEVALUE",
+        "FACEUNIT",
+        "ISSUEDATE",
+        "LATNAME",
+        "HASPROSPECTUS",
+        "DECISIONDATE",
+        "HASDEFAULT",
+        "HASTECHNICALDEFAULT",
+        "EMITENTMISMATCHCUR",
+        "LISTLEVEL",
+        "ISQUALIFIEDINVESTORS",
+        "MORNINGSESSION",
+        "EVENINGSESSION",
+        "WEEKENDSESSION",
+        "REGISTRY_DATE",
+        "TYPENAME",
+        "GROUP",
+        "TYPE",
+        "GROUPNAME",
+        "EMITTER_ID",
+        "EMITTER_VALUE_BUILDING"
+      ],
+      "treated_as_listing_event": false,
+      "fixture": "sber_description.json",
+      "observed": "Current attributes only. ISSUEDATE, LISTLEVEL, REGISTRY_DATE, and DECISIONDATE are not listing events. No listed_from or listed_till."
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/securities.json?date=2024-01-15&iss.meta=off&limit=5",
+      "role": "rejected candle history",
+      "http_status": 200,
+      "rows": 5,
+      "block": "history",
+      "observed": "TRADEDATE candles. Not used as listing rows. Cursor total was 522 and is not a listing count."
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares.json?iss.meta=off",
+      "role": "missing index",
+      "http_status": 404
+    },
+    {
+      "url": "https://iss.moex.com/iss/statistics/engines/stock.json?iss.meta=off",
+      "role": "missing statistics index",
+      "http_status": 404
+    }
+  ]
+}
