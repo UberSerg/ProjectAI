@@ -134,3 +134,11 @@ def registration_for(source_id: str) -> SourceRegistration | None:
         if item.source_id == source_id:
             return item
     return None
+
+
+def require_registered(source_id: str) -> SourceRegistration:
+    """Return the verified registration, or raise when the source is unknown."""
+    found = registration_for(source_id)
+    if found is None:
+        raise ValueError(f"unknown historical source: {source_id}")
+    return found
