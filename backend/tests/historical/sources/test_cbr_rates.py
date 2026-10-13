@@ -126,8 +126,9 @@ def test_ruonia_uses_dateupdate_timestamp_and_not_the_overnight_date() -> None:
     assert first.period_end == date(2023, 12, 1)
     assert first.published_at == datetime.fromisoformat("2023-12-04T14:10:49.320000+03:00")
     assert first.published_at_precision == PublishedAtPrecision.TIMESTAMP
-    assert first.historical_pit_quality == PitQuality.PIT_VERIFIED
+    assert first.historical_pit_quality == PitQuality.PIT_PROXY
     assert first.historical_availability_evidence == "cbr_ruonia_DateUpdate"
+    assert "DateUpdate_is_feed_update_time" in first.limitations
     assert first.first_observed_at == FETCHED_AT
     assert first.first_observed_at != first.published_at
     assert first.chronology_errors() == ()
@@ -135,6 +136,8 @@ def test_ruonia_uses_dateupdate_timestamp_and_not_the_overnight_date() -> None:
     assert observation.value == pytest.approx(14.9)
     assert observation.extra["volume_billion_rub"] == "1005.5600"
     assert second.published_at == datetime.fromisoformat("2024-02-16T14:06:53.037000+03:00")
+    assert second.historical_pit_quality == PitQuality.PIT_PROXY
+    assert "DateUpdate_is_feed_update_time" in second.limitations
     assert source.inspect_coverage().status == AdapterStatus.READY
 
 
@@ -198,6 +201,7 @@ def test_same_day_ruonia_timestamp_stays_a_proxy() -> None:
     artifact = source.fetch_range(start=date(2024, 1, 1), end=date(2024, 1, 31), limit=60)[0]
     assert artifact.historical_pit_quality == PitQuality.PIT_PROXY
     assert artifact.published_at_precision == PublishedAtPrecision.DATE_ONLY
+    assert "DateUpdate_is_feed_update_time" in artifact.limitations
     assert artifact.chronology_errors() == ()
 
 

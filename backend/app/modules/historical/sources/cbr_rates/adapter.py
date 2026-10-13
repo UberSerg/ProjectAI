@@ -196,13 +196,21 @@ def _rate_quality(
 def _publication_for_ruonia(
     period: date | None, updated: datetime | None
 ) -> tuple[PitQuality, datetime | None, PublishedAtPrecision, str | None, tuple[str, ...]]:
+    """Classify RUONIA ``DateUpdate``.
+
+    The DailyInfo ``ro`` row carries ``D0`` (the rate date) and ``DateUpdate``
+    (when that feed row was written). ``parse_cbr_soap`` does not read
+    ``DateUpdate``. A feed update stamp is not proof the rate was public at
+    that instant, so it never becomes ``PIT_VERIFIED``. The stamp is kept as a
+    proxy and is not replaced with an invented publication time. The same
+    calendar day as the rate stays date-only so it is not a chronology error.
+    """
     if updated is None or period is None:
         return PitQuality.RESEARCH_ONLY, None, PublishedAtPrecision.UNKNOWN, None, ("ruonia_dateupdate_absent",)
     notes = ("DateUpdate_is_feed_update_time",)
     if updated.date() == period or not _clock_time(updated):
-        # Same-day or midnight values are a publication date, not a verified timestamp.
         return PitQuality.PIT_PROXY, updated, PublishedAtPrecision.DATE_ONLY, "cbr_ruonia_DateUpdate", notes
-    return PitQuality.PIT_VERIFIED, updated, PublishedAtPrecision.TIMESTAMP, "cbr_ruonia_DateUpdate", notes
+    return PitQuality.PIT_PROXY, updated, PublishedAtPrecision.TIMESTAMP, "cbr_ruonia_DateUpdate", notes
 
 
 def _mark_duplicates(rows: list[_Row]) -> list[_Row]:

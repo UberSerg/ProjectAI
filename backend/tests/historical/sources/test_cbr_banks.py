@@ -202,7 +202,7 @@ def test_live_bundle_is_not_replaced_with_fixture_numbers(monkeypatch: pytest.Mo
     assert "f102_definition_pinned_not_rechecked" in profit.limitations
 
 
-def test_publication_timestamp_upgrades_only_that_form() -> None:
+def test_undocumented_publication_element_stays_proxy() -> None:
     bundle = dict(SBER_SOAP_FIXTURE_NOT_LIVE)
     bundle["form123"] = bundle["form123"].replace(
         "<F123DATA OnDate=\"20260901\">",
@@ -212,13 +212,30 @@ def test_publication_timestamp_upgrades_only_that_form() -> None:
     artifacts = _by_id(source)
     form123 = artifacts["CBR-08"]
     form135 = artifacts["CBR-09"]
-    assert form123.historical_pit_quality == PitQuality.PIT_VERIFIED
-    assert form123.published_at == datetime(2026, 10, 11, 8, 0, tzinfo=UTC)
+    assert form123.historical_pit_quality == PitQuality.PIT_PROXY
+    assert form123.published_at is None
     assert form123.chronology_errors() == ()
-    assert form123.historical_availability_evidence == "payload_publication_timestamp"
+    assert form123.historical_availability_evidence == "cbr_reporting_period_not_verified_archive_snapshot"
+    assert "undocumented_publication_element_not_a_publication_timestamp" in form123.limitations
     assert form135.historical_pit_quality == PitQuality.PIT_PROXY
     assert form135.published_at is None
+    assert "undocumented_publication_element_not_a_publication_timestamp" not in form135.limitations
     assert source.inspect_coverage().status == AdapterStatus.PARTIAL
+
+
+def test_fetch_clock_is_not_a_publication_timestamp() -> None:
+    bundle = dict(SBER_SOAP_FIXTURE_NOT_LIVE)
+    bundle["form123"] = bundle["form123"].replace(
+        "<F123DATA OnDate=\"20260901\">",
+        f"<F123DATA OnDate=\"20260901\"><PubDate>{FIXED.isoformat()}</PubDate>",
+    )
+    form123 = _by_id(_source(fixtures=bundle))["CBR-08"]
+    assert form123.historical_pit_quality == PitQuality.PIT_PROXY
+    assert form123.published_at is None
+    assert form123.published_at != form123.first_observed_at
+    assert form123.chronology_errors() == ()
+    assert "publication_timestamp_equals_fetch_clock_not_used" in form123.limitations
+    assert "undocumented_publication_element_not_a_publication_timestamp" in form123.limitations
 
 
 def test_reporting_date_and_same_day_timestamp_stay_proxy() -> None:
@@ -232,7 +249,9 @@ def test_reporting_date_and_same_day_timestamp_stay_proxy() -> None:
     assert form135.historical_pit_quality == PitQuality.PIT_PROXY
     assert form135.published_at is None
     assert form135.chronology_errors() == ()
+    assert form135.period_end == date(2026, 9, 1)
     assert "publication_timestamp_equals_period_end_not_used" in form135.limitations
+    assert "undocumented_publication_element_not_a_publication_timestamp" in form135.limitations
 
 
 def test_parser_proved_assets_pass_and_industrial_ratios_do_not(monkeypatch: pytest.MonkeyPatch) -> None:
