@@ -1,0 +1,40 @@
+{
+  "issuer": "LKOH",
+  "secid": "LKOH",
+  "url": "https://lukoil.ru/PressCenter/Pressreleases",
+  "http_status": 200,
+  "pages": [
+    {
+      "url": "https://lukoil.ru/PressCenter/Pressreleases?skip=0&take=10",
+      "http_status": 200,
+      "new_items": 10
+    },
+    {
+      "url": "https://lukoil.ru/PressCenter/Pressreleases?skip=10&take=10",
+      "http_status": 200,
+      "new_items": 10
+    }
+  ],
+  "item_count": 20,
+  "cap": 20,
+  "pit": "PIT_PROXY",
+  "published_at_precision": "DATE_ONLY",
+  "adapter_status": "READY",
+  "news_01_status": "READY",
+  "article_bodies_fetched": false,
+  "first_observed_at": "2026-10-13T05:37:12.965709+00:00",
+  "earliest": "2026-05-13",
+  "latest": "2026-10-09",
+  "dedup_key_fields": [
+    "source",
+    "external_id_or_canonical_url",
+    "published_date"
+  ],
+  "sample_external_id": "laiavozhskoe-neftegazokondensatnoe-mestorozhdenie",
+  "notes": [
+    "Listing civil dates have no clock, so PIT is PIT_PROXY rather than PIT_VERIFIED.",
+    "Listing HTML teasers were discarded. The fixture keeps a synthetic panel-body marker only.",
+    "SBER https://www.sberbank.com/ru/news-and-media/press-releases was not used: TLS certificate verify failed.",
+    "MGNT https://www.magnit.com/ru/media/press-releases/ returned HTTP 200 without a dated press-card list."
+  ]
+}

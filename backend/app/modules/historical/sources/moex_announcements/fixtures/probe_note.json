@@ -1,0 +1,54 @@
+{
+  "task": "MOEX-07",
+  "probed_on": "2026-10-13",
+  "honest_status": "PARTIAL",
+  "pit": "RESEARCH_ONLY",
+  "primary_url": "https://iss.moex.com/iss/cci/calendars/ir-calendar.json?limit=20&iss.meta=off",
+  "http_status": 200,
+  "content_type": "application/json",
+  "item_count": 20,
+  "cursor_total": 2182,
+  "overlap_with_sitenews": 0,
+  "published_at_present": false,
+  "secid_present": true,
+  "same_as_sitenews": false,
+  "note": "Public CCI IR calendar of issuer-announced schedules. Not the sitenews endpoint and not an announcement document. event_date and update_time are not published_at. Default page is MGKL payment rows.",
+  "sitenews_archive": {
+    "iss_url": "https://iss.moex.com/iss/sitenews.json?iss.meta=off",
+    "iss_http_status": 200,
+    "iss_page_rows": 50,
+    "iss_cursor_total": 63611,
+    "listing_rss_url": "https://www.moex.com/export/news.aspx?cat=104",
+    "listing_channel": "Новости листинга",
+    "listing_http_status": 200,
+    "listing_items_checked": 20,
+    "listing_links_are_sitenews_ids": 20,
+    "overlap_with_latest_sitenews_page": 8,
+    "confirmed_sitenews_id": 104940,
+    "confirmed_via": "https://iss.moex.com/iss/sitenews/104940.json",
+    "confirmed_http_status": 200,
+    "body_stored": false,
+    "ingested_as_moex_07": false,
+    "note": "Listing RSS is a different URL with the same sitenews document ids. It is not a new archive."
+  },
+  "exchange_events": {
+    "url": "https://iss.moex.com/iss/events.json?limit=20&iss.meta=off",
+    "http_status": 200,
+    "item_count": 0,
+    "note": "Exchange events endpoint. Not issuer announcements."
+  },
+  "blocked": [
+    {
+      "url": "https://iss.moex.com/iss/cci/corp-actions.json?limit=5&iss.meta=off",
+      "http_status": 200,
+      "content_type": "text/html",
+      "reason": "subscriber_only"
+    },
+    {
+      "url": "https://iss.moex.com/iss/cci/corp-actions/meetings.json?limit=5&iss.meta=off",
+      "http_status": 200,
+      "content_type": "text/html",
+      "reason": "subscriber_only"
+    }
+  ]
+}

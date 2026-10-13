@@ -1,0 +1,18 @@
+{
+  "candle_requests": 3,
+  "candle_rows": {
+    "LKOH": 29,
+    "MGNT": 29,
+    "SBER": 29
+  },
+  "catalogue_pages": 1,
+  "catalogue_response_rows": 512,
+  "catalogue_rows": 100,
+  "live_probe": true,
+  "resolved_via": {
+    "LKOH": "instrument_master",
+    "MGNT": "instrument_master",
+    "SBER": "instrument_master"
+  },
+  "securities": 3
+}

@@ -1,0 +1,24 @@
+{
+  "task": "IR-05",
+  "probed_on": "2026-10-13",
+  "issuer": "LKOH",
+  "url": "https://lukoil.ru/FileSystem/9/729054.xlsx",
+  "http_status": 200,
+  "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "bytes": 20436,
+  "parsed_events_in_workbook": 46,
+  "sample_cap": 30,
+  "events_emitted": 30,
+  "fields_present": {
+    "record_date": true,
+    "amount_per_share": true,
+    "currency_in_amount_header": true,
+    "payment_date": false,
+    "publication_timestamp": false
+  },
+  "pit": "RESEARCH_ONLY",
+  "status": "PARTIAL",
+  "payment_date_note": "The sheet has a payment-year label and footnote deadlines ('не позднее') for nominee holders and other holders. Those are not a single payment date and are not stored.",
+  "period_end_note": "period_end is the calendar end of the results-period label (FY 31 Dec, M9 30 Sep). The payment-year column is not period_end. Undistributed-profit rows have no period_end.",
+  "published_at_note": "No disclosure timestamp. An AGM date inside one period sentence is kept as shareholder_approval_date and is not published_at, payment_date, or period_end."
+}

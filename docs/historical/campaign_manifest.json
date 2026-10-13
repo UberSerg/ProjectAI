@@ -1,0 +1,1068 @@
+{
+  "campaign": "historical-data-swarm-v1",
+  "base": "b7d778a57912ddc08e03e2e686a3e2132e3bac82",
+  "task_count": 156,
+  "tasks": [
+    {
+      "id": "PLT:contracts",
+      "stream": "PLT",
+      "status": "READY",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
+    },
+    {
+      "id": "PLT:storage-checkpoint",
+      "stream": "PLT",
+      "status": "PARTIAL",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
+    },
+    {
+      "id": "PLT:adapter-registry",
+      "stream": "PLT",
+      "status": "READY",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
+    },
+    {
+      "id": "PLT:raw-artifact-store",
+      "stream": "PLT",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-RAW",
+      "commit": "4bcca2f8b58bf112d74b045f0b6a0966078a9a92"
+    },
+    {
+      "id": "PLT:idempotent-import",
+      "stream": "PLT",
+      "status": "READY",
+      "owner": "HDS-W2-IMPORT",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1",
+      "commit": "7b52e031dbe38d76427c67d1370ca56960f8ae13"
+    },
+    {
+      "id": "PLT:reprocess-versions",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PLT:production-isolation",
+      "stream": "PLT",
+      "status": "READY",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
+    },
+    {
+      "id": "PLT:migration-owner",
+      "stream": "PLT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-01:discover",
+      "stream": "CBR-01",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-01:pilot-fetch",
+      "stream": "CBR-01",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-01:parse",
+      "stream": "CBR-01",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-01:validate",
+      "stream": "CBR-01",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-01:checkpoint",
+      "stream": "CBR-01",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-02:discover",
+      "stream": "CBR-02",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-02:pilot-fetch",
+      "stream": "CBR-02",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-02:parse",
+      "stream": "CBR-02",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-02:validate",
+      "stream": "CBR-02",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-02:checkpoint",
+      "stream": "CBR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-03:discover",
+      "stream": "CBR-03",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-03:pilot-fetch",
+      "stream": "CBR-03",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-03:parse",
+      "stream": "CBR-03",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-03:validate",
+      "stream": "CBR-03",
+      "status": "READY",
+      "owner": "HDS-CBR-RATES",
+      "commit": "efadd63f841b51f75499848b49bf5887c61394af"
+    },
+    {
+      "id": "CBR-03:checkpoint",
+      "stream": "CBR-03",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "CBR-04:discover",
+      "stream": "CBR-04",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
+    },
+    {
+      "id": "CBR-04:pilot-fetch",
+      "stream": "CBR-04",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
+    },
+    {
+      "id": "CBR-04:parse",
+      "stream": "CBR-04",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
+    },
+    {
+      "id": "CBR-04:validate",
+      "stream": "CBR-04",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-MACRO",
+      "commit": "15e97e0998220ca6cc02a1b907832c4eda1bc177"
+    },
+    {
+      "id": "CBR-05:discover",
+      "stream": "CBR-05",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-CBR-REVIEWS",
+      "commit": "32a4d5166f3f468289d64e41e85fefda2967fb49"
+    },
+    {
+      "id": "CBR-05:access-check",
+      "stream": "CBR-05",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-CBR-REVIEWS",
+      "commit": "32a4d5166f3f468289d64e41e85fefda2967fb49"
+    },
+    {
+      "id": "CBR-06:discover",
+      "stream": "CBR-06",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-06:reuse-soap",
+      "stream": "CBR-06",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-06:pilot",
+      "stream": "CBR-06",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-07:discover",
+      "stream": "CBR-07",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-07:reuse-soap",
+      "stream": "CBR-07",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-07:pilot",
+      "stream": "CBR-07",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-08:discover",
+      "stream": "CBR-08",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-08:reuse-soap",
+      "stream": "CBR-08",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-08:pilot",
+      "stream": "CBR-08",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-09:discover",
+      "stream": "CBR-09",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-09:reuse-soap",
+      "stream": "CBR-09",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-09:pilot",
+      "stream": "CBR-09",
+      "status": "PARTIAL",
+      "owner": "HDS-CBR-BANKS",
+      "commit": "e7d874ddfa48a69258fd75125f4dbc6f5ba84f07"
+    },
+    {
+      "id": "CBR-10:discover",
+      "stream": "CBR-10",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
+    },
+    {
+      "id": "CBR-10:access-check",
+      "stream": "CBR-10",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
+    },
+    {
+      "id": "CBR-11:discover",
+      "stream": "CBR-11",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
+    },
+    {
+      "id": "CBR-11:access-check",
+      "stream": "CBR-11",
+      "status": "READY",
+      "owner": "HDS-W2-CBR-NEWS",
+      "commit": "548707c910dc19563bbf4b642d4d0584c534fa12"
+    },
+    {
+      "id": "MOEX-01:discover",
+      "stream": "MOEX-01",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-01:pilot-fetch",
+      "stream": "MOEX-01",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-01:parse",
+      "stream": "MOEX-01",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-01:validate",
+      "stream": "MOEX-01",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-02:discover",
+      "stream": "MOEX-02",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
+    },
+    {
+      "id": "MOEX-02:pilot",
+      "stream": "MOEX-02",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
+    },
+    {
+      "id": "MOEX-03:discover",
+      "stream": "MOEX-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
+    },
+    {
+      "id": "MOEX-03:pilot",
+      "stream": "MOEX-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-LISTING",
+      "commit": "867ac63e6b812ae9d6a88a80e2fe4fc9776d314b"
+    },
+    {
+      "id": "MOEX-04:discover",
+      "stream": "MOEX-04",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-04:pilot-fetch",
+      "stream": "MOEX-04",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-04:parse",
+      "stream": "MOEX-04",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-04:validate",
+      "stream": "MOEX-04",
+      "status": "READY",
+      "owner": "HDS-MOEX-MARKET",
+      "commit": "6e62db872a7f6d1eafea127902290bb7a5a99157"
+    },
+    {
+      "id": "MOEX-04:checkpoint",
+      "stream": "MOEX-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "MOEX-05:discover",
+      "stream": "MOEX-05",
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-INDEX",
+      "commit": "09434db0c7299fb786f904bfcd8139270633c2e9"
+    },
+    {
+      "id": "MOEX-05:pilot",
+      "stream": "MOEX-05",
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-INDEX",
+      "commit": "09434db0c7299fb786f904bfcd8139270633c2e9"
+    },
+    {
+      "id": "MOEX-06:discover",
+      "stream": "MOEX-06",
+      "status": "BLOCKED",
+      "owner": "HDS-MOEX-CA",
+      "commit": "c8d1c4259a0af00a3d3d581cdb3703d834ed580a"
+    },
+    {
+      "id": "MOEX-06:pilot-fetch",
+      "stream": "MOEX-06",
+      "status": "BLOCKED",
+      "owner": "HDS-MOEX-CA",
+      "commit": "c8d1c4259a0af00a3d3d581cdb3703d834ed580a"
+    },
+    {
+      "id": "MOEX-06:parse",
+      "stream": "MOEX-06",
+      "status": "BLOCKED",
+      "owner": "HDS-MOEX-CA",
+      "commit": "c8d1c4259a0af00a3d3d581cdb3703d834ed580a"
+    },
+    {
+      "id": "MOEX-06:validate",
+      "stream": "MOEX-06",
+      "status": "BLOCKED",
+      "owner": "HDS-MOEX-CA",
+      "commit": "c8d1c4259a0af00a3d3d581cdb3703d834ed580a"
+    },
+    {
+      "id": "MOEX-07:discover",
+      "stream": "MOEX-07",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-ANN",
+      "commit": "396ce1250244c691ce6ffd9e8d2426f7f6f02f1f"
+    },
+    {
+      "id": "MOEX-07:access-check",
+      "stream": "MOEX-07",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-MOEX-ANN",
+      "commit": "396ce1250244c691ce6ffd9e8d2426f7f6f02f1f"
+    },
+    {
+      "id": "MOEX-08:discover",
+      "stream": "MOEX-08",
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-BONDS",
+      "commit": "2385bb4ada0af34ab5c55f1a4f5ea8eab53dd79b"
+    },
+    {
+      "id": "MOEX-08:pilot",
+      "stream": "MOEX-08",
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-BONDS",
+      "commit": "2385bb4ada0af34ab5c55f1a4f5ea8eab53dd79b"
+    },
+    {
+      "id": "FNS-01:discover",
+      "stream": "FNS-01",
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
+    },
+    {
+      "id": "FNS-01:pilot-fetch",
+      "stream": "FNS-01",
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
+    },
+    {
+      "id": "FNS-01:parse",
+      "stream": "FNS-01",
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
+    },
+    {
+      "id": "FNS-01:validate",
+      "stream": "FNS-01",
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
+    },
+    {
+      "id": "FNS-02:discover",
+      "stream": "FNS-02",
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
+    },
+    {
+      "id": "FNS-02:identity-map",
+      "stream": "FNS-02",
+      "status": "READY",
+      "owner": "HDS-FNS",
+      "commit": "b711aac554960892a22233cdb5f56c48509bc6a2"
+    },
+    {
+      "id": "FNS-03:discover",
+      "stream": "FNS-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-FNS-REV",
+      "commit": "acae04d9b6db73b415c73d5e8f18a2958f1b3504"
+    },
+    {
+      "id": "FNS-03:revisions",
+      "stream": "FNS-03",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-FNS-REV",
+      "commit": "acae04d9b6db73b415c73d5e8f18a2958f1b3504"
+    },
+    {
+      "id": "ROS-01:discover",
+      "stream": "ROS-01",
+      "status": "PARTIAL",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "ROS-01:pilot-fetch",
+      "stream": "ROS-01",
+      "status": "PARTIAL",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "ROS-01:parse",
+      "stream": "ROS-01",
+      "status": "PARTIAL",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "ROS-02:discover",
+      "stream": "ROS-02",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
+    },
+    {
+      "id": "ROS-02:access-check",
+      "stream": "ROS-02",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
+    },
+    {
+      "id": "ROS-03:discover",
+      "stream": "ROS-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
+    },
+    {
+      "id": "ROS-03:access-check",
+      "stream": "ROS-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
+    },
+    {
+      "id": "ROS-04:discover",
+      "stream": "ROS-04",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
+    },
+    {
+      "id": "ROS-04:publication-meta",
+      "stream": "ROS-04",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ROSSTAT",
+      "commit": "c25bae4027b2e0bffe398977a429f8ed2d37fc53"
+    },
+    {
+      "id": "IR-01:discover",
+      "stream": "IR-01",
+      "status": "READY",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
+    },
+    {
+      "id": "IR-01:xlsx-pilot",
+      "stream": "IR-01",
+      "status": "READY",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
+    },
+    {
+      "id": "IR-02:discover",
+      "stream": "IR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-02:access-check",
+      "stream": "IR-02",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-03:discover",
+      "stream": "IR-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-OPS",
+      "commit": "9930677bc54be12f81b0c4b13a725b31cbadfa1c"
+    },
+    {
+      "id": "IR-03:access-check",
+      "stream": "IR-03",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-OPS",
+      "commit": "9930677bc54be12f81b0c4b13a725b31cbadfa1c"
+    },
+    {
+      "id": "IR-04:discover",
+      "stream": "IR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-04:access-check",
+      "stream": "IR-04",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-05:discover",
+      "stream": "IR-05",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-DIV",
+      "commit": "d455f0bb8b2179aeeaf2ad41d1f66499705d1760"
+    },
+    {
+      "id": "IR-05:dividend-archive",
+      "stream": "IR-05",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-IR-DIV",
+      "commit": "d455f0bb8b2179aeeaf2ad41d1f66499705d1760"
+    },
+    {
+      "id": "IR-06:discover",
+      "stream": "IR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-06:access-check",
+      "stream": "IR-06",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "IR-07:discover",
+      "stream": "IR-07",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
+    },
+    {
+      "id": "IR-07:xlsx-pilot",
+      "stream": "IR-07",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-IR-STATEMENTS",
+      "commit": "396ca767f97e4e3b4f87cf6d7049a69991ea62a5"
+    },
+    {
+      "id": "DISC-01:discover",
+      "stream": "DISC-01",
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
+    },
+    {
+      "id": "DISC-01:access-check",
+      "stream": "DISC-01",
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
+    },
+    {
+      "id": "DISC-02:discover",
+      "stream": "DISC-02",
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
+    },
+    {
+      "id": "DISC-02:access-check",
+      "stream": "DISC-02",
+      "status": "BLOCKED",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
+    },
+    {
+      "id": "DISC-03:discover",
+      "stream": "DISC-03",
+      "status": "BLOCKED",
+      "owner": "HDS-W2-DISC",
+      "commit": "91f1ab4ac6ea60bdaf7a8551c2ccc1cf330e824b"
+    },
+    {
+      "id": "DISC-03:dedup-design",
+      "stream": "DISC-03",
+      "status": "READY",
+      "owner": "HDS-W2-DISC",
+      "commit": "91f1ab4ac6ea60bdaf7a8551c2ccc1cf330e824b"
+    },
+    {
+      "id": "NEWS-01:discover",
+      "stream": "NEWS-01",
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
+    },
+    {
+      "id": "NEWS-01:metadata-pilot",
+      "stream": "NEWS-01",
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
+    },
+    {
+      "id": "NEWS-02:discover",
+      "stream": "NEWS-02",
+      "status": "PARTIAL",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
+    },
+    {
+      "id": "NEWS-02:access-check",
+      "stream": "NEWS-02",
+      "status": "PARTIAL",
+      "owner": "HDS-DISC",
+      "commit": "f36d6c4bfb5f07181dbf13e5e3707426ec550fa0"
+    },
+    {
+      "id": "NEWS-03:discover",
+      "stream": "NEWS-03",
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
+    },
+    {
+      "id": "NEWS-03:metadata-only",
+      "stream": "NEWS-03",
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
+    },
+    {
+      "id": "NEWS-04:dedup-design",
+      "stream": "NEWS-04",
+      "status": "READY",
+      "owner": "HDS-W2-NEWS",
+      "commit": "dbede7fd608b6ccddd93c47bc1a8d47bc58086c3"
+    },
+    {
+      "id": "INT-01:discover",
+      "stream": "INT-01",
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "INT-01:pilot-fetch",
+      "stream": "INT-01",
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "INT-01:parse",
+      "stream": "INT-01",
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "INT-02:discover",
+      "stream": "INT-02",
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "INT-02:pilot-fetch",
+      "stream": "INT-02",
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "INT-02:parse",
+      "stream": "INT-02",
+      "status": "BLOCKED",
+      "owner": "HDS-MACRO",
+      "commit": "75e4362685fc0192c2cc4878938c322b8f091acd"
+    },
+    {
+      "id": "INT-03:discover",
+      "stream": "INT-03",
+      "status": "READY",
+      "owner": "HDS-W2-COMMODITY",
+      "commit": "9ce69cd6070e0849ba9264dbedfdca80bd431def"
+    },
+    {
+      "id": "INT-03:access-check",
+      "stream": "INT-03",
+      "status": "READY",
+      "owner": "HDS-W2-COMMODITY",
+      "commit": "9ce69cd6070e0849ba9264dbedfdca80bd431def"
+    },
+    {
+      "id": "INT-04:context-map",
+      "stream": "INT-04",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-COMMODITY",
+      "commit": "9ce69cd6070e0849ba9264dbedfdca80bd431def"
+    },
+    {
+      "id": "ENT:inn-ogrn",
+      "stream": "ENT",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ENT",
+      "commit": "bee7bd86997ac0fa5c9310157dd2e5982ee8d6c3"
+    },
+    {
+      "id": "ENT:isin-secid",
+      "stream": "ENT",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ENT",
+      "commit": "bee7bd86997ac0fa5c9310157dd2e5982ee8d6c3"
+    },
+    {
+      "id": "ENT:ambiguous-hold",
+      "stream": "ENT",
+      "status": "READY",
+      "owner": "HDS-W2-ENT",
+      "commit": "bee7bd86997ac0fa5c9310157dd2e5982ee8d6c3"
+    },
+    {
+      "id": "ENT:no-subsidiary-substitution",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENT:identifier-history",
+      "stream": "ENT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:classify",
+      "stream": "PIT",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-PIT",
+      "commit": "8a47b114e0049de907f3db5b8afcf1992e9898ad"
+    },
+    {
+      "id": "PIT:no-backdate",
+      "stream": "PIT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:research-only-default",
+      "stream": "PIT",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "PIT:publication-evidence",
+      "stream": "PIT",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-PIT",
+      "commit": "8a47b114e0049de907f3db5b8afcf1992e9898ad"
+    },
+    {
+      "id": "QA:schema",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:units",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:percent-vs-pp",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "QA:missing-vs-zero",
+      "stream": "QA",
+      "status": "READY",
+      "owner": "HDS-W2-VALIDATE",
+      "commit": "57e07c7ef302aba3f552d53d9aaffc058beb05da"
+    },
+    {
+      "id": "QA:quarantine",
+      "stream": "QA",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-VALIDATE",
+      "commit": "57e07c7ef302aba3f552d53d9aaffc058beb05da"
+    },
+    {
+      "id": "QA:independent-sample",
+      "stream": "QA",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:checkpoint",
+      "stream": "BKF",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-CHECKPOINT",
+      "commit": "15540be6c928857a01f783204fc5e76dc5cc602a"
+    },
+    {
+      "id": "BKF:resume",
+      "stream": "BKF",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-CHECKPOINT",
+      "commit": "15540be6c928857a01f783204fc5e76dc5cc602a"
+    },
+    {
+      "id": "BKF:rate-limit",
+      "stream": "BKF",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "BKF:stage-1000-gate",
+      "stream": "BKF",
+      "status": "PARTIAL",
+      "owner": "HDS-W2-ORCH",
+      "commit": "7066194e27cb700b62f829e51272178653b6bb17"
+    },
+    {
+      "id": "BKF:no-unbounded-download",
+      "stream": "BKF",
+      "status": "READY",
+      "owner": "HDS-W2-ORCH",
+      "commit": "7066194e27cb700b62f829e51272178653b6bb17"
+    },
+    {
+      "id": "ENR:yoy",
+      "stream": "ENR",
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
+    },
+    {
+      "id": "ENR:qoq",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:ttm",
+      "stream": "ENR",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "ENR:bank-ratios-separate",
+      "stream": "ENR",
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
+    },
+    {
+      "id": "ENR:no-raw-overwrite",
+      "stream": "ENR",
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
+    },
+    {
+      "id": "ENR:recompute",
+      "stream": "ENR",
+      "status": "READY",
+      "owner": "HDS-ENRICH",
+      "commit": "c2309bbf58889b94adef14477d13a9722a871a83"
+    },
+    {
+      "id": "OPS:celery-split",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:coverage-report",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:diagnostics",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "OPS:no-aggressive-poll",
+      "stream": "OPS",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-a-contracts",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-b-official",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-c-documents",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:pr-d-enrichment",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    },
+    {
+      "id": "INTG:ci-once",
+      "stream": "INTG",
+      "status": "PENDING",
+      "owner": null
+    }
+  ]
+}

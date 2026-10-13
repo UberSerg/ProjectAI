@@ -1,0 +1,86 @@
+{
+  "task": "MOEX-06",
+  "probed_on": "2026-10-12",
+  "symbols": ["SBER", "LKOH"],
+  "pit_class": "RESEARCH_ONLY",
+  "announcement_timestamp_present": false,
+  "dividend_rows_sber_lkoh": 0,
+  "note": "Counts from a live probe. They are not a successful dividend sample. Candle totals are not dividend rows. Full bodies stayed in .tmp and are not fixtures.",
+  "endpoints": [
+    {
+      "url": "https://iss.moex.com/iss/cci/corp-actions/dividends.json",
+      "role": "documented ISS corporate-action dividends",
+      "http_status": 200,
+      "content_type": "text/html",
+      "bytes": 14350,
+      "dividend_rows": 0,
+      "json_fields": [],
+      "observed": "HTML subscriber gate: information is available only to subscribers. Same body for SBER, LKOH, and ISIN RU0009029540."
+    },
+    {
+      "url": "https://iss.moex.com/iss/securities/{SECID}/dividends.json",
+      "role": "public path previously audited as not a dividend table",
+      "http_status": 200,
+      "dividend_rows": 0,
+      "blocks": ["description", "boards"],
+      "sber_description_rows": 27,
+      "sber_board_rows": 51,
+      "lkoh_description_rows": 26,
+      "lkoh_board_rows": 53,
+      "description_columns": ["name", "title", "value", "type", "sort_order", "is_hidden", "precision"],
+      "observed": "description.value is a security attribute, not a dividend amount. No registryclosedate and no announcement timestamp."
+    },
+    {
+      "url": "https://iss.moex.com/iss/securities/{SECID}/bondization.json",
+      "role": "bondization coupons / amortizations / offers",
+      "http_status": 200,
+      "sber_coupons": 0,
+      "sber_amortizations": 0,
+      "sber_offers": 0,
+      "lkoh_coupons": 0,
+      "lkoh_amortizations": 0,
+      "lkoh_offers": 0,
+      "row_fields": [],
+      "observed": "Both equity responses are empty amortizations, coupons, and offers."
+    },
+    {
+      "url": "https://iss.moex.com/iss/history/engines/stock/markets/shares/securities/{SECID}/dividends.json",
+      "role": "rejected candle alias",
+      "http_status": 200,
+      "dividend_rows": 0,
+      "sber_candle_cursor_total": 9655,
+      "lkoh_candle_cursor_total": 8585,
+      "history_columns_include": ["BOARDID", "TRADEDATE", "SECID", "CLOSE", "LEGALCLOSEPRICE"],
+      "observed": "Candle history. Cursor totals are not dividend records."
+    },
+    {
+      "url": "https://iss.moex.com/iss/statistics/engines/stock/markets/shares/securities/{SECID}/dividends.json",
+      "http_status": 404,
+      "dividend_rows": 0
+    },
+    {
+      "url": "https://iss.moex.com/iss/securities/SU26238RMFS4/bondization.json",
+      "role": "control bond on the same bondization endpoint, not part of the SBER/LKOH sample",
+      "http_status": 200,
+      "coupons_returned_with_limit_1": 1,
+      "announcement_fields": [],
+      "coupon_columns": [
+        "isin",
+        "name",
+        "issuevalue",
+        "coupondate",
+        "recorddate",
+        "startdate",
+        "initialfacevalue",
+        "facevalue",
+        "faceunit",
+        "value",
+        "valueprc",
+        "value_rub",
+        "secid",
+        "primary_boardid"
+      ],
+      "observed": "recorddate and coupondate are separate. No announcement timestamp column on the returned coupon row."
+    }
+  ]
+}

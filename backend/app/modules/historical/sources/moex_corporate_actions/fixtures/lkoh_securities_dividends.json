@@ -1,0 +1,13 @@
+{
+  "description": {
+    "columns": ["name", "title", "value", "type", "sort_order", "is_hidden", "precision"],
+    "data": [
+      ["SECID", "secid", "LKOH", "string", 1, 0, null],
+      ["ISIN", "isin", "RU0009024277", "string", 2, 0, null]
+    ]
+  },
+  "boards": {
+    "columns": ["secid", "boardid", "is_primary"],
+    "data": [["LKOH", "TQBR", 1]]
+  }
+}
