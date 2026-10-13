@@ -1,6 +1,6 @@
 """Historical evidence contract: chronology and isolation."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 
 import pytest
 
@@ -35,11 +35,28 @@ def _artifact(**overrides: object) -> HistoricalArtifact:
     return HistoricalArtifact(**base)  # type: ignore[arg-type]
 
 
-def test_period_end_is_not_a_publication_timestamp() -> None:
+def test_period_end_may_share_publication_calendar_date() -> None:
+    published_at = datetime(2024, 12, 20, 13, 30, tzinfo=UTC)
     artifact = _artifact(
+        period_end=published_at.date(),
+        published_at=published_at,
         published_at_precision=PublishedAtPrecision.TIMESTAMP,
     )
-    assert "period_end_must_not_equal_publication_timestamp" in artifact.chronology_errors()
+    assert artifact.period_end == published_at.date()
+    assert artifact.chronology_errors() == ()
+
+
+def test_copying_period_end_into_first_observed_at_before_later_publication_is_an_error() -> None:
+    period_end = date(2024, 12, 20)
+    published_at = datetime(2024, 12, 21, 9, 0, tzinfo=UTC)
+    artifact = _artifact(
+        period_end=period_end,
+        published_at=published_at,
+        published_at_precision=PublishedAtPrecision.TIMESTAMP,
+        first_observed_at=datetime.combine(period_end, time.min, tzinfo=UTC),
+    )
+    assert artifact.first_observed_at.date() == period_end
+    assert "first_observed_at_precedes_published_at" in artifact.chronology_errors()
 
 
 def test_first_observed_at_cannot_precede_publication() -> None:
