@@ -75,16 +75,10 @@ class HistoricalArtifact:
     limitations: tuple[str, ...] = ()
 
     def chronology_errors(self) -> tuple[str, ...]:
+        # period_end and known_at / published_at / first_observed_at stay different
+        # fields. Equal calendar dates are valid and are not a chronology error.
         errors: list[str] = []
-        if self.period_end is not None and self.published_at is not None:
-            if self.period_end == self.published_at.date() and (
-                self.published_at_precision == PublishedAtPrecision.TIMESTAMP
-            ):
-                errors.append("period_end_must_not_equal_publication_timestamp")
-        if (
-            self.published_at is not None
-            and self.first_observed_at < self.published_at
-        ):
+        if self.published_at is not None and self.first_observed_at < self.published_at:
             errors.append("first_observed_at_precedes_published_at")
         if self.historical_pit_quality == PitQuality.PIT_VERIFIED and (
             self.published_at is None or self.historical_availability_evidence is None
