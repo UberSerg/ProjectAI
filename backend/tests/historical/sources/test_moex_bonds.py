@@ -211,8 +211,8 @@ def test_live_probe_note_matches_saved_fixtures() -> None:
     assert note["catalogue_rows"] == len(catalogue_rows(catalogue)) <= CATALOGUE_CAP
     assert note["history_response_rows"] == len(history["history"]["data"])
     assert 1 <= int(note["history_rows"]) <= MAX_SESSIONS
-    catalogue_bytes = _load(f"{str(note['board']).lower()}_securities.json")
-    history_bytes = _load(f"history_{note['secid']}.json")
+    catalogue_bytes = _load(f"{str(note['board']).lower()}_securities.json").replace(b"\r\n", b"\n")
+    history_bytes = _load(f"history_{note['secid']}.json").replace(b"\r\n", b"\n")
     assert hashlib.sha256(catalogue_bytes).hexdigest() == note["catalogue_sha256"]
     assert hashlib.sha256(history_bytes).hexdigest() == note["history_sha256"]
     columns = history["history"]["columns"]

@@ -459,14 +459,16 @@
     {
       "id": "MOEX-08:discover",
       "stream": "MOEX-08",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-BONDS",
+      "commit": "2385bb4ada0af34ab5c55f1a4f5ea8eab53dd79b"
     },
     {
       "id": "MOEX-08:pilot",
       "stream": "MOEX-08",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-W2-MOEX-BONDS",
+      "commit": "2385bb4ada0af34ab5c55f1a4f5ea8eab53dd79b"
     },
     {
       "id": "FNS-01:discover",

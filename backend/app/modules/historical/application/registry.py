@@ -115,6 +115,12 @@ def registered_sources() -> tuple[SourceRegistration, ...]:
             "20 IR-calendar rows without published_at; corp-actions stay subscriber-only",
         ),
         SourceRegistration(
+            "MOEX-08",
+            "historical.sources.moex_bonds",
+            "READY",
+            "61 TQOB names and 29 sessions of RU000A10DQA8; catalogue RESEARCH_ONLY, history PIT_PROXY",
+        ),
+        SourceRegistration(
             "FNS-01",
             "historical.sources.fns",
             "READY",

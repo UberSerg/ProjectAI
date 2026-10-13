@@ -21,6 +21,7 @@ def test_registry_matches_verified_pilots() -> None:
     assert by_id["MOEX-05"] == "READY"
     assert by_id["MOEX-06"] == "BLOCKED"
     assert by_id["MOEX-07"] == "PARTIAL"
+    assert by_id["MOEX-08"] == "READY"
     assert by_id["FNS-01"] == "READY"
     assert by_id["FNS-03"] == "BLOCKED"
     assert by_id["IR-01"] == "READY"
