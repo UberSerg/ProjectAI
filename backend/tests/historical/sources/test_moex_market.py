@@ -351,9 +351,36 @@ def test_hash_mismatch_quarantines_observations() -> None:
 
 
 def test_instrument_master_rows_resolve_sber_lkoh_mgnt(core_db: object) -> None:
+    """Resolve the pilot symbols from Instrument Master.
+
+    CI applies migrations to an empty database, so missing rows are inserted
+    inside the rolled-back test transaction. Production instruments are not
+    required and are not modified outside this transaction.
+    """
+    from sqlalchemy.orm import Session
+
+    from app.infrastructure.market.models import Instrument
+
+    session = core_db
+    assert isinstance(session, Session)
+    names = {"SBER": "Сбербанк", "LKOH": "ЛУКОЙЛ", "MGNT": "Магнит"}
     resolved = []
     for symbol in PILOT_SYMBOLS:
-        instrument = resolve_instrument_ref(core_db, symbol)  # type: ignore[arg-type]
+        instrument = resolve_instrument_ref(session, symbol)
+        if instrument is None:
+            session.add(
+                Instrument(
+                    symbol=symbol,
+                    name=names[symbol],
+                    asset_class="equity",
+                    exchange="MOEX",
+                    currency="RUB",
+                    is_active=True,
+                    primary_board="TQBR",
+                )
+            )
+            session.flush()
+            instrument = resolve_instrument_ref(session, symbol)
         assert instrument is not None
         assert instrument.symbol == symbol
         assert instrument.exchange == "MOEX"

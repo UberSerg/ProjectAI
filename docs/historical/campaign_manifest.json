@@ -6,20 +6,23 @@
     {
       "id": "PLT:contracts",
       "stream": "PLT",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
     },
     {
       "id": "PLT:storage-checkpoint",
       "stream": "PLT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
     },
     {
       "id": "PLT:adapter-registry",
       "stream": "PLT",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
     },
     {
       "id": "PLT:raw-artifact-store",
@@ -30,8 +33,9 @@
     {
       "id": "PLT:idempotent-import",
       "stream": "PLT",
-      "status": "PENDING",
-      "owner": null
+      "status": "PARTIAL",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
     },
     {
       "id": "PLT:reprocess-versions",
@@ -42,8 +46,9 @@
     {
       "id": "PLT:production-isolation",
       "stream": "PLT",
-      "status": "PENDING",
-      "owner": null
+      "status": "READY",
+      "owner": "HDS-ORCH",
+      "evidence": "reconciled with code on feature/kraken-historical-data-swarm-v1"
     },
     {
       "id": "PLT:migration-owner",
