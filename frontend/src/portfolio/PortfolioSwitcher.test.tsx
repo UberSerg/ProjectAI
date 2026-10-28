@@ -55,7 +55,7 @@ describe("PortfolioSwitcher", () => {
   it("offers a create action when there are no portfolios", async () => {
     listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
     renderSwitcher();
-    expect(await screen.findByRole("button", { name: "Создать портфель" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Создать первый портфель" })).toBeInTheDocument();
   });
 
   it("lists portfolios with lifecycle labels and navigates on selection", async () => {

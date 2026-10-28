@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/client";
 import {
   searchCatalogInstruments,
@@ -21,6 +22,23 @@ import {
 import { EmptyState, MetricCard, PageState, StatusBadge } from "../../components/Ui";
 import { useKrakenRole } from "../../role/KrakenRoleContext";
 import { BrokerSettingsPanel } from "./BrokerSettingsPanel";
+
+function isEquityHolding(position: { asset_class?: string | null }): boolean {
+  const cls = (position.asset_class || "").toLowerCase();
+  if (!cls) return true;
+  if (cls === "bond" || cls === "fixed_income" || cls === "fi" || cls === "cash") return false;
+  return true;
+}
+
+function intelligenceHref(instrumentId: number, portfolioId?: number | null): string {
+  const params = new URLSearchParams();
+  params.set("instrument_id", String(instrumentId));
+  if (portfolioId != null && portfolioId > 0) {
+    params.set("portfolio_id", String(portfolioId));
+    params.set("return_tab", "holdings");
+  }
+  return `/intelligence?${params.toString()}`;
+}
 
 /** Display labels for every journal row, including Kraken-written opening rows. */
 export const OP_LABELS: Record<PersonalOperationType, string> = {
@@ -354,11 +372,13 @@ function DraftPositionModal({
 
 function DraftPositionsTable({
   positions,
+  portfolioId,
   onEdit,
   onRemove,
   busyId,
 }: {
   positions: PersonalSummary["positions"];
+  portfolioId: number;
   onEdit: (position: PersonalPosition) => void;
   onRemove: (position: PersonalPosition) => void;
   busyId: number | null;
@@ -379,11 +399,23 @@ function DraftPositionsTable({
       <tbody>
         {positions.map((p) => {
           const basis = costBasisTotalRub(p);
+          const showIntel = isEquityHolding(p) && p.instrument_id != null && p.instrument_id > 0;
           return (
             <tr key={p.id ?? p.instrument_id}>
               <td>
                 <strong>{p.secid}</strong>
                 <div className="muted">{p.name}</div>
+                {showIntel ? (
+                  <div>
+                    <Link
+                      to={intelligenceHref(p.instrument_id, portfolioId)}
+                      className="btn ghost"
+                      data-testid={`analyze-company-${p.instrument_id}`}
+                    >
+                      Проанализировать компанию
+                    </Link>
+                  </div>
+                ) : null}
               </td>
               <td>
                 {p.units}
@@ -441,7 +473,13 @@ function DraftPositionsTable({
   );
 }
 
-function PositionsTable({ positions }: { positions: PersonalSummary["positions"] }) {
+function PositionsTable({
+  positions,
+  portfolioId,
+}: {
+  positions: PersonalSummary["positions"];
+  portfolioId: number;
+}) {
   return (
     <table className="data-table">
       <thead>
@@ -452,12 +490,14 @@ function PositionsTable({ positions }: { positions: PersonalSummary["positions"]
           <th>Цена</th>
           <th>Стоимость</th>
           <th>P&amp;L</th>
+          <th>Анализ</th>
         </tr>
       </thead>
       <tbody>
         {positions.map((p) => {
           const isBond = (p.asset_class || "").toLowerCase() === "bond";
           const basisUnknown = p.cost_basis_status === "UNKNOWN" || (!isBond && p.average_price == null);
+          const showIntel = isEquityHolding(p) && p.instrument_id != null && p.instrument_id > 0;
           return (
             <tr key={p.instrument_id}>
               <td>
@@ -495,6 +535,19 @@ function PositionsTable({ positions }: { positions: PersonalSummary["positions"]
                   </span>
                 ) : (
                   "—"
+                )}
+              </td>
+              <td>
+                {showIntel ? (
+                  <Link
+                    to={intelligenceHref(p.instrument_id, portfolioId)}
+                    className="btn ghost"
+                    data-testid={`analyze-company-${p.instrument_id}`}
+                  >
+                    Проанализировать компанию
+                  </Link>
+                ) : (
+                  <span className="muted">—</span>
                 )}
               </td>
             </tr>
@@ -985,21 +1038,28 @@ export function PersonalPortfolioPanel({
   const [cashModalOpen, setCashModalOpen] = useState(false);
   const [editPosition, setEditPosition] = useState<PersonalPosition | null>(null);
   const [removingPositionId, setRemovingPositionId] = useState<number | null>(null);
+  const loadSeq = useRef(0);
 
   const reload = useCallback(async () => {
+    loadSeq.current += 1;
+    const mine = loadSeq.current;
+    const requestedId = portfolioId;
     setLoading(true);
     setError(null);
     try {
-      const row = await getPersonalPortfolio(portfolioId, { owner: !isUser });
+      const row = await getPersonalPortfolio(requestedId, { owner: !isUser });
+      if (loadSeq.current !== mine) return;
       setData(row);
     } catch (e) {
+      if (loadSeq.current !== mine) return;
       setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (loadSeq.current === mine) setLoading(false);
     }
   }, [isUser, portfolioId]);
 
   useEffect(() => {
+    setData(null);
     void reload();
   }, [reload, refreshToken]);
 
@@ -1149,14 +1209,62 @@ export function PersonalPortfolioPanel({
         <>
           <div className="warning-banner" data-testid="draft-setup-banner">
             <strong>Настройка</strong>
-            <span> · История операций ещё не начата.</span>
+            <span> · История операций ещё не начата. Можно собрать состав и смотреть предварительную оценку без журнала.</span>
           </div>
+          <article className="panel" data-testid="draft-setup-guide">
+            <h3>Как настроить портфель</h3>
+            <ol className="plain-list" style={{ marginBottom: "0.75rem" }}>
+              <li>
+                <strong>Свободные деньги</strong> — укажите кэш кнопкой «Изменить кэш» (0 тоже
+                допустим).
+              </li>
+              <li>
+                <strong>Инструменты</strong> — найдите тикер и добавьте позиции («Добавить
+                инструмент» сверху страницы).
+              </li>
+              <li>
+                <strong>Себестоимость</strong> — укажите, если знаете; без неё P&amp;L по позиции
+                недоступен, это не блокирует настройку.
+              </li>
+              <li>
+                <strong>Предпросмотр</strong> — стоимость и состав уже видны как предварительный
+                расчёт; журнал включать не обязательно.
+              </li>
+              <li>
+                <strong>Начать учёт</strong> — когда состав готов: зафиксируется стартовое состояние
+                и откроется журнал операций.
+              </li>
+            </ol>
+            <p className="muted" style={{ margin: 0 }} data-testid="draft-preliminary-label">
+              Метрики ниже — предварительные, пока учёт не начат.
+            </p>
+          </article>
           <div className="metric-grid" data-testid="draft-summary">
             <MetricCard label="Свободные деньги" value={money(data.summary.cash_rub)} />
             <MetricCard label="Текущая стоимость бумаг" value={money(data.summary.securities_value_rub)} />
-            <MetricCard label="Текущая стоимость портфеля" value={money(data.summary.nav_rub)} />
+            <MetricCard
+              label="Текущая стоимость портфеля"
+              value={
+                data.summary.valuation_partial || !data.summary.valuation_complete
+                  ? data.summary.known_nav_rub != null
+                    ? money(data.summary.known_nav_rub)
+                    : "—"
+                  : money(data.summary.nav_rub)
+              }
+              hint={
+                data.summary.valuation_partial || !data.summary.valuation_complete
+                  ? data.summary.valuation_label
+                  : undefined
+              }
+            />
             <MetricCard label="Позиций" value={String(data.positions.length)} />
           </div>
+          {data.summary.valuation_partial ||
+          (!data.summary.valuation_complete && data.positions.length > 0) ? (
+            <p className="warning-banner" data-testid="draft-valuation-note">
+              {data.summary.valuation_label || "Часть позиций без цены — полный NAV недоступен."}
+            </p>
+          ) : null}
           <p>
             <button
               type="button"
@@ -1197,16 +1305,21 @@ export function PersonalPortfolioPanel({
               {clearing ? "Очистка…" : "Очистить портфель"}
             </button>
           </div>
+          <p className="muted" style={{ marginTop: 0 }} data-testid="draft-activate-hint">
+            «Начать учёт» нужен для журнала операций и инвестиционного результата. До этого можно
+            спокойно править кэш и позиции.
+          </p>
           <section className="panel" data-testid="personal-positions">
             <h3>Позиции</h3>
             {data.positions.length === 0 ? (
               <EmptyState
                 title="Пока нет позиций"
-                reason="Добавьте свободные деньги и инструменты — затем начните учёт."
+                reason="Добавьте свободные деньги и инструменты. Учёт журнала — когда состав будет готов."
               />
             ) : (
               <DraftPositionsTable
                 positions={data.positions}
+                portfolioId={portfolioId}
                 onEdit={setEditPosition}
                 onRemove={(position) => void onRemoveDraftPosition(position)}
                 busyId={removingPositionId}
@@ -1266,7 +1379,7 @@ export function PersonalPortfolioPanel({
             {data.positions.length === 0 ? (
               <p className="muted">Нет позиций</p>
             ) : (
-              <PositionsTable positions={data.positions} />
+              <PositionsTable positions={data.positions} portfolioId={portfolioId} />
             )}
           </section>
 

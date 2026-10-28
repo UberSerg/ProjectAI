@@ -135,7 +135,7 @@ describe("DecisionMemoryPanel", () => {
   });
 
   it("renders capture button and does not capture on mount", async () => {
-    render(<DecisionMemoryPanel portfolioId={1} />);
+    render(<DecisionMemoryPanel portfolioId={1} decisionFingerprint="fp-ready" />);
     expect(screen.getByRole("button", { name: "Зафиксировать решение" })).toBeInTheDocument();
     await screen.findByTestId("memory-empty");
     expect(api.captureDecisionMemory).not.toHaveBeenCalled();
@@ -157,14 +157,36 @@ describe("DecisionMemoryPanel", () => {
       newCashRub: "30000",
       expectedDecisionFingerprint: "fp-test",
     });
+    expect(await screen.findByTestId("memory-notice")).toHaveTextContent(/не сделка/i);
   });
 
-  it("refuses capture without a displayed decision fingerprint", async () => {
+  it("disables capture without a displayed decision fingerprint", async () => {
     render(<DecisionMemoryPanel portfolioId={1} />);
     await screen.findByTestId("memory-empty");
-    fireEvent.click(screen.getByTestId("memory-capture"));
-    expect(await screen.findByText(/Сначала обновите расчёт решения/)).toBeInTheDocument();
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
     expect(api.captureDecisionMemory).not.toHaveBeenCalled();
+  });
+
+  it("invalidates capture readiness when fingerprint disappears after capital change", async () => {
+    const { rerender } = render(
+      <DecisionMemoryPanel portfolioId={1} newCashRub="100000" decisionFingerprint="fp-ok" />,
+    );
+    await screen.findByTestId("memory-sync-meta");
+    expect(screen.getByTestId("memory-capture")).toBeEnabled();
+
+    rerender(<DecisionMemoryPanel portfolioId={1} newCashRub="50000" decisionFingerprint={null} />);
+    expect(await screen.findByTestId("memory-stale-hint")).toHaveTextContent(/Обновите/);
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+  });
+
+  it("shows idempotent replay notice without duplicating history rows", async () => {
+    vi.mocked(api.listDecisionMemory).mockResolvedValue({ portfolio_id: 1, items: [record], count: 1 });
+    vi.mocked(api.captureDecisionMemory).mockResolvedValue({ ...record, idempotent_replay: true });
+    render(<DecisionMemoryPanel portfolioId={1} decisionFingerprint="fp-dup" />);
+    await screen.findByTestId("memory-item-7");
+    fireEvent.click(screen.getByTestId("memory-capture"));
+    expect(await screen.findByTestId("memory-notice")).toHaveTextContent(/уже было сохранено/);
+    expect(screen.getAllByTestId("memory-item-7")).toHaveLength(1);
   });
 
   it("shows captured decision in history list", async () => {

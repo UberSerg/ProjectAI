@@ -391,7 +391,18 @@ export function MyPortfolioPage() {
     return Number.isInteger(id) && id > 0 ? id : null;
   }, [routePortfolioId]);
   const routeIdResolved = routeId != null && portfolios.some((p) => p.id === routeId);
-  const portfolioId = routePortfolioId ? (routeIdResolved ? routeId : null) : selectedPortfolioId;
+  // Never fetch a stored id until the list confirms it still exists (deleted selection → fallback).
+  const selectionResolved =
+    selectedPortfolioId != null && portfolios.some((p) => p.id === selectedPortfolioId);
+  const portfolioId = routePortfolioId
+    ? routeIdResolved
+      ? routeId
+      : null
+    : portfoliosLoading
+      ? null
+      : selectionResolved
+        ? selectedPortfolioId
+        : null;
 
   useEffect(() => {
     if (!routeIdResolved || routeId === selectedPortfolioId) return;
@@ -399,10 +410,12 @@ export function MyPortfolioPage() {
   }, [routeIdResolved, routeId, selectedPortfolioId, selectPortfolio]);
 
   useEffect(() => {
+    // Wait until the list is loaded so a stale localStorage id cannot navigate to /portfolio/{deleted}.
+    if (portfoliosLoading) return;
     if (!routePortfolioId && selectedPortfolioId != null) {
       navigate(`/portfolio/${selectedPortfolioId}${window.location.search}`, { replace: true });
     }
-  }, [routePortfolioId, selectedPortfolioId, navigate]);
+  }, [routePortfolioId, selectedPortfolioId, navigate, portfoliosLoading]);
 
   const { isUser } = useKrakenRole();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -426,6 +439,7 @@ export function MyPortfolioPage() {
 
   useEffect(() => {
     setDecisionNewCash(null);
+    setDecisionFingerprint(null);
   }, [portfolioId]);
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
   const reload = useCallback(() => setDataVersion((v) => v + 1), []);
@@ -605,10 +619,17 @@ export function MyPortfolioPage() {
           helpPageId="manual_portfolio"
         />
         <p>
-          Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно его.
+          Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно
+          его.
         </p>
         <p>
-          <Link to="/portfolio">Создать портфель</Link>
+          <Link
+            className="button"
+            to="/portfolio#new-portfolio"
+            data-testid="create-first-portfolio-cta"
+          >
+            Создать первый портфель
+          </Link>
         </p>
       </section>
     );

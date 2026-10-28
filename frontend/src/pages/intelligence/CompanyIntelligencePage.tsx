@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { errorMessage } from "../../api/client";
 import {
   getIntelligenceSnapshot,
@@ -153,6 +153,18 @@ export function CompanyIntelligencePage() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const returnPortfolioRaw = searchParams.get("portfolio_id");
+  const returnPortfolioId = (() => {
+    if (!returnPortfolioRaw) return null;
+    const n = Number(returnPortfolioRaw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const returnTab = searchParams.get("return_tab") === "decision" ? "decision" : "holdings";
+  const backToPortfolioHref =
+    returnPortfolioId != null
+      ? `/portfolio/${returnPortfolioId}?tab=${returnTab}`
+      : null;
+
   const load = useCallback(
     async (instrumentId: number, asOf?: string, signal?: AbortSignal) => {
       setLoading(true);
@@ -192,6 +204,9 @@ export function CompanyIntelligencePage() {
     const next = new URLSearchParams();
     next.set("instrument_id", String(id));
     if (asOfInput.trim()) next.set("as_of", asOfInput.trim());
+    // Preserve return path to the previously selected portfolio.
+    if (returnPortfolioId != null) next.set("portfolio_id", String(returnPortfolioId));
+    if (searchParams.get("return_tab")) next.set("return_tab", searchParams.get("return_tab")!);
     setSearchParams(next);
   }
 
@@ -227,8 +242,16 @@ export function CompanyIntelligencePage() {
     <section className="intel-page" data-testid="company-intelligence-page">
       <PageHeader
         title={labels.nav.companyIntelligence}
-        description="Сводка независимых аналитических моделей по инструменту. Advisory / research only — без ордеров и без production Candidate."
+        description="Сводка независимых аналитических моделей по инструменту. Advisory / research only — без ордеров, без Daily Decision / Candidate / Policy / Shadow и без брокера."
       />
+
+      {backToPortfolioHref ? (
+        <p data-testid="intel-back-to-portfolio">
+          <Link to={backToPortfolioHref} className="btn secondary">
+            ← Вернуться к портфелю №{returnPortfolioId}
+          </Link>
+        </p>
+      ) : null}
 
       <form className="intel-lookup filters" onSubmit={onSubmit} data-testid="intel-lookup-form">
         <label>

@@ -528,6 +528,9 @@ describe("MyPortfolioPage", () => {
     vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisEmpty as never);
     renderPage();
     expect(await screen.findByTestId("draft-setup-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-setup-guide")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-preliminary-label")).toHaveTextContent(/предварительн/i);
+    expect(screen.getByTestId("draft-activate-hint")).toHaveTextContent(/журнала операций/i);
     expect(screen.getByTestId("add-instrument-open")).toBeInTheDocument();
   });
 
@@ -641,7 +644,13 @@ describe("MyPortfolioPage", () => {
     listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
     renderPage("/portfolio/mine");
     expect(await screen.findByText(/У вас пока нет портфелей/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Создать портфель/i })).toHaveAttribute("href", "/portfolio");
+    expect(screen.getByTestId("create-first-portfolio-cta")).toHaveAttribute(
+      "href",
+      "/portfolio#new-portfolio",
+    );
+    expect(screen.getByTestId("create-first-portfolio-cta")).toHaveTextContent(
+      "Создать первый портфель",
+    );
   });
 
   it("renders the portfolio from the deep link", async () => {
@@ -1007,8 +1016,26 @@ describe("MyPortfolioPage", () => {
     renderPage("/portfolio/mine");
 
     expect(await screen.findByText(/У вас пока нет портфелей/i)).toBeInTheDocument();
+    expect(screen.getByTestId("create-first-portfolio-cta")).toHaveTextContent(
+      "Создать первый портфель",
+    );
     expect(screen.queryByText("Портфель не найден")).not.toBeInTheDocument();
     expect(getPersonalPortfolio).not.toHaveBeenCalled();
+  });
+
+  it("falls back when the stored selection was deleted", async () => {
+    localStorage.setItem("kraken.selectedPortfolioId", "99");
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardB], count: 1 });
+    getPersonalPortfolio.mockResolvedValue({
+      ...personalSummaryActive,
+      portfolio: { ...personalSummaryActive.portfolio, id: 2, name: "Второй портфель" },
+    });
+    renderPage("/portfolio/mine");
+    expect(await screen.findByRole("heading", { level: 1, name: "Второй портфель" })).toBeInTheDocument();
+    await waitFor(() => expect(localStorage.getItem("kraken.selectedPortfolioId")).toBe("2"));
+    await waitFor(() => expect(getPersonalPortfolio).toHaveBeenCalled());
+    expect(getPersonalPortfolio.mock.calls.every((call) => call[0] === 2)).toBe(true);
+    expect(getPersonalPortfolio).not.toHaveBeenCalledWith(99, expect.anything());
   });
 
   it("uses a dedicated search-results list without plain-list bullets", async () => {

@@ -175,8 +175,9 @@ describe("PersonalPortfolioPanel DRAFT manager", () => {
   it("uses draft wording instead of journal wording", async () => {
     renderPanel();
     await screen.findByTestId("draft-summary");
-    expect(screen.getByText("Свободные деньги")).toBeInTheDocument();
-    expect(screen.getByText("Текущая стоимость портфеля")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-setup-guide")).toHaveTextContent(/Свободные деньги/);
+    expect(screen.getByTestId("draft-summary")).toHaveTextContent("Свободные деньги");
+    expect(screen.getByTestId("draft-summary")).toHaveTextContent("Текущая стоимость портфеля");
     expect(screen.queryByText("Внесено")).not.toBeInTheDocument();
   });
 
@@ -305,8 +306,46 @@ describe("PersonalPortfolioPanel", () => {
     );
     await waitFor(() => expect(screen.getByTestId("draft-setup-banner")).toBeInTheDocument());
     expect(screen.getByText(/История операций ещё не начата/i)).toBeInTheDocument();
+    expect(screen.getByTestId("draft-setup-guide")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-activate-hint")).toHaveTextContent(/журнала операций/i);
     expect(screen.getByTestId("activate-journal-btn")).toBeInTheDocument();
     expect(screen.queryByTestId("add-operation-btn")).not.toBeInTheDocument();
+  });
+
+  it("ignores a late snapshot after portfolioId changes", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    let resolveFirst!: (value: unknown) => void;
+    const pendingFirst = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    getPersonalPortfolio.mockImplementation((id: number) => {
+      if (id === 1) return pendingFirst as never;
+      return Promise.resolve({
+        ...emptySummary,
+        portfolio: { ...emptySummary.portfolio, id: 2, name: "Второй" },
+        summary: { ...emptySummary.summary, cash_rub: "777" },
+      });
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={1} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    rerender(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={2} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("personal-portfolio-name")).toHaveTextContent("Второй");
+    resolveFirst(emptySummary);
+    await waitFor(() =>
+      expect(screen.getByTestId("personal-portfolio-name")).toHaveTextContent("Второй"),
+    );
+    expect(screen.getByTestId("draft-summary")).toHaveTextContent(/777/);
   });
 
   it("shows draft metrics and activate CTA", async () => {
@@ -484,6 +523,59 @@ describe("PersonalPortfolioPanel", () => {
     );
     await waitFor(() => expect(screen.getByTestId("personal-positions")).toBeInTheDocument());
     expect(screen.getByText(/P&L недоступен/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("analyze-company-9")).not.toBeInTheDocument();
+  });
+
+  it("links equity holdings to Company Intelligence by instrument_id", async () => {
+    localStorage.setItem(ROLE_STORAGE_KEY, "USER");
+    getPersonalPortfolio.mockResolvedValue({
+      ...emptySummary,
+      portfolio: {
+        ...emptySummary.portfolio,
+        lifecycle_state: "ACTIVE",
+        has_operations: true,
+        journal_state: "ACTIVE",
+      },
+      summary: {
+        ...emptySummary.summary,
+        cash_rub: "0",
+        securities_value_rub: "26000",
+        nav_rub: "26000",
+        contributed_rub: "25000",
+        investment_pnl_rub: "1000",
+        valuation_label: "Оценка по ценам на 25.09.2026",
+      },
+      positions: [
+        {
+          instrument_id: 1,
+          secid: "SBER",
+          name: "Сбербанк",
+          asset_class: "equity",
+          units: "100",
+          lots: "10",
+          average_price: "250",
+          cost_basis_status: "KNOWN",
+          current_price: "260",
+          price_date: "2026-09-25",
+          market_value: "26000",
+          unrealized_pnl: "1000",
+          price_available: true,
+        },
+      ],
+      operations: [],
+    });
+    render(
+      <MemoryRouter>
+        <KrakenRoleProvider>
+          <PersonalPortfolioPanel portfolioId={3} />
+        </KrakenRoleProvider>
+      </MemoryRouter>,
+    );
+    const link = await screen.findByTestId("analyze-company-1");
+    expect(link).toHaveAttribute(
+      "href",
+      "/intelligence?instrument_id=1&portfolio_id=3&return_tab=holdings",
+    );
   });
 
   it("opens add operation modal with datetime-local", async () => {

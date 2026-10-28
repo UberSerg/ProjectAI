@@ -146,6 +146,7 @@ export function DecisionMemoryPanel({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [staleHint, setStaleHint] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
@@ -154,6 +155,24 @@ export function DecisionMemoryPanel({
   const [matches, setMatches] = useState<Record<number, PossibleMatchesResponse | null>>({});
   const [linkBusy, setLinkBusy] = useState<string | null>(null);
   const seq = useRef(0);
+  const syncKeyRef = useRef(`${portfolioId ?? ""}|${newCashRub ?? ""}|${decisionFingerprint ?? ""}`);
+
+  // Invalidate capture readiness when portfolio / capital / fingerprint drift.
+  useEffect(() => {
+    const nextKey = `${portfolioId ?? ""}|${newCashRub ?? ""}|${decisionFingerprint ?? ""}`;
+    if (syncKeyRef.current !== nextKey) {
+      syncKeyRef.current = nextKey;
+      setNotice(null);
+      const fp = typeof decisionFingerprint === "string" ? decisionFingerprint.trim() : "";
+      if (!fp) {
+        setStaleHint(
+          "Расчёт изменился или устарел. Обновите «Что делать», затем зафиксируйте актуальную версию.",
+        );
+      } else {
+        setStaleHint(null);
+      }
+    }
+  }, [portfolioId, newCashRub, decisionFingerprint]);
 
   const loadList = useCallback(async () => {
     if (portfolioId == null) return;
@@ -255,6 +274,7 @@ export function DecisionMemoryPanel({
     setCapturing(true);
     setError(null);
     setNotice(null);
+    setStaleHint(null);
     try {
       const rec = await captureDecisionMemory(portfolioId, {
         test,
@@ -268,8 +288,14 @@ export function DecisionMemoryPanel({
       setItems((prev) => [summary, ...prev.filter((x) => x.id !== summary.id)]);
       setLoaded(true);
       setNotice(
-        rec.idempotent_replay ? "Это решение уже было сохранено." : "Решение зафиксировано. Подтверждения сделки это не означает.",
+        rec.idempotent_replay
+          ? "Это решение уже было сохранено — повторная запись не создана."
+          : "Рекомендация зафиксирована. Это не сделка и не подтверждение исполнения.",
       );
+      setOpenId(rec.id);
+      setDetail(rec);
+      setMatches({});
+      await loadMatches(rec);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -326,6 +352,11 @@ export function DecisionMemoryPanel({
   if (portfolioId == null) return null;
 
   const actions = detail?.actions ?? [];
+  const fpReady = typeof decisionFingerprint === "string" && decisionFingerprint.trim() !== "";
+  const cashLabel =
+    newCashRub != null && newCashRub !== "" && Number(newCashRub) > 0
+      ? `${Number(newCashRub).toLocaleString("ru-RU")} ₽`
+      : "без нового капитала";
 
   return (
     <div className="stack-lg" data-testid="decision-memory-panel">
@@ -336,13 +367,19 @@ export function DecisionMemoryPanel({
             <p className="muted">
               Фиксирует рекомендацию и цены для последующей оценки. Это не подтверждение сделки и не доходность портфеля.
             </p>
+            <p className="muted" data-testid="memory-sync-meta">
+              Портфель №{portfolioId} · капитал: {cashLabel}
+              {fpReady
+                ? ` · fingerprint ${decisionFingerprint!.trim().slice(0, 12)}…`
+                : " · fingerprint не синхронизирован"}
+            </p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             <button
               type="button"
               className="btn primary"
               data-testid="memory-capture"
-              disabled={capturing}
+              disabled={capturing || !fpReady}
               onClick={() => void capture()}
             >
               {capturing ? "Фиксируем…" : "Зафиксировать решение"}
@@ -361,6 +398,11 @@ export function DecisionMemoryPanel({
         {error ? (
           <p className="page-state error" data-testid="memory-error">
             {error}
+          </p>
+        ) : null}
+        {staleHint ? (
+          <p className="warning-text" data-testid="memory-stale-hint">
+            {staleHint}
           </p>
         ) : null}
         {notice ? (

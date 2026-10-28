@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { getDailyPersonalDecision, type DailyPersonalDecision } from "../api/dailyPersonalDecision";
@@ -84,7 +84,12 @@ function shadowStatusRu(status: string | undefined): string {
 }
 
 export function DashboardPage() {
-  const { selectedPortfolioId, portfolios, loading: portfoliosLoading } = usePortfolioContext();
+  const {
+    selectedPortfolioId,
+    selectedPortfolio,
+    portfolios,
+    loading: portfoliosLoading,
+  } = usePortfolioContext();
   const [data, setData] = useState<CockpitData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,28 +101,32 @@ export function DashboardPage() {
     avgAbs: number | null;
     strongest: string | null;
   } | null>(null);
+  const loadSeq = useRef(0);
 
   const load = useCallback(() => {
     const controller = new AbortController();
+    const portfolioIdAtStart = selectedPortfolioId;
+    loadSeq.current += 1;
+    const mine = loadSeq.current;
     setLoading(true);
     setError(null);
     const analysisReq =
-      selectedPortfolioId != null
-        ? getPortfolioAnalysis(selectedPortfolioId, controller.signal).catch((reason: unknown) => ({
+      portfolioIdAtStart != null
+        ? getPortfolioAnalysis(portfolioIdAtStart, controller.signal).catch((reason: unknown) => ({
             __error: errorMessage(reason),
           }))
         : Promise.resolve({ __error: "no portfolio" });
     const dailyReq =
-      selectedPortfolioId != null
-        ? getDailyPersonalDecision(selectedPortfolioId, { signal: controller.signal }).catch(
+      portfolioIdAtStart != null
+        ? getDailyPersonalDecision(portfolioIdAtStart, { signal: controller.signal }).catch(
             (reason: unknown) => ({
               __error: errorMessage(reason),
             }),
           )
         : Promise.resolve({ __error: "no portfolio" });
     const personalReq =
-      selectedPortfolioId != null
-        ? getPersonalPortfolio(selectedPortfolioId, { signal: controller.signal }).catch(() => null)
+      portfolioIdAtStart != null
+        ? getPersonalPortfolio(portfolioIdAtStart, { signal: controller.signal }).catch(() => null)
         : Promise.resolve(null);
     Promise.all([
       analysisReq,
@@ -132,7 +141,8 @@ export function DashboardPage() {
       personalReq,
     ])
       .then(([analysisOrErr, dailyOrErr, hurdle, health, workflows, shadow, personal]) => {
-          if (controller.signal.aborted) return;
+          // Drop superseded answers: abort alone is not enough when a catch() swallows AbortError.
+          if (controller.signal.aborted || loadSeq.current !== mine) return;
           const analysisError =
             analysisOrErr && typeof analysisOrErr === "object" && "__error" in analysisOrErr
               ? String((analysisOrErr as { __error: string }).__error)
@@ -162,6 +172,7 @@ export function DashboardPage() {
         })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
+        if (loadSeq.current !== mine) return;
         setError(errorMessage(reason));
         setLoading(false);
       });
@@ -171,9 +182,12 @@ export function DashboardPage() {
   useEffect(() => {
     if (portfoliosLoading) return;
     if (selectedPortfolioId == null) {
+      setData(null);
       setLoading(false);
       return;
     }
+    // Clear previous portfolio's snapshot so a slow answer cannot paint over the new selection.
+    setData(null);
     const abort = load();
     return abort;
   }, [load, portfoliosLoading, selectedPortfolioId]);
@@ -229,51 +243,90 @@ export function DashboardPage() {
 
   if (!portfoliosLoading && portfolios.length === 0) {
     return (
-      <section>
+      <section data-testid="dashboard-empty-onboarding">
         <PortfolioSwitcher />
         <PageHeader title="Обзор" description="У вас пока нет портфелей" />
-        <p>Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно его.</p>
-        <p><a href="/portfolio">Создать портфель</a></p>
+        <p>
+          Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно
+          его.
+        </p>
+        <p>
+          <Link className="button" to="/portfolio#new-portfolio" data-testid="create-first-portfolio-cta">
+            Создать первый портфель
+          </Link>
+        </p>
       </section>
     );
   }
 
-  if (loading) {
-    return <PageState kind="loading" title="Загрузка личного кабинета Kraken…" />;
+  if (loading || (!data && selectedPortfolioId != null && !error)) {
+    return (
+      <section data-testid="dashboard-loading">
+        <PortfolioSwitcher />
+        <PageState kind="loading" title="Загрузка личного кабинета Kraken…" />
+      </section>
+    );
   }
   if (error || !data) {
     return (
-      <PageState
-        kind="error"
-        title="Не удалось получить данные"
-        action={
-          <button type="button" onClick={() => load()}>
-            {labels.actions.retry}
-          </button>
-        }
-      >
-        {error}
-      </PageState>
+      <section>
+        <PortfolioSwitcher />
+        <PageState
+          kind="error"
+          title="Не удалось получить данные"
+          action={
+            <button type="button" onClick={() => load()}>
+              {labels.actions.retry}
+            </button>
+          }
+        >
+          {error}
+        </PageState>
+      </section>
     );
   }
 
   const analysis = data.analysis;
   const personal = data.personal;
+  const portfolioName =
+    selectedPortfolio?.name ??
+    personal?.portfolio.name ??
+    analysis?.portfolio.name ??
+    "Портфель";
   const lifecycle =
     personal?.portfolio.lifecycle_state ??
+    selectedPortfolio?.lifecycle_state ??
     (personal?.portfolio.has_operations || personal?.portfolio.journal_state === "ACTIVE"
       ? "ACTIVE"
       : personal
         ? "DRAFT"
         : null);
   // Single book: Personal summary for money metrics; analysis (same snapshot) for allocation/risk.
+  // Never mix Personal NAV with Shadow / Candidate figures on this page.
   const usePersonalMoney = personal != null;
   const personalActive = lifecycle === "ACTIVE";
+  const personalDraft = lifecycle === "DRAFT";
   const emptyPortfolio = usePersonalMoney
     ? lifecycle === "DRAFT" &&
       Number(personal!.summary.cash_rub) <= 0 &&
       (personal!.positions?.length ?? 0) === 0
     : Boolean(analysis) && analysis!.positions.length === 0 && analysis!.cash_rub <= 0;
+  const valuationPartial = usePersonalMoney
+    ? Boolean(personal!.summary.valuation_partial) || !personal!.summary.valuation_complete
+    : Boolean(analysis?.valuation_partial);
+  const valuationLabel = usePersonalMoney
+    ? personal!.summary.valuation_label
+    : analysis?.note ?? null;
+  const missingPriceCount = usePersonalMoney
+    ? personal!.summary.missing_price_count ?? 0
+    : analysis?.unsupported_count ?? 0;
+  const navUnavailableReason =
+    usePersonalMoney && (personal!.positions?.length ?? 0) > 0 && missingPriceCount > 0
+      ? personal!.summary.valuation_label ||
+        `Нет цены по ${missingPriceCount} поз.`
+      : usePersonalMoney && !personal!.summary.valuation_complete && !emptyPortfolio
+        ? personal!.summary.valuation_label || "Оценка стоимости недоступна"
+        : null;
   const weights = analysis
     ? allocationFromAnalysis(analysis)
     : { equity: 0, fixedIncome: 0, cash: 0 };
@@ -288,7 +341,14 @@ export function DashboardPage() {
     ? Number(personal!.summary.securities_value_rub)
     : analysis?.market_value_supported ?? null;
   const invested = securitiesValue;
-  const nav = usePersonalMoney ? Number(personal!.summary.nav_rub) : analysis?.nav ?? null;
+  // Prefer known_nav when the snapshot marks valuation incomplete — never invent a full NAV.
+  const nav = usePersonalMoney
+    ? navUnavailableReason && personal!.summary.known_nav_rub != null
+      ? Number(personal!.summary.known_nav_rub)
+      : navUnavailableReason && !personal!.summary.valuation_complete
+        ? null
+        : Number(personal!.summary.nav_rub)
+    : analysis?.nav ?? null;
   const cash = usePersonalMoney ? Number(personal!.summary.cash_rub) : analysis?.cash_rub ?? null;
   const concentration = analysis ? topConcentration(analysis) : null;
   const cashShare =
@@ -324,8 +384,11 @@ export function DashboardPage() {
             Kraken · {isUser ? "личный кабинет" : "кабинет владельца"}
           </p>
           <h1 className="cockpit-title">Обзор портфеля</h1>
-          <p className="cockpit-sub">
-            Стоимость, структура, риски и предложения — по текущим данным.
+          <p className="cockpit-sub" data-testid="cockpit-portfolio-name">
+            {portfolioName}
+            {personalDraft ? " · настройка" : personalActive ? " · учёт включён" : ""}
+            {" · "}
+            стоимость, структура и предложения — только по личному портфелю.
           </p>
         </div>
         <div className="cockpit-health-quiet">
@@ -346,37 +409,53 @@ export function DashboardPage() {
         </div>
       </header>
 
-      {/* 1. HERO */}
+      {/* 1. HERO — Personal snapshot only */}
       <section className="cockpit-card cockpit-card-hero" data-testid="cockpit-hero">
-        <p className="cockpit-hero-label">Стоимость портфеля</p>
-        {data.analysisError ? (
+        <p className="cockpit-hero-label">Стоимость портфеля · {portfolioName}</p>
+        {data.analysisError && !usePersonalMoney ? (
           <div className="cockpit-empty">{data.analysisError}</div>
         ) : emptyPortfolio ? (
           <div>
             <p className="cockpit-hero-value">—</p>
             <p className="cockpit-hero-note">
-              Добавьте первое пополнение или текущие позиции в «Мой портфель».
+              Портфель пуст. Добавьте кэш и позиции в «Мой портфель» — журнал учёта пока не
+              обязателен.
             </p>
             <div className="cockpit-footer-links">
-              <Link className="button" to="/portfolio/mine">
-                Открыть мой портфель
+              <Link className="button" to="/portfolio/mine" data-testid="dashboard-setup-cta">
+                Настроить портфель
               </Link>
             </div>
           </div>
         ) : (
           <>
             <p className="cockpit-hero-value" data-testid="cockpit-nav">
-              {formatMoney(nav)}
+              {nav == null ? "—" : formatMoney(nav)}
             </p>
+            {navUnavailableReason ? (
+              <p className="cockpit-hero-note" data-testid="cockpit-nav-unavailable">
+                {navUnavailableReason}
+                {nav != null ? " Показана известная часть оценки, не полный NAV." : ""}
+              </p>
+            ) : null}
             <div className={`cockpit-hero-delta ${deltaClass}`} data-testid="cockpit-pnl">
-              {personalActive && personal!.summary.investment_pnl_rub == null ? (
+              {usePersonalMoney && personal!.summary.investment_pnl_rub == null ? (
                 <span data-testid="cockpit-pnl-unavailable">
                   Результат недоступен.{" "}
                   {personal!.summary.investment_pnl_message ??
-                    "Не хватает цены по части позиций."}
+                    (personal!.summary.investment_pnl_unavailable_reason === "COST_BASIS_INCOMPLETE"
+                      ? "Не хватает себестоимости по части позиций."
+                      : "Не хватает цены по части позиций.")}
                 </span>
               ) : pnl == null ? (
-                <span>Результат: нет себестоимости для расчёта</span>
+                <span data-testid="cockpit-pnl-unavailable">
+                  Результат: нет себестоимости для расчёта
+                </span>
+              ) : personalDraft ? (
+                <span data-testid="cockpit-investment-result-preliminary">
+                  Предварительный результат: {pnl >= 0 ? "+" : ""}
+                  {formatMoney(pnl)}
+                </span>
               ) : personalActive ? (
                 <span data-testid="cockpit-investment-result">
                   Инвестиционный результат: {pnl >= 0 ? "+" : ""}
@@ -395,30 +474,48 @@ export function DashboardPage() {
             <div className="cockpit-metric-strip">
               <div className="cockpit-metric">
                 <span className="cockpit-metric-label">Кэш</span>
-                <span className="cockpit-metric-value">{formatMoney(cash)}</span>
+                <span className="cockpit-metric-value" data-testid="cockpit-cash">
+                  {formatMoney(cash)}
+                </span>
               </div>
               <div className="cockpit-metric">
                 <span className="cockpit-metric-label">
-                  {personalActive ? "В бумагах" : "Вложено"}
+                  {personalActive || personalDraft ? "В бумагах" : "Вложено"}
                 </span>
                 <span className="cockpit-metric-value" data-testid="cockpit-securities-value">
-                  {formatMoney(personalActive ? securitiesValue : invested)}
+                  {formatMoney(securitiesValue)}
                 </span>
               </div>
               <div className="cockpit-metric">
                 <span className="cockpit-metric-label">Позиций</span>
-                <span className="cockpit-metric-value">{analysis?.positions.length ?? 0}</span>
+                <span className="cockpit-metric-value">
+                  {usePersonalMoney
+                    ? personal!.positions?.length ?? 0
+                    : analysis?.positions.length ?? 0}
+                </span>
               </div>
               <div className="cockpit-metric">
-                <span className="cockpit-metric-label">Качество цен</span>
-                <span className="cockpit-metric-value" style={{ fontSize: "0.92rem" }}>
-                  {qualityLabel(analysis?.quality)}
-                  {coverage != null ? ` · ${formatCoveragePct(coverage)}` : ""}
+                <span className="cockpit-metric-label">Данные</span>
+                <span
+                  className="cockpit-metric-value"
+                  style={{ fontSize: "0.92rem" }}
+                  data-testid="cockpit-data-quality"
+                >
+                  {valuationLabel
+                    ? valuationPartial
+                      ? `Частично · ${valuationLabel}`
+                      : valuationLabel
+                    : qualityLabel(analysis?.quality)}
+                  {coverage != null && !usePersonalMoney
+                    ? ` · ${formatCoveragePct(coverage)}`
+                    : ""}
                 </span>
               </div>
             </div>
             <p className="cockpit-hero-note">
-              {heroAdvisoryNote(analysis?.note, data.hurdle?.annual_rate)}
+              {personalDraft
+                ? "Предварительная оценка по текущему составу. Журнал операций ещё не начат."
+                : heroAdvisoryNote(analysis?.note, data.hurdle?.annual_rate)}
             </p>
           </>
         )}

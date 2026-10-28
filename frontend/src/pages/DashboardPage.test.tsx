@@ -401,6 +401,94 @@ describe("DashboardPage", () => {
     expect(manualApi.getPortfolioAnalysis).toHaveBeenCalledWith(2, expect.anything());
     expect(await screen.findByRole("button", { name: /Второй портфель ▾/ })).toBeInTheDocument();
   });
+
+  it("shows empty onboarding CTA when there are no portfolios", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
+    renderWithRole(<DashboardPage />);
+    expect(await screen.findByTestId("dashboard-empty-onboarding")).toBeInTheDocument();
+    expect(screen.getByTestId("create-first-portfolio-cta")).toHaveTextContent(
+      "Создать первый портфель",
+    );
+    expect(screen.getByTestId("create-first-portfolio-cta")).toHaveAttribute(
+      "href",
+      "/portfolio#new-portfolio",
+    );
+  });
+
+  it("shows portfolio name, cash, securities and snapshot data quality", async () => {
+    renderWithRole(<DashboardPage />);
+    expect(await screen.findByTestId("cockpit-portfolio-name")).toHaveTextContent(
+      /Основной портфель/,
+    );
+    expect(await screen.findByTestId("cockpit-cash")).toBeInTheDocument();
+    expect(screen.getByTestId("cockpit-securities-value")).toBeInTheDocument();
+    expect(screen.getByTestId("cockpit-data-quality")).toHaveTextContent(
+      /Оценка по ценам на 25\.09\.2026/,
+    );
+  });
+
+  it("shows unavailable investment result with reason instead of fabricated zero", async () => {
+    getPersonalPortfolio.mockResolvedValue({
+      ...personalFixture,
+      summary: {
+        ...personalFixture.summary,
+        investment_pnl_rub: null,
+        investment_pnl_unavailable_reason: "MISSING_PRICE",
+        investment_pnl_message: "Не хватает цены по части позиций.",
+        valuation_partial: true,
+        valuation_complete: false,
+        valuation_label: "Часть позиций без цены",
+        missing_price_count: 1,
+        known_nav_rub: "50000",
+      },
+    });
+    renderWithRole(<DashboardPage />);
+    expect(await screen.findByTestId("cockpit-pnl-unavailable")).toHaveTextContent(
+      /Результат недоступен/,
+    );
+    expect(screen.getByTestId("cockpit-nav-unavailable")).toHaveTextContent(/Часть позиций без цены/);
+    expect(screen.queryByTestId("cockpit-investment-result")).not.toBeInTheDocument();
+  });
+
+  it("ignores a late personal snapshot after portfolio switch", async () => {
+    const portfolioB = { ...portfolioCard, id: 2, name: "Второй портфель" };
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCard, portfolioB], count: 2 });
+    localStorage.setItem("kraken.selectedPortfolioId", "1");
+    let resolveA!: (value: unknown) => void;
+    const pendingA = new Promise((resolve) => {
+      resolveA = resolve;
+    });
+    getPersonalPortfolio.mockImplementation((id: number) => {
+      if (id === 1) return pendingA as never;
+      return Promise.resolve({
+        ...personalFixture,
+        portfolio: { ...personalFixture.portfolio, id: 2, name: "Второй портфель" },
+        summary: { ...personalFixture.summary, cash_rub: "9000", nav_rub: "9000" },
+        positions: [],
+      });
+    });
+    vi.mocked(manualApi.getPortfolioAnalysis).mockImplementation((id: number) =>
+      Promise.resolve({
+        ...analysisFixture,
+        portfolio: { ...analysisFixture.portfolio, id, name: id === 2 ? "Второй" : "PRIMARY" },
+        cash_rub: id === 2 ? 9000 : 50000,
+        nav: id === 2 ? 9000 : 200000,
+        positions: id === 2 ? [] : analysisFixture.positions,
+      } as never),
+    );
+    renderWithRole(<DashboardPage />);
+    const switcher = await screen.findByRole("button", { name: /Основной портфель ▾/ });
+    switcher.click();
+    (await screen.findByRole("button", { name: /Второй портфель/ })).click();
+
+    expect(await screen.findByTestId("cockpit-portfolio-name")).toHaveTextContent(/Второй портфель/);
+    expect(screen.getByTestId("cockpit-cash")).toHaveTextContent(/9/);
+    resolveA(personalFixture);
+    await waitFor(() =>
+      expect(screen.getByTestId("cockpit-portfolio-name")).toHaveTextContent(/Второй портфель/),
+    );
+    expect(screen.getByTestId("cockpit-cash")).toHaveTextContent(/9/);
+  });
 });
 
 describe("PortfolioPage", () => {
@@ -414,6 +502,18 @@ describe("PortfolioPage", () => {
     expect(await screen.findByRole("heading", { name: "Портфели" })).toBeInTheDocument();
     expect(await screen.findByText(/Основной портфель/)).toBeInTheDocument();
     expect(screen.getByText(/Новый портфель/i)).toBeInTheDocument();
+  });
+
+  it("shows create-first CTA and setup form when empty", async () => {
+    listPersonalPortfolios.mockResolvedValue({ items: [], count: 0 });
+    renderWithRole(<PortfolioPage />);
+    expect(await screen.findByTestId("create-first-portfolio-cta")).toHaveTextContent(
+      "Создать первый портфель",
+    );
+    expect(screen.getByTestId("new-portfolio-form")).toBeInTheDocument();
+    expect(screen.getByTestId("new-portfolio-submit")).toHaveTextContent(
+      "Создать первый портфель",
+    );
   });
 });
 
