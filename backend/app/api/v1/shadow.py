@@ -14,13 +14,13 @@ from app.infrastructure.db.session import core_session
 from app.infrastructure.market.models import Instrument
 from app.modules.market.application.intraday_cache import IntradayQuoteCache
 from app.modules.market.application.workflows import create_workflow
+from app.modules.portfolio.domain.valuation import latest_eod_close
 from app.modules.shadow.application.daily_operations import build_daily_operations_status
 from app.modules.shadow.application.decision_journal import (
     build_candidate_history,
     build_shadow_journal,
 )
 from app.modules.shadow.application.intraday_universe import resolve_intraday_universe
-from app.modules.portfolio.domain.valuation import latest_eod_close
 from app.modules.shadow.application.live_valuation import (
     EodMark,
     build_live_portfolio_snapshot,
