@@ -1,4 +1,4 @@
-﻿# Review artifacts — pending MVP investor journey V1
+﻿# Review artifacts — PR #84
 
 ## Feature
 Kraken MVP Sprint 1 — end-to-end investor journey.
