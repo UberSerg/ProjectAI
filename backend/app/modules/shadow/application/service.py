@@ -722,8 +722,8 @@ def _build_decision_and_orders(
         provenance_from_batch(
             batch,
             session_date=batch.as_of_date,
-            policy_name=spec.policy_name,
-            risk_name=spec.risk_name,
+            policy_name=getattr(spec, "policy_name", None),
+            risk_name=getattr(spec, "risk_name", None),
             execution_version=execution_version_for_spec(spec),
         ),
     )
@@ -1158,8 +1158,8 @@ def _persist_fractional_orders(
                     provenance_from_batch(
                         batch,
                         session_date=batch.as_of_date,
-                        policy_name=spec.policy_name,
-                        risk_name=spec.risk_name,
+                        policy_name=getattr(spec, "policy_name", None),
+                        risk_name=getattr(spec, "risk_name", None),
                     ),
                 ),
             )
@@ -1485,8 +1485,8 @@ def _persist_lot_aware_orders(
                         provenance_from_batch(
                             batch,
                             session_date=batch.as_of_date,
-                            policy_name=spec.policy_name,
-                            risk_name=spec.risk_name,
+                            policy_name=getattr(spec, "policy_name", None),
+                            risk_name=getattr(spec, "risk_name", None),
                             execution_version=execution_version_for_spec(spec)
                             or EXECUTION_VERSION_LOT_AWARE_V2,
                         ),

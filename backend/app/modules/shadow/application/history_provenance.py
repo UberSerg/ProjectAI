@@ -18,7 +18,7 @@ HISTORY_KIND_RECORDED_LIVE = "RECORDED_LIVE"
 def batch_history_kind(batch: ForwardPredictionBatch | None) -> str:
     if batch is None:
         return HISTORY_KIND_RECORDED_LIVE
-    lineage = batch.input_lineage or {}
+    lineage = getattr(batch, "input_lineage", None) or {}
     kind = str(lineage.get("history_kind") or "").upper()
     if kind == HISTORY_KIND_COUNTERFACTUAL or lineage.get("reconstruction") is True:
         return HISTORY_KIND_COUNTERFACTUAL
@@ -34,14 +34,15 @@ def provenance_from_batch(
     execution_version: str | None = None,
 ) -> dict[str, Any]:
     """Structured provenance for decision/order/fill metadata and NAV reporting."""
-    lineage = dict(batch.input_lineage or {})
+    lineage = dict(getattr(batch, "input_lineage", None) or {})
     kind = batch_history_kind(batch)
-    day = session_date or batch.as_of_date
+    as_of = getattr(batch, "as_of_date", None)
+    day = session_date or as_of
     out: dict[str, Any] = {
         "history_kind": kind,
         "forward_batch_id": int(batch.id),
         "session_date": day.isoformat() if day is not None else None,
-        "pit_as_of": batch.as_of_date.isoformat() if batch.as_of_date is not None else None,
+        "pit_as_of": as_of.isoformat() if as_of is not None else None,
         "reconstruction": kind == HISTORY_KIND_COUNTERFACTUAL,
     }
     if kind == HISTORY_KIND_COUNTERFACTUAL:
