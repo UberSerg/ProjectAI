@@ -28,6 +28,12 @@ from app.modules.shadow.application.execution_eligibility import (
     iso_week_key,
     min_execution_market_date,
 )
+from app.modules.shadow.application.history_provenance import (
+    HISTORY_KIND_RECORDED_LIVE,
+    batch_history_kind,
+    merge_provenance,
+    provenance_from_batch,
+)
 from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
@@ -524,6 +530,39 @@ def _mark_nav(
                 position_count=pos_count,
             )
         )
+    # Trace NAV session to last decision / Forward provenance (no schema change).
+    hist_kind = HISTORY_KIND_RECORDED_LIVE
+    hist_batch_id = getattr(portfolio, "last_processed_prediction_batch_id", None)
+    last_decision_id = getattr(portfolio, "last_decision_id", None)
+    if last_decision_id is not None:
+        last_dec = session.get(ShadowDecision, last_decision_id)
+        if last_dec is not None:
+            dmeta = last_dec.metadata_ or {}
+            hist_kind = str(dmeta.get("history_kind") or HISTORY_KIND_RECORDED_LIVE)
+            hist_batch_id = int(dmeta.get("forward_batch_id") or last_dec.forward_batch_id)
+    elif hist_batch_id is not None:
+        batch = session.get(ForwardPredictionBatch, int(hist_batch_id))
+        hist_kind = batch_history_kind(batch)
+    prov = dict(getattr(portfolio, "provenance", None) or {})
+    marks = dict(prov.get("nav_history_kinds") or {})
+    marks[day.isoformat()] = {
+        "history_kind": hist_kind,
+        "forward_batch_id": hist_batch_id,
+        "session_date": day.isoformat(),
+    }
+    # Keep a bounded trail (last ~120 sessions) for reporting without unbounded growth.
+    if len(marks) > 120:
+        for old_key in sorted(marks.keys())[: len(marks) - 120]:
+            marks.pop(old_key, None)
+    prov["nav_history_kinds"] = marks
+    prov["last_nav_history_kind"] = hist_kind
+    prov["last_nav_as_of"] = day.isoformat()
+    portfolio.provenance = prov
+    if hasattr(portfolio, "provenance"):
+        try:
+            flag_modified(portfolio, "provenance")
+        except Exception:  # noqa: BLE001
+            pass
     portfolio.last_processed_market_date = day
     portfolio.updated_at = now
     return {
@@ -533,6 +572,7 @@ def _mark_nav(
         "market_value": mv,
         "drawdown": dd,
         "gross": gross,
+        "history_kind": hist_kind,
     }
 
 
@@ -667,17 +707,26 @@ def _build_decision_and_orders(
             }
         )
 
-    decision_meta: dict[str, Any] = {
-        "eligible_n": policy_out.metadata.get("eligible_n"),
-        "selected_k": policy_out.metadata.get("selected_k"),
-        "k_entry": policy_out.metadata.get("k_entry"),
-        "k_max": policy_out.metadata.get("k_max"),
-        "prediction_hash": batch.prediction_hash,
-        "kind": SHADOW_KIND,
-        "nav_source": decision_nav_source,
-        "nav_as_of": price_as_of.isoformat() if price_as_of is not None else None,
-        "held_missing_marks": held_missing,
-    }
+    decision_meta: dict[str, Any] = merge_provenance(
+        {
+            "eligible_n": policy_out.metadata.get("eligible_n"),
+            "selected_k": policy_out.metadata.get("selected_k"),
+            "k_entry": policy_out.metadata.get("k_entry"),
+            "k_max": policy_out.metadata.get("k_max"),
+            "prediction_hash": batch.prediction_hash,
+            "kind": SHADOW_KIND,
+            "nav_source": decision_nav_source,
+            "nav_as_of": price_as_of.isoformat() if price_as_of is not None else None,
+            "held_missing_marks": held_missing,
+        },
+        provenance_from_batch(
+            batch,
+            session_date=batch.as_of_date,
+            policy_name=spec.policy_name,
+            risk_name=spec.risk_name,
+            execution_version=execution_version_for_spec(spec),
+        ),
+    )
 
     # V3 only: rank exit-band breach → review trigger; economic sell gate filters targets.
     if is_sell_economics_v3_spec(spec):
@@ -1095,14 +1144,24 @@ def _persist_fractional_orders(
                 eligible_count=eligible_count,
                 decision_at=decision_at,
                 min_execution_date=min_exec,
-                metadata_={
-                    "forward_batch_id": batch.id,
-                    "signal_as_of": batch.as_of_date.isoformat(),
-                    "signal_generated_at": ensure_aware_utc(batch.generated_at or decision_at).isoformat(),
-                    "policy": spec.policy_name,
-                    "risk_mode": portfolio.risk_mode,
-                    "kind": SHADOW_KIND,
-                },
+                metadata_=merge_provenance(
+                    {
+                        "forward_batch_id": batch.id,
+                        "signal_as_of": batch.as_of_date.isoformat(),
+                        "signal_generated_at": ensure_aware_utc(
+                            batch.generated_at or decision_at
+                        ).isoformat(),
+                        "policy": spec.policy_name,
+                        "risk_mode": portfolio.risk_mode,
+                        "kind": SHADOW_KIND,
+                    },
+                    provenance_from_batch(
+                        batch,
+                        session_date=batch.as_of_date,
+                        policy_name=spec.policy_name,
+                        risk_name=spec.risk_name,
+                    ),
+                ),
             )
         )
 
@@ -1401,27 +1460,37 @@ def _persist_lot_aware_orders(
                 decision_at=decision_at,
                 min_execution_date=min_exec,
                 metadata_=_order_fee_metadata(
-                    base={
-                        "forward_batch_id": batch.id,
-                        "signal_as_of": batch.as_of_date.isoformat(),
-                        "signal_generated_at": ensure_aware_utc(
-                            batch.generated_at or decision_at
-                        ).isoformat(),
-                        "policy": spec.policy_name,
-                        "risk_mode": portfolio.risk_mode,
-                        "kind": SHADOW_KIND,
-                        "execution_version": execution_version_for_spec(spec)
-                        or EXECUTION_VERSION_LOT_AWARE_V2,
-                        "lots": int(row.lots_delta),
-                        "lot_size": int(row.lot_size) if row.lot_size else None,
-                        "units": float(row.units_delta),
-                        "plan_reason": row.reason,
-                        "estimated_fee": float(row.estimated_fee),
-                        "gate_action": gate_action,
-                        "sell_allowed": (
-                            bool(perm.sell_allowed) if perm is not None else None
+                    base=merge_provenance(
+                        {
+                            "forward_batch_id": batch.id,
+                            "signal_as_of": batch.as_of_date.isoformat(),
+                            "signal_generated_at": ensure_aware_utc(
+                                batch.generated_at or decision_at
+                            ).isoformat(),
+                            "policy": spec.policy_name,
+                            "risk_mode": portfolio.risk_mode,
+                            "kind": SHADOW_KIND,
+                            "execution_version": execution_version_for_spec(spec)
+                            or EXECUTION_VERSION_LOT_AWARE_V2,
+                            "lots": int(row.lots_delta),
+                            "lot_size": int(row.lot_size) if row.lot_size else None,
+                            "units": float(row.units_delta),
+                            "plan_reason": row.reason,
+                            "estimated_fee": float(row.estimated_fee),
+                            "gate_action": gate_action,
+                            "sell_allowed": (
+                                bool(perm.sell_allowed) if perm is not None else None
+                            ),
+                        },
+                        provenance_from_batch(
+                            batch,
+                            session_date=batch.as_of_date,
+                            policy_name=spec.policy_name,
+                            risk_name=spec.risk_name,
+                            execution_version=execution_version_for_spec(spec)
+                            or EXECUTION_VERSION_LOT_AWARE_V2,
                         ),
-                    },
+                    ),
                     v3=v3,
                     fee_estimator=fee_estimator,
                     fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
@@ -1725,6 +1794,21 @@ def _fill_pending_orders(
         if existing_fill is not None:
             continue
         fill_meta: dict[str, Any] = {"kind": SHADOW_KIND, "raw_open_source": "market.candles"}
+        ometa = dict(order.metadata_ or {})
+        for key in (
+            "history_kind",
+            "forward_batch_id",
+            "session_date",
+            "pit_as_of",
+            "reconstruction",
+            "reconstructed_at",
+            "pit_visibility_clock",
+            "pit_input_bound",
+            "policy_name",
+            "risk_name",
+        ):
+            if key in ometa and ometa[key] is not None:
+                fill_meta[key] = ometa[key]
         if lot_aware:
             fill_meta["execution_version"] = (
                 execution_version_for_spec(spec) or EXECUTION_VERSION_LOT_AWARE_V2
