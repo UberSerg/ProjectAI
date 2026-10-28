@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     # Optional lightweight readiness poll — triggers cycle once when EOD complete (not full cycle every N min).
     eod_readiness_retry_enabled: bool = Field(default=False, alias="EOD_READINESS_RETRY_ENABLED")
     eod_readiness_retry_minutes: int = Field(default=15, alias="EOD_READINESS_RETRY_MINUTES")
+    # Startup Shadow recovery after downtime — independent of RESEARCH_LIVE_MODE.
+    # Opt-in; local research stacks should set true. Enqueues worker recovery, does not block API boot.
+    shadow_startup_recovery_enabled: bool = Field(
+        default=False, alias="SHADOW_STARTUP_RECOVERY_ENABLED"
+    )
     moex_base_url: str = Field(default="https://iss.moex.com", alias="MOEX_BASE_URL")
     cbr_base_url: str = Field(default="https://www.cbr.ru", alias="CBR_BASE_URL")
     http_timeout_seconds: float = Field(default=30.0, alias="HTTP_TIMEOUT_SECONDS")

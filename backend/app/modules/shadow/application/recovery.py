@@ -2,6 +2,10 @@
 
 stale EOD → detect market gap → backfill all missing EOD → verify sessions
 → analytics/technical catch-up → intermediate Forward as_of → Shadow session replay.
+
+Counterfactual Forward batches use a PIT visibility clock for replay feasibility, but are
+explicitly marked ``history_kind=COUNTERFACTUAL_REPLAY`` so they are never confused with
+recorded LIVE history.
 """
 
 from __future__ import annotations
@@ -9,9 +13,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from typing import Any
-
+import redis
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.modules.market.application.eod_gap import (
     MARKET_CURRENT,
     MARKET_STALE,
@@ -25,6 +31,7 @@ from app.modules.market.application.eod_recovery import (
 )
 from app.modules.prediction.application.forward_readiness import select_latest_complete_as_of
 from app.modules.prediction.application.forward_runner import run_forward_signal_v0
+from app.modules.prediction.infrastructure.forward_models import ForwardPredictionBatch
 from app.modules.shadow.application.session_catchup import (
     CATCH_UP_NO_OP,
     CATCH_UP_SUCCESS,
@@ -33,11 +40,41 @@ from app.modules.shadow.application.session_catchup import (
 )
 
 Clock = Callable[[], datetime]
+logger = get_logger(__name__, component="shadow_recovery")
+
+RECOVERY_LOCK_KEY = "projectai:lock:market_shadow_recovery"
+RECOVERY_LOCK_TTL_SECONDS = 3600
+HISTORY_KIND_COUNTERFACTUAL = "COUNTERFACTUAL_REPLAY"
+HISTORY_KIND_RECORDED_LIVE = "RECORDED_LIVE"
 
 
 def _session_as_of_clock(day: date) -> datetime:
-    """Decision/visibility clock for a completed session (UTC evening of the session day)."""
+    """PIT visibility clock for a completed session (UTC evening of the session day).
+
+    Used so Shadow catch-up can see the batch at historical session time. Batches created
+    this way MUST be tagged COUNTERFACTUAL_REPLAY — the clock is not a claim that the
+    decision existed live at that wall-clock moment.
+    """
     return datetime.combine(day, time(18, 0), tzinfo=UTC)
+
+
+def try_acquire_recovery_lock(token: str, *, ttl: int = RECOVERY_LOCK_TTL_SECONDS) -> bool:
+    try:
+        client = redis.Redis.from_url(get_settings().redis_url, decode_responses=False)
+        return bool(client.set(RECOVERY_LOCK_KEY, token, nx=True, ex=ttl))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("shadow_recovery_lock_unavailable", extra={"error": str(exc)})
+        return False
+
+
+def release_recovery_lock(token: str) -> None:
+    try:
+        client = redis.Redis.from_url(get_settings().redis_url, decode_responses=False)
+        current = client.get(RECOVERY_LOCK_KEY)
+        if current is not None and current.decode() == token:
+            client.delete(RECOVERY_LOCK_KEY)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("shadow_recovery_lock_release_failed", extra={"error": str(exc)})
 
 
 def _ensure_features(session: Session) -> dict[str, Any]:
@@ -77,21 +114,46 @@ def _ensure_features(session: Session) -> dict[str, Any]:
     }
 
 
+def _mark_batch_counterfactual(session: Session, batch_id: int | None, *, as_of: date) -> None:
+    if batch_id is None:
+        return
+    batch = session.get(ForwardPredictionBatch, batch_id)
+    if batch is None:
+        return
+    lineage = dict(batch.input_lineage or {})
+    lineage["history_kind"] = HISTORY_KIND_COUNTERFACTUAL
+    lineage["reconstruction"] = True
+    lineage["reconstructed_at"] = datetime.now(UTC).isoformat()
+    lineage["pit_visibility_clock"] = _session_as_of_clock(as_of).isoformat()
+    lineage["note"] = (
+        "Counterfactual recovery replay: PIT inputs as_of session day; "
+        "generated_at is a visibility clock for Shadow catch-up, not recorded LIVE history."
+    )
+    batch.input_lineage = lineage
+    session.flush()
+
+
 def _backfill_forward_as_of(
     session: Session,
     sessions: list[date],
 ) -> list[dict[str, Any]]:
-    """Generate immutable Forward batches for each recovery session (PIT as_of)."""
+    """Generate immutable Forward batches for each recovery session (PIT as_of).
+
+    Marked COUNTERFACTUAL_REPLAY — distinct from recorded LIVE batches.
+    """
     results: list[dict[str, Any]] = []
     for day in sessions:
         gen_at = _session_as_of_clock(day)
         out = run_forward_signal_v0(session, as_of=day, generated_at=gen_at)
+        _mark_batch_counterfactual(session, out.batch_id, as_of=day)
         results.append(
             {
                 "as_of": day.isoformat(),
                 "status": out.status,
                 "batch_id": out.batch_id,
                 "generated_at": gen_at.isoformat(),
+                "history_kind": HISTORY_KIND_COUNTERFACTUAL,
+                "reconstruction": True,
                 "error": (out.summary or {}).get("error"),
             }
         )
@@ -199,12 +261,21 @@ def run_market_shadow_recovery(
             "intermediate_forward_as_of": True,
             "shadow_session_clock": "per_session_18:00_UTC",
             "max_as_of_on_decisions": True,
+            "history_kind": HISTORY_KIND_COUNTERFACTUAL,
+            "recorded_live_kind": HISTORY_KIND_RECORDED_LIVE,
             "note": (
-                "Forward batches are generated per recovery session with generated_at pinned "
-                "to that session; Shadow applies decisions only for as_of <= session day."
+                "Recovery Forward batches are COUNTERFACTUAL_REPLAY: PIT as_of per session, "
+                "generated_at is a visibility clock for catch-up only — not recorded LIVE history. "
+                "Do not merge reconstructed and recorded performance unsigned."
             ),
         },
     }
 
 
-__all__ = ["run_market_shadow_recovery"]
+__all__ = [
+    "HISTORY_KIND_COUNTERFACTUAL",
+    "HISTORY_KIND_RECORDED_LIVE",
+    "release_recovery_lock",
+    "run_market_shadow_recovery",
+    "try_acquire_recovery_lock",
+]

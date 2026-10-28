@@ -22,6 +22,8 @@ from app.modules.shadow.application.pipeline_status import (
     WAITING_FOR_ANALYTICS,
     WAITING_FOR_FORWARD,
     WAITING_FOR_MARKET_COMPLETE,
+    WAITING_FOR_RELATIONS,
+    WAITING_FOR_SHADOW_PLAN,
     WAITING_FOR_TECHNICAL,
     build_pipeline_status,
     next_session_date_from_eod,
@@ -215,14 +217,29 @@ def _resolve_next_execution_session(
     mid_session_activation: bool,
     portfolios: list[tuple[ShadowPortfolio, ShadowPortfolioSpec]],
 ) -> str | None:
-    """Prefer pending-order eligibility over naive EOD+1 (mid-session bootstrap)."""
-    if mid_session_activation:
-        from app.modules.shadow.domain.open_execution import (
-            ensure_aware_utc,
-            session_open_time_utc,
-        )
+    """Prefer pending-order eligibility over naive EOD+1 (mid-session bootstrap).
 
-        clock = ensure_aware_utc(datetime.now(UTC))
+    Never present a past min_execution_date as the upcoming session — stale PENDING
+    orders must not look like a future trading day.
+    """
+    from datetime import date as date_cls
+
+    from app.modules.shadow.domain.open_execution import (
+        ensure_aware_utc,
+        session_open_time_utc,
+    )
+
+    clock = ensure_aware_utc(datetime.now(UTC))
+    today = clock.date()
+
+    def _future_or_none(day: Any) -> str | None:
+        if day is None:
+            return None
+        if isinstance(day, date_cls) and day < today:
+            return None
+        return day.isoformat() if hasattr(day, "isoformat") else str(day)
+
+    if mid_session_activation:
         open_at = session_open_time_utc(clock.date())
         mid_ids = [
             p.id
@@ -231,11 +248,13 @@ def _resolve_next_execution_session(
             and ensure_aware_utc(p.activated_at).date() == clock.date()
         ]
         mid_next = _earliest_pending_min_execution(session, portfolio_ids=mid_ids or None)
-        if mid_next is not None:
-            return mid_next.isoformat() if hasattr(mid_next, "isoformat") else str(mid_next)
+        resolved = _future_or_none(mid_next)
+        if resolved is not None:
+            return resolved
     pending_next = _earliest_pending_min_execution(session)
-    if pending_next is not None:
-        return pending_next.isoformat() if hasattr(pending_next, "isoformat") else str(pending_next)
+    resolved = _future_or_none(pending_next)
+    if resolved is not None:
+        return resolved
     return next_session_date_from_eod(readiness.latest_complete_eod_date)
 
 
@@ -272,12 +291,32 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
 
     order_plan_status = "NONE"
     latest_decision = session.scalar(select(ShadowDecision).order_by(ShadowDecision.id.desc()).limit(1))
-    if latest_decision is not None:
-        meta = latest_decision.metadata_ or {}
-        if meta.get("order_plan"):
+    if pending_n > 0:
+        # Diagnose via actual pending order → decision links (not the global latest decision alone).
+        pending_orders = list(
+            session.scalars(
+                select(ShadowOrder).where(ShadowOrder.status == "PENDING").order_by(ShadowOrder.id)
+            ).all()
+        )
+        decision_ids = {int(o.decision_id) for o in pending_orders if o.decision_id is not None}
+        linked = (
+            list(
+                session.scalars(
+                    select(ShadowDecision).where(ShadowDecision.id.in_(decision_ids))
+                ).all()
+            )
+            if decision_ids
+            else []
+        )
+        if any((d.metadata_ or {}).get("order_plan") for d in linked):
             order_plan_status = "PRESENT"
-        elif pending_n > 0:
+        elif linked:
+            # Orders exist and decisions exist, but plan snapshot was not stored on metadata.
             order_plan_status = "ORDERS_WITHOUT_PLAN_META"
+        else:
+            order_plan_status = "ORPHAN_PENDING_ORDERS"
+    elif latest_decision is not None and (latest_decision.metadata_ or {}).get("order_plan"):
+        order_plan_status = "PRESENT"
 
     stale = False
     last_ok_at = None
@@ -353,9 +392,17 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
             "daily_research_cycle_minute": settings.daily_research_cycle_minute,
             "eod_readiness_retry_enabled": bool(settings.eod_readiness_retry_enabled),
             "eod_readiness_retry_minutes": int(settings.eod_readiness_retry_minutes or 15),
+            "shadow_startup_recovery_enabled": bool(settings.shadow_startup_recovery_enabled),
             "intraday_market_enabled": bool(settings.intraday_market_enabled),
             "warning": pipeline.automation_warning,
         },
+        "operational_state": _map_operational_state(
+            prep=prep,
+            current=pipeline.current_session_status,
+            catch_up=catch_up,
+            automation_warning=pipeline.automation_warning,
+            order_plan_status=order_plan_status,
+        ),
         "last_eod_cycle": {
             "workflow_id": last_ok.id if last_ok else None,
             "status": last_ok.status if last_ok else None,
@@ -565,9 +612,15 @@ def maybe_trigger_cycle_if_ready(session: Session) -> dict[str, Any]:
 
 
 def maybe_startup_catchup(session: Session) -> dict[str, Any]:
-    """Backend/worker startup: if active Shadow exists and downstream lags, trigger once."""
+    """Backend/worker startup: recover Shadow after downtime without requiring RESEARCH_LIVE_MODE.
+
+    Heavy recovery is enqueued to the worker (never blocks API boot). Full live automation
+    still uses maybe_trigger_cycle_if_ready when RESEARCH_LIVE_MODE / EOD retry is on.
+    """
     settings = get_settings()
-    if not (settings.research_live_mode or settings.eod_readiness_retry_enabled):
+    live_automation = bool(settings.research_live_mode or settings.eod_readiness_retry_enabled)
+    startup_recovery = bool(settings.shadow_startup_recovery_enabled)
+    if not live_automation and not startup_recovery:
         return {
             "status": STAGE_DISABLED,
             "stage": STAGE_DISABLED,
@@ -579,7 +632,102 @@ def maybe_startup_catchup(session: Session) -> dict[str, Any]:
             "stage": STAGE_ALREADY_CURRENT,
             "reason": "no_active_shadow",
         }
-    return maybe_trigger_cycle_if_ready(session)
+
+    if live_automation:
+        return maybe_trigger_cycle_if_ready(session)
+
+    # Startup recovery only: enqueue market+shadow recovery via worker (idempotent lock inside).
+    try:
+        from app.worker import tasks as worker_tasks
+
+        async_result = worker_tasks.market_shadow_recovery.delay()
+        return {
+            "status": STAGE_SUCCESS,
+            "stage": STAGE_SUCCESS,
+            "triggered": True,
+            "mode": "SHADOW_STARTUP_RECOVERY",
+            "task_id": async_result.id,
+            "reason": "startup_recovery_enqueued",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": STAGE_FAILED,
+            "stage": STAGE_FAILED,
+            "mode": "SHADOW_STARTUP_RECOVERY",
+            "error": str(exc)[:500],
+        }
+
+
+def _map_operational_state(
+    *,
+    prep: str,
+    current: str,
+    catch_up: dict[str, Any],
+    automation_warning: str | None,
+    order_plan_status: str,
+) -> dict[str, Any]:
+    """Collapse backend codes into user-facing operational buckets (compat preserved)."""
+    catch_status = str(
+        (catch_up or {}).get("catch_up_status") or (catch_up or {}).get("status") or ""
+    ).upper()
+    missing_days = int((catch_up or {}).get("backlog_session_count") or 0)
+    shadow_block = (catch_up or {}).get("shadow") if isinstance(catch_up, dict) else None
+    last_processed = (catch_up or {}).get("last_successful_replay_hint") or (
+        shadow_block.get("last_processed_session") if isinstance(shadow_block, dict) else None
+    )
+    expected = (catch_up or {}).get("latest_completed_market_session")
+    stop_reason = (catch_up or {}).get("blocking_reason") or (catch_up or {}).get("blocking_session")
+
+    if catch_status in {"CATCH_UP_RUNNING", "CATCH_UP_IN_PROGRESS", "RECOVERING"} or (
+        missing_days > 0 and catch_status not in {"CATCH_UP_BLOCKED", "CATCH_UP_FAILED"}
+    ):
+        state = "RECOVERING"
+        action = "Дождаться завершения catch-up / не запускать вручную повторно."
+    elif prep in (READY_FOR_NEXT_SESSION, READY_NO_REBALANCE):
+        state = "READY"
+        action = None
+    elif current in (
+        "PENDING_ORDERS_AWAITING_OPEN",
+        "MID_SESSION_ACTIVATION_WAIT_NEXT_OPEN",
+    ) or prep == PENDING_ORDERS_AWAITING_OPEN:
+        state = "WAITING_MARKET_OPEN"
+        action = "Дождаться официального OPEN следующей торговой сессии."
+    elif prep == BLOCKED_CONSISTENCY:
+        state = "BLOCKED_INTEGRITY"
+        action = "Проверить consistency blockers; не удалять ордера ради READY."
+    elif prep in (
+        WAITING_FOR_MARKET_COMPLETE,
+        WAITING_FOR_ANALYTICS,
+        WAITING_FOR_TECHNICAL,
+        WAITING_FOR_RELATIONS,
+        WAITING_FOR_FORWARD,
+        WAITING_FOR_SHADOW_PLAN,
+        ORDER_PLAN_PENDING,
+    ) or catch_status == "CATCH_UP_BLOCKED":
+        state = "MISSING_INPUT"
+        action = "Восстановить недостающие EOD / Analytics / Forward и повторить catch-up."
+    elif prep == CYCLE_STALE or automation_warning:
+        state = "STALE_DATA"
+        action = (
+            "Включить SHADOW_STARTUP_RECOVERY_ENABLED или RESEARCH_LIVE_MODE / "
+            "запустить catch-up после простоя."
+        )
+    else:
+        state = "BLOCKED_INTEGRITY" if order_plan_status == "ORPHAN_PENDING_ORDERS" else "STALE_DATA"
+        action = "Сверить watermark'и и причину остановки в catch_up."
+
+    return {
+        "state": state,
+        "backend_prep_code": prep,
+        "backend_current_code": current,
+        "last_processed_session": last_processed,
+        "expected_session": expected,
+        "missing_sessions": missing_days,
+        "catch_up_status": catch_status or None,
+        "stop_reason": stop_reason,
+        "order_plan_status": order_plan_status,
+        "required_action": action,
+    }
 
 
 __all__ = [

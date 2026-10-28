@@ -494,7 +494,50 @@ export function shortHash(value?: string | null, n = 8): string {
 /** Product stage buckets for next-session prep (mega task §37). */
 export type NextSessionStage = "WAITING_EOD" | "PROCESSING" | "READY" | "BLOCKED";
 
+/** Reliability V1 operational buckets (backend operational_state.state). */
+export type OperationalState =
+  | "READY"
+  | "WAITING_MARKET_OPEN"
+  | "RECOVERING"
+  | "STALE_DATA"
+  | "MISSING_INPUT"
+  | "BLOCKED_INTEGRITY";
+
 export type StatusTone = "success" | "warning" | "error" | "running" | "info" | "neutral";
+
+export function operationalStateFromOps(ops?: ShadowDailyOperations | null): OperationalState | null {
+  const raw = ops?.operational_state?.state;
+  if (!raw) return null;
+  const upper = String(raw).toUpperCase();
+  if (
+    upper === "READY" ||
+    upper === "WAITING_MARKET_OPEN" ||
+    upper === "RECOVERING" ||
+    upper === "STALE_DATA" ||
+    upper === "MISSING_INPUT" ||
+    upper === "BLOCKED_INTEGRITY"
+  ) {
+    return upper as OperationalState;
+  }
+  return null;
+}
+
+export function operationalStateTone(state: OperationalState | null): StatusTone {
+  switch (state) {
+    case "READY":
+      return "success";
+    case "WAITING_MARKET_OPEN":
+    case "RECOVERING":
+      return "running";
+    case "STALE_DATA":
+    case "MISSING_INPUT":
+      return "warning";
+    case "BLOCKED_INTEGRITY":
+      return "error";
+    default:
+      return "neutral";
+  }
+}
 
 export function currentSessionCode(ops?: ShadowDailyOperations | null): string | null {
   return ops?.current_session_status ?? ops?.pipeline?.current_session_status ?? null;
@@ -524,7 +567,14 @@ export function automationWarningText(ops?: ShadowDailyOperations | null): strin
   return null;
 }
 
-export function mapNextSessionStage(prepCode?: string | null): NextSessionStage {
+export function mapNextSessionStage(
+  prepCode?: string | null,
+  operationalState?: OperationalState | null,
+): NextSessionStage {
+  if (operationalState === "READY" || operationalState === "WAITING_MARKET_OPEN") return "READY";
+  if (operationalState === "RECOVERING" || operationalState === "MISSING_INPUT") return "PROCESSING";
+  if (operationalState === "STALE_DATA" || operationalState === "BLOCKED_INTEGRITY") return "BLOCKED";
+
   const code = (prepCode ?? "").toUpperCase();
   if (
     code === "READY_FOR_NEXT_SESSION" ||

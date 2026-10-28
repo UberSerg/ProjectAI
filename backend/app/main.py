@@ -46,7 +46,7 @@ async def lifespan(_app: FastAPI):
             )
     except Exception as exc:  # noqa: BLE001 — startup must not fail on cleanup
         logger.warning("technology_log_cleanup_failed", extra={"error": str(exc)})
-    # Catch-up: if live automation is on and Shadow exists with lagging analytics, trigger once.
+    # Catch-up: RESEARCH_LIVE_MODE/EOD retry OR SHADOW_STARTUP_RECOVERY_ENABLED (worker enqueue).
     try:
         with core_session() as session:
             from app.modules.shadow.application.daily_operations import maybe_startup_catchup

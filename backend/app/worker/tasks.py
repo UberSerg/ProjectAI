@@ -460,6 +460,33 @@ def eod_readiness_retry() -> dict:
         return maybe_trigger_cycle_if_ready(session)
 
 
+@celery_app.task(name="projectai.market_shadow_recovery")
+def market_shadow_recovery() -> dict:
+    """Worker: EOD market gap → features → counterfactual Forward → Shadow session replay.
+
+    Used by SHADOW_STARTUP_RECOVERY_ENABLED. Single-flight via Redis lock; idempotent per session.
+    Never touches broker or personal portfolio ledger.
+    """
+    from uuid import uuid4
+
+    from app.modules.shadow.application.recovery import (
+        release_recovery_lock,
+        run_market_shadow_recovery,
+        try_acquire_recovery_lock,
+    )
+
+    token = str(uuid4())
+    if not try_acquire_recovery_lock(token):
+        return {"status": "ALREADY_RUNNING", "reason": "single_flight_lock"}
+    try:
+        with core_session() as session:
+            result = run_market_shadow_recovery(session, commit_each_session=True)
+            session.commit()
+            return result
+    finally:
+        release_recovery_lock(token)
+
+
 @celery_app.task(name="projectai.refresh_intraday_market")
 def refresh_intraday_market() -> dict:
     """Intraday quotes → Redis cache → shadow session-open fills. No research cycle."""

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -20,7 +20,11 @@ from app.modules.shadow.application.decision_journal import (
     build_shadow_journal,
 )
 from app.modules.shadow.application.intraday_universe import resolve_intraday_universe
-from app.modules.shadow.application.live_valuation import build_live_portfolio_snapshot
+from app.modules.portfolio.domain.valuation import latest_eod_close
+from app.modules.shadow.application.live_valuation import (
+    EodMark,
+    build_live_portfolio_snapshot,
+)
 from app.modules.shadow.application.lot_aware import is_lot_aware_spec
 from app.modules.shadow.application.service import initialize_shadow_portfolios
 from app.modules.shadow.config import (
@@ -180,6 +184,25 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
     spec = session.get(ShadowPortfolioSpec, portfolio.spec_id)
     cost_basis_nav = float(spec.initial_capital) if spec is not None else None
 
+    eod_marks: dict[int, EodMark] = {}
+    for iid in needed_ids:
+        if iid in quotes_by_instrument:
+            q = quotes_by_instrument[iid]
+            if q is not None and (
+                (q.last_price is not None and float(q.last_price) > 0)
+                or (q.previous_close is not None and float(q.previous_close) > 0)
+            ):
+                continue
+        close, close_ts = latest_eod_close(session, int(iid))
+        if close is not None and float(close) > 0:
+            as_of = None
+            if close_ts:
+                try:
+                    as_of = datetime.fromisoformat(str(close_ts).replace("Z", "+00:00"))
+                except ValueError:
+                    as_of = None
+            eod_marks[int(iid)] = EodMark(price=float(close), as_of=as_of, source="EOD")
+
     snapshot = build_live_portfolio_snapshot(
         portfolio_id=int(portfolio.id),
         cash=float(portfolio.cash),
@@ -187,6 +210,7 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         quotes_by_instrument=quotes_by_instrument,
         entry_by_instrument=entry_by_instrument,
         cost_basis_nav=cost_basis_nav,
+        eod_marks_by_instrument=eod_marks,
     )
     pending_reasons = [
         _pending_reason_for_order(
@@ -232,10 +256,12 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
                 "unrealized_pnl_pct": m.unrealized_pnl_pct,
                 "change_pct": m.unrealized_pnl_pct,
                 "freshness": m.freshness,
+                "priced": m.priced,
                 "quote_time": m.quote_time.isoformat() if m.quote_time else None,
             }
         )
 
+    status = str(snapshot.valuation_status)
     return {
         "intraday_enabled": bool(settings.intraday_market_enabled),
         "open_execution_policy": POLICY_NAME,
@@ -247,22 +273,34 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         "cash_breakdown": {
             "cash": snapshot.cash,
             "invested_cost": snapshot.invested_cost,
-            "market_value": snapshot.market_value,
+            "market_value": snapshot.known_market_value,
+            "known_market_value": snapshot.known_market_value,
+            "known_nav": snapshot.known_nav,
             "nav": snapshot.nav,
+            "nav_is_complete": snapshot.nav_is_complete,
+            "valuation_status": status,
             "fees_paid": fees_total,
             "realized_pnl": realized_total,
             "unrealized_pnl": snapshot.unrealized_pnl,
+            "partial_unrealized_pnl": snapshot.partial_unrealized_pnl,
         },
         "live": {
             "cash": snapshot.cash,
             "invested_cost": snapshot.invested_cost,
-            "market_value": snapshot.market_value,
+            "market_value": snapshot.known_market_value,
+            "known_market_value": snapshot.known_market_value,
+            "known_nav": snapshot.known_nav,
             "nav": snapshot.nav,
+            "nav_is_complete": snapshot.nav_is_complete,
+            "valuation_status": status,
             "unrealized_pnl": snapshot.unrealized_pnl,
             "unrealized_pnl_pct": snapshot.unrealized_pnl_pct,
+            "partial_unrealized_pnl": snapshot.partial_unrealized_pnl,
             "realized_pnl": realized_total,
             "fees_paid": fees_total,
             "quote_coverage": snapshot.quote_coverage,
+            "value_coverage": snapshot.value_coverage,
+            "unpriced_positions": list(snapshot.unpriced_positions),
             "warnings": list(snapshot.warnings),
             "as_of": snapshot.as_of.isoformat() if snapshot.as_of else None,
             "positions": live_positions,
@@ -402,9 +440,12 @@ def shadow_overview() -> dict[str, Any]:
                 summary["nav_as_of"] = None
             summary.update(_live_enrichment(session, portfolio))
             live = summary.get("live") or {}
-            if live.get("quote_coverage", 0) > 0 and live.get("nav") is not None:
+            # Only promote complete live NAV — never partial cash+priced as authoritative.
+            if live.get("nav_is_complete") and live.get("nav") is not None:
                 summary["live_nav"] = live["nav"]
-                summary["live_market_value"] = live["market_value"]
+                summary["live_market_value"] = live.get("known_market_value", live.get("market_value"))
+            summary["valuation_status"] = live.get("valuation_status")
+            summary["nav_is_complete"] = bool(live.get("nav_is_complete"))
             portfolios.append(summary)
             if activated_at is None or (
                 portfolio.activated_at and portfolio.activated_at < activated_at

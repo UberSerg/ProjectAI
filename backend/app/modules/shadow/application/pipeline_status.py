@@ -64,7 +64,10 @@ _SUMMARY_RU = {
     WAITING_FOR_SHADOW_PLAN: "Ждём Shadow order plan / advance.",
     CYCLE_RUNNING: "Идёт Daily Research Cycle.",
     CYCLE_STALE: "Последний успешный цикл устарел относительно EOD.",
-    AUTOMATION_DISABLED: "Автоматизация выключена — catch-up не запустится без RESEARCH_LIVE_MODE.",
+    AUTOMATION_DISABLED: (
+        "Автоматизация выключена — включите SHADOW_STARTUP_RECOVERY_ENABLED "
+        "(восстановление после простоя) или RESEARCH_LIVE_MODE."
+    ),
     BLOCKED_CONSISTENCY: "Консистентность Shadow блокирует готовность.",
     NO_SHADOW_PORTFOLIOS: "Нет активных Shadow-портфелей.",
     PENDING_ORDERS_AWAITING_OPEN: "План готов; ордера ждут OPEN.",
@@ -202,6 +205,7 @@ def build_pipeline_status(
         settings.research_live_mode
         or settings.daily_research_cycle_enabled
         or settings.eod_readiness_retry_enabled
+        or settings.shadow_startup_recovery_enabled
     )
     lagging = False
     eod = readiness.latest_complete_eod_date
