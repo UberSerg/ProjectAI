@@ -388,12 +388,26 @@ def run_portfolio_session_catchup(
             continue
         # PIT: only Forward batches visible as-of this session (no future as_of / generated_at).
         session_now = datetime.combine(day, datetime.min.time(), UTC).replace(hour=18)
-        day_decisions = apply_pending_forward_decisions(
-            session, portfolio, spec, now=session_now, max_as_of=day
-        )
-        decisions_made += int(day_decisions or 0)
-        result = process_shadow_market_day(session, portfolio, spec, day, now=session_now)
-        refresh_shadow_portfolio_status(session, portfolio, now=session_now)
+        day_nested = session.begin_nested()
+        try:
+            day_decisions = apply_pending_forward_decisions(
+                session, portfolio, spec, now=session_now, max_as_of=day
+            )
+            decisions_made += int(day_decisions or 0)
+            result = process_shadow_market_day(session, portfolio, spec, day, now=session_now)
+            if result.get("status") == "BLOCKED_INCOMPLETE_MARKS":
+                day_nested.rollback()
+                blocking_session = day
+                block_reason = str(
+                    (result.get("blocker") or {}).get("reason") or REASON_MISSING_MARKET_DATA
+                )
+                # Watermark stays on last success; no partial fills/NAV/decisions for this day.
+                break
+            refresh_shadow_portfolio_status(session, portfolio, now=session_now)
+            day_nested.commit()
+        except Exception:
+            day_nested.rollback()
+            raise
         session.flush()
         if commit_each_session:
             session.commit()

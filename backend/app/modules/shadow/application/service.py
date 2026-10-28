@@ -328,6 +328,11 @@ def session_has_eod_candles(session: Session, day: date) -> bool:
     return row is not None
 
 
+REASON_MISSING_EOD_CLOSE = "MISSING_EOD_CLOSE"
+STATUS_NAV_BLOCKED = "BLOCKED_INCOMPLETE_MARKS"
+STATUS_NAV_OK = "OK"
+
+
 def process_shadow_market_day(
     session: Session,
     portfolio: ShadowPortfolio,
@@ -341,16 +346,52 @@ def process_shadow_market_day(
     Same production path as ``advance_shadow_portfolio`` day loop:
     corporate actions → pending fills → NAV watermark.
     Idempotent under unique constraints on fills/NAV.
+
+    Fail-closed: if EOD marks are incomplete after CA/fills, the nested savepoint
+    rolls back so the day leaves no partial fills, NAV, peak/DD, or watermark advance.
     """
     activation_date = ensure_aware_utc(portfolio.activated_at).date()
     if day <= activation_date:
         portfolio.last_processed_market_date = day
         portfolio.updated_at = now
-        return {"day": day.isoformat(), "skipped": "pre_activation", "fills": 0}
-    _apply_ca_for_day(session, portfolio, day)
-    fills = _fill_pending_orders(session, portfolio, spec, day, now=now)
-    _mark_nav(session, portfolio, spec, day, now=now)
-    return {"day": day.isoformat(), "skipped": None, "fills": fills}
+        return {"day": day.isoformat(), "skipped": "pre_activation", "fills": 0, "status": STATUS_NAV_OK}
+
+    nested = session.begin_nested()
+    try:
+        _apply_ca_for_day(session, portfolio, day)
+        fills = _fill_pending_orders(session, portfolio, spec, day, now=now)
+        mark = _mark_nav(session, portfolio, spec, day, now=now)
+        if mark.get("status") == STATUS_NAV_BLOCKED:
+            nested.rollback()
+            return {
+                "day": day.isoformat(),
+                "skipped": None,
+                "fills": 0,
+                "status": STATUS_NAV_BLOCKED,
+                "blocker": {
+                    "session_date": day.isoformat(),
+                    "portfolio_id": portfolio.id,
+                    "missing_instrument_ids": mark.get("missing_instrument_ids") or [],
+                    "reason": mark.get("reason") or REASON_MISSING_EOD_CLOSE,
+                    "last_successful_session": (
+                        portfolio.last_processed_market_date.isoformat()
+                        if portfolio.last_processed_market_date
+                        else None
+                    ),
+                },
+            }
+        nested.commit()
+        return {
+            "day": day.isoformat(),
+            "skipped": None,
+            "fills": fills,
+            "status": STATUS_NAV_OK,
+            "nav": mark.get("nav"),
+            "drawdown": mark.get("drawdown"),
+        }
+    except Exception:
+        nested.rollback()
+        raise
 
 
 def _apply_ca_for_day(session: Session, portfolio: ShadowPortfolio, day: date) -> None:
@@ -367,6 +408,27 @@ def _apply_ca_for_day(session: Session, portfolio: ShadowPortfolio, day: date) -
         _set_position(portfolio, iid, ticker, qty)
 
 
+def _collect_same_day_closes(
+    session: Session,
+    portfolio: ShadowPortfolio,
+    day: date,
+) -> tuple[dict[int, float], list[int]]:
+    """Return (closes_by_id, missing_ids) for all held positions — Missing ≠ Zero."""
+    closes: dict[int, float] = {}
+    missing: list[int] = []
+    for pos in _positions_dict(portfolio).values():
+        iid = int(pos["instrument_id"])
+        qty = float(pos["quantity"])
+        if abs(qty) < 1e-12:
+            continue
+        _o, close = _candle_open_close(session, iid, day)
+        if close is None:
+            missing.append(iid)
+            continue
+        closes[iid] = close
+    return closes, missing
+
+
 def _mark_nav(
     session: Session,
     portfolio: ShadowPortfolio,
@@ -375,15 +437,32 @@ def _mark_nav(
     *,
     now: datetime,
 ) -> dict[str, Any]:
+    """Persist full-day NAV only when every held position has a same-day EOD close.
+
+    Incomplete marks must not invent zero market value, must not update peak/DD/risk,
+    must not write ShadowNavDaily, and must not advance ``last_processed_market_date``.
+    """
+    closes, missing = _collect_same_day_closes(session, portfolio, day)
+    if missing:
+        return {
+            "status": STATUS_NAV_BLOCKED,
+            "reason": REASON_MISSING_EOD_CLOSE,
+            "missing_instrument_ids": sorted(set(missing)),
+            "nav": None,
+            "cash": float(portfolio.cash),
+            "market_value": None,
+            "drawdown": None,
+            "gross": None,
+        }
+
     mv = 0.0
     pos_count = 0
     for pos in _positions_dict(portfolio).values():
         iid = int(pos["instrument_id"])
         qty = float(pos["quantity"])
-        _o, close = _candle_open_close(session, iid, day)
-        if close is None:
+        if abs(qty) < 1e-12:
             continue
-        mv += qty * close
+        mv += qty * closes[iid]
         pos_count += 1
     nav = float(portfolio.cash) + mv
     if portfolio.peak_nav <= 0:
@@ -447,7 +526,14 @@ def _mark_nav(
         )
     portfolio.last_processed_market_date = day
     portfolio.updated_at = now
-    return {"nav": nav, "cash": portfolio.cash, "market_value": mv, "drawdown": dd, "gross": gross}
+    return {
+        "status": STATUS_NAV_OK,
+        "nav": nav,
+        "cash": portfolio.cash,
+        "market_value": mv,
+        "drawdown": dd,
+        "gross": gross,
+    }
 
 
 def _build_decision_and_orders(
@@ -515,15 +601,15 @@ def _build_decision_and_orders(
             max_single_weight=float(spec.max_single_weight),
         )
 
-    # Size against current NAV estimate using latest known closes if any; else cash-only
+    # Size against complete NAV only — Missing ≠ Zero for held positions.
     closes: dict[int, float] = {}
     price_as_of = portfolio.last_processed_market_date or batch.as_of_date
-    for pos in _positions_dict(portfolio).values():
-        iid = int(pos["instrument_id"])
-        if price_as_of is not None:
-            _o, c = _candle_open_close(session, iid, price_as_of)
-            if c is not None:
-                closes[iid] = c
+    held_closes, held_missing = (
+        _collect_same_day_closes(session, portfolio, price_as_of)
+        if price_as_of is not None
+        else ({}, sorted(_held_ids(portfolio)))
+    )
+    closes.update(held_closes)
     # Also fetch closes for policy targets / candidates (needed by V3 economics).
     for d in risk_out.decisions:
         meta = dict(d.metadata or {})
@@ -539,10 +625,28 @@ def _build_decision_and_orders(
             if c is not None:
                 closes[iid] = c
 
-    mv = sum(_position_qty(portfolio, iid) * px for iid, px in closes.items())
-    nav = float(portfolio.cash) + mv
-    if nav <= 0:
-        nav = float(spec.initial_capital)
+    if held_missing:
+        # Prefer last persisted complete NAV; never invent sizing from initial_capital
+        # while positions are open but unpriced.
+        last_nav = session.scalar(
+            select(ShadowNavDaily)
+            .where(ShadowNavDaily.portfolio_id == portfolio.id)
+            .order_by(ShadowNavDaily.as_of_date.desc())
+            .limit(1)
+        )
+        if last_nav is None:
+            return None  # cannot size safely — skip this week's decision
+        nav = float(last_nav.nav)
+        decision_nav_source = "last_complete_shadow_nav_daily"
+    else:
+        mv = sum(_position_qty(portfolio, iid) * px for iid, px in held_closes.items())
+        nav = float(portfolio.cash) + mv
+        decision_nav_source = "same_day_marks"
+        if nav <= 0 and not _held_ids(portfolio):
+            nav = float(spec.initial_capital)
+            decision_nav_source = "initial_capital_cash_only"
+        elif nav <= 0:
+            return None
 
     targets: list[dict[str, Any]] = []
     for d in risk_out.decisions:
@@ -570,6 +674,9 @@ def _build_decision_and_orders(
         "k_max": policy_out.metadata.get("k_max"),
         "prediction_hash": batch.prediction_hash,
         "kind": SHADOW_KIND,
+        "nav_source": decision_nav_source,
+        "nav_as_of": price_as_of.isoformat() if price_as_of is not None else None,
+        "held_missing_marks": held_missing,
     }
 
     # V3 only: rank exit-band breach → review trigger; economic sell gate filters targets.
@@ -1917,8 +2024,15 @@ def advance_shadow_portfolio(
     days = _trading_days_after(session, portfolio.last_processed_market_date)
     fills_total = 0
     processed_days: list[str] = []
+    blocked_day: dict[str, Any] | None = None
     for day in days:
         day_result = process_shadow_market_day(session, portfolio, spec, day, now=now)
+        if day_result.get("status") == STATUS_NAV_BLOCKED:
+            blocked_day = day_result.get("blocker") or {
+                "session_date": day.isoformat(),
+                "reason": REASON_MISSING_EOD_CLOSE,
+            }
+            break
         fills_total += int(day_result.get("fills") or 0)
         if day_result.get("skipped") is None:
             processed_days.append(day.isoformat())
@@ -1932,6 +2046,7 @@ def advance_shadow_portfolio(
         summary={
             "decisions_made": decisions_made,
             "fills_this_advance": fills_total,
+            "nav_blocked": blocked_day,
             "pending_orders": int(
                 session.scalar(
                     select(func.count()).select_from(ShadowOrder).where(

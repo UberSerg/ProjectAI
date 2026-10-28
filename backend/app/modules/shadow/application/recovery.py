@@ -115,12 +115,28 @@ def _ensure_features(session: Session) -> dict[str, Any]:
     }
 
 
-def _mark_batch_counterfactual(session: Session, batch_id: int | None, *, as_of: date) -> None:
-    if batch_id is None:
-        return
+def _batch_history_kind(batch: ForwardPredictionBatch | None) -> str:
+    if batch is None:
+        return HISTORY_KIND_RECORDED_LIVE
+    lineage = batch.input_lineage or {}
+    kind = str(lineage.get("history_kind") or "").upper()
+    if kind == HISTORY_KIND_COUNTERFACTUAL or lineage.get("reconstruction") is True:
+        return HISTORY_KIND_COUNTERFACTUAL
+    return HISTORY_KIND_RECORDED_LIVE
+
+
+def _stamp_new_batch_counterfactual(
+    session: Session,
+    batch_id: int,
+    *,
+    as_of: date,
+) -> None:
+    """Stamp a batch that was just created by this recovery SUCCESS path."""
     batch = session.get(ForwardPredictionBatch, batch_id)
     if batch is None:
         return
+    if _batch_history_kind(batch) == HISTORY_KIND_COUNTERFACTUAL:
+        return  # idempotent re-stamp: keep original reconstructed_at
     lineage = dict(batch.input_lineage or {})
     lineage["history_kind"] = HISTORY_KIND_COUNTERFACTUAL
     lineage["reconstruction"] = True
@@ -140,21 +156,37 @@ def _backfill_forward_as_of(
 ) -> list[dict[str, Any]]:
     """Generate immutable Forward batches for each recovery session (PIT as_of).
 
-    Marked COUNTERFACTUAL_REPLAY — distinct from recorded LIVE batches.
+    Only newly created SUCCESS batches are tagged COUNTERFACTUAL_REPLAY.
+    NO_CHANGES pointing at an existing LIVE (or prior counterfactual) batch is never mutated.
     """
     results: list[dict[str, Any]] = []
     for day in sessions:
         gen_at = _session_as_of_clock(day)
         out = run_forward_signal_v0(session, as_of=day, generated_at=gen_at)
-        _mark_batch_counterfactual(session, out.batch_id, as_of=day)
+        history_kind = HISTORY_KIND_RECORDED_LIVE
+        reconstruction = False
+        lineage_mutated = False
+        if out.status == "SUCCESS" and out.batch_id is not None:
+            before = session.get(ForwardPredictionBatch, out.batch_id)
+            before_kind = _batch_history_kind(before)
+            _stamp_new_batch_counterfactual(session, out.batch_id, as_of=day)
+            history_kind = HISTORY_KIND_COUNTERFACTUAL
+            reconstruction = True
+            lineage_mutated = before_kind != HISTORY_KIND_COUNTERFACTUAL
+        elif out.batch_id is not None:
+            # NO_CHANGES / WARNING / ERROR with an existing batch — never rewrite lineage.
+            batch = session.get(ForwardPredictionBatch, out.batch_id)
+            history_kind = _batch_history_kind(batch)
+            reconstruction = history_kind == HISTORY_KIND_COUNTERFACTUAL
         results.append(
             {
                 "as_of": day.isoformat(),
                 "status": out.status,
                 "batch_id": out.batch_id,
-                "generated_at": gen_at.isoformat(),
-                "history_kind": HISTORY_KIND_COUNTERFACTUAL,
-                "reconstruction": True,
+                "generated_at": gen_at.isoformat() if out.status == "SUCCESS" else None,
+                "history_kind": history_kind,
+                "reconstruction": reconstruction,
+                "lineage_mutated": lineage_mutated,
                 "error": (out.summary or {}).get("error"),
             }
         )
