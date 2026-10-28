@@ -154,6 +154,23 @@ def _demo_rows_by_name(session: Session, name: str) -> list[ManualPortfolio]:
     )
 
 
+# Exact historical notes only — never a soft prefix match on free-form user text.
+_LEGACY_DEMO_NOTES = frozenset(
+    {
+        DEMO_NOTE,
+        (
+            "DEMO/TEST — Investor Journey V1 seed. "
+            "Not a real-money book. Isolated via is_test unless --ui-visible."
+        ),
+    }
+)
+
+
+def _note_is_exact_legacy_demo(note: str | None) -> bool:
+    """Exact note match only — similar free-form notes never qualify."""
+    return (note or "").strip() in _LEGACY_DEMO_NOTES
+
+
 def _reclaim_legacy_demo(
     session: Session,
     *,
@@ -162,18 +179,16 @@ def _reclaim_legacy_demo(
 ) -> ManualPortfolio | None:
     """Opt-in stamp of durable source for prior MVP seeds that only had DEMO_NOTE.
 
-    Never reclaims an ordinary book: requires exact historical DEMO note/token.
+    Never reclaims an ordinary book: requires an *exact* historical DEMO note
+    (or the machine provenance token inside the exact DEMO_NOTE). Soft prefix
+    matches on similar user notes are refused.
     """
     if not reclaim_legacy:
         return None
     candidates = [
         row
         for row in _rows_by_name(session, name)
-        if not is_demo_portfolio(row)
-        and (
-            DEMO_PROVENANCE_TOKEN in (row.note or "")
-            or (row.note or "").startswith("DEMO/TEST — Investor Journey V1 seed.")
-        )
+        if not is_demo_portfolio(row) and _note_is_exact_legacy_demo(row.note)
     ]
     if len(candidates) > 1:
         raise PersonalPortfolioError(
@@ -485,6 +500,14 @@ def reset_demo_portfolio(
 ) -> dict[str, Any]:
     """Reversible teardown: wipe to empty DRAFT, optionally hard-delete."""
     _require_confirm(confirm)
+    # Fail closed: never stamp-then-delete an unmarked book in one step.
+    if delete and reclaim_legacy:
+        raise PersonalPortfolioError(
+            "DEMO_RECLAIM_DELETE_FORBIDDEN",
+            "Refusing --reclaim-legacy together with --delete. "
+            "Reclaim and verify the DEMO book first, then delete without reclaim.",
+            http_status=400,
+        )
     portfolio = find_demo_portfolio(session, name=name, reclaim_legacy=reclaim_legacy)
     if portfolio is None:
         return {"status": "ABSENT", "name": name, "deleted": False, "source": DEMO_SOURCE}

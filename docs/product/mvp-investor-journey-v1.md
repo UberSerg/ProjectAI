@@ -77,18 +77,16 @@ commit `5675e96ccca3239a1f7ca42a1ea246230d352337`
 - Dirty capital / portfolio switch / in-flight calc cannot restore a stale fingerprint.
 - Decision Memory async reads/writes are generation-scoped across portfolio A→B.
 - Playwright journey: `frontend/e2e/investor-journey.spec.ts` (local reproducible; **not** in GitHub CI yet).
-- Local evidence (2026-10-28): `1 passed` in ~7s inside `projectai-frontend` with
-  `E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://backend:8000`
-  (browser `localhost:8000` API calls rewritten to docker DNS).
+- Requires explicit `E2E_PORTFOLIO_ID` with durable `source=DEMO_INVESTOR_JOURNEY_V1` — no name/list fallback.
+- Scope narrowed to decision→memory→refresh (not full empty→create→Intelligence).
 
 ```bash
-# Local Playwright (stack must already be healthy)
+# Local Playwright (stack must already be healthy; fixture must exist)
 cd frontend
 npm run test:e2e:install
-# From host (published ports):
-E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://127.0.0.1:8000 npm run test:e2e
+E2E_PORTFOLIO_ID=<demo_id> E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://127.0.0.1:8000 npm run test:e2e
 # From frontend container:
-E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://backend:8000 npm run test:e2e
+E2E_PORTFOLIO_ID=<demo_id> E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://backend:8000 npm run test:e2e
 ```
 
 ## Limitations

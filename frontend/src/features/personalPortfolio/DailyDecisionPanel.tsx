@@ -199,12 +199,20 @@ export function DailyDecisionPanel({
   const onDecisionChangeRef = useRef(onDecisionChange);
   onDecisionChangeRef.current = onDecisionChange;
 
+  const decisionSyncKey = `${decision?.decision_fingerprint ?? ""}|${decision?.as_of ?? ""}|${decision?.new_cash_rub ?? ""}|${decision?.engine_version ?? ""}`;
+
   useEffect(() => {
+    // Syncing the tab's base decision replaces whatever calculated plan was on screen.
     setView(decision);
     if (decision?.new_cash_rub != null && Number(decision.new_cash_rub) > 0) {
       setAppliedCash(Number(decision.new_cash_rub));
+    } else {
+      setAppliedCash(null);
     }
-  }, [decision]);
+    onDecisionChangeRef.current?.(null);
+    // decisionSyncKey captures the base payload identity; `decision` is applied above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional sync-key gate
+  }, [decisionSyncKey]);
 
   useEffect(() => {
     if (portfolioRef.current !== portfolioId) {

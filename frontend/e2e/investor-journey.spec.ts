@@ -1,24 +1,29 @@
 /**
- * Deterministic Playwright investor journey (DEMO / local stack).
+ * Deterministic Playwright investor-journey slice (isolated E2E fixture only).
  *
- * Prerequisites:
- *   - Docker stack healthy from this worktree
- *   - DEMO book bootstrapped with durable source (or empty UI create path)
+ * Fail closed unless an explicit fixture id is provided and verified:
+ *   E2E_PORTFOLIO_ID=<id>
+ *   Portfolio must have source=DEMO_INVESTOR_JOURNEY_V1 (durable DEMO provenance).
  *
- * Run (local-only; not wired into GitHub CI yet):
+ * Never falls back to "first portfolio" or name substring "DEMO".
+ *
+ * Run (local-only; not wired into GitHub CI):
  *   cd frontend
  *   npm run test:e2e:install
- *   E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://backend:8000 npm run test:e2e
+ *   E2E_PORTFOLIO_ID=6798 E2E_BASE_URL=http://127.0.0.1:5173 E2E_API_URL=http://127.0.0.1:8000 npm run test:e2e
  *
- * When the browser runs inside the frontend container, set E2E_API_URL to the
- * docker DNS name (http://backend:8000) so page.route can rewrite localhost:8000.
+ * Inside the frontend container, set E2E_API_URL=http://backend:8000 so page.route
+ * can rewrite browser localhost:8000 calls.
  *
- * Fixtures are DEMO/TEST labeled. Never seeds invented market candles.
+ * Scope of this test (intentionally narrowed): decision → capture → refresh.
+ * Full empty→create→Intelligence journey is not claimed here.
  */
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 const BASE = process.env.E2E_BASE_URL || "http://localhost:5173";
 const API = process.env.E2E_API_URL || "http://localhost:8000";
+const FIXTURE_ID_RAW = (process.env.E2E_PORTFOLIO_ID || "").trim();
+const REQUIRED_SOURCE = "DEMO_INVESTOR_JOURNEY_V1";
 
 async function apiJson(request: APIRequestContext, path: string, init?: { method?: string; data?: unknown }) {
   const res = await request.fetch(`${API}${path}`, {
@@ -28,6 +33,26 @@ async function apiJson(request: APIRequestContext, path: string, init?: { method
   });
   const body = await res.json().catch(() => null);
   return { status: res.status(), body };
+}
+
+async function resolveFixturePortfolio(request: APIRequestContext): Promise<number> {
+  if (!/^\d+$/.test(FIXTURE_ID_RAW)) {
+    throw new Error(
+      "E2E_PORTFOLIO_ID is required (numeric). Refusing to pick a portfolio by DEMO name or list order.",
+    );
+  }
+  const pid = Number(FIXTURE_ID_RAW);
+  const { status, body } = await apiJson(request, `/api/v1/personal-portfolios/${pid}`);
+  if (status !== 200 || body == null) {
+    throw new Error(`E2E fixture portfolio ${pid} not found (HTTP ${status}).`);
+  }
+  const source = String(body?.portfolio?.source ?? body?.source ?? "");
+  if (source !== REQUIRED_SOURCE) {
+    throw new Error(
+      `E2E fixture portfolio ${pid} source=${JSON.stringify(source)} — expected ${REQUIRED_SOURCE}. Fail closed.`,
+    );
+  }
+  return pid;
 }
 
 async function snapshotJournal(request: APIRequestContext, portfolioId: number) {
@@ -42,9 +67,11 @@ async function snapshotJournal(request: APIRequestContext, portfolioId: number) 
   };
 }
 
-test.describe("MVP investor journey", () => {
+test.describe("MVP investor journey (fixture-bound)", () => {
   test("decision→memory survives refresh; hypothetical cash is read-only", async ({ page, request }) => {
     test.setTimeout(180_000);
+
+    const pid = await resolveFixturePortfolio(request);
 
     await page.route("**/api/v1/**", async (route) => {
       try {
@@ -69,36 +96,7 @@ test.describe("MVP investor journey", () => {
       }
     });
 
-    let portfolioId: number | null = null;
-    const list = await apiJson(request, "/api/v1/personal-portfolios");
-    if (list.status === 200 && Array.isArray(list.body?.items)) {
-      const demo = list.body.items.find(
-        (p: { name?: string; source?: string }) =>
-          p.source === "DEMO_INVESTOR_JOURNEY_V1" ||
-          (typeof p.name === "string" && p.name.includes("DEMO")),
-      );
-      if (demo?.id != null) portfolioId = Number(demo.id);
-      else if (list.body.items[0]?.id != null) portfolioId = Number(list.body.items[0].id);
-    }
-    expect(portfolioId, "Need a portfolio id for journey").not.toBeNull();
-    const pid = portfolioId!;
-
     const before = await snapshotJournal(request, pid);
-
-    await page.goto(`${BASE}/portfolio/${pid}?tab=decision`);
-    await expect(page.getByTestId("daily-decision-panel")).toBeVisible({ timeout: 60_000 });
-
-    // Intelligence deep-link when holdings expose it (best-effort, non-blocking).
-    await page.goto(`${BASE}/portfolio/${pid}?tab=holdings`);
-    const analyze = page.getByRole("link", { name: /Проанализировать компанию/i }).first();
-    if (await analyze.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await analyze.click();
-      await expect(page).toHaveURL(/\/intelligence/, { timeout: 30_000 });
-      const back = page.getByRole("link", { name: /Вернуться к портфелю|Назад к портфелю/i }).first();
-      if (await back.isVisible().catch(() => false)) {
-        await back.click();
-      }
-    }
 
     await page.goto(`${BASE}/portfolio/${pid}?tab=decision`);
     await expect(page.getByTestId("daily-decision-panel")).toBeVisible({ timeout: 60_000 });

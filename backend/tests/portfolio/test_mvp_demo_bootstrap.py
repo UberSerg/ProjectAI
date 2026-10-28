@@ -308,3 +308,38 @@ def test_bootstrap_stamps_durable_demo_source(pp_db: Session) -> None:
     book = get_portfolio(pp_db, int(result.portfolio_id), allow_test=True)
     assert book.source == DEMO_SOURCE
     assert result.source == DEMO_SOURCE
+
+def test_reclaim_legacy_refuses_similar_note_and_delete_combo(pp_db: Session) -> None:
+    """Ordinary book with a similar DEMO-like note must never be reclaimed or deleted."""
+    from app.modules.portfolio.application.demo_bootstrap_service import DEMO_SOURCE
+    from app.modules.portfolio.application.user_portfolio_service import create_user_portfolio
+
+    name = "DEMO — lookalike note V1"
+    ordinary = create_user_portfolio(
+        pp_db,
+        name=name,
+        description=(
+            "DEMO/TEST — Investor Journey V1 seed. "
+            "This is my real personal book, not a fixture."
+        ),
+        is_test=False,
+    )
+    assert ordinary.source == "MANUAL"
+    oid = int(ordinary.id)
+
+    with pytest.raises(PersonalPortfolioError) as ei_boot:
+        bootstrap_demo_portfolio(pp_db, confirm=True, name=name, reclaim_legacy=True)
+    assert ei_boot.value.code == "DEMO_NAME_COLLISION"
+
+    with pytest.raises(PersonalPortfolioError) as ei_del:
+        reset_demo_portfolio(pp_db, confirm=True, name=name, delete=True, reclaim_legacy=True)
+    assert ei_del.value.code == "DEMO_RECLAIM_DELETE_FORBIDDEN"
+
+    # Soft reclaim without delete still must not stamp/adopt the lookalike.
+    absent = reset_demo_portfolio(pp_db, confirm=True, name=name, reclaim_legacy=True)
+    assert absent["status"] == "ABSENT"
+
+    pp_db.refresh(ordinary)
+    assert int(ordinary.id) == oid
+    assert ordinary.source == "MANUAL"
+    assert ordinary.source != DEMO_SOURCE

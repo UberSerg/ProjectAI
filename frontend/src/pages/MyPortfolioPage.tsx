@@ -444,21 +444,22 @@ export function MyPortfolioPage() {
 
   useEffect(() => {
     setCalculatedDecision(null);
-  }, [portfolioId]);
+  }, [portfolioId, dataVersion]);
 
-  const captureFingerprint =
+  useEffect(() => {
+    if (tab !== "decision") {
+      setCalculatedDecision(null);
+    }
+  }, [tab]);
+
+  const captureEligible =
+    tab === "decision" &&
     calculatedDecision != null &&
     portfolioId != null &&
     calculatedDecision.portfolioId === portfolioId &&
-    calculatedDecision.fingerprint.trim() !== ""
-      ? calculatedDecision.fingerprint
-      : null;
-  const captureNewCashRub =
-    calculatedDecision != null &&
-    portfolioId != null &&
-    calculatedDecision.portfolioId === portfolioId
-      ? calculatedDecision.newCashRub
-      : null;
+    calculatedDecision.fingerprint.trim() !== "";
+  const captureFingerprint = captureEligible ? calculatedDecision!.fingerprint : null;
+  const captureNewCashRub = captureEligible ? calculatedDecision!.newCashRub : null;
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
   const reload = useCallback(() => setDataVersion((v) => v + 1), []);
 
