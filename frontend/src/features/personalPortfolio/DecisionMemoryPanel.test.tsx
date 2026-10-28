@@ -377,7 +377,7 @@ describe("DecisionMemoryPanel", () => {
     fireEvent.click(await screen.findByTestId("memory-open-7"));
     await waitFor(() => expect(api.getPossibleMatches).toHaveBeenCalledWith(1, 11, expect.anything()));
     fireEvent.click(screen.getByTestId("memory-open-8"));
-    expect(await screen.findByText("B detail current")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("B detail current").length).toBeGreaterThan(1));
     slowMatches.resolve({
       decision_action_id: 11, action: "CONSIDER_INCREASE",
       window: { from: null, to: null, upper_bound: "NOW" },
@@ -390,7 +390,7 @@ describe("DecisionMemoryPanel", () => {
     });
     await waitFor(() => expect(api.getPossibleMatches).toHaveBeenCalledWith(1, 22, expect.anything()));
     expect(screen.queryByText("POSSIBLE_MATCH")).not.toBeInTheDocument();
-    expect(screen.getByText("B detail current")).toBeInTheDocument();
+    expect(screen.getAllByText("B detail current").length).toBeGreaterThan(1);
   });
 
   it("unlinks a confirmed link", async () => {
