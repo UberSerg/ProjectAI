@@ -44,9 +44,27 @@ Clock = Callable[[], datetime]
 logger = get_logger(__name__, component="shadow_recovery")
 
 RECOVERY_LOCK_KEY = "projectai:lock:market_shadow_recovery"
-RECOVERY_LOCK_TTL_SECONDS = 3600
+RECOVERY_LOCK_TTL_SECONDS = 600  # short lease; renewed while work continues
+RECOVERY_HEARTBEAT_SECONDS = 120
+RECOVERY_STATUS_KEY = "projectai:status:market_shadow_recovery"
 HISTORY_KIND_COUNTERFACTUAL = "COUNTERFACTUAL_REPLAY"
 HISTORY_KIND_RECORDED_LIVE = "RECORDED_LIVE"
+
+_RELEASE_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('del', KEYS[1])
+else
+  return 0
+end
+"""
+
+_RENEW_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('expire', KEYS[1], ARGV[2])
+else
+  return 0
+end
+"""
 
 
 def _session_as_of_clock(day: date) -> datetime:
@@ -59,23 +77,68 @@ def _session_as_of_clock(day: date) -> datetime:
     return datetime.combine(day, time(18, 0), tzinfo=UTC)
 
 
+def _redis() -> redis.Redis:
+    return redis.Redis.from_url(get_settings().redis_url, decode_responses=False)
+
+
 def try_acquire_recovery_lock(token: str, *, ttl: int = RECOVERY_LOCK_TTL_SECONDS) -> bool:
     try:
-        client = redis.Redis.from_url(get_settings().redis_url, decode_responses=False)
-        return bool(client.set(RECOVERY_LOCK_KEY, token, nx=True, ex=ttl))
+        return bool(_redis().set(RECOVERY_LOCK_KEY, token, nx=True, ex=ttl))
     except Exception as exc:  # noqa: BLE001
         logger.warning("shadow_recovery_lock_unavailable", extra={"error": str(exc)})
         return False
 
 
-def release_recovery_lock(token: str) -> None:
+def renew_recovery_lock(token: str, *, ttl: int = RECOVERY_LOCK_TTL_SECONDS) -> bool:
+    """Extend lease only if ``token`` still owns the lock. False ⇒ stop further writes."""
     try:
-        client = redis.Redis.from_url(get_settings().redis_url, decode_responses=False)
-        current = client.get(RECOVERY_LOCK_KEY)
-        if current is not None and current.decode() == token:
-            client.delete(RECOVERY_LOCK_KEY)
+        client = _redis()
+        ok = bool(client.eval(_RENEW_LOCK_LUA, 1, RECOVERY_LOCK_KEY, token, int(ttl)))
+        if not ok:
+            logger.warning("shadow_recovery_lock_lost", extra={"token": token[:8]})
+        return ok
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("shadow_recovery_lock_renew_failed", extra={"error": str(exc)})
+        return False
+
+
+def release_recovery_lock(token: str) -> bool:
+    """Atomic compare-and-delete — only the owner can release."""
+    try:
+        return bool(_redis().eval(_RELEASE_LOCK_LUA, 1, RECOVERY_LOCK_KEY, token))
     except Exception as exc:  # noqa: BLE001
         logger.warning("shadow_recovery_lock_release_failed", extra={"error": str(exc)})
+        return False
+
+
+def publish_recovery_status(payload: dict[str, Any], *, ttl: int = RECOVERY_LOCK_TTL_SECONDS * 3) -> None:
+    """Best-effort status for UI (running / blocked / done)."""
+    import json
+
+    try:
+        _redis().set(RECOVERY_STATUS_KEY, json.dumps(payload, default=str), ex=max(ttl, 60))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("shadow_recovery_status_publish_failed", extra={"error": str(exc)})
+
+
+def read_recovery_status() -> dict[str, Any] | None:
+    import json
+
+    try:
+        raw = _redis().get(RECOVERY_STATUS_KEY)
+        if raw is None:
+            return None
+        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        return data if isinstance(data, dict) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def recovery_lock_held() -> bool:
+    try:
+        return bool(_redis().exists(RECOVERY_LOCK_KEY))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _ensure_features(session: Session) -> dict[str, Any]:
@@ -199,14 +262,56 @@ def run_market_shadow_recovery(
     clock: Clock | None = None,
     commit_each_session: bool = True,
     skip_forward: bool = False,
+    lock_token: str | None = None,
+    renew_lock: Callable[[], bool] | None = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
-    """Full recovery: market multi-day EOD → features → Forward as_of → Shadow replay."""
+    """Full recovery: market multi-day EOD → features → Forward as_of → Shadow replay.
+
+    When ``renew_lock`` is provided, it is called before each transactional stage.
+    Returning False aborts further writes (lock lost / stolen).
+    """
     now_fn = clock or (lambda: datetime.now(UTC))
     started = now_fn()
+
+    def _still_owner() -> bool:
+        if renew_lock is None:
+            return True
+        return bool(renew_lock())
+
+    def _status(**extra: Any) -> None:
+        publish_recovery_status(
+            {
+                "state": extra.pop("state", "RUNNING"),
+                "task_id": task_id,
+                "lock_token_prefix": (lock_token or "")[:8] or None,
+                "started_at": started.isoformat(),
+                "updated_at": now_fn().isoformat(),
+                **extra,
+            }
+        )
+
+    _status(state="RUNNING", phase="market")
+    if not _still_owner():
+        return {
+            "status": "RECOVERY_LOCK_LOST",
+            "started_at": started.isoformat(),
+            "finished_at": now_fn().isoformat(),
+            "reason": "lock_lost_before_market",
+        }
+
     gap_before = detect_market_eod_gap(session, now=started)
 
     market = run_eod_market_recovery(session, now=started, commit_progress=commit_each_session)
     if commit_each_session:
+        if not _still_owner():
+            return {
+                "status": "RECOVERY_LOCK_LOST",
+                "started_at": started.isoformat(),
+                "finished_at": now_fn().isoformat(),
+                "market": market,
+                "reason": "lock_lost_after_market",
+            }
         session.commit()
 
     gap_mid = detect_market_eod_gap(session, now=now_fn())
@@ -225,6 +330,15 @@ def run_market_shadow_recovery(
     )
 
     if need_downstream:
+        _status(phase="features")
+        if not _still_owner():
+            return {
+                "status": "RECOVERY_LOCK_LOST",
+                "started_at": started.isoformat(),
+                "finished_at": now_fn().isoformat(),
+                "market": market,
+                "reason": "lock_lost_before_features",
+            }
         try:
             features = _ensure_features(session)
             if commit_each_session:
@@ -233,6 +347,16 @@ def run_market_shadow_recovery(
             features = {"error": str(exc)[:500]}
 
         if not skip_forward:
+            _status(phase="forward")
+            if not _still_owner():
+                return {
+                    "status": "RECOVERY_LOCK_LOST",
+                    "started_at": started.isoformat(),
+                    "finished_at": now_fn().isoformat(),
+                    "market": market,
+                    "features": features,
+                    "reason": "lock_lost_before_forward",
+                }
             # Intermediate as_of: every trading session from previous complete → new complete.
             prev = gap_before.local_complete_eod
             target = complete.as_of or gap_mid.expected_completed_session
@@ -253,6 +377,17 @@ def run_market_shadow_recovery(
             except Exception as exc:  # noqa: BLE001
                 forward_rows = [{"error": str(exc)[:500]}]
 
+        _status(phase="shadow")
+        if not _still_owner():
+            return {
+                "status": "RECOVERY_LOCK_LOST",
+                "started_at": started.isoformat(),
+                "finished_at": now_fn().isoformat(),
+                "market": market,
+                "features": features,
+                "forward_as_of": forward_rows,
+                "reason": "lock_lost_before_shadow",
+            }
         shadow = run_all_shadow_catchup(
             session,
             clock=clock,
@@ -260,6 +395,17 @@ def run_market_shadow_recovery(
             commit_each_session=commit_each_session,
         )
         if commit_each_session:
+            if not _still_owner():
+                return {
+                    "status": "RECOVERY_LOCK_LOST",
+                    "started_at": started.isoformat(),
+                    "finished_at": now_fn().isoformat(),
+                    "market": market,
+                    "features": features,
+                    "forward_as_of": forward_rows,
+                    "shadow": shadow,
+                    "reason": "lock_lost_after_shadow",
+                }
             session.commit()
 
     gap_after = detect_market_eod_gap(session, now=now_fn())
@@ -279,10 +425,21 @@ def run_market_shadow_recovery(
     else:
         overall = "RECOVERY_PARTIAL"
 
+    finished = now_fn()
+    _status(
+        state="DONE" if overall.startswith("RECOVERY_SUCCESS") or overall == "RECOVERY_NO_OP" else "PARTIAL",
+        phase="finished",
+        overall=overall,
+        last_processed_session=(observability or {}).get("last_successful_replay_hint"),
+        remaining_sessions=(observability or {}).get("backlog_session_count"),
+        blocking_session=(observability or {}).get("blocking_session"),
+        finished_at=finished.isoformat(),
+    )
+
     return {
         "status": overall,
         "started_at": started.isoformat(),
-        "finished_at": now_fn().isoformat(),
+        "finished_at": finished.isoformat(),
         "gap_before": gap_before.to_dict(),
         "gap_after": gap_after.to_dict(),
         "market": market,
@@ -308,7 +465,13 @@ def run_market_shadow_recovery(
 __all__ = [
     "HISTORY_KIND_COUNTERFACTUAL",
     "HISTORY_KIND_RECORDED_LIVE",
+    "RECOVERY_HEARTBEAT_SECONDS",
+    "RECOVERY_LOCK_TTL_SECONDS",
+    "publish_recovery_status",
+    "read_recovery_status",
+    "recovery_lock_held",
     "release_recovery_lock",
+    "renew_recovery_lock",
     "run_market_shadow_recovery",
     "try_acquire_recovery_lock",
 ]

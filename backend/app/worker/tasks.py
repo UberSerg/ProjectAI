@@ -460,8 +460,8 @@ def eod_readiness_retry() -> dict:
         return maybe_trigger_cycle_if_ready(session)
 
 
-@celery_app.task(name="projectai.market_shadow_recovery")
-def market_shadow_recovery() -> dict:
+@celery_app.task(name="projectai.market_shadow_recovery", bind=True)
+def market_shadow_recovery(self) -> dict:
     """Worker: EOD market gap → features → counterfactual Forward → Shadow session replay.
 
     Used by SHADOW_STARTUP_RECOVERY_ENABLED. Single-flight via Redis lock; idempotent per session.
@@ -470,19 +470,37 @@ def market_shadow_recovery() -> dict:
     from uuid import uuid4
 
     from app.modules.shadow.application.recovery import (
+        publish_recovery_status,
         release_recovery_lock,
+        renew_recovery_lock,
         run_market_shadow_recovery,
         try_acquire_recovery_lock,
     )
 
     token = str(uuid4())
+    task_id = getattr(getattr(self, "request", None), "id", None)
     if not try_acquire_recovery_lock(token):
-        return {"status": "ALREADY_RUNNING", "reason": "single_flight_lock"}
+        return {"status": "ALREADY_RUNNING", "reason": "single_flight_lock", "task_id": task_id}
+    publish_recovery_status(
+        {
+            "state": "RUNNING",
+            "task_id": task_id,
+            "lock_token_prefix": token[:8],
+            "phase": "acquired",
+        }
+    )
     try:
         with core_session() as session:
-            result = run_market_shadow_recovery(session, commit_each_session=True)
-            session.commit()
-            return result
+            result = run_market_shadow_recovery(
+                session,
+                commit_each_session=True,
+                lock_token=token,
+                renew_lock=lambda: renew_recovery_lock(token),
+                task_id=task_id,
+            )
+            if result.get("status") != "RECOVERY_LOCK_LOST":
+                session.commit()
+            return {**result, "task_id": task_id}
     finally:
         release_recovery_lock(token)
 
