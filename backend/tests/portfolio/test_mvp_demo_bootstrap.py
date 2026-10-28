@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.market.models import Candle, Instrument
 from app.modules.portfolio.application.demo_bootstrap_service import (
-    DEMO_PORTFOLIO_NAME,
     bootstrap_demo_portfolio,
     demo_status,
     find_demo_portfolio,
@@ -65,20 +64,24 @@ def _master_or_skip(session: Session, symbols: tuple[str, ...]) -> dict[str, Ins
 
 def test_bootstrap_requires_confirm(pp_db: Session) -> None:
     with pytest.raises(PersonalPortfolioError) as ei:
-        bootstrap_demo_portfolio(pp_db, confirm=False)
+        bootstrap_demo_portfolio(pp_db, confirm=False, name="DEMO — confirm gate")
     assert ei.value.code == "DEMO_CONFIRM_REQUIRED"
-    assert find_demo_portfolio(pp_db) is None
+    assert find_demo_portfolio(pp_db, name="DEMO — confirm gate") is None
 
 
 def test_bootstrap_resolves_by_symbol_never_hardcodes_ids(pp_db: Session) -> None:
+    from app.modules.portfolio.application.demo_bootstrap_service import DEMO_SOURCE
+
     universe = _master_or_skip(pp_db, ("SBER", "LKOH", "MGNT"))
     candles_before = int(pp_db.scalar(select(func.count()).select_from(Candle)) or 0)
+    name = "DEMO — symbol resolve V1"
 
-    result = bootstrap_demo_portfolio(pp_db, confirm=True, activate=True)
+    result = bootstrap_demo_portfolio(pp_db, confirm=True, activate=True, name=name)
     assert result.portfolio_id is not None
     assert result.is_test is True
     assert result.lifecycle_state == "ACTIVE"
     assert result.created is True
+    assert result.source == DEMO_SOURCE
     assert {p["symbol"] for p in result.positions} == {"SBER", "LKOH", "MGNT"}
     for row in result.positions:
         assert row["instrument_id"] == int(universe[row["symbol"]].id)
@@ -89,7 +92,8 @@ def test_bootstrap_resolves_by_symbol_never_hardcodes_ids(pp_db: Session) -> Non
     assert candles_after == candles_before
 
     book = get_portfolio(pp_db, int(result.portfolio_id), allow_test=True)
-    assert book.name == DEMO_PORTFOLIO_NAME
+    assert book.name == name
+    assert book.source == DEMO_SOURCE
     assert book.is_test is True
     assert "DEMO" in (book.note or "")
     ops = list(
@@ -137,7 +141,8 @@ def test_bootstrap_unknown_lot_uses_non_standard_units(pp_db: Session) -> None:
 
 def test_bootstrap_idempotent_and_reset_reversible(pp_db: Session) -> None:
     _master_or_skip(pp_db, ("SBER", "LKOH", "MGNT"))
-    first = bootstrap_demo_portfolio(pp_db, confirm=True)
+    name = "DEMO — idempotent reset V1"
+    first = bootstrap_demo_portfolio(pp_db, confirm=True, name=name)
     pid = int(first.portfolio_id)
     ops_n = int(
         pp_db.scalar(
@@ -148,7 +153,7 @@ def test_bootstrap_idempotent_and_reset_reversible(pp_db: Session) -> None:
         or 0
     )
 
-    second = bootstrap_demo_portfolio(pp_db, confirm=True)
+    second = bootstrap_demo_portfolio(pp_db, confirm=True, name=name)
     assert second.status == "ALREADY_READY"
     assert second.portfolio_id == pid
     assert (
@@ -163,12 +168,12 @@ def test_bootstrap_idempotent_and_reset_reversible(pp_db: Session) -> None:
         == ops_n
     )
 
-    rebuilt = bootstrap_demo_portfolio(pp_db, confirm=True, reset=True)
+    rebuilt = bootstrap_demo_portfolio(pp_db, confirm=True, reset=True, name=name)
     assert rebuilt.reset is True
     assert rebuilt.portfolio_id == pid
     assert rebuilt.lifecycle_state == "ACTIVE"
 
-    wiped = reset_demo_portfolio(pp_db, confirm=True)
+    wiped = reset_demo_portfolio(pp_db, confirm=True, name=name)
     assert wiped["status"] == "RESET"
     book = get_portfolio(pp_db, pid, allow_test=True)
     assert (book.status or "").upper() == "DRAFT"
@@ -183,9 +188,9 @@ def test_bootstrap_idempotent_and_reset_reversible(pp_db: Session) -> None:
         == 0
     )
 
-    deleted = reset_demo_portfolio(pp_db, confirm=True, delete=True)
+    deleted = reset_demo_portfolio(pp_db, confirm=True, delete=True, name=name)
     assert deleted["status"] == "DELETED"
-    assert demo_status(pp_db)["status"] == "ABSENT"
+    assert demo_status(pp_db, name=name)["status"] == "ABSENT"
 
 
 def test_demo_hidden_from_default_collection_unless_ui_visible(pp_db: Session) -> None:
@@ -217,3 +222,89 @@ def test_api_resolve_allow_test_by_id() -> None:
     src = inspect.getsource(api._resolve)
     assert "get_or_create_test_portfolio" not in src
     assert "allow_test=test" in src
+
+
+def test_demo_commands_refuse_ordinary_portfolio_name_collision(pp_db: Session) -> None:
+    """Ordinary personal book with DEMO display name must never be reset/deleted/adopted."""
+    from app.modules.portfolio.application.demo_bootstrap_service import DEMO_SOURCE
+    from app.modules.portfolio.application.user_portfolio_service import (
+        activate_portfolio,
+        add_draft_position,
+        create_user_portfolio,
+        set_draft_cash,
+    )
+
+    collide_name = "DEMO — Collision Guard V1"
+    inst = make_equity(pp_db, "MVPCOL1", close=Decimal("250"), lot_size=1)
+    ordinary = create_user_portfolio(
+        pp_db,
+        name=collide_name,
+        description="Real personal book - not DEMO",
+        is_test=False,
+    )
+    assert ordinary.source == "MANUAL"
+    assert ordinary.source != DEMO_SOURCE
+    set_draft_cash(pp_db, ordinary, Decimal("777000"))
+    add_draft_position(
+        pp_db,
+        ordinary,
+        instrument_id=int(inst.id),
+        units=Decimal("3"),
+        lots=None,
+        average_price=Decimal("250"),
+        note="real holding",
+        non_standard_lot=True,
+    )
+    activate_portfolio(pp_db, ordinary)
+    pp_db.refresh(ordinary)
+
+    cash_before = Decimal(ordinary.cash_rub)
+    ops_before = list(
+        pp_db.scalars(select(PersonalOperation).where(PersonalOperation.portfolio_id == ordinary.id)).all()
+    )
+    pos_before = list(
+        pp_db.scalars(select(ManualPosition).where(ManualPosition.portfolio_id == ordinary.id)).all()
+    )
+    assert cash_before == Decimal("777000.000000") or cash_before == Decimal("777000")
+    assert len(ops_before) >= 1
+    assert len(pos_before) == 1
+    identity = (int(ordinary.id), ordinary.name, ordinary.source, bool(ordinary.is_test))
+
+    with pytest.raises(PersonalPortfolioError) as ei_boot:
+        bootstrap_demo_portfolio(pp_db, confirm=True, reset=True, name=collide_name)
+    assert ei_boot.value.code == "DEMO_NAME_COLLISION"
+
+    # Reset/delete without a DEMO-sourced book must be a no-op (ABSENT), never mutate MANUAL.
+    wiped = reset_demo_portfolio(pp_db, confirm=True, name=collide_name)
+    assert wiped["status"] == "ABSENT"
+    deleted = reset_demo_portfolio(pp_db, confirm=True, delete=True, name=collide_name)
+    assert deleted["status"] == "ABSENT"
+
+    pp_db.refresh(ordinary)
+    assert (int(ordinary.id), ordinary.name, ordinary.source, bool(ordinary.is_test)) == identity
+    assert Decimal(ordinary.cash_rub) == cash_before
+    ops_after = list(
+        pp_db.scalars(select(PersonalOperation).where(PersonalOperation.portfolio_id == ordinary.id)).all()
+    )
+    pos_after = list(
+        pp_db.scalars(select(ManualPosition).where(ManualPosition.portfolio_id == ordinary.id)).all()
+    )
+    assert [o.id for o in ops_after] == [o.id for o in ops_before]
+    assert [(p.id, p.units, p.instrument_id) for p in pos_after] == [
+        (p.id, p.units, p.instrument_id) for p in pos_before
+    ]
+    status = demo_status(pp_db, name=collide_name)
+    assert status["status"] == "DEMO_NAME_COLLISION"
+    assert int(ordinary.id) in status["colliding_ids"]
+
+
+def test_bootstrap_stamps_durable_demo_source(pp_db: Session) -> None:
+    from app.modules.portfolio.application.demo_bootstrap_service import DEMO_SOURCE
+
+    make_equity(pp_db, "MVPDS1", close=Decimal("100"), lot_size=1)
+    result = bootstrap_demo_portfolio(
+        pp_db, confirm=True, name="DEMO - source stamp", symbols=("MVPDS1",), activate=False
+    )
+    book = get_portfolio(pp_db, int(result.portfolio_id), allow_test=True)
+    assert book.source == DEMO_SOURCE
+    assert result.source == DEMO_SOURCE

@@ -1,8 +1,11 @@
 """Opt-in DEMO/TEST portfolio bootstrap for Investor Journey MVP.
 
-Reuses ``is_test`` isolation. Resolves equities by symbol only (never hardcodes
-instrument ids). Does not invent market prices or candles — missing EOD marks
-yield partial coverage with explicit warnings.
+Reuses ``is_test`` isolation for hidden mode. Resolves equities by symbol only
+(never hardcodes instrument ids). Does not invent market prices or candles —
+missing EOD marks yield partial coverage with explicit warnings.
+
+DEMO books are identified by durable ``ManualPortfolio.source`` provenance,
+not by display name alone. Name collisions with ordinary portfolios fail closed.
 """
 
 from __future__ import annotations
@@ -32,10 +35,14 @@ from app.modules.portfolio.domain.personal_ledger import ZERO, money, units_q
 from app.modules.portfolio.domain.valuation import latest_eod_close
 from app.modules.portfolio.infrastructure.models import ManualPortfolio, ManualPosition
 
+# Durable service-controlled identity (not display name / is_test / free-form note).
+DEMO_SOURCE = "DEMO_INVESTOR_JOURNEY_V1"
+DEMO_PROVENANCE_TOKEN = "[[KRAKEN_DEMO_PROVENANCE:INVESTOR_JOURNEY_V1]]"
 DEMO_PORTFOLIO_NAME = "DEMO — Investor Journey V1"
 DEMO_NOTE = (
     "DEMO/TEST — Investor Journey V1 seed. "
-    "Not a real-money book. Isolated via is_test unless --ui-visible."
+    "Not a real-money book. Isolated via is_test unless --ui-visible. "
+    f"{DEMO_PROVENANCE_TOKEN}"
 )
 DEMO_SYMBOLS: tuple[str, ...] = ("SBER", "LKOH", "MGNT")
 DEFAULT_CASH_RUB = Decimal("500000")
@@ -56,6 +63,7 @@ class DemoBootstrapResult:
     created: bool = False
     activated: bool = False
     reset: bool = False
+    source: str = DEMO_SOURCE
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +79,7 @@ class DemoBootstrapResult:
             "created": self.created,
             "activated": self.activated,
             "reset": self.reset,
+            "source": self.source,
             "api_hint": (
                 "List/open with ?test=true when is_test=true "
                 "(GET /api/v1/personal-portfolios?test=true)."
@@ -90,6 +99,25 @@ def _require_confirm(confirm: bool) -> None:
         )
 
 
+def _name_key(name: str) -> str:
+    return (name or "").strip().lower()
+
+
+def is_demo_portfolio(row: ManualPortfolio) -> bool:
+    return (row.source or "").strip() == DEMO_SOURCE
+
+
+def _require_demo_provenance(row: ManualPortfolio) -> None:
+    if not is_demo_portfolio(row):
+        raise PersonalPortfolioError(
+            "DEMO_PROVENANCE_REQUIRED",
+            "Refusing to mutate portfolio "
+            f"id={int(row.id)} name={row.name!r}: source={row.source!r} "
+            f"(expected {DEMO_SOURCE}). Ordinary personal books are never DEMO targets.",
+            http_status=409,
+        )
+
+
 def _unique_instruments_by_symbol(session: Session, symbols: list[str]) -> dict[str, Instrument]:
     wanted = sorted({s.upper() for s in symbols if s})
     if not wanted:
@@ -101,23 +129,141 @@ def _unique_instruments_by_symbol(session: Session, symbols: list[str]) -> dict[
     return {symbol: items[0] for symbol, items in grouped.items() if len(items) == 1}
 
 
+def _rows_by_name(session: Session, name: str) -> list[ManualPortfolio]:
+    key = _name_key(name)
+    return list(
+        session.scalars(
+            select(ManualPortfolio)
+            .options(selectinload(ManualPortfolio.positions))
+            .where(func.lower(func.btrim(ManualPortfolio.name)) == key)
+            .order_by(ManualPortfolio.id.asc())
+        )
+    )
+
+
+def _demo_rows_by_name(session: Session, name: str) -> list[ManualPortfolio]:
+    key = _name_key(name)
+    return list(
+        session.scalars(
+            select(ManualPortfolio)
+            .options(selectinload(ManualPortfolio.positions))
+            .where(ManualPortfolio.source == DEMO_SOURCE)
+            .where(func.lower(func.btrim(ManualPortfolio.name)) == key)
+            .order_by(ManualPortfolio.id.asc())
+        )
+    )
+
+
+def _reclaim_legacy_demo(
+    session: Session,
+    *,
+    name: str,
+    reclaim_legacy: bool,
+) -> ManualPortfolio | None:
+    """Opt-in stamp of durable source for prior MVP seeds that only had DEMO_NOTE.
+
+    Never reclaims an ordinary book: requires exact historical DEMO note/token.
+    """
+    if not reclaim_legacy:
+        return None
+    candidates = [
+        row
+        for row in _rows_by_name(session, name)
+        if not is_demo_portfolio(row)
+        and (
+            DEMO_PROVENANCE_TOKEN in (row.note or "")
+            or (row.note or "").startswith("DEMO/TEST — Investor Journey V1 seed.")
+        )
+    ]
+    if len(candidates) > 1:
+        raise PersonalPortfolioError(
+            "DEMO_AMBIGUOUS",
+            f"Multiple legacy DEMO-like portfolios named {name!r}; refuse reclaim.",
+            http_status=409,
+        )
+    if not candidates:
+        return None
+    row = candidates[0]
+    row.source = DEMO_SOURCE
+    row.note = DEMO_NOTE
+    session.flush()
+    return row
+
+
+def _name_collisions_non_demo(session: Session, name: str) -> list[ManualPortfolio]:
+    return [row for row in _rows_by_name(session, name) if not is_demo_portfolio(row)]
+
+
+def _refuse_name_collision(session: Session, name: str) -> None:
+    """Fail closed before creating/adopting a DEMO book over an ordinary portfolio."""
+    collisions = _name_collisions_non_demo(session, name)
+    if not collisions:
+        return
+    ids = ", ".join(str(int(r.id)) for r in collisions)
+    raise PersonalPortfolioError(
+        "DEMO_NAME_COLLISION",
+        "Refusing to adopt non-DEMO portfolio with the same display name "
+        f"(ids={ids}, name={name!r}). Rename the ordinary book or choose another "
+        f"--name. Durable marker is source={DEMO_SOURCE}.",
+        http_status=409,
+    )
+
+
 def find_demo_portfolio(
     session: Session,
     *,
     name: str = DEMO_PORTFOLIO_NAME,
+    reclaim_legacy: bool = False,
 ) -> ManualPortfolio | None:
-    return session.scalar(
-        select(ManualPortfolio)
-        .options(selectinload(ManualPortfolio.positions))
-        .where(ManualPortfolio.name == name)
-        .order_by(ManualPortfolio.id.asc())
-        .limit(1)
-    )
+    """Resolve DEMO book by durable ``source`` marker only.
+
+    Never returns an ordinary portfolio matched by display name. Ambiguous DEMO
+    rows fail closed. Name collisions with MANUAL books are reported by
+    ``_refuse_name_collision`` on create/bootstrap — not by silently adopting them.
+    """
+    demo_rows = _demo_rows_by_name(session, name)
+    if len(demo_rows) > 1:
+        ids = ", ".join(str(int(r.id)) for r in demo_rows)
+        raise PersonalPortfolioError(
+            "DEMO_AMBIGUOUS",
+            f"Multiple DEMO provenance portfolios named {name!r} (ids={ids}).",
+            http_status=409,
+        )
+    if len(demo_rows) == 1:
+        return demo_rows[0]
+
+    reclaimed = _reclaim_legacy_demo(session, name=name, reclaim_legacy=reclaim_legacy)
+    if reclaimed is not None:
+        return reclaimed
+    return None
 
 
 def demo_status(session: Session, *, name: str = DEMO_PORTFOLIO_NAME) -> dict[str, Any]:
-    row = find_demo_portfolio(session, name=name)
+    try:
+        row = find_demo_portfolio(session, name=name)
+    except PersonalPortfolioError as exc:
+        return {
+            "status": exc.code,
+            "name": name,
+            "portfolio_id": None,
+            "is_test": None,
+            "lifecycle_state": None,
+            "positions_count": 0,
+            "detail": str(exc),
+        }
     if row is None:
+        collisions = _name_collisions_non_demo(session, name)
+        if collisions:
+            return {
+                "status": "DEMO_NAME_COLLISION",
+                "name": name,
+                "portfolio_id": None,
+                "is_test": None,
+                "lifecycle_state": None,
+                "positions_count": 0,
+                "source": DEMO_SOURCE,
+                "colliding_ids": [int(r.id) for r in collisions],
+            }
         return {
             "status": "ABSENT",
             "name": name,
@@ -125,6 +271,7 @@ def demo_status(session: Session, *, name: str = DEMO_PORTFOLIO_NAME) -> dict[st
             "is_test": None,
             "lifecycle_state": None,
             "positions_count": 0,
+            "source": DEMO_SOURCE,
         }
     return {
         "status": "PRESENT",
@@ -135,6 +282,7 @@ def demo_status(session: Session, *, name: str = DEMO_PORTFOLIO_NAME) -> dict[st
         "cash_rub": str(money(row.cash_rub or ZERO)),
         "positions_count": len(list(row.positions or [])),
         "note": row.note,
+        "source": row.source,
     }
 
 
@@ -148,6 +296,7 @@ def bootstrap_demo_portfolio(
     cash_rub: Decimal = DEFAULT_CASH_RUB,
     symbols: tuple[str, ...] | list[str] = DEMO_SYMBOLS,
     name: str = DEMO_PORTFOLIO_NAME,
+    reclaim_legacy: bool = False,
 ) -> DemoBootstrapResult:
     """Create or refresh the DEMO book. Idempotent when already seeded+ACTIVE.
 
@@ -166,7 +315,13 @@ def bootstrap_demo_portfolio(
     is_test = not ui_visible
     created = False
     did_reset = False
-    portfolio = find_demo_portfolio(session, name=name)
+    portfolio = find_demo_portfolio(session, name=name, reclaim_legacy=reclaim_legacy)
+
+    if portfolio is not None:
+        _require_demo_provenance(portfolio)
+    else:
+        # Creating a new DEMO must not collide with an ordinary personal book.
+        _refuse_name_collision(session, name)
 
     if portfolio is not None and bool(portfolio.is_test) != is_test:
         # Keep isolation contract stable for an existing book; warn rather than flip.
@@ -184,9 +339,11 @@ def bootstrap_demo_portfolio(
             name=name,
             description=DEMO_NOTE,
             is_test=is_test,
+            source=DEMO_SOURCE,
         )
         created = True
     elif reset:
+        _require_demo_provenance(portfolio)
         reset_portfolio(session, portfolio)
         session.refresh(portfolio)
         did_reset = True
@@ -213,10 +370,13 @@ def bootstrap_demo_portfolio(
             created=False,
             activated=False,
             reset=False,
+            source=str(portfolio.source),
         )
         return result
 
-    # Ensure DEMO labeling on note; rebuild draft snapshot from symbols.
+    # Ensure DEMO labeling; rebuild draft snapshot from symbols.
+    _require_demo_provenance(portfolio)
+    portfolio.source = DEMO_SOURCE
     portfolio.note = DEMO_NOTE
     session.flush()
     if (portfolio.status or "").upper() == "DRAFT":
@@ -311,6 +471,7 @@ def bootstrap_demo_portfolio(
         created=created,
         activated=activated,
         reset=did_reset,
+        source=str(portfolio.source),
     )
 
 
@@ -320,21 +481,24 @@ def reset_demo_portfolio(
     confirm: bool,
     name: str = DEMO_PORTFOLIO_NAME,
     delete: bool = False,
+    reclaim_legacy: bool = False,
 ) -> dict[str, Any]:
     """Reversible teardown: wipe to empty DRAFT, optionally hard-delete."""
     _require_confirm(confirm)
-    portfolio = find_demo_portfolio(session, name=name)
+    portfolio = find_demo_portfolio(session, name=name, reclaim_legacy=reclaim_legacy)
     if portfolio is None:
-        return {"status": "ABSENT", "name": name, "deleted": False}
+        return {"status": "ABSENT", "name": name, "deleted": False, "source": DEMO_SOURCE}
+    _require_demo_provenance(portfolio)
     if delete:
         out = delete_user_portfolio(session, portfolio)
-        return {"status": "DELETED", "name": name, **out}
+        return {"status": "DELETED", "name": name, "source": DEMO_SOURCE, **out}
     summary = reset_portfolio(session, portfolio)
     return {
         "status": "RESET",
         "name": name,
         "portfolio_id": int(portfolio.id),
         "lifecycle_state": "DRAFT",
+        "source": str(portfolio.source),
         "cash_rub": str(money(portfolio.cash_rub or ZERO)),
         "positions_count": int(
             session.scalar(

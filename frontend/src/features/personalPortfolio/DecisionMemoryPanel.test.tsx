@@ -1,9 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
-import type { DecisionMemoryRecord } from "../../api/decisionMemory";
+import type { DecisionMemoryRecord, DecisionMemoryRecordSummary } from "../../api/decisionMemory";
 import * as api from "../../api/decisionMemory";
 import { DecisionMemoryPanel } from "./DecisionMemoryPanel";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 vi.mock("../../api/decisionMemory", async () => {
   const actual = await vi.importActual<typeof api>("../../api/decisionMemory");
@@ -268,6 +276,53 @@ describe("DecisionMemoryPanel", () => {
     fireEvent.click(screen.getByTestId("memory-capture"));
     expect(await screen.findByTestId("memory-error")).toHaveTextContent("Решение изменилось с момента отображения");
     expect(screen.getByTestId("memory-error").textContent).not.toContain("[object Object]");
+  });
+
+  it("ignores delayed list response after portfolio switch A→B", async () => {
+    const slowA = deferred<{ portfolio_id: number; items: DecisionMemoryRecordSummary[]; count: number }>();
+    vi.mocked(api.listDecisionMemory).mockImplementation((pid: number) => {
+      if (pid === 1) return slowA.promise as never;
+      return Promise.resolve({
+        portfolio_id: 2,
+        items: [{ ...record, id: 22, portfolio_id: 2, headline: "B only" }],
+        count: 1,
+      }) as never;
+    });
+
+    const { rerender } = render(<DecisionMemoryPanel portfolioId={1} decisionFingerprint="fp-a" />);
+    rerender(<DecisionMemoryPanel portfolioId={2} decisionFingerprint="fp-b" />);
+    expect(await screen.findByText("B only")).toBeInTheDocument();
+
+    slowA.resolve({
+      portfolio_id: 1,
+      items: [{ ...record, id: 11, portfolio_id: 1, headline: "A leaked" }],
+      count: 1,
+    });
+    await waitFor(() => expect(api.listDecisionMemory).toHaveBeenCalledWith(2, expect.anything()));
+    expect(screen.queryByText("A leaked")).not.toBeInTheDocument();
+    expect(screen.getByText("B only")).toBeInTheDocument();
+  });
+
+  it("ignores delayed capture success after portfolio switch", async () => {
+    const slowCapture = deferred<DecisionMemoryRecord>();
+    vi.mocked(api.captureDecisionMemory).mockImplementation(() => slowCapture.promise as never);
+    vi.mocked(api.listDecisionMemory).mockResolvedValue({ portfolio_id: 1, items: [], count: 0 });
+
+    const { rerender } = render(
+      <DecisionMemoryPanel portfolioId={1} newCashRub={100000} decisionFingerprint="fp-a" />,
+    );
+    await screen.findByTestId("memory-empty");
+    fireEvent.click(screen.getByTestId("memory-capture"));
+
+    vi.mocked(api.listDecisionMemory).mockResolvedValue({ portfolio_id: 2, items: [], count: 0 });
+    rerender(<DecisionMemoryPanel portfolioId={2} newCashRub={null} decisionFingerprint={null} />);
+    expect(await screen.findByTestId("memory-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+
+    slowCapture.resolve({ ...record, id: 99, headline: "Stale capture A", portfolio_id: 1 });
+    await waitFor(() => expect(api.captureDecisionMemory).toHaveBeenCalled());
+    expect(screen.queryByText("Stale capture A")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("memory-notice")).not.toBeInTheDocument();
   });
 
   it("unlinks a confirmed link", async () => {

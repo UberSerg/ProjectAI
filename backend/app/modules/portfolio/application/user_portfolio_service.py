@@ -149,11 +149,13 @@ def create_user_portfolio(
     name: str,
     description: str | None = None,
     is_test: bool = False,
+    source: str = "MANUAL",
 ) -> ManualPortfolio:
     cleaned = _validate_name(name)
+    source_clean = (source or "MANUAL").strip() or "MANUAL"
     row = ManualPortfolio(
         name=cleaned,
-        source="MANUAL",
+        source=source_clean,
         base_currency="RUB",
         cash_rub=ZERO,
         status=LIFECYCLE_DRAFT,

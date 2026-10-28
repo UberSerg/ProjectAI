@@ -71,6 +71,14 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Comma-separated symbols (default {','.join(DEMO_SYMBOLS)})",
     )
     boot.add_argument("--name", default=DEMO_PORTFOLIO_NAME, help="Portfolio display name")
+    boot.add_argument(
+        "--reclaim-legacy",
+        action="store_true",
+        help=(
+            "Opt-in: stamp durable source=DEMO_INVESTOR_JOURNEY_V1 onto a prior MVP seed "
+            "that only had the DEMO note (never stamps ordinary personal books)."
+        ),
+    )
 
     st = sub.add_parser("demo-status", help="Show DEMO portfolio presence (read-only)")
     st.add_argument("--name", default=DEMO_PORTFOLIO_NAME)
@@ -82,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
     rst.add_argument("--confirm", action="store_true", help="Required opt-in")
     rst.add_argument("--delete", action="store_true", help="Hard-delete the DEMO portfolio")
     rst.add_argument("--name", default=DEMO_PORTFOLIO_NAME)
+    rst.add_argument(
+        "--reclaim-legacy",
+        action="store_true",
+        help="Opt-in reclaim of prior MVP DEMO note seeds before reset/delete",
+    )
 
     args = parser.parse_args(argv)
 
@@ -100,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
                     cash_rub=_parse_cash(args.cash_rub),
                     symbols=symbols,
                     name=args.name,
+                    reclaim_legacy=bool(args.reclaim_legacy),
                 )
                 payload = result.to_dict()
             elif args.cmd == "demo-reset":
@@ -108,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                     confirm=bool(args.confirm),
                     name=args.name,
                     delete=bool(args.delete),
+                    reclaim_legacy=bool(args.reclaim_legacy),
                 )
             else:
                 parser.error(f"unknown command {args.cmd}")

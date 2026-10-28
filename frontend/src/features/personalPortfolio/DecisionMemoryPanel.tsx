@@ -154,8 +154,15 @@ export function DecisionMemoryPanel({
   const [detailBusy, setDetailBusy] = useState(false);
   const [matches, setMatches] = useState<Record<number, PossibleMatchesResponse | null>>({});
   const [linkBusy, setLinkBusy] = useState<string | null>(null);
-  const seq = useRef(0);
+  /** Bumped on portfolio change / unmount — drops stale async results for portfolio A after switch to B. */
+  const generationRef = useRef(0);
+  const portfolioIdRef = useRef(portfolioId);
+  portfolioIdRef.current = portfolioId;
   const syncKeyRef = useRef(`${portfolioId ?? ""}|${newCashRub ?? ""}|${decisionFingerprint ?? ""}`);
+
+  function isCurrent(gen: number, pid: number | null | undefined): boolean {
+    return gen === generationRef.current && pid != null && portfolioIdRef.current === pid;
+  }
 
   // Invalidate capture readiness when portfolio / capital / fingerprint drift.
   useEffect(() => {
@@ -176,71 +183,82 @@ export function DecisionMemoryPanel({
 
   const loadList = useCallback(async () => {
     if (portfolioId == null) return;
-    const my = ++seq.current;
+    const pid = portfolioId;
+    const gen = generationRef.current;
     try {
-      const res = await listDecisionMemory(portfolioId, { test });
-      if (my !== seq.current) return;
+      const res = await listDecisionMemory(pid, { test });
+      if (!isCurrent(gen, pid)) return;
       setItems(Array.isArray(res.items) ? res.items : []);
       setError(null);
     } catch (err) {
-      if (my !== seq.current) return;
+      if (!isCurrent(gen, pid)) return;
       setError(errorMessage(err));
     } finally {
-      if (my === seq.current) setLoaded(true);
+      if (isCurrent(gen, pid)) setLoaded(true);
     }
   }, [portfolioId, test]);
 
   // Read-only load of history. Never captures anything.
   useEffect(() => {
+    generationRef.current += 1;
     setItems([]);
     setLoaded(false);
     setError(null);
     setNotice(null);
+    setStaleHint(null);
+    setCapturing(false);
+    setRefreshing(false);
     setOpenId(null);
     setDetail(null);
+    setDetailBusy(false);
     setMatches({});
+    setLinkBusy(null);
     void loadList();
     return () => {
-      seq.current += 1;
+      generationRef.current += 1;
     };
   }, [loadList]);
 
   const loadMatches = useCallback(
-    async (record: DecisionMemoryRecord) => {
-      if (portfolioId == null) return;
+    async (record: DecisionMemoryRecord, gen: number, pid: number) => {
       const targets = (record.actions ?? []).filter(
         (a) => LINKABLE_ACTIONS.has(a.action) && a.instrument_id != null && activeLinks(a).length === 0,
       );
       const entries = await Promise.all(
         targets.map(async (a) => {
           try {
-            return [a.id, await getPossibleMatches(portfolioId, a.id, { test })] as const;
+            return [a.id, await getPossibleMatches(pid, a.id, { test })] as const;
           } catch {
             return [a.id, null] as const;
           }
         }),
       );
+      if (!isCurrent(gen, pid)) return;
       setMatches((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
     },
-    [portfolioId, test],
+    [test],
   );
 
   const openDecision = useCallback(
     async (id: number) => {
       if (portfolioId == null) return;
+      const pid = portfolioId;
+      const gen = generationRef.current;
       setOpenId(id);
       setDetailBusy(true);
       setError(null);
       setMatches({});
       try {
-        const rec = await getDecisionMemory(portfolioId, id, { test });
+        const rec = await getDecisionMemory(pid, id, { test });
+        if (!isCurrent(gen, pid)) return;
         setDetail(rec);
-        await loadMatches(rec);
+        await loadMatches(rec, gen, pid);
       } catch (err) {
+        if (!isCurrent(gen, pid)) return;
         setDetail(null);
         setError(errorMessage(err));
       } finally {
-        setDetailBusy(false);
+        if (isCurrent(gen, pid)) setDetailBusy(false);
       }
     },
     [portfolioId, test, loadMatches],
@@ -258,29 +276,36 @@ export function DecisionMemoryPanel({
 
   async function reopen(id: number) {
     if (portfolioId == null) return;
-    const rec = await getDecisionMemory(portfolioId, id, { test });
+    const pid = portfolioId;
+    const gen = generationRef.current;
+    const rec = await getDecisionMemory(pid, id, { test });
+    if (!isCurrent(gen, pid)) return;
     setDetail(rec);
     setMatches({});
-    await loadMatches(rec);
+    await loadMatches(rec, gen, pid);
   }
 
   async function capture() {
     if (portfolioId == null || capturing) return;
+    const pid = portfolioId;
+    const gen = generationRef.current;
     const fp = typeof decisionFingerprint === "string" ? decisionFingerprint.trim() : "";
     if (!fp) {
       setError("Сначала обновите расчёт решения, затем зафиксируйте актуальную версию.");
       return;
     }
+    const cashForCapture = newCashRub;
     setCapturing(true);
     setError(null);
     setNotice(null);
     setStaleHint(null);
     try {
-      const rec = await captureDecisionMemory(portfolioId, {
+      const rec = await captureDecisionMemory(pid, {
         test,
-        newCashRub,
+        newCashRub: cashForCapture,
         expectedDecisionFingerprint: fp,
       });
+      if (!isCurrent(gen, pid)) return;
       const summary: DecisionMemoryRecordSummary = {
         ...rec,
         actions_count: rec.actions_count ?? rec.actions?.length ?? 0,
@@ -295,57 +320,72 @@ export function DecisionMemoryPanel({
       setOpenId(rec.id);
       setDetail(rec);
       setMatches({});
-      await loadMatches(rec);
+      await loadMatches(rec, gen, pid);
     } catch (err) {
+      if (!isCurrent(gen, pid)) return;
       setError(errorMessage(err));
     } finally {
-      setCapturing(false);
+      if (isCurrent(gen, pid)) setCapturing(false);
     }
   }
 
   async function refreshOutcomes() {
     if (portfolioId == null || refreshing) return;
+    const pid = portfolioId;
+    const gen = generationRef.current;
     setRefreshing(true);
     setError(null);
     setNotice(null);
     try {
-      const res = await refreshDecisionOutcomes(portfolioId, { test });
+      const res = await refreshDecisionOutcomes(pid, { test });
+      if (!isCurrent(gen, pid)) return;
       setNotice(
         `Результаты обновлены: оценено ${res.evaluated}, готово ${res.ready}, ожидают ${res.still_pending}, нет данных ${res.data_unavailable}.`,
       );
-      if (openId != null) await reopen(openId);
+      if (openId != null && isCurrent(gen, pid)) await reopen(openId);
     } catch (err) {
+      if (!isCurrent(gen, pid)) return;
       setError(errorMessage(err));
     } finally {
-      setRefreshing(false);
+      if (isCurrent(gen, pid)) setRefreshing(false);
     }
   }
 
   async function confirmLink(actionId: number, operationId: number) {
     if (portfolioId == null || openId == null) return;
+    const pid = portfolioId;
+    const gen = generationRef.current;
+    const opened = openId;
     setLinkBusy(`link:${actionId}:${operationId}`);
     setError(null);
     try {
-      await linkOperation(portfolioId, actionId, operationId, { test });
-      await reopen(openId);
+      await linkOperation(pid, actionId, operationId, { test });
+      if (!isCurrent(gen, pid)) return;
+      await reopen(opened);
     } catch (err) {
+      if (!isCurrent(gen, pid)) return;
       setError(errorMessage(err));
     } finally {
-      setLinkBusy(null);
+      if (isCurrent(gen, pid)) setLinkBusy(null);
     }
   }
 
   async function removeLink(linkId: number) {
     if (portfolioId == null || openId == null) return;
+    const pid = portfolioId;
+    const gen = generationRef.current;
+    const opened = openId;
     setLinkBusy(`unlink:${linkId}`);
     setError(null);
     try {
-      await unlinkOperation(portfolioId, linkId, { test });
-      await reopen(openId);
+      await unlinkOperation(pid, linkId, { test });
+      if (!isCurrent(gen, pid)) return;
+      await reopen(opened);
     } catch (err) {
+      if (!isCurrent(gen, pid)) return;
       setError(errorMessage(err));
     } finally {
-      setLinkBusy(null);
+      if (isCurrent(gen, pid)) setLinkBusy(null);
     }
   }
 

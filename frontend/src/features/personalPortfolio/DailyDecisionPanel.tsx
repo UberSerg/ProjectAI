@@ -196,6 +196,8 @@ export function DailyDecisionPanel({
   const [view, setView] = useState<DailyPersonalDecision | null>(decision);
   const reqSeq = useRef(0);
   const portfolioRef = useRef(portfolioId);
+  const onDecisionChangeRef = useRef(onDecisionChange);
+  onDecisionChangeRef.current = onDecisionChange;
 
   useEffect(() => {
     setView(decision);
@@ -215,19 +217,42 @@ export function DailyDecisionPanel({
       setShowDetails(false);
       setView(decision);
       portfolioRef.current = portfolioId;
+      onDecisionChangeRef.current?.(null);
     }
   }, [portfolioId, decision]);
 
+  function clearCaptureEligibility(
+    localView?: DailyPersonalDecision | null,
+    options?: { dropInFlight?: boolean },
+  ) {
+    // Never leave a stale fingerprint available for Decision Memory capture.
+    if (options?.dropInFlight) {
+      reqSeq.current += 1;
+      setBusy(false);
+    }
+    onDecisionChangeRef.current?.(null);
+    if (localView) {
+      setView({ ...localView, decision_fingerprint: undefined });
+    } else if (view) {
+      setView({ ...view, decision_fingerprint: undefined });
+    }
+  }
+
   function invalidateFingerprintForDirtyCapital(nextInput: string) {
-    if (view == null || appliedCash == null) return;
-    const parsed = parseCashInput(nextInput);
-    if (parsed == null) return;
-    if (parsed === appliedCash) return;
-    // Capital changed vs last calculated plan — capture must wait for a fresh fingerprint.
-    onDecisionChange?.({
-      ...view,
-      decision_fingerprint: undefined,
-    });
+    const trimmed = nextInput.trim();
+    const parsed = trimmed === "" ? null : parseCashInput(trimmed);
+    const hadCalculatedPlan =
+      appliedCash != null || Boolean(view?.decision_fingerprint) || Boolean(view?.new_cash_plan) || busy;
+    if (!hadCalculatedPlan) return;
+    // Empty / invalid / different from last applied amount → capture must wait.
+    if (trimmed !== "" && parsed == null) {
+      clearCaptureEligibility(undefined, { dropInFlight: true });
+      return;
+    }
+    if (parsed != null && appliedCash != null && parsed === appliedCash && !busy) return;
+    if (parsed == null && appliedCash == null && trimmed === "" && !busy) return;
+    // Drop in-flight calc so a late response cannot restore an outdated fingerprint.
+    clearCaptureEligibility(undefined, { dropInFlight: true });
   }
 
   async function calculate(amountOverride?: number) {
@@ -238,25 +263,30 @@ export function DailyDecisionPanel({
         : parseCashInput(cashInput.trim() === "" ? "0" : cashInput);
     if (amount == null) {
       setLocalError("Введите неотрицательную сумму в рублях");
+      clearCaptureEligibility();
       return;
     }
     if (amountOverride != null) {
       setCashInput(String(amountOverride));
     }
+    // Invalidate immediately so an in-flight older response cannot restore capture.
     const seq = ++reqSeq.current;
+    clearCaptureEligibility();
     setBusy(true);
     setLocalError(null);
+    const requestPortfolioId = portfolioId;
     try {
-      const next = await getDailyPersonalDecision(portfolioId, {
+      const next = await getDailyPersonalDecision(requestPortfolioId, {
         newCashRub: amount > 0 ? amount : null,
       });
-      if (seq !== reqSeq.current) return;
+      if (seq !== reqSeq.current || portfolioRef.current !== requestPortfolioId) return;
       setAppliedCash(amount > 0 ? amount : null);
       setView(next);
       onDecisionChange?.(next);
     } catch (err) {
-      if (seq !== reqSeq.current) return;
+      if (seq !== reqSeq.current || portfolioRef.current !== requestPortfolioId) return;
       setLocalError(err instanceof Error ? err.message : "Не удалось рассчитать сценарии");
+      clearCaptureEligibility();
     } finally {
       if (seq === reqSeq.current) setBusy(false);
     }

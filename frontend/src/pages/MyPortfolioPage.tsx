@@ -434,13 +434,31 @@ export function MyPortfolioPage() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [modalOpen, setModalOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
-  const [decisionNewCash, setDecisionNewCash] = useState<string | null>(null);
-  const [decisionFingerprint, setDecisionFingerprint] = useState<string | null>(null);
+  /** Exact calculated Daily Decision eligible for Decision Memory capture — no base-response fallback. */
+  type CalculatedDecisionSnapshot = {
+    portfolioId: number;
+    newCashRub: number | null;
+    fingerprint: string;
+  };
+  const [calculatedDecision, setCalculatedDecision] = useState<CalculatedDecisionSnapshot | null>(null);
 
   useEffect(() => {
-    setDecisionNewCash(null);
-    setDecisionFingerprint(null);
+    setCalculatedDecision(null);
   }, [portfolioId]);
+
+  const captureFingerprint =
+    calculatedDecision != null &&
+    portfolioId != null &&
+    calculatedDecision.portfolioId === portfolioId &&
+    calculatedDecision.fingerprint.trim() !== ""
+      ? calculatedDecision.fingerprint
+      : null;
+  const captureNewCashRub =
+    calculatedDecision != null &&
+    portfolioId != null &&
+    calculatedDecision.portfolioId === portfolioId
+      ? calculatedDecision.newCashRub
+      : null;
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
   const reload = useCallback(() => setDataVersion((v) => v + 1), []);
 
@@ -774,8 +792,28 @@ export function MyPortfolioPage() {
               owner={!isUser}
               portfolioId={portfolioId}
               onDecisionChange={(next) => {
-                setDecisionNewCash(next?.new_cash_rub ?? null);
-                setDecisionFingerprint(next?.decision_fingerprint ?? null);
+                if (portfolioId == null || next == null) {
+                  setCalculatedDecision(null);
+                  return;
+                }
+                const fp =
+                  typeof next.decision_fingerprint === "string" ? next.decision_fingerprint.trim() : "";
+                if (!fp) {
+                  setCalculatedDecision(null);
+                  return;
+                }
+                const rawCash = next.new_cash_rub;
+                const cashNum =
+                  rawCash == null || rawCash === ""
+                    ? null
+                    : Number(rawCash);
+                const normalizedCash =
+                  cashNum != null && Number.isFinite(cashNum) && cashNum > 0 ? cashNum : null;
+                setCalculatedDecision({
+                  portfolioId,
+                  newCashRub: normalizedCash,
+                  fingerprint: fp,
+                });
               }}
             />
           ) : null}
@@ -783,8 +821,8 @@ export function MyPortfolioPage() {
             <div style={{ marginTop: "1rem" }}>
               <DecisionMemoryPanel
                 portfolioId={portfolioId}
-                newCashRub={decisionNewCash}
-                decisionFingerprint={decisionFingerprint ?? decisionRes.data?.decision_fingerprint ?? null}
+                newCashRub={captureNewCashRub}
+                decisionFingerprint={captureFingerprint}
               />
             </div>
           ) : null}

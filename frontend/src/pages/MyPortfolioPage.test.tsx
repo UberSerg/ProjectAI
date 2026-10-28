@@ -1204,4 +1204,186 @@ describe("MyPortfolioPage", () => {
       ]),
     );
   });
+
+  it("keeps Decision Memory capture tied to calculated snapshot — no base fingerprint fallback", async () => {
+    const decisionApi = await import("../api/dailyPersonalDecision");
+    const memoryApi = await import("../api/decisionMemory");
+    listPersonalPortfolios.mockResolvedValue({ items: [portfolioCardActive], count: 1 });
+    getPersonalPortfolio.mockResolvedValue(personalSummaryActive);
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisFilled as never);
+
+    const baseDecision = {
+      engine_version: "PERSONAL_DAILY_DECISION_V2",
+      decision_fingerprint: "fp-base-should-not-capture",
+      as_of: "2026-09-27",
+      status: "NO_ACTION",
+      headline: "Срочных действий нет",
+      summary: "Базовый ответ",
+      portfolio: {
+        id: 1,
+        journal_state: "ACTIVE",
+        cash_rub: "10000",
+        securities_value_rub: "30000",
+        nav_rub: "40000",
+        contributed_rub: "40000",
+        withdrawn_rub: "0",
+        investment_pnl_rub: "0",
+        symbols: ["SBER"],
+      },
+      actions: [],
+      risks: [],
+      data_quality: {
+        valuation_complete: true,
+        valuation_partial: false,
+        valuation_as_of: "2026-09-25",
+        valuation_from: "2026-09-25",
+        valuation_to: "2026-09-25",
+        valuation_label: "ok",
+        missing_price_count: 0,
+        degradations: [],
+      },
+      context: {},
+      disclaimer: "Модельная рекомендация",
+      scenario_comparison: [],
+      limitations: [],
+    };
+    vi.mocked(decisionApi.getDailyPersonalDecision).mockResolvedValue(baseDecision as never);
+    vi.mocked(memoryApi.listDecisionMemory).mockResolvedValue({ portfolio_id: 1, items: [], count: 0 });
+    vi.mocked(memoryApi.captureDecisionMemory).mockResolvedValue({
+      id: 501,
+      portfolio_id: 1,
+      headline: "saved",
+      captured_at: "2026-09-28T09:00:00+00:00",
+      decision_fingerprint: "fp-100k",
+      new_cash_rub: "100000",
+      actions: [],
+      actions_count: 0,
+      idempotent_replay: false,
+    } as never);
+
+    renderPage("/portfolio/1?tab=decision");
+    expect(await screen.findByTestId("daily-decision-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+
+    vi.mocked(decisionApi.getDailyPersonalDecision).mockResolvedValue({
+      ...baseDecision,
+      decision_fingerprint: "fp-100k",
+      new_cash_rub: "100000",
+      new_cash_plan: {
+        requested_new_cash_rub: "100000",
+        current_nav_rub: "40000",
+        current_cash_rub: "10000",
+        hypothetical_total_capital_rub: "140000",
+      },
+      scenario_comparison: [
+        {
+          id: "HOLD_CASH",
+          title: "Держать кэш",
+          status: "available",
+          deployed_rub: "0",
+          residual_cash_rub: "100000",
+        },
+      ],
+    } as never);
+
+    fireEvent.click(screen.getByTestId("daily-decision-preset-100k"));
+    await waitFor(() => expect(screen.getByTestId("memory-capture")).toBeEnabled());
+
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "50000" },
+    });
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+    expect(memoryApi.captureDecisionMemory).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "abc" },
+    });
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+
+    // Revert to calculated amount does not restore without recalculation.
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "100000" },
+    });
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+
+    vi.mocked(decisionApi.getDailyPersonalDecision).mockResolvedValue({
+      ...baseDecision,
+      decision_fingerprint: "fp-100k-again",
+      new_cash_rub: "100000",
+      new_cash_plan: {
+        requested_new_cash_rub: "100000",
+        current_nav_rub: "40000",
+        current_cash_rub: "10000",
+        hypothetical_total_capital_rub: "140000",
+      },
+      scenario_comparison: [],
+    } as never);
+    fireEvent.click(screen.getByTestId("daily-decision-calculate"));
+    await waitFor(() => expect(screen.getByTestId("memory-capture")).toBeEnabled());
+
+    fireEvent.click(screen.getByTestId("memory-capture"));
+    await waitFor(() => expect(memoryApi.captureDecisionMemory).toHaveBeenCalledTimes(1));
+    expect(memoryApi.captureDecisionMemory).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        expectedDecisionFingerprint: "fp-100k-again",
+        newCashRub: 100000,
+      }),
+    );
+  });
+
+  it("does not enable capture from base decision fingerprint alone after portfolio switch", async () => {
+    const decisionApi = await import("../api/dailyPersonalDecision");
+    const memoryApi = await import("../api/decisionMemory");
+    listPersonalPortfolios.mockResolvedValue({
+      items: [portfolioCardActive, portfolioCardB],
+      count: 2,
+    });
+    getPersonalPortfolio.mockResolvedValue({
+      ...personalSummaryActive,
+      portfolio: { ...personalSummaryActive.portfolio, id: 2, name: "Второй портфель" },
+    });
+    vi.mocked(portfolioApi.getPortfolioAnalysis).mockResolvedValue(analysisPortfolioB as never);
+    vi.mocked(memoryApi.listDecisionMemory).mockResolvedValue({ portfolio_id: 2, items: [], count: 0 });
+    vi.mocked(decisionApi.getDailyPersonalDecision).mockResolvedValue({
+      engine_version: "PERSONAL_DAILY_DECISION_V2",
+      decision_fingerprint: "fp-base-b-must-not-auto-capture",
+      as_of: "2026-09-27",
+      status: "NO_ACTION",
+      headline: "B base",
+      summary: "B",
+      portfolio: {
+        id: 2,
+        journal_state: "ACTIVE",
+        cash_rub: "10000",
+        securities_value_rub: "30000",
+        nav_rub: "40000",
+        contributed_rub: "40000",
+        withdrawn_rub: "0",
+        investment_pnl_rub: "0",
+        symbols: ["LKOH"],
+      },
+      actions: [],
+      risks: [],
+      data_quality: {
+        valuation_complete: true,
+        valuation_partial: false,
+        valuation_as_of: null,
+        valuation_from: null,
+        valuation_to: null,
+        valuation_label: null,
+        missing_price_count: 0,
+        degradations: [],
+      },
+      context: {},
+      disclaimer: "x",
+      scenario_comparison: [],
+      limitations: [],
+    } as never);
+
+    renderPage("/portfolio/2?tab=decision");
+    expect(await screen.findByTestId("daily-decision-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-capture")).toBeDisabled();
+    expect(memoryApi.captureDecisionMemory).not.toHaveBeenCalled();
+  });
 });

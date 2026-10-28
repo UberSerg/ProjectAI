@@ -111,6 +111,14 @@ const scenarios100k: DailyPersonalDecision["scenario_comparison"] = [
   },
 ];
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("DailyDecisionPanel", () => {
   beforeEach(() => {
     vi.mocked(api.getDailyPersonalDecision).mockReset();
@@ -221,11 +229,37 @@ describe("DailyDecisionPanel", () => {
       ),
     );
 
+    onDecisionChange.mockClear();
     fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
       target: { value: "50000" },
     });
-    expect(onDecisionChange).toHaveBeenCalledWith(
-      expect.objectContaining({ decision_fingerprint: undefined }),
+    expect(onDecisionChange).toHaveBeenCalledWith(null);
+  });
+
+  it("does not restore readiness from a stale in-flight calculation after capital edit", async () => {
+    const onDecisionChange = vi.fn();
+    const slow = deferred<typeof base>();
+    vi.mocked(api.getDailyPersonalDecision).mockImplementationOnce(() => slow.promise as never);
+
+    render(<DailyDecisionPanel decision={base} portfolioId={1} onDecisionChange={onDecisionChange} />);
+    fireEvent.click(screen.getByTestId("daily-decision-preset-100k"));
+    expect(onDecisionChange).toHaveBeenCalledWith(null);
+
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "50000" },
+    });
+    onDecisionChange.mockClear();
+
+    slow.resolve({
+      ...base,
+      decision_fingerprint: "fp-stale-inflight",
+      new_cash_rub: "100000",
+      scenario_comparison: scenarios100k,
+    });
+    await waitFor(() => expect(api.getDailyPersonalDecision).toHaveBeenCalled());
+    // Stale response must not re-enable capture after the capital input changed.
+    expect(onDecisionChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ decision_fingerprint: "fp-stale-inflight" }),
     );
   });
 
