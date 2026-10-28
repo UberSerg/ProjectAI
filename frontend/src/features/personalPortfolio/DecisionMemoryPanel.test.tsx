@@ -325,6 +325,74 @@ describe("DecisionMemoryPanel", () => {
     expect(screen.queryByTestId("memory-notice")).not.toBeInTheDocument();
   });
 
+  it("does not replace record B with delayed record A in the same portfolio", async () => {
+    const slowA = deferred<DecisionMemoryRecord>();
+    const recB: DecisionMemoryRecord = { ...record, id: 8, headline: "B current detail", actions: [] };
+    vi.mocked(api.listDecisionMemory).mockResolvedValue({
+      portfolio_id: 1, items: [record, { ...recB, headline: "Record B list" }], count: 2,
+    });
+    vi.mocked(api.getDecisionMemory).mockImplementation((_, id: number) =>
+      id === 7 ? slowA.promise : Promise.resolve(recB),
+    );
+    render(<DecisionMemoryPanel portfolioId={1} />);
+    fireEvent.click(await screen.findByTestId("memory-open-7"));
+    fireEvent.click(screen.getByTestId("memory-open-8"));
+    expect(await screen.findByText("B current detail")).toBeInTheDocument();
+    slowA.resolve({ ...record, headline: "A stale detail" });
+    await waitFor(() => expect(api.getDecisionMemory).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("A stale detail")).not.toBeInTheDocument();
+    expect(screen.getByText("B current detail")).toBeInTheDocument();
+  });
+
+  it("keeps a closed record closed when its response is delayed", async () => {
+    const slow = deferred<DecisionMemoryRecord>();
+    vi.mocked(api.listDecisionMemory).mockResolvedValue({ portfolio_id: 1, items: [record], count: 1 });
+    vi.mocked(api.getDecisionMemory).mockReturnValue(slow.promise);
+    render(<DecisionMemoryPanel portfolioId={1} />);
+    fireEvent.click(await screen.findByTestId("memory-open-7"));
+    fireEvent.click(screen.getByTestId("memory-open-7"));
+    slow.resolve(record);
+    await waitFor(() => expect(api.getDecisionMemory).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("memory-detail")).not.toBeInTheDocument();
+  });
+
+  it("discards delayed matches from a previously opened record", async () => {
+    const slowMatches = deferred<Awaited<ReturnType<typeof api.getPossibleMatches>>>();
+    const recB: DecisionMemoryRecord = {
+      ...record, id: 8, headline: "B detail current",
+      actions: [{ ...record.actions![0], id: 22 }],
+    };
+    vi.mocked(api.listDecisionMemory).mockResolvedValue({ portfolio_id: 1, items: [record, recB], count: 2 });
+    vi.mocked(api.getDecisionMemory).mockImplementation((_, id: number) =>
+      Promise.resolve(id === 7 ? record : recB),
+    );
+    vi.mocked(api.getPossibleMatches).mockImplementation((_, actionId: number) =>
+      actionId === 11 ? slowMatches.promise : Promise.resolve({
+        decision_action_id: 22, action: "CONSIDER_INCREASE",
+        window: { from: null, to: null, upper_bound: "NOW" },
+        matches: [], reason: null, disclaimer: "",
+      }),
+    );
+    render(<DecisionMemoryPanel portfolioId={1} />);
+    fireEvent.click(await screen.findByTestId("memory-open-7"));
+    await waitFor(() => expect(api.getPossibleMatches).toHaveBeenCalledWith(1, 11, expect.anything()));
+    fireEvent.click(screen.getByTestId("memory-open-8"));
+    expect(await screen.findByText("B detail current")).toBeInTheDocument();
+    slowMatches.resolve({
+      decision_action_id: 11, action: "CONSIDER_INCREASE",
+      window: { from: null, to: null, upper_bound: "NOW" },
+      matches: [{
+        label: "POSSIBLE_MATCH", personal_operation_id: 99, operation_type: "BUY",
+        occurred_at: "2026-09-29T10:00:00+00:00", instrument_id: 5, lots: "1",
+        units: "10", price: "301", amount: "3010", commission: "1", already_linked: false,
+      }],
+      reason: null, disclaimer: "",
+    });
+    await waitFor(() => expect(api.getPossibleMatches).toHaveBeenCalledWith(1, 22, expect.anything()));
+    expect(screen.queryByText("POSSIBLE_MATCH")).not.toBeInTheDocument();
+    expect(screen.getByText("B detail current")).toBeInTheDocument();
+  });
+
   it("unlinks a confirmed link", async () => {
     const linked: DecisionMemoryRecord = {
       ...record,
