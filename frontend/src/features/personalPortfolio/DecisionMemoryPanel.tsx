@@ -156,12 +156,18 @@ export function DecisionMemoryPanel({
   const [linkBusy, setLinkBusy] = useState<string | null>(null);
   /** Bumped on portfolio change / unmount — drops stale async results for portfolio A after switch to B. */
   const generationRef = useRef(0);
+  const detailRequestRef = useRef(0);
+  const activeDetailIdRef = useRef<number | null>(null);
   const portfolioIdRef = useRef(portfolioId);
   portfolioIdRef.current = portfolioId;
   const syncKeyRef = useRef(`${portfolioId ?? ""}|${newCashRub ?? ""}|${decisionFingerprint ?? ""}`);
 
   function isCurrent(gen: number, pid: number | null | undefined): boolean {
     return gen === generationRef.current && pid != null && portfolioIdRef.current === pid;
+  }
+
+  function isCurrentDetail(gen: number, pid: number, id: number, request: number): boolean {
+    return isCurrent(gen, pid) && detailRequestRef.current === request && activeDetailIdRef.current === id;
   }
 
   // Invalidate capture readiness when portfolio / capital / fingerprint drift.
@@ -201,6 +207,8 @@ export function DecisionMemoryPanel({
   // Read-only load of history. Never captures anything.
   useEffect(() => {
     generationRef.current += 1;
+    detailRequestRef.current += 1;
+    activeDetailIdRef.current = null;
     setItems([]);
     setLoaded(false);
     setError(null);
@@ -220,7 +228,7 @@ export function DecisionMemoryPanel({
   }, [loadList]);
 
   const loadMatches = useCallback(
-    async (record: DecisionMemoryRecord, gen: number, pid: number) => {
+    async (record: DecisionMemoryRecord, gen: number, pid: number, request: number) => {
       const targets = (record.actions ?? []).filter(
         (a) => LINKABLE_ACTIONS.has(a.action) && a.instrument_id != null && activeLinks(a).length === 0,
       );
@@ -233,7 +241,7 @@ export function DecisionMemoryPanel({
           }
         }),
       );
-      if (!isCurrent(gen, pid)) return;
+      if (!isCurrentDetail(gen, pid, record.id, request)) return;
       setMatches((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
     },
     [test],
@@ -244,21 +252,24 @@ export function DecisionMemoryPanel({
       if (portfolioId == null) return;
       const pid = portfolioId;
       const gen = generationRef.current;
+      const request = ++detailRequestRef.current;
+      activeDetailIdRef.current = id;
       setOpenId(id);
+      setDetail(null);
       setDetailBusy(true);
       setError(null);
       setMatches({});
       try {
         const rec = await getDecisionMemory(pid, id, { test });
-        if (!isCurrent(gen, pid)) return;
+        if (!isCurrentDetail(gen, pid, id, request)) return;
         setDetail(rec);
-        await loadMatches(rec, gen, pid);
+        await loadMatches(rec, gen, pid, request);
       } catch (err) {
-        if (!isCurrent(gen, pid)) return;
+        if (!isCurrentDetail(gen, pid, id, request)) return;
         setDetail(null);
         setError(errorMessage(err));
       } finally {
-        if (isCurrent(gen, pid)) setDetailBusy(false);
+        if (isCurrentDetail(gen, pid, id, request)) setDetailBusy(false);
       }
     },
     [portfolioId, test, loadMatches],
@@ -266,8 +277,11 @@ export function DecisionMemoryPanel({
 
   function toggleDecision(id: number) {
     if (openId === id) {
+      detailRequestRef.current += 1;
+      activeDetailIdRef.current = null;
       setOpenId(null);
       setDetail(null);
+      setDetailBusy(false);
       setMatches({});
       return;
     }
@@ -275,14 +289,15 @@ export function DecisionMemoryPanel({
   }
 
   async function reopen(id: number) {
-    if (portfolioId == null) return;
+    if (portfolioId == null || activeDetailIdRef.current !== id) return;
     const pid = portfolioId;
     const gen = generationRef.current;
+    const request = ++detailRequestRef.current;
     const rec = await getDecisionMemory(pid, id, { test });
-    if (!isCurrent(gen, pid)) return;
+    if (!isCurrentDetail(gen, pid, id, request)) return;
     setDetail(rec);
     setMatches({});
-    await loadMatches(rec, gen, pid);
+    await loadMatches(rec, gen, pid, request);
   }
 
   async function capture() {
@@ -295,6 +310,7 @@ export function DecisionMemoryPanel({
       return;
     }
     const cashForCapture = newCashRub;
+    const detailRequestAtCapture = detailRequestRef.current;
     setCapturing(true);
     setError(null);
     setNotice(null);
@@ -317,10 +333,15 @@ export function DecisionMemoryPanel({
           ? "Это решение уже было сохранено — повторная запись не создана."
           : "Рекомендация зафиксирована. Это не сделка и не подтверждение исполнения.",
       );
-      setOpenId(rec.id);
-      setDetail(rec);
-      setMatches({});
-      await loadMatches(rec, gen, pid);
+      // Preserve capture history without replacing a record opened meanwhile.
+      if (detailRequestRef.current === detailRequestAtCapture) {
+        const request = ++detailRequestRef.current;
+        activeDetailIdRef.current = rec.id;
+        setOpenId(rec.id);
+        setDetail(rec);
+        setMatches({});
+        await loadMatches(rec, gen, pid, request);
+      }
     } catch (err) {
       if (!isCurrent(gen, pid)) return;
       setError(errorMessage(err));
@@ -360,7 +381,7 @@ export function DecisionMemoryPanel({
     setError(null);
     try {
       await linkOperation(pid, actionId, operationId, { test });
-      if (!isCurrent(gen, pid)) return;
+      if (!isCurrent(gen, pid) || activeDetailIdRef.current !== opened) return;
       await reopen(opened);
     } catch (err) {
       if (!isCurrent(gen, pid)) return;
@@ -379,7 +400,7 @@ export function DecisionMemoryPanel({
     setError(null);
     try {
       await unlinkOperation(pid, linkId, { test });
-      if (!isCurrent(gen, pid)) return;
+      if (!isCurrent(gen, pid) || activeDetailIdRef.current !== opened) return;
       await reopen(opened);
     } catch (err) {
       if (!isCurrent(gen, pid)) return;
