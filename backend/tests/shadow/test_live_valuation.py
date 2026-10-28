@@ -13,6 +13,7 @@ from app.domain.ports.intraday_market import (
 )
 from app.modules.shadow.application.live_valuation import (
     EodMark,
+    ValuationFreshness,
     ValuationStatus,
     build_live_portfolio_snapshot,
 )
@@ -200,4 +201,50 @@ def test_refresh_idempotent_for_full_book() -> None:
     b = build_live_portfolio_snapshot(**kwargs)
     assert a.nav == b.nav == 10_000.0 + 1_000.0
     assert a.unrealized_pnl == b.unrealized_pnl == 100.0
+
+
+def test_full_live_is_fresh() -> None:
+    snap = build_live_portfolio_snapshot(
+        portfolio_id=1,
+        cash=0.0,
+        positions={"1": {"instrument_id": 1, "ticker": "SBER", "quantity": 10.0}},
+        quotes_by_instrument={1: _quote(1, last=110.0, freshness=QuoteFreshness.LIVE)},
+    )
+    assert snap.valuation_status == ValuationStatus.FULL
+    assert snap.valuation_freshness == ValuationFreshness.FRESH
+    assert snap.nav_is_fresh is True
+
+
+def test_full_eod_fallback_is_stale() -> None:
+    snap = build_live_portfolio_snapshot(
+        portfolio_id=1,
+        cash=0.0,
+        positions={"1": {"instrument_id": 1, "ticker": "SBER", "quantity": 10.0}},
+        quotes_by_instrument={},
+        eod_marks_by_instrument={
+            1: EodMark(price=95.0, as_of=datetime(2026, 9, 4, 18, 0, tzinfo=UTC), source="EOD"),
+        },
+    )
+    assert snap.valuation_status == ValuationStatus.FULL
+    assert snap.valuation_freshness == ValuationFreshness.STALE
+    assert snap.nav_is_fresh is False
+    assert any("stale" in w for w in snap.warnings)
+
+
+def test_mixed_live_and_eod_freshness() -> None:
+    snap = build_live_portfolio_snapshot(
+        portfolio_id=1,
+        cash=0.0,
+        positions={
+            "1": {"instrument_id": 1, "ticker": "A", "quantity": 10.0},
+            "2": {"instrument_id": 2, "ticker": "B", "quantity": 10.0},
+        },
+        quotes_by_instrument={1: _quote(1, last=100.0, freshness=QuoteFreshness.LIVE)},
+        eod_marks_by_instrument={
+            2: EodMark(price=100.0, as_of=datetime(2026, 9, 1, 18, 0, tzinfo=UTC), source="EOD"),
+        },
+    )
+    assert snap.valuation_status == ValuationStatus.FULL
+    assert snap.valuation_freshness == ValuationFreshness.MIXED
+    assert snap.nav_is_fresh is False
 

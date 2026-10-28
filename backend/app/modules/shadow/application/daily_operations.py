@@ -308,13 +308,14 @@ def build_daily_operations_status(session: Session) -> dict[str, Any]:
             if decision_ids
             else []
         )
-        if any((d.metadata_ or {}).get("order_plan") for d in linked):
-            order_plan_status = "PRESENT"
-        elif linked:
-            # Orders exist and decisions exist, but plan snapshot was not stored on metadata.
-            order_plan_status = "ORDERS_WITHOUT_PLAN_META"
-        else:
+        if not linked:
             order_plan_status = "ORPHAN_PENDING_ORDERS"
+        elif all((d.metadata_ or {}).get("order_plan") for d in linked):
+            # Every decision that owns a pending order must carry the plan snapshot.
+            order_plan_status = "PRESENT"
+        else:
+            # At least one linked decision lacks order_plan — do not hide behind a single PRESENT.
+            order_plan_status = "ORDERS_WITHOUT_PLAN_META"
     elif latest_decision is not None and (latest_decision.metadata_ or {}).get("order_plan"):
         order_plan_status = "PRESENT"
 
@@ -658,6 +659,32 @@ def maybe_startup_catchup(session: Session) -> dict[str, Any]:
         }
 
 
+def _recovery_runtime() -> dict[str, Any]:
+    """Best-effort Redis view of whether recovery is actually executing."""
+    from app.modules.shadow.application.recovery import (
+        read_recovery_status,
+        recovery_lock_held,
+    )
+
+    status = read_recovery_status() or {}
+    lock_held = recovery_lock_held()
+    state = str(status.get("state") or "").upper()
+    running = lock_held or state == "RUNNING"
+    return {
+        "running": running,
+        "lock_held": lock_held,
+        "task_id": status.get("task_id"),
+        "started_at": status.get("started_at"),
+        "updated_at": status.get("updated_at"),
+        "phase": status.get("phase"),
+        "last_completed_session": status.get("last_processed_session"),
+        "remaining_sessions": status.get("remaining_sessions"),
+        "blocking_session": status.get("blocking_session"),
+        "blocker": status.get("blocker") or status.get("reason"),
+        "status_state": state or None,
+    }
+
+
 def _map_operational_state(
     *,
     prep: str,
@@ -666,7 +693,10 @@ def _map_operational_state(
     automation_warning: str | None,
     order_plan_status: str,
 ) -> dict[str, Any]:
-    """Collapse backend codes into user-facing operational buckets (compat preserved)."""
+    """Collapse backend codes into user-facing operational buckets (compat preserved).
+
+    RECOVERING means a recovery task is actually running (lock/status), not merely backlog.
+    """
     catch_status = str(
         (catch_up or {}).get("catch_up_status") or (catch_up or {}).get("status") or ""
     ).upper()
@@ -677,12 +707,22 @@ def _map_operational_state(
     )
     expected = (catch_up or {}).get("latest_completed_market_session")
     stop_reason = (catch_up or {}).get("blocking_reason") or (catch_up or {}).get("blocking_session")
+    recovery = _recovery_runtime()
 
-    if catch_status in {"CATCH_UP_RUNNING", "CATCH_UP_IN_PROGRESS", "RECOVERING"} or (
-        missing_days > 0 and catch_status not in {"CATCH_UP_BLOCKED", "CATCH_UP_FAILED"}
-    ):
+    if recovery["running"] or catch_status in {
+        "CATCH_UP_RUNNING",
+        "CATCH_UP_IN_PROGRESS",
+        "RECOVERING",
+    }:
         state = "RECOVERING"
         action = "Дождаться завершения catch-up / не запускать вручную повторно."
+    elif missing_days > 0 and catch_status not in {"CATCH_UP_BLOCKED", "CATCH_UP_FAILED"}:
+        # Backlog detected but nobody is recovering — do not claim RECOVERING.
+        state = "STALE_DATA"
+        action = (
+            "Обнаружен backlog сессий; recovery сейчас не выполняется. "
+            "Включить SHADOW_STARTUP_RECOVERY_ENABLED или запустить market_shadow_recovery."
+        )
     elif prep in (READY_FOR_NEXT_SESSION, READY_NO_REBALANCE):
         state = "READY"
         action = None
@@ -727,6 +767,8 @@ def _map_operational_state(
         "stop_reason": stop_reason,
         "order_plan_status": order_plan_status,
         "required_action": action,
+        "recovery": recovery,
+        "backlog_without_recovery": bool(missing_days > 0 and not recovery["running"]),
     }
 
 

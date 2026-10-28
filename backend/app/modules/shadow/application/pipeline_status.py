@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -261,7 +261,30 @@ def build_pipeline_status(
     )
 
 
-def next_session_date_from_eod(eod: date | None) -> str | None:
+def next_session_date_from_eod(
+    eod: date | None,
+    *,
+    today: date | None = None,
+) -> str | None:
+    """Next MOEX equity trading day after completed EOD — never a past calendar day.
+
+    Returns None when calendar is unavailable or the next session is already in the past
+    (backlog / recovery required — do not invent a «upcoming» date).
+    """
     if eod is None:
         return None
-    return (eod + timedelta(days=1)).isoformat()
+    try:
+        from app.modules.market.infrastructure.ru_trading_calendar import (
+            get_moex_equity_trading_calendar,
+        )
+
+        cal = get_moex_equity_trading_calendar()
+        nxt = cal.next_trading_day(eod, inclusive=False)
+    except Exception:  # noqa: BLE001
+        return None
+    if nxt is None:
+        return None
+    clock_today = today or datetime.now(UTC).date()
+    if nxt < clock_today:
+        return None
+    return nxt.isoformat()

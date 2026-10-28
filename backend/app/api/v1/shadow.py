@@ -262,6 +262,7 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
         )
 
     status = str(snapshot.valuation_status)
+    freshness = str(snapshot.valuation_freshness)
     return {
         "intraday_enabled": bool(settings.intraday_market_enabled),
         "open_execution_policy": POLICY_NAME,
@@ -279,6 +280,8 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
             "nav": snapshot.nav,
             "nav_is_complete": snapshot.nav_is_complete,
             "valuation_status": status,
+            "valuation_freshness": freshness,
+            "nav_is_fresh": snapshot.nav_is_fresh,
             "fees_paid": fees_total,
             "realized_pnl": realized_total,
             "unrealized_pnl": snapshot.unrealized_pnl,
@@ -293,6 +296,11 @@ def _live_enrichment(session: Any, portfolio: ShadowPortfolio) -> dict[str, Any]
             "nav": snapshot.nav,
             "nav_is_complete": snapshot.nav_is_complete,
             "valuation_status": status,
+            "valuation_freshness": freshness,
+            "nav_is_fresh": snapshot.nav_is_fresh,
+            "marks_as_of": (
+                snapshot.marks_as_of.isoformat() if snapshot.marks_as_of else None
+            ),
             "unrealized_pnl": snapshot.unrealized_pnl,
             "unrealized_pnl_pct": snapshot.unrealized_pnl_pct,
             "partial_unrealized_pnl": snapshot.partial_unrealized_pnl,
@@ -445,7 +453,10 @@ def shadow_overview() -> dict[str, Any]:
                 summary["live_nav"] = live["nav"]
                 summary["live_market_value"] = live.get("known_market_value", live.get("market_value"))
             summary["valuation_status"] = live.get("valuation_status")
+            summary["valuation_freshness"] = live.get("valuation_freshness")
             summary["nav_is_complete"] = bool(live.get("nav_is_complete"))
+            summary["nav_is_fresh"] = bool(live.get("nav_is_fresh"))
+            summary["history_kind"] = (portfolio.provenance or {}).get("last_nav_history_kind")
             portfolios.append(summary)
             if activated_at is None or (
                 portfolio.activated_at and portfolio.activated_at < activated_at
@@ -590,6 +601,10 @@ def get_shadow_nav(portfolio_id: int, limit: Annotated[int, Query(ge=1, le=500)]
                 .limit(limit)
             )
         )
+        portfolio = session.get(ShadowPortfolio, portfolio_id)
+        kind_map = {}
+        if portfolio is not None:
+            kind_map = dict((portfolio.provenance or {}).get("nav_history_kinds") or {})
         return [
             {
                 "as_of_date": r.as_of_date.isoformat(),
@@ -601,6 +616,10 @@ def get_shadow_nav(portfolio_id: int, limit: Annotated[int, Query(ge=1, le=500)]
                 "peak_nav": r.peak_nav,
                 "position_count": r.position_count,
                 "benchmark_value": r.benchmark_value,
+                "history_kind": (kind_map.get(r.as_of_date.isoformat()) or {}).get(
+                    "history_kind"
+                ),
+                "provenance": kind_map.get(r.as_of_date.isoformat()),
             }
             for r in reversed(rows)
         ]

@@ -20,6 +20,15 @@ class ValuationStatus(StrEnum):
     UNAVAILABLE = "UNAVAILABLE"
 
 
+class ValuationFreshness(StrEnum):
+    """Portfolio-level mark freshness — orthogonal to FULL/PARTIAL coverage."""
+
+    FRESH = "FRESH"
+    STALE = "STALE"
+    MIXED = "MIXED"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
 @dataclass(slots=True, frozen=True)
 class EodMark:
     """Last known EOD close for advisory live mark (never an execution price)."""
@@ -68,6 +77,9 @@ class LivePortfolioSnapshot:
     quote_coverage: float = 0.0
     value_coverage: float = 0.0
     warnings: tuple[str, ...] = ()
+    """Coverage completeness ≠ mark freshness. FULL may still be STALE."""
+    valuation_freshness: ValuationFreshness = ValuationFreshness.UNAVAILABLE
+    marks_as_of: datetime | None = None
 
     @property
     def market_value(self) -> float:
@@ -77,6 +89,13 @@ class LivePortfolioSnapshot:
     @property
     def nav_is_complete(self) -> bool:
         return self.valuation_status == ValuationStatus.FULL and self.nav is not None
+
+    @property
+    def nav_is_fresh(self) -> bool:
+        return (
+            self.nav_is_complete
+            and self.valuation_freshness == ValuationFreshness.FRESH
+        )
 
 
 def _mark_from_quote(quote: IntradayQuote | None) -> tuple[float | None, str, str, datetime | None]:
@@ -245,6 +264,31 @@ def build_live_portfolio_snapshot(
     if unrealized is not None and invested_cost_total > 1e-12:
         unrealized_pct = unrealized / invested_cost_total
 
+    priced_freshness = [str(m.freshness).upper() for m in marks if m.priced]
+    marks_as_of: datetime | None = None
+    for m in marks:
+        if m.priced and m.quote_time is not None:
+            if marks_as_of is None or m.quote_time > marks_as_of:
+                marks_as_of = m.quote_time
+    if total == 0:
+        val_freshness = ValuationFreshness.FRESH
+    elif not priced_freshness:
+        val_freshness = ValuationFreshness.UNAVAILABLE
+    else:
+        fresh_like = {"LIVE", "FRESH", "DELAYED"}
+        stale_like = {"STALE", "PREVIOUS_CLOSE", "MARKET_CLOSED", "SESSION_NOT_STARTED"}
+        has_fresh = any(f in fresh_like for f in priced_freshness)
+        has_stale = any(f in stale_like or f not in fresh_like for f in priced_freshness)
+        # PREVIOUS_CLOSE / EOD fallback already set freshness=STALE on the mark.
+        if has_fresh and has_stale:
+            val_freshness = ValuationFreshness.MIXED
+        elif has_fresh and not has_stale:
+            val_freshness = ValuationFreshness.FRESH
+        else:
+            val_freshness = ValuationFreshness.STALE
+        if status == ValuationStatus.FULL and val_freshness == ValuationFreshness.STALE:
+            warnings.append("valuation_full_but_stale:not_execution_mark")
+
     return LivePortfolioSnapshot(
         portfolio_id=portfolio_id,
         cash=cash_f,
@@ -262,4 +306,6 @@ def build_live_portfolio_snapshot(
         quote_coverage=coverage,
         value_coverage=value_coverage,
         warnings=tuple(warnings),
+        valuation_freshness=val_freshness,
+        marks_as_of=marks_as_of or as_of,
     )

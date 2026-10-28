@@ -35,6 +35,9 @@ export interface ShadowLiveSnapshot {
   nav: number | null;
   nav_is_complete?: boolean | null;
   valuation_status?: "FULL" | "PARTIAL" | "UNAVAILABLE" | string | null;
+  valuation_freshness?: "FRESH" | "STALE" | "MIXED" | "UNAVAILABLE" | string | null;
+  nav_is_fresh?: boolean | null;
+  marks_as_of?: string | null;
   unrealized_pnl?: number | null;
   unrealized_pnl_pct?: number | null;
   partial_unrealized_pnl?: number | null;
@@ -150,7 +153,10 @@ export interface ShadowPortfolioSummary {
   live_nav?: number | null;
   live_market_value?: number | null;
   nav_is_complete?: boolean | null;
+  nav_is_fresh?: boolean | null;
   valuation_status?: string | null;
+  valuation_freshness?: string | null;
+  history_kind?: string | null;
   cash_breakdown?: ShadowCashBreakdown | null;
   order_plan?: ShadowOrderPlan | null;
   skipped?: ShadowOrderPlanSkipped[] | null;
@@ -221,6 +227,20 @@ export interface ShadowAutomationFlags {
   warning?: string | null;
 }
 
+export interface ShadowRecoveryRuntime {
+  running?: boolean | null;
+  lock_held?: boolean | null;
+  task_id?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  phase?: string | null;
+  last_completed_session?: string | null;
+  remaining_sessions?: number | null;
+  blocking_session?: string | null;
+  blocker?: string | null;
+  status_state?: string | null;
+}
+
 export interface ShadowOperationalState {
   state?: string | null;
   backend_prep_code?: string | null;
@@ -232,6 +252,8 @@ export interface ShadowOperationalState {
   stop_reason?: string | null;
   order_plan_status?: string | null;
   required_action?: string | null;
+  recovery?: ShadowRecoveryRuntime | null;
+  backlog_without_recovery?: boolean | null;
 }
 
 export interface ShadowDailyOperations {

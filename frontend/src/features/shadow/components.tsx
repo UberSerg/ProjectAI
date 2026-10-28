@@ -163,7 +163,14 @@ export function ReadinessBanner({
           </div>
           <div>
             <dt>След. сессия</dt>
-            <dd>{formatDate(ops.next_execution_session)}</dd>
+            <dd data-testid="shadow-next-session">
+              {ops.next_execution_session
+                ? formatDate(ops.next_execution_session)
+                : ops.operational_state?.backlog_without_recovery ||
+                    (ops.operational_state?.missing_sessions ?? 0) > 0
+                  ? "backlog / recovery"
+                  : "—"}
+            </dd>
           </div>
           <div>
             <dt>Обработано / пропуск</dt>
@@ -174,6 +181,11 @@ export function ReadinessBanner({
               {ops.operational_state?.missing_sessions
                 ? ` · пропущено ${ops.operational_state.missing_sessions}`
                 : ""}
+              {ops.operational_state?.recovery?.running
+                ? ` · recovery: ${ops.operational_state.recovery.phase ?? "RUNNING"}`
+                : ops.operational_state?.backlog_without_recovery
+                  ? " · recovery не выполняется"
+                  : ""}
             </dd>
           </div>
           <div>
@@ -268,8 +280,18 @@ export function PnLCards({ portfolio }: { portfolio: ShadowPortfolioSummary }) {
     live?.valuation_status ??
     (navComplete ? "FULL" : "PARTIAL")
   ).toUpperCase();
+  const valuationFreshness = (
+    portfolio.valuation_freshness ??
+    live?.valuation_freshness ??
+    ""
+  ).toUpperCase();
+  const coverageLabel =
+    valuationFreshness && valuationStatus === "FULL"
+      ? `${valuationStatus} · ${valuationFreshness}`
+      : valuationStatus;
   const partial = valuationStatus === "PARTIAL" || valuationStatus === "UNAVAILABLE" || !navComplete;
-  const nav = navComplete ? (portfolio.live_nav ?? live?.nav ?? portfolio.nav) : null;
+  const staleFull = valuationStatus === "FULL" && valuationFreshness === "STALE";
+  const nav = navComplete && !staleFull ? (portfolio.live_nav ?? live?.nav ?? portfolio.nav) : null;
   const initial = portfolio.initial_capital;
   const totalPnl =
     !partial && nav != null && initial != null
@@ -287,10 +309,25 @@ export function PnLCards({ portfolio }: { portfolio: ShadowPortfolioSummary }) {
     <div data-testid="shadow-pnl-cards">
       {partial ? (
         <p className="muted" data-testid="shadow-partial-valuation-warning">
-          Оценка неполная ({valuationStatus}
+          Оценка неполная ({coverageLabel}
           {unpriced > 0 ? ` · без котировок: ${unpriced}` : ""}
           {knownNav != null ? ` · известная часть ≈ ${formatRub(knownNav)}` : ""}). Общий P&amp;L и
           drawdown по начальному капиталу не считаются.
+        </p>
+      ) : null}
+      {staleFull ? (
+        <p className="muted" data-testid="shadow-stale-valuation-warning">
+          Покрытие полное, но котировки устарели ({coverageLabel}
+          {live?.marks_as_of ? ` · as of ${live.marks_as_of}` : ""}). Не использовать как актуальную
+          цену исполнения или текущую risk valuation.
+        </p>
+      ) : null}
+      {portfolio.history_kind ? (
+        <p className="muted" data-testid="shadow-history-kind">
+          История:{" "}
+          {String(portfolio.history_kind).toUpperCase() === "COUNTERFACTUAL_REPLAY"
+            ? "реконструкция (не recorded LIVE)"
+            : "recorded LIVE"}
         </p>
       ) : null}
       <div className="card-grid sim-metrics-grid">
