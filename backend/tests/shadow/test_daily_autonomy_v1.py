@@ -258,6 +258,7 @@ def test_ready_no_rebalance_pipeline_status() -> None:
         research_live_mode=True,
         daily_research_cycle_enabled=True,
         eod_readiness_retry_enabled=True,
+        shadow_startup_recovery_enabled=False,
     )
     with (
         patch(
@@ -366,7 +367,11 @@ def test_research_live_mode_enables_three_flags(monkeypatch: pytest.MonkeyPatch)
 
 def test_startup_catchup_skips_without_shadow() -> None:
     session = MagicMock()
-    settings = SimpleNamespace(research_live_mode=True, eod_readiness_retry_enabled=True)
+    settings = SimpleNamespace(
+        research_live_mode=True,
+        eod_readiness_retry_enabled=True,
+        shadow_startup_recovery_enabled=False,
+    )
     with (
         patch(
             "app.modules.shadow.application.daily_operations.get_settings",
