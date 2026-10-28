@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -54,13 +55,16 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(() => readStoredId());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshRequestRef = useRef(0);
 
   const refreshList = useCallback(async () => {
+    const request = ++refreshRequestRef.current;
     setLoading(true);
     setError(null);
     try {
       const res = await listPersonalPortfolios();
       const items = res.items ?? [];
+      if (request !== refreshRequestRef.current) return items;
       setPortfolios(items);
       setSelectedPortfolioId((prev) => {
         // Prefer the in-memory selection, then the stored id — never invent a deleted one.
@@ -78,10 +82,12 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
       });
       return items;
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : String(exc));
+      if (request === refreshRequestRef.current) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      }
       return [];
     } finally {
-      setLoading(false);
+      if (request === refreshRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -97,18 +103,19 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   const createPortfolio = useCallback(
     async (input: { name: string; description?: string }) => {
       const summary = await createPersonalPortfolio(input);
-      const items = await refreshList();
-      const created =
-        items.find((p) => p.id === summary.portfolio.id) ??
-        ({
-          id: summary.portfolio.id,
-          name: summary.portfolio.name,
-          description: summary.portfolio.description,
-          lifecycle_state: summary.portfolio.lifecycle_state ?? "DRAFT",
-          cash_rub: summary.summary.cash_rub,
-          positions_count: summary.positions.length,
-        } satisfies PortfolioCard);
+      const created: PortfolioCard = {
+        id: summary.portfolio.id,
+        name: summary.portfolio.name,
+        description: summary.portfolio.description,
+        lifecycle_state: summary.portfolio.lifecycle_state ?? "DRAFT",
+        cash_rub: summary.summary.cash_rub,
+        positions_count: summary.positions.length,
+      };
+      // The POST succeeded. Never lose the created portfolio when the list GET fails.
+      refreshRequestRef.current += 1;
+      setPortfolios((prev) => prev.some((p) => p.id === created.id) ? prev : [created, ...prev]);
       selectPortfolio(created.id);
+      await refreshList();
       return created;
     },
     [refreshList, selectPortfolio],

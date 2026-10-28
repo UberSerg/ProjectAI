@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PortfolioProvider } from "./PortfolioContext";
+import { PortfolioProvider, usePortfolioContext } from "./PortfolioContext";
 import { PortfolioSwitcher } from "./PortfolioSwitcher";
 
 const listPersonalPortfolios = vi.fn();
@@ -11,6 +11,22 @@ vi.mock("../api/personalPortfolios", () => ({
   listPersonalPortfolios: (...args: unknown[]) => listPersonalPortfolios(...args),
   createPersonalPortfolio: (...args: unknown[]) => createPersonalPortfolio(...args),
 }));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => { resolve = res; });
+  return { promise, resolve };
+}
+
+function RefreshProbe() {
+  const { refreshList, portfolios } = usePortfolioContext();
+  return (
+    <>
+      <button type="button" onClick={() => void refreshList()}>Refresh portfolio list</button>
+      <span data-testid="portfolio-names">{portfolios.map((p) => p.name).join("|")}</span>
+    </>
+  );
+}
 
 const cardA = {
   id: 1,
@@ -92,4 +108,50 @@ describe("PortfolioSwitcher", () => {
     );
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/portfolio/3"));
   });
+  it("retains created portfolio after a successful POST and failed list GET", async () => {
+    createPersonalPortfolio.mockResolvedValue({
+      portfolio: { id: 3, name: "Created despite GET failure", lifecycle_state: "DRAFT" },
+      summary: { cash_rub: "0", nav_rub: "0", valuation_partial: false },
+      positions: [],
+    });
+    listPersonalPortfolios
+      .mockResolvedValueOnce({ items: [cardA, cardB], count: 2 })
+      .mockRejectedValueOnce(new Error("List temporarily unavailable"));
+    renderSwitcher();
+    fireEvent.click(await screen.findByRole("button", { name: /Основной портфель ▾/ }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Создать портфель" }));
+    fireEvent.change(screen.getByPlaceholderText("Основной"), {
+      target: { value: "Created despite GET failure" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Создать" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/portfolio/3"));
+    expect(createPersonalPortfolio).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Created despite GET failure ▾/ }));
+    expect(screen.getByRole("button", { name: /Created despite GET failure Настройка/ })).toBeInTheDocument();
+  });
+
+  it("ignores out-of-order list responses", async () => {
+    const older = deferred<{ items: typeof cardA[]; count: number }>();
+    const newer = deferred<{ items: typeof cardA[]; count: number }>();
+    listPersonalPortfolios
+      .mockResolvedValueOnce({ items: [cardA], count: 1 })
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    render(
+      <MemoryRouter>
+        <PortfolioProvider>
+          <RefreshProbe />
+        </PortfolioProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("portfolio-names")).toHaveTextContent("Основной портфель"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh portfolio list" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh portfolio list" }));
+    await act(async () => { newer.resolve({ items: [cardB], count: 1 }); });
+    expect(screen.getByTestId("portfolio-names")).toHaveTextContent("Второй портфель");
+    await act(async () => { older.resolve({ items: [cardA], count: 1 }); });
+    expect(screen.getByTestId("portfolio-names")).toHaveTextContent("Второй портфель");
+    expect(screen.getByTestId("portfolio-names")).not.toHaveTextContent("Основной портфель");
+  });
+
 });
