@@ -16,5 +16,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // Playwright lives under e2e/ and must not be collected by Vitest/CI.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/e2e/**"],
   },
 });

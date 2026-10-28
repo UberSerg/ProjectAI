@@ -14,6 +14,7 @@ vi.mock("../../api/dailyPersonalDecision", async () => {
 
 const base: DailyPersonalDecision = {
   engine_version: "PERSONAL_DAILY_DECISION_V2",
+  decision_fingerprint: "fp-base-aaaa",
   as_of: "2026-09-27",
   status: "NO_ACTION",
   headline: "Срочных действий нет",
@@ -42,7 +43,7 @@ const base: DailyPersonalDecision = {
       limitations: [],
     },
   ],
-  risks: [],
+  risks: [{ code: "CONCENTRATION", message: "Высокая концентрация в одном эмитенте" }],
   data_quality: {
     valuation_complete: true,
     valuation_partial: false,
@@ -59,16 +60,77 @@ const base: DailyPersonalDecision = {
   limitations: [],
 };
 
+const scenarios100k: DailyPersonalDecision["scenario_comparison"] = [
+  {
+    id: "DO_NOTHING",
+    title: "Ничего не делать",
+    status: "available",
+    deployed_rub: "0",
+    residual_cash_rub: "0",
+    external_unallocated_rub: "100000",
+    facts: ["baseline"],
+  },
+  {
+    id: "HOLD_CASH",
+    title: "Держать кэш",
+    status: "available",
+    deployed_rub: "0",
+    residual_cash_rub: "100000",
+  },
+  {
+    id: "TARGET_UNDERWEIGHTS",
+    title: "Докупить недовесы",
+    status: "available",
+    deployed_rub: "40000",
+    executable_notional_rub: "40000",
+    residual_cash_rub: "60000",
+    purchases: [{ symbol: "SBER", target_rub: "40000", lots: 2, limitations: [] }],
+  },
+  {
+    id: "KRAKEN_ALLOCATION",
+    title: "План Kraken",
+    status: "unavailable",
+    reason: "CANDIDATE_OR_VALUATION_UNAVAILABLE",
+  },
+  {
+    id: "FIXED_INCOME_ALTERNATIVE",
+    title: "Альтернатива: fixed-income",
+    status: "advisory",
+    target_allocation_rub: "100000",
+    executable_notional_rub: "0",
+    advisory_only_rub: "100000",
+    residual_cash_rub: "0",
+    purchases: [
+      {
+        sleeve: "fixed_income",
+        target_rub: "100000",
+        limitations: ["ADVISORY_ONLY_BOND_TRADE"],
+        execution_status: "ADVISORY_ONLY",
+      },
+    ],
+  },
+];
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("DailyDecisionPanel", () => {
   beforeEach(() => {
     vi.mocked(api.getDailyPersonalDecision).mockReset();
   });
 
-  it("renders NO_ACTION state", () => {
+  it("renders NO_ACTION summary with NAV and cash", () => {
     render(<DailyDecisionPanel decision={base} />);
     expect(screen.getByTestId("daily-decision-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("daily-decision-summary")).toBeInTheDocument();
     expect(screen.getByTestId("daily-decision-headline")).toHaveTextContent("Срочных действий нет");
     expect(screen.getByTestId("daily-action-HOLD")).toBeInTheDocument();
+    expect(screen.getAllByText(/100[\s\u00a0]?000/).length).toBeGreaterThan(0);
   });
 
   it("renders PARTIAL warning", () => {
@@ -97,71 +159,124 @@ describe("DailyDecisionPanel", () => {
     expect(screen.getByTestId("daily-decision-partial")).toBeInTheDocument();
   });
 
-  it("calculates 30k scenarios and clears on portfolio switch", async () => {
+  it("calculates 100000 scenarios with Russian explanations and clears on portfolio switch", async () => {
+    const onDecisionChange = vi.fn();
     vi.mocked(api.getDailyPersonalDecision).mockResolvedValue({
       ...base,
-      new_cash_rub: "30000",
+      decision_fingerprint: "fp-100k-bbbb",
+      new_cash_rub: "100000",
       new_cash_plan: {
-        requested_new_cash_rub: "30000",
+        requested_new_cash_rub: "100000",
         current_nav_rub: "100000",
         current_cash_rub: "20000",
-        hypothetical_total_capital_rub: "130000",
+        hypothetical_total_capital_rub: "200000",
       },
-      scenario_comparison: [
-        {
-          id: "DO_NOTHING",
-          title: "Не распределять",
-          status: "available",
-          deployed_rub: "0",
-          residual_cash_rub: "30000",
-          facts: ["baseline"],
-        },
-        {
-          id: "HOLD_CASH",
-          title: "Оставить кэшем",
-          status: "available",
-          deployed_rub: "0",
-          residual_cash_rub: "30000",
-        },
-        {
-          id: "TARGET_UNDERWEIGHTS",
-          title: "Направить в недовесы",
-          status: "available",
-          deployed_rub: "10000",
-          residual_cash_rub: "20000",
-          purchases: [{ symbol: "SBER", target_rub: "10000", lots: null, limitations: ["LOT_SIZE_UNKNOWN"] }],
-        },
-        {
-          id: "KRAKEN_ALLOCATION",
-          title: "Текущий план Kraken",
-          status: "unavailable",
-          reason: "нет данных",
-        },
-        {
-          id: "FIXED_INCOME_ALTERNATIVE",
-          title: "Ориентир по fixed-income",
-          status: "advisory",
-          target_allocation_rub: "30000",
-          executable_notional_rub: "0",
-          advisory_only_rub: "30000",
-          residual_cash_rub: "0",
-          purchases: [{ sleeve: "fixed_income", target_rub: "30000", limitations: ["ADVISORY_ONLY_BOND_TRADE"], execution_status: "ADVISORY_ONLY" }],
-        },
-      ],
+      scenario_comparison: scenarios100k,
       data_confidence: { status: "PARTIAL", reasons: ["candidate_unavailable"] },
       limitations: ["READ_ONLY_HYPOTHETICAL"],
     });
 
-    const { rerender } = render(<DailyDecisionPanel decision={base} portfolioId={1} />);
-    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), { target: { value: "30000" } });
-    fireEvent.click(screen.getByTestId("daily-decision-calculate"));
+    const { rerender } = render(
+      <DailyDecisionPanel decision={base} portfolioId={1} onDecisionChange={onDecisionChange} />,
+    );
+    fireEvent.click(screen.getByTestId("daily-decision-preset-100k"));
     await waitFor(() => expect(screen.getByTestId("daily-decision-scenarios")).toBeInTheDocument());
-    expect(screen.getByTestId("decision-scenario-DO_NOTHING")).toBeInTheDocument();
-    expect(screen.getByTestId("decision-scenario-TARGET_UNDERWEIGHTS")).toBeInTheDocument();
-    expect(screen.getByText(/лот неизвестен/)).toBeInTheDocument();
-    expect(screen.getAllByText(/Только ориентир/).length).toBeGreaterThan(0);
 
-    rerender(<DailyDecisionPanel decision={base} portfolioId={2} />);
+    expect(api.getDailyPersonalDecision).toHaveBeenCalledWith(1, {
+      newCashRub: 100000,
+    });
+    expect(screen.getByTestId("decision-scenario-DO_NOTHING")).toBeInTheDocument();
+    expect(screen.getByTestId("decision-scenario-HOLD_CASH")).toBeInTheDocument();
+    expect(screen.getByTestId("decision-scenario-TARGET_UNDERWEIGHTS")).toBeInTheDocument();
+    expect(screen.getByTestId("decision-scenario-KRAKEN_ALLOCATION")).toBeInTheDocument();
+    expect(screen.getByTestId("decision-scenario-FIXED_INCOME_ALTERNATIVE")).toBeInTheDocument();
+    expect(screen.getByTestId("decision-scenario-explain-DO_NOTHING")).toHaveTextContent(/вне учёта/i);
+    expect(screen.getByTestId("decision-scenario-blocked-KRAKEN_ALLOCATION")).toHaveTextContent(
+      /Нет надёжного сравнения/,
+    );
+    expect(screen.getAllByText(/только ориентир/i).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("daily-decision-risks")).toBeInTheDocument();
+    expect(onDecisionChange).toHaveBeenCalledWith(
+      expect.objectContaining({ decision_fingerprint: "fp-100k-bbbb", new_cash_rub: "100000" }),
+    );
+
+    rerender(
+      <DailyDecisionPanel decision={base} portfolioId={2} onDecisionChange={onDecisionChange} />,
+    );
     expect(screen.getByTestId("daily-decision-new-cash-input")).toHaveValue("");
+  });
+
+  it("invalidates fingerprint when capital input changes after calculation", async () => {
+    const onDecisionChange = vi.fn();
+    vi.mocked(api.getDailyPersonalDecision).mockResolvedValue({
+      ...base,
+      decision_fingerprint: "fp-calc",
+      new_cash_rub: "100000",
+      new_cash_plan: {
+        requested_new_cash_rub: "100000",
+        current_nav_rub: "100000",
+        current_cash_rub: "20000",
+        hypothetical_total_capital_rub: "200000",
+      },
+      scenario_comparison: scenarios100k,
+    });
+
+    render(<DailyDecisionPanel decision={base} portfolioId={1} onDecisionChange={onDecisionChange} />);
+    fireEvent.click(screen.getByTestId("daily-decision-preset-100k"));
+    await waitFor(() =>
+      expect(onDecisionChange).toHaveBeenCalledWith(
+        expect.objectContaining({ decision_fingerprint: "fp-calc" }),
+      ),
+    );
+
+    onDecisionChange.mockClear();
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "50000" },
+    });
+    expect(onDecisionChange).toHaveBeenCalledWith(null);
+  });
+
+  it("does not restore readiness from a stale in-flight calculation after capital edit", async () => {
+    const onDecisionChange = vi.fn();
+    const slow = deferred<typeof base>();
+    vi.mocked(api.getDailyPersonalDecision).mockImplementationOnce(() => slow.promise as never);
+
+    render(<DailyDecisionPanel decision={base} portfolioId={1} onDecisionChange={onDecisionChange} />);
+    fireEvent.click(screen.getByTestId("daily-decision-preset-100k"));
+    expect(onDecisionChange).toHaveBeenCalledWith(null);
+
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "50000" },
+    });
+    onDecisionChange.mockClear();
+
+    slow.resolve({
+      ...base,
+      decision_fingerprint: "fp-stale-inflight",
+      new_cash_rub: "100000",
+      scenario_comparison: scenarios100k,
+    });
+    await waitFor(() => expect(api.getDailyPersonalDecision).toHaveBeenCalled());
+    // Stale response must not re-enable capture after the capital input changed.
+    expect(onDecisionChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ decision_fingerprint: "fp-stale-inflight" }),
+    );
+  });
+
+  it("keeps technical details collapsed until requested", () => {
+    render(<DailyDecisionPanel decision={base} />);
+    expect(screen.queryByTestId("daily-decision-details-body")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("daily-decision-toggle-details"));
+    expect(screen.getByTestId("daily-decision-details-body")).toHaveTextContent(/fingerprint/i);
+  });
+
+  it("shows loading error from failed calculate", async () => {
+    vi.mocked(api.getDailyPersonalDecision).mockRejectedValue(new Error("backend down"));
+    render(<DailyDecisionPanel decision={base} portfolioId={1} />);
+    fireEvent.change(screen.getByTestId("daily-decision-new-cash-input"), {
+      target: { value: "100000" },
+    });
+    fireEvent.click(screen.getByTestId("daily-decision-calculate"));
+    expect(await screen.findByTestId("daily-decision-local-error")).toHaveTextContent("backend down");
   });
 });

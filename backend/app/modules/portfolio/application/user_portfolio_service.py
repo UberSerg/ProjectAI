@@ -138,6 +138,7 @@ def list_user_portfolios(session: Session, *, include_test: bool = False) -> lis
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "is_test": bool(row.is_test),
+            "source": row.source,
         }
         for row in rows
     ]
@@ -149,11 +150,13 @@ def create_user_portfolio(
     name: str,
     description: str | None = None,
     is_test: bool = False,
+    source: str = "MANUAL",
 ) -> ManualPortfolio:
     cleaned = _validate_name(name)
+    source_clean = (source or "MANUAL").strip() or "MANUAL"
     row = ManualPortfolio(
         name=cleaned,
-        source="MANUAL",
+        source=source_clean,
         base_currency="RUB",
         cash_rub=ZERO,
         status=LIFECYCLE_DRAFT,

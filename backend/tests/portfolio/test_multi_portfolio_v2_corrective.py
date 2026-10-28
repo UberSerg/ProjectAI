@@ -398,7 +398,9 @@ def test_list_does_not_value_portfolios(mp_db: Session, monkeypatch: pytest.Monk
         "updated_at",
         "created_at",
         "is_test",
+        "source",
     }
+    assert card["source"] == "MANUAL"
 
 
 def test_list_counts_positions_without_marks(mp_db: Session) -> None:

@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import {
@@ -22,6 +22,19 @@ export function PortfolioPage() {
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  function focusCreateForm() {
+    const form = document.getElementById("new-portfolio");
+    form?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => nameInputRef.current?.focus(), 50);
+  }
+
+  useEffect(() => {
+    if (window.location.hash === "#new-portfolio") {
+      focusCreateForm();
+    }
+  }, []);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -91,10 +104,18 @@ export function PortfolioPage() {
 
       {portfolios.length === 0 ? (
         <HeroCard eyebrow="Начало" headline="У вас пока нет портфелей">
-          <p style={{ margin: 0 }}>
+          <p style={{ margin: "0 0 0.75rem" }}>
             Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно
             его. Можно создать несколько портфелей и переключаться между ними.
           </p>
+          <button
+            type="button"
+            className="button"
+            data-testid="create-first-portfolio-cta"
+            onClick={focusCreateForm}
+          >
+            Создать первый портфель
+          </button>
         </HeroCard>
       ) : (
         <div className="portfolio-hub-grid">
@@ -140,15 +161,26 @@ export function PortfolioPage() {
       )}
 
       <ExplanationCard title="Новый портфель" level={1}>
-        <form onSubmit={onCreate} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+        <form
+          id="new-portfolio"
+          onSubmit={onCreate}
+          style={{ display: "grid", gap: 8, maxWidth: 420 }}
+          data-testid="new-portfolio-form"
+        >
+          <p className="muted" style={{ margin: 0 }}>
+            После создания откроется режим настройки: кэш, поиск инструментов, позиции и
+            себестоимость. Журнал учёта включается отдельно, когда состав готов.
+          </p>
           <label>
             Название *
             <input
+              ref={nameInputRef}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Основной"
               required
               maxLength={120}
+              data-testid="new-portfolio-name"
             />
           </label>
           <label>
@@ -161,8 +193,12 @@ export function PortfolioPage() {
             />
           </label>
           {formError && <div className="error-text">{formError}</div>}
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? "Создание…" : "Создать"}
+          <button type="submit" className="btn btn-primary" disabled={busy} data-testid="new-portfolio-submit">
+            {busy
+              ? "Создание…"
+              : portfolios.length === 0
+                ? "Создать первый портфель"
+                : "Создать"}
           </button>
         </form>
       </ExplanationCard>

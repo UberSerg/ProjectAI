@@ -18,8 +18,12 @@ export function PortfolioSwitcher({ className = "" }: { className?: string }) {
   if (portfolios.length === 0) {
     return (
       <div className={`portfolio-switcher ${className}`}>
-        <button type="button" className="btn btn-primary" onClick={() => navigate("/portfolio")}>
-          Создать портфель
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => navigate("/portfolio#new-portfolio")}
+        >
+          Создать первый портфель
         </button>
       </div>
     );

@@ -391,7 +391,18 @@ export function MyPortfolioPage() {
     return Number.isInteger(id) && id > 0 ? id : null;
   }, [routePortfolioId]);
   const routeIdResolved = routeId != null && portfolios.some((p) => p.id === routeId);
-  const portfolioId = routePortfolioId ? (routeIdResolved ? routeId : null) : selectedPortfolioId;
+  // Never fetch a stored id until the list confirms it still exists (deleted selection → fallback).
+  const selectionResolved =
+    selectedPortfolioId != null && portfolios.some((p) => p.id === selectedPortfolioId);
+  const portfolioId = routePortfolioId
+    ? routeIdResolved
+      ? routeId
+      : null
+    : portfoliosLoading
+      ? null
+      : selectionResolved
+        ? selectedPortfolioId
+        : null;
 
   useEffect(() => {
     if (!routeIdResolved || routeId === selectedPortfolioId) return;
@@ -399,10 +410,12 @@ export function MyPortfolioPage() {
   }, [routeIdResolved, routeId, selectedPortfolioId, selectPortfolio]);
 
   useEffect(() => {
+    // Wait until the list is loaded so a stale localStorage id cannot navigate to /portfolio/{deleted}.
+    if (portfoliosLoading) return;
     if (!routePortfolioId && selectedPortfolioId != null) {
       navigate(`/portfolio/${selectedPortfolioId}${window.location.search}`, { replace: true });
     }
-  }, [routePortfolioId, selectedPortfolioId, navigate]);
+  }, [routePortfolioId, selectedPortfolioId, navigate, portfoliosLoading]);
 
   const { isUser } = useKrakenRole();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -421,12 +434,32 @@ export function MyPortfolioPage() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [modalOpen, setModalOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
-  const [decisionNewCash, setDecisionNewCash] = useState<string | null>(null);
-  const [decisionFingerprint, setDecisionFingerprint] = useState<string | null>(null);
+  /** Exact calculated Daily Decision eligible for Decision Memory capture — no base-response fallback. */
+  type CalculatedDecisionSnapshot = {
+    portfolioId: number;
+    newCashRub: number | null;
+    fingerprint: string;
+  };
+  const [calculatedDecision, setCalculatedDecision] = useState<CalculatedDecisionSnapshot | null>(null);
 
   useEffect(() => {
-    setDecisionNewCash(null);
-  }, [portfolioId]);
+    setCalculatedDecision(null);
+  }, [portfolioId, dataVersion]);
+
+  useEffect(() => {
+    if (tab !== "decision") {
+      setCalculatedDecision(null);
+    }
+  }, [tab]);
+
+  const captureEligible =
+    tab === "decision" &&
+    calculatedDecision != null &&
+    portfolioId != null &&
+    calculatedDecision.portfolioId === portfolioId &&
+    calculatedDecision.fingerprint.trim() !== "";
+  const captureFingerprint = captureEligible ? calculatedDecision!.fingerprint : null;
+  const captureNewCashRub = captureEligible ? calculatedDecision!.newCashRub : null;
   const focusSymbol = (searchParams.get("focus") || "").toUpperCase();
   const reload = useCallback(() => setDataVersion((v) => v + 1), []);
 
@@ -605,10 +638,17 @@ export function MyPortfolioPage() {
           helpPageId="manual_portfolio"
         />
         <p>
-          Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно его.
+          Создайте первый портфель, добавьте деньги и активы — Kraken начнёт анализировать именно
+          его.
         </p>
         <p>
-          <Link to="/portfolio">Создать портфель</Link>
+          <Link
+            className="button"
+            to="/portfolio#new-portfolio"
+            data-testid="create-first-portfolio-cta"
+          >
+            Создать первый портфель
+          </Link>
         </p>
       </section>
     );
@@ -753,8 +793,28 @@ export function MyPortfolioPage() {
               owner={!isUser}
               portfolioId={portfolioId}
               onDecisionChange={(next) => {
-                setDecisionNewCash(next?.new_cash_rub ?? null);
-                setDecisionFingerprint(next?.decision_fingerprint ?? null);
+                if (portfolioId == null || next == null) {
+                  setCalculatedDecision(null);
+                  return;
+                }
+                const fp =
+                  typeof next.decision_fingerprint === "string" ? next.decision_fingerprint.trim() : "";
+                if (!fp) {
+                  setCalculatedDecision(null);
+                  return;
+                }
+                const rawCash = next.new_cash_rub;
+                const cashNum =
+                  rawCash == null || rawCash === ""
+                    ? null
+                    : Number(rawCash);
+                const normalizedCash =
+                  cashNum != null && Number.isFinite(cashNum) && cashNum > 0 ? cashNum : null;
+                setCalculatedDecision({
+                  portfolioId,
+                  newCashRub: normalizedCash,
+                  fingerprint: fp,
+                });
               }}
             />
           ) : null}
@@ -762,8 +822,8 @@ export function MyPortfolioPage() {
             <div style={{ marginTop: "1rem" }}>
               <DecisionMemoryPanel
                 portfolioId={portfolioId}
-                newCashRub={decisionNewCash}
-                decisionFingerprint={decisionFingerprint ?? decisionRes.data?.decision_fingerprint ?? null}
+                newCashRub={captureNewCashRub}
+                decisionFingerprint={captureFingerprint}
               />
             </div>
           ) : null}

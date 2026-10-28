@@ -1199,6 +1199,7 @@ def get_personal_summary(session: Session, portfolio: ManualPortfolio, *, owner:
             "base_currency": snap.portfolio.base_currency,
             "lifecycle_state": life,
             "status": snap.portfolio.status,
+            "source": snap.portfolio.source,
             "is_test": bool(snap.portfolio.is_test),
             "note": snap.portfolio.note,
             "version": snap.portfolio.version,

@@ -97,6 +97,16 @@ describe("CompanyIntelligencePage", () => {
     expect(screen.getByText(/Укажите instrument_id/i)).toBeInTheDocument();
   });
 
+  it("deep-links instrument_id and shows back path to selected portfolio", async () => {
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockResolvedValue(sampleSnapshot);
+    renderPage("/intelligence?instrument_id=42&portfolio_id=7&return_tab=holdings");
+
+    expect(await screen.findByTestId("intel-identity")).toBeInTheDocument();
+    expect(intelligenceApi.getIntelligenceSnapshot).toHaveBeenCalledWith(42, undefined, expect.anything());
+    const back = screen.getByTestId("intel-back-to-portfolio").querySelector("a");
+    expect(back).toHaveAttribute("href", "/portfolio/7?tab=holdings");
+  });
+
   it("loads snapshot sections without accuracy or winner language", async () => {
     vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockResolvedValue(sampleSnapshot);
     renderPage("/intelligence?instrument_id=42&as_of=2026-10-01");
@@ -110,9 +120,17 @@ describe("CompanyIntelligencePage", () => {
       "wire_at_least_one_non_unknown_signal",
     );
     expect(screen.getByTestId("intel-coverage")).toBeInTheDocument();
+    expect(screen.getByTestId("intel-coverage")).toHaveTextContent(/UNKNOWN|PARTIAL|READY/i);
 
     const body = document.body.textContent ?? "";
     expect(body).not.toMatch(/accuracy|winner|AI certainty|production-ready/i);
+  });
+
+  it("shows loading then error state for failed fetch", async () => {
+    vi.mocked(intelligenceApi.getIntelligenceSnapshot).mockRejectedValue(new Error("intel offline"));
+    renderPage("/intelligence?instrument_id=42");
+    expect(await screen.findByTestId("intel-error")).toHaveTextContent(/intel offline/i);
+    expect(screen.queryByTestId("intel-identity")).not.toBeInTheDocument();
   });
 
   it("submits lookup form", async () => {

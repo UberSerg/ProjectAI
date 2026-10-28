@@ -28,7 +28,6 @@ from app.modules.portfolio.application.personal_portfolio_service import (
     PersonalPortfolioError,
     cancel_operation,
     create_operation,
-    get_or_create_test_portfolio,
     get_personal_summary,
     reconcile,
 )
@@ -142,9 +141,13 @@ def _http_broker(exc: BrokerFeeError) -> HTTPException:
 
 
 def _resolve(session, portfolio_id: int, *, test: bool):
-    if test:
-        return get_or_create_test_portfolio(session)
-    return get_portfolio(session, portfolio_id, allow_test=False)
+    """Resolve by id. ``test=True`` allows DEMO/TEST (``is_test``) books.
+
+    Does not invent / auto-create a portfolio. Named DEMO seeds from
+    ``python -m app.modules.portfolio.cli demo-bootstrap`` are reachable when
+    callers pass ``?test=true`` (list uses the same flag via ``include_test``).
+    """
+    return get_portfolio(session, portfolio_id, allow_test=test)
 
 
 @router.get("")

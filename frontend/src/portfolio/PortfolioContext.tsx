@@ -50,7 +50,8 @@ function writeStoredId(id: number | null) {
 
 export function PortfolioProvider({ children }: { children: ReactNode }) {
   const [portfolios, setPortfolios] = useState<PortfolioCard[]>([]);
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(null);
+  // Seed from localStorage so a browser refresh keeps a valid selection before the list returns.
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(() => readStoredId());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,10 +63,11 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
       const items = res.items ?? [];
       setPortfolios(items);
       setSelectedPortfolioId((prev) => {
-        const stored = prev ?? readStoredId();
-        if (stored != null && items.some((p) => p.id === stored)) {
-          writeStoredId(stored);
-          return stored;
+        // Prefer the in-memory selection, then the stored id — never invent a deleted one.
+        const preferred = prev ?? readStoredId();
+        if (preferred != null && items.some((p) => p.id === preferred)) {
+          writeStoredId(preferred);
+          return preferred;
         }
         if (items.length > 0) {
           writeStoredId(items[0].id);
