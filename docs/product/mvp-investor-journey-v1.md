@@ -54,8 +54,9 @@ Docker remounted from `E:\!AI\ProjectAI-wt-mvp-journey`. Backend healthy.
 | Memory capture | id 726, `new_cash_rub=100000`, fingerprint synced; UI: «Рекомендация зафиксирована. Это не сделка…» |
 | Backend restart | memory count 1, cash 500000, ops 4 |
 
-Screenshots on branch `review-artifacts`:
-`review-artifacts/pending-mvp-investor-journey-v1/`
+Screenshots on branch `review-artifacts` (PR #84):
+`review-artifacts/pr-84-mvp-investor-journey-v1/`
+commit `5675e96ccca3239a1f7ca42a1ea246230d352337`
 (01 overview, 02 intelligence LKOH, 03 scenarios, 04 memory).
 
 ## Tests
