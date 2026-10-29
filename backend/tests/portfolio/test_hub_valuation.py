@@ -55,8 +55,6 @@ def test_full_marks_sum_cash_and_securities() -> None:
     ]
 
     def mark(_session, instrument, units, **_kwargs):  # noqa: ANN001
-        px = Decimal("25000") if int(instrument.id) == 10 else Decimal("0")
-        # market_value for 10 units @ 25000 = 250000; second @ 0 units handled below
         if int(instrument.id) == 10:
             return Decimal("25000"), Decimal("250000"), "2026-10-28", "equity", "EOD", None
         return Decimal("0"), Decimal("0"), "2026-10-28", "equity", "EOD", None

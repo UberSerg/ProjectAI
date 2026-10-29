@@ -18,6 +18,7 @@ from app.modules.portfolio.application.broker_fee_service import (
 from app.modules.portfolio.application.daily_personal_decision_service import (
     build_daily_personal_decision,
 )
+from app.modules.portfolio.application.hub_valuation import build_hub_valuations
 from app.modules.portfolio.application.manual_portfolio_service import (
     LotValidationError,
     advisory_rebalance,
@@ -31,7 +32,6 @@ from app.modules.portfolio.application.personal_portfolio_service import (
     get_personal_summary,
     reconcile,
 )
-from app.modules.portfolio.application.hub_valuation import build_hub_valuations
 from app.modules.portfolio.application.user_portfolio_service import (
     activate_portfolio,
     add_draft_position,
