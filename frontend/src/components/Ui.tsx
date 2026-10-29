@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode, type SyntheticEvent } from "react";
 import { MetricHelp, PageHelp } from "../help";
 import { labels } from "../utils/labels";
 
@@ -10,6 +10,11 @@ export type DsStatusTone =
   | "research"
   | "blocked"
   | "info";
+
+export type DecisionActionTone = "buy" | "sell" | "hold" | "review";
+export type FreshnessTone = "fresh" | "stale" | "partial" | "unavailable";
+export type ProvenanceTone = "live" | "counterfactual";
+export type NoticeTone = "info" | "success" | "warning" | "danger";
 
 const STATUS_ALIASES: Record<string, DsStatusTone> = {
   ok: "success",
@@ -45,9 +50,72 @@ const STATUS_ALIASES: Record<string, DsStatusTone> = {
   research: "research",
 };
 
+const ACTION_ALIASES: Record<string, DecisionActionTone> = {
+  buy: "buy",
+  consider_increase: "buy",
+  increase: "buy",
+  sell: "sell",
+  reduce: "sell",
+  consider_reduce: "sell",
+  hold: "hold",
+  review_hold: "hold",
+  data_hold: "hold",
+  abstain: "hold",
+  review: "review",
+  rotate: "review",
+};
+
+const FRESHNESS_ALIASES: Record<string, FreshnessTone> = {
+  fresh: "fresh",
+  stale: "stale",
+  mixed: "partial",
+  partial: "partial",
+  unavailable: "unavailable",
+  unknown: "unavailable",
+  session_not_started: "unavailable",
+};
+
+const ACTION_LABELS: Record<DecisionActionTone, string> = {
+  buy: "BUY",
+  sell: "SELL",
+  hold: "HOLD",
+  review: "REVIEW",
+};
+
+const FRESHNESS_LABELS: Record<FreshnessTone, string> = {
+  fresh: "FRESH",
+  stale: "STALE",
+  partial: "PARTIAL",
+  unavailable: "UNAVAILABLE",
+};
+
 export function resolveStatusTone(status?: string | null): DsStatusTone {
   const raw = (status ?? "unknown").toLowerCase();
   return STATUS_ALIASES[raw] ?? (raw.includes("research") ? "research" : "unknown");
+}
+
+export function resolveDecisionAction(action?: string | null): DecisionActionTone {
+  const raw = (action ?? "hold").toLowerCase().replace(/[\s-]+/g, "_");
+  if (ACTION_ALIASES[raw]) return ACTION_ALIASES[raw];
+  if (raw.includes("buy") || raw.includes("increase")) return "buy";
+  if (raw.includes("sell") || raw.includes("reduce")) return "sell";
+  if (raw.includes("review") || raw.includes("rotate")) return "review";
+  return "hold";
+}
+
+export function resolveFreshnessTone(value?: string | null): FreshnessTone {
+  const raw = (value ?? "unavailable").toLowerCase().replace(/[\s-]+/g, "_");
+  if (FRESHNESS_ALIASES[raw]) return FRESHNESS_ALIASES[raw];
+  if (raw.includes("fresh")) return "fresh";
+  if (raw.includes("stale")) return "stale";
+  if (raw.includes("partial") || raw.includes("mixed")) return "partial";
+  return "unavailable";
+}
+
+export function resolveProvenanceTone(value?: string | null): ProvenanceTone {
+  const raw = (value ?? "").toUpperCase();
+  if (raw.includes("COUNTERFACTUAL") || raw.includes("REPLAY")) return "counterfactual";
+  return "live";
 }
 
 export function StatusBadge({ status, label }: { status?: string | null; label?: string }) {
@@ -79,6 +147,51 @@ export function StatusBadge({ status, label }: { status?: string | null; label?:
             ? "Неизвестно"
             : labels.status(raw));
   return <span className={`badge ${badgeClass}`}>{text}</span>;
+}
+
+export function DecisionActionChip({
+  action,
+  label,
+}: {
+  action?: string | null;
+  label?: string;
+}) {
+  const tone = resolveDecisionAction(action);
+  return (
+    <span className={`ds-action-chip ds-action-${tone}`} data-action={tone}>
+      {label ?? ACTION_LABELS[tone]}
+    </span>
+  );
+}
+
+export function FreshnessBadge({
+  value,
+  label,
+}: {
+  value?: string | null;
+  label?: string;
+}) {
+  const tone = resolveFreshnessTone(value);
+  return (
+    <span className={`ds-freshness-badge ds-freshness-${tone}`} data-freshness={tone}>
+      {label ?? FRESHNESS_LABELS[tone]}
+    </span>
+  );
+}
+
+export function ProvenanceBadge({
+  value,
+  label,
+}: {
+  value?: string | null;
+  label?: string;
+}) {
+  const tone = resolveProvenanceTone(value);
+  return (
+    <span className={`ds-provenance-badge ds-provenance-${tone}`} data-provenance={tone}>
+      {label ?? (tone === "counterfactual" ? "COUNTERFACTUAL" : "LIVE")}
+    </span>
+  );
 }
 
 export function PageHeader({
@@ -123,7 +236,7 @@ export function MetricCard({
         {label}
         {helpId ? <MetricHelp metricId={helpId} /> : null}
       </span>
-      <strong className="metric-value">{value}</strong>
+      <strong className="metric-value ds-number">{value}</strong>
       {hint ? <small className="metric-hint">{hint}</small> : null}
     </article>
   );
@@ -195,6 +308,42 @@ export function DataQualityCard({ title, children }: { title: string; children: 
   );
 }
 
+export function DataQualityNote({
+  title,
+  children,
+  tone = "info",
+}: {
+  title?: string;
+  children: ReactNode;
+  tone?: NoticeTone;
+}) {
+  return (
+    <aside className="ds-data-quality-note" data-tone={tone} role="note">
+      {title ? <strong>{title}</strong> : null}
+      <div>{children}</div>
+    </aside>
+  );
+}
+
+export function InlineNotice({
+  tone = "info",
+  title,
+  children,
+}: {
+  tone?: NoticeTone;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`ds-inline-notice ds-inline-notice-${tone}`} role="status" data-tone={tone}>
+      <div>
+        {title ? <strong>{title}</strong> : null}
+        {typeof children === "string" ? <p>{children}</p> : children}
+      </div>
+    </div>
+  );
+}
+
 export function EmptyState({
   title,
   reason,
@@ -213,8 +362,75 @@ export function EmptyState({
   );
 }
 
+export function ErrorState({
+  title = "Не удалось получить данные",
+  children,
+  action,
+}: {
+  title?: string;
+  children?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="ds-error-state" role="alert">
+      <strong>{title}</strong>
+      {children ? (typeof children === "string" ? <p>{children}</p> : children) : null}
+      {action}
+    </div>
+  );
+}
+
 export function SkeletonBlock({ tall }: { tall?: boolean }) {
   return <div className={`skeleton${tall ? " tall" : ""}`} aria-hidden />;
+}
+
+/** Stable-height loading placeholder — prefer over spinner to avoid layout jump. */
+export function LoadingSkeleton({
+  rows = 3,
+  tallLast = true,
+  label = "Загрузка…",
+}: {
+  rows?: number;
+  tallLast?: boolean;
+  label?: string;
+}) {
+  const count = Math.max(1, rows);
+  return (
+    <div className="ds-loading-skeleton page-state loading" role="status" aria-busy="true">
+      <strong>{label}</strong>
+      <div className="skeleton-grid">
+        {Array.from({ length: count }, (_, i) => (
+          <SkeletonBlock key={i} tall={tallLast && i === count - 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function Accordion({
+  title,
+  children,
+  defaultOpen = false,
+  summaryExtra,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  summaryExtra?: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const onToggle = (event: SyntheticEvent<HTMLDetailsElement>) => {
+    setOpen(event.currentTarget.open);
+  };
+  return (
+    <details className="ds-accordion" open={open} onToggle={onToggle}>
+      <summary>
+        <span>{title}</span>
+        {summaryExtra}
+      </summary>
+      <div className="ds-accordion-body">{children}</div>
+    </details>
+  );
 }
 
 export function PageState({
@@ -229,28 +445,17 @@ export function PageState({
   action?: ReactNode;
 }) {
   if (kind === "loading") {
+    return <LoadingSkeleton label={title ?? "Загрузка…"} rows={4} />;
+  }
+  if (kind === "error") {
     return (
-      <div className="page-state loading" role="status">
-        <strong>{title ?? "Загрузка…"}</strong>
-        <div className="skeleton-grid" style={{ marginTop: "1rem" }}>
-          <SkeletonBlock />
-          <SkeletonBlock />
-          <SkeletonBlock />
-          <SkeletonBlock tall />
-        </div>
-      </div>
+      <ErrorState title={title} action={action}>
+        {children}
+      </ErrorState>
     );
   }
-  const defaults = {
-    error: "Не удалось получить данные",
-    empty: "Пока нечего показать",
-  };
   return (
-    <div className={`page-state ${kind}`} role={kind === "error" ? "alert" : "status"}>
-      <strong>{title ?? defaults[kind]}</strong>
-      {children ? <p>{children}</p> : null}
-      {action}
-    </div>
+    <EmptyState title={title ?? "Пока нечего показать"} reason={children ?? "Данных пока нет."} action={action} />
   );
 }
 
