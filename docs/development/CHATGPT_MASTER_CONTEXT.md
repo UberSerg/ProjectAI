@@ -143,6 +143,8 @@ Acceptance tasks:
 
 ## Activity log
 
+- **2026-10-29 — Owner / Cursor:** Owner authorized merge of PR #85 and PR #91. Merged [PR #85](https://github.com/UberSerg/ProjectAI/pull/85) (`a1c165b`) then [PR #91](https://github.com/UberSerg/ProjectAI/pull/91) (`512628b`) into main after sync+CI. PortfolioPage conflict resolved keeping hub valuation cards and shared formatRub from #85.
+
 - **2026-10-29 — Cursor (reported by Owner; GitHub independently verified):** PR #85 fixes `ebe6100914c55bd7a14e00bf65612f9b02582d2a` for market ingest + features commit ownership fencing, rollback and lease-loss abort; updated tip `fce94c6343a0c0e0acc951903f286aa392794010`. Merged `origin/main` at `7a4ae4a`; PR OPEN, mergeable true; exact-tip [CI 40859447892](https://github.com/UberSerg/ProjectAI/actions/runs/40859447892) backend/frontend/Docker success. Cursor reports no live Shadow catch-up or historical ledger mutations. Independent reviewer verified code and changed previous P1 HOLD to **READY_FOR_OWNER_REVIEW**, see [comment 6494990903](https://github.com/UberSerg/ProjectAI/pull/85#issuecomment-6494990903). PR #85 **not merged**, explicit Owner approval still required; long-running operational acceptance remains separate.
 - **2026-10-29 — Cursor (reported by Owner; GitHub independently verified):** PR #91 fixes `d6481c4d41f86aa296c09e42cad321862c9b7edb` for missing securities = unknown (not zero), include_test filtering with explicit ids; frontend/backend tests included. Updated tip `2b866b6f257cefdf231f6196ecb6aba8cca64e55`, merged `origin/main` `7a4ae4a`, OPEN/mergeable true; exact-tip [CI 40859453856](https://github.com/UberSerg/ProjectAI/actions/runs/40859453856) backend/frontend/Docker success. Independent technical review **READY_FOR_OWNER_REVIEW**, [comment 6494991686](https://github.com/UberSerg/ProjectAI/pull/91#issuecomment-6494991686). Forced overlay partial UI screenshot is not a real partial backend proof. No merge.
 - **2026-10-29 — ChatGPT:** independently inspected both patchsets and successful exact-tip GitHub runs, verified no old P1 blockers remain in inspected paths, kept Owner gate on PR #85 and did not run live catch-up. Recorded updated Current State and Activity Log via docs-only PR from main `7a4ae4a`; final docs merge SHA and checks are to be verified separately.
@@ -158,63 +160,13 @@ Acceptance tasks:
 - **2026-10-28 — ChatGPT:** PR #86 merged after green GitHub CI; current main became 775237298f615cb32f75da9ca7b9cd8250bbbef2.
 - **2026-10-28 — ChatGPT:** reviewed PR #85; flagged historical NAV, LIVE provenance, Redis lock and session-date risks; review recorded at comment 6476616790; Cursor received remediation instructions. Current PR head must be re-checked before restating these as present.
 - **2026-10-28 — Owner:** network/security configuration explicitly excluded from current work. Queued PR B (Personal Operations Integrity, P1) and PR C (Frontend Data Loading, P2). Both remain planned at document creation.
-- **2026-10-28 — ChatGPT:** created this living handoff document as the canonical *assistant coordination registry*, without touching live runtime or PR #85.### Current position — 2026-10-29 (Owner authorized merge of PR #85 and #91)
+- **2026-10-28 — ChatGPT:** created this living handoff document as the canonical *assistant coordination registry*, without touching live runtime or PR #85.### Current position — 2026-10-29 (PR #85 and #91 MERGED)
 
-- **Verified main before merges:** `f51dd644b065bbe6a1caa997802d2de7e69f39ae` (docs PR #94 accepted-review checkpoint).
-- **Owner decision:** explicitly authorized merge of PR #85 and PR #91.
-- **PR #85:** merging into main after sync — prior tip `fce94c6343a0c0e0acc951903f286aa392794010` (CI green). Recovery lock fencing complete.
-- **PR #91:** merging into main after sync — prior tip `2b866b6f257cefdf231f6196ecb6aba8cca64e55` (CI green). Hub balance fail-closed.
-- **PR B / PR C:** still **PLANNED**.
-- **Next action:** complete merges, record post-merge main SHA.
-
-# KRAKEN — ChatGPT Master Context
-
-> Living GitHub handoff for the SERG / ProjectAI development collaboration.
-> The purpose is to preserve owner decisions, active assignments, review gates and the next independently actionable work.
-> This is **not** a replacement for code, CI, ADRs, root AGENTS.md, or the operational protocol.
-> Maintain this file by explicit GitHub commits; ChatGPT cannot update it asynchronously between conversations.
-
-## How to use this document
-
-1. In a new KRAKEN development conversation, read this file **from the current origin/main** with the connected GitHub tools.
-2. Verify the current main HEAD, open PRs, test runs and branches before relying on the dated snapshot below.
-3. Respect the newest explicit owner decision over previous plans.
-4. Before starting a task, check active assignments, affected files, worktree isolation and overlap with Cursor.
-5. **MANDATORY:** update this file after each *significant KRAKEN project event*, whoever caused it: Owner, Cursor, ChatGPT, GitHub or external test/runtime evidence. Do not restrict updates to ChatGPT-owned code changes.
-6. The final outcome of a meaningful development task is not documented as complete until the master context has a committed, merged update (or a specifically identified pending documentation PR/blocker); preserve review/approval gates.
-7. Never silently change a task from PLANNED to IN_PROGRESS or COMPLETE. Observed runtime statements, agent claims and GitHub-verified facts must remain distinguishable.
-8. Updates happen only when an active conversation or connected tool provides the information. No unattended background monitoring or automatic write is implied.
-
-## Mandatory context-update policy (Owner decision: 2026-10-28)
-
-**This is part of the Definition of Done, not an optional end-of-day note.**
-
-Update this document whenever a significant event occurs or is learned during active work, including:
-- Owner priorities, permissions, prohibitions, new scope, scope changes and acceptance decisions.
-- Starting or completing a development stage; changes of assignee or ownership (Cursor vs ChatGPT).
-- PR opening, review findings or remediation, critical CI regression, READY_FOR_OWNER_REVIEW, merge or abandonment.
-- Financial/architecture invariants, discovered root causes, data-integrity risks, migrations, runtime acceptance outcomes or blockers.
-- Material deviations between the planned user journey and actual tested behavior.
-
-**For every such event, update both:**
-1. **Current position / where we are:** latest verified main HEAD, relevant PR number/HEAD/status, responsible person, active stage, blockers, remaining work, next immediate action and any special Owner approval constraint.
-2. **Chronological activity log:** date, initiator, owner decision, what changed, evidence (PR/commit links, exact SHA, CI/tests and observed runtime), residual risks and outstanding items.
-
-A master-context update is required even when the implementation was made by **Cursor** and merely reported back to ChatGPT. Confirm GitHub facts using the connector; mark unverified local Docker or database observations as **REPORTED_BY_CURSOR** rather than silently treating them as verified. Do not edit Cursor's branch or user data to update the registry; create a small isolated docs change and merge when permitted. Prefer a documentation change in the relevant authorized PR when safe, or a separate docs-only PR.
-
-Never erase the activity history to make the current picture look cleaner. Update summary/status separately from append-only dated decisions. Do not edit this file for every trivial typing action or duplicate CI poll: group small events into a meaningful checkpoint and record the result **before declaring that checkpoint finished**.
-
-If a context update cannot be committed or merged (missing GitHub access, failed CI, approval requirement, concurrent edit), explicitly report **CONTEXT_UPDATE_PENDING**, its location and the exact reason. Do not claim the master context is up to date until merged to main.
-
-### Current State — GitHub-verified 2026-10-29 (snapshot, refresh live before future work)
-
-- **Verified origin/main at start of this documentation checkpoint:** `7a4ae4a36cd6e5bf6cf191c0228db10c7f36a040` (PR #93 merged). Check new HEAD after this docs PR merges; these SHAs are snapshots, not automatically maintained.
-- **PR #85 — Cursor — Shadow & Portfolio Reliability V1:** [OPEN / NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/85), exact HEAD `fce94c6343a0c0e0acc951903f286aa392794010`, **mergeable=true** vs then-main. [GitHub Actions run 40859447892](https://github.com/UberSerg/ProjectAI/actions/runs/40859447892) on exact HEAD: backend/frontend/Docker all **SUCCESS**. Follow-up independent code review confirms the prior market/feature P1 guard gap **addressed** via `MarketIngestionService.commit_guard`, `MarketIngestionLockLost`, `run_eod_market_recovery(commit_guard=)`, `TechnicalComputeService.commit_guard` and rollback/abort paths. See [acceptance review comment 6494990903](https://github.com/UberSerg/ProjectAI/pull/85#issuecomment-6494990903). **READY_FOR_OWNER_REVIEW (technical review)**. **DO NOT MERGE WITHOUT FRESH, EXPLICIT OWNER APPROVAL**, even with CI green. Cursor reported live multi-day catch-up was not executed at this checkpoint; previous Shadow/Forward backlog is not verified closed. Recorded journals/history were not modified per Cursor report, not independently verifiable from GitHub. Residual operational concurrency caveat: Redis lease checks before a SQL commit are not a distributed atomic fencing transaction; monitor/retest during controlled run.
-- **PR #91 — Cursor — Portfolio Hub Total Balance:** [OPEN / NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/91), exact HEAD `2b866b6f257cefdf231f6196ecb6aba8cca64e55`, **mergeable=true** vs then-main. [GitHub Actions run 40859453856](https://github.com/UberSerg/ProjectAI/actions/runs/40859453856) on exact HEAD: backend/frontend/Docker all **SUCCESS**. Code fixes verified: an unavailable valuation shows `—` / `Оценка недоступна`, **not fictitious zero**; `include_test=False` applies even with explicit `portfolio_ids`. Regression tests added. See [acceptance review comment 6494991686](https://github.com/UberSerg/ProjectAI/pull/91#issuecomment-6494991686). **READY_FOR_OWNER_REVIEW (technical review)**, no auto merge. The partial valuation screenshot was created via forced UI overlay; it does not establish live backend partial-path acceptance.
-- **Pending merge decision and integration:** Owner decides when to approve PR #85, and reviews PR #91. Both have already merged `origin/main` at SHA `7a4ae4a` and resolved historical master-context conflicts. Any subsequent master-context-only merge can make PRs diverge again; review mergeability and safely reconcile before final code merge. Avoid rebase/force push or overwriting entries in this document.
-- **Next owner/engineering action:** choose merge order after review. Keep #85 runtime catch-up as a separate explicitly permitted operational exercise, with PIT, no duplicate fills, no legacy NAV rewriting, and recorded LIVE vs counterfactual separation. PR B — Personal Operations Integrity (P1), PR C — Frontend Data Loading (P2) remain **PLANNED**; Owner's Decision Journal Variant 4 accordion mockup is selected as UX direction, **not implemented**.
-- **Restrictions:** No networking/port/firewall/auth changes without new explicit owner instruction. Do not modify Cursor worktrees, personal ledger, historical Shadow writes or external `E:\hds-live-store` during review.
-
+- **Verified main:** `512628b2798bc81f91a480769e08adfcdbe6169d` (merge of PR #91 after PR #85).
+- **PR #85:** **MERGED** at `a1c165b5d6378cff8e7cfae86a2aaf79199e4a1a` (feature tip `4a271975f0953097480da5ba68171e35aa18bc8a`). Recovery lock heartbeat + market/features commit fencing. Owner-authorized.
+- **PR #91:** **MERGED** at `512628b2798bc81f91a480769e08adfcdbe6169d` (feature tip `c56fd53e0af24e5f382484aff5d921b1552c02f7`). Portfolio Hub total balance fail-closed; conflict with #85 resolved (hub cards + shared `formatRub`). Owner-authorized.
+- **PR B / PR C:** still **PLANNED**. Decision Journal Variant 4 UX not implemented.
+- **Next action:** optional review-artifacts cleanup when CI settled; ChatGPT/Owner next scope (B/C or other).
 
 ---
 
