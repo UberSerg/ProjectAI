@@ -470,9 +470,9 @@ def market_shadow_recovery(self) -> dict:
     from uuid import uuid4
 
     from app.modules.shadow.application.recovery import (
+        RecoveryLockLease,
         publish_recovery_status,
         release_recovery_lock,
-        renew_recovery_lock,
         run_market_shadow_recovery,
         try_acquire_recovery_lock,
     )
@@ -489,19 +489,26 @@ def market_shadow_recovery(self) -> dict:
             "phase": "acquired",
         }
     )
+    lease = RecoveryLockLease(token).start()
     try:
         with core_session() as session:
             result = run_market_shadow_recovery(
                 session,
                 commit_each_session=True,
                 lock_token=token,
-                renew_lock=lambda: renew_recovery_lock(token),
+                renew_lock=lease.still_owned,
                 task_id=task_id,
             )
             if result.get("status") != "RECOVERY_LOCK_LOST":
                 session.commit()
-            return {**result, "task_id": task_id}
+            return {
+                **result,
+                "task_id": task_id,
+                "lease_renew_count": lease.renew_count,
+                "lease_owned": lease.owned,
+            }
     finally:
+        lease.stop()
         release_recovery_lock(token)
 
 

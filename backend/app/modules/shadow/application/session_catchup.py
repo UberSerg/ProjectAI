@@ -49,6 +49,7 @@ REASON_MISSING_MARKET_DATA = "MISSING_MARKET_DATA"
 REASON_NO_COMPLETE_EOD = "NO_COMPLETE_EOD"
 REASON_NO_PORTFOLIO = "NO_PORTFOLIO"
 REASON_ALREADY_CURRENT = "ALREADY_CURRENT"
+REASON_RECOVERY_LOCK_LOST = "RECOVERY_LOCK_LOST"
 
 
 def _utcnow() -> datetime:
@@ -275,11 +276,15 @@ def run_portfolio_session_catchup(
     ensure_market: bool = True,
     commit_each_session: bool = False,
     max_sessions: int | None = None,
+    renew_lock: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Catch up one portfolio day-by-day using production session processing.
 
     When ``commit_each_session`` is True, commits after each successful day so a
     crash can resume without replaying completed sessions.
+
+    ``renew_lock`` fences long multi-day loops: if it returns False, stop before the
+    next day write (completed days already committed stay durable).
     """
     now_fn = clock or _utcnow
     portfolio = session.get(ShadowPortfolio, portfolio_id)
@@ -379,6 +384,10 @@ def run_portfolio_session_catchup(
     decisions_made = 0
 
     for day in sessions:
+        if renew_lock is not None and not renew_lock():
+            blocking_session = day
+            block_reason = REASON_RECOVERY_LOCK_LOST
+            break
         if not session_has_eod_candles(session, day):
             blocking_session = day
             block_reason = REASON_MISSING_MARKET_DATA
@@ -410,6 +419,14 @@ def run_portfolio_session_catchup(
             raise
         session.flush()
         if commit_each_session:
+            if renew_lock is not None and not renew_lock():
+                # Nested work is still in the outer transaction — roll it back so this
+                # day leaves no fills/NAV/watermark; prior committed days stay durable.
+                session.rollback()
+                session.refresh(portfolio)
+                blocking_session = day
+                block_reason = REASON_RECOVERY_LOCK_LOST
+                break
             session.commit()
             session.refresh(portfolio)
         result = {**result, "decisions": day_decisions}
@@ -419,7 +436,9 @@ def run_portfolio_session_catchup(
     remaining = missing_sessions_for_watermark(
         session, last_processed=final_last, latest_completed=latest
     )
-    if blocking_session is not None:
+    if block_reason == REASON_RECOVERY_LOCK_LOST:
+        status = REASON_RECOVERY_LOCK_LOST
+    elif blocking_session is not None:
         status = CATCH_UP_BLOCKED
     elif remaining:
         status = CATCH_UP_PARTIAL
@@ -453,12 +472,22 @@ def run_all_shadow_catchup(
     ensure_market: bool = True,
     commit_each_session: bool = False,
     experiment_groups: Sequence[str] | None = None,
+    renew_lock: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Catch up all operational Shadow portfolios."""
     started = (clock or _utcnow)()
     market_ensure: dict[str, Any] | None = None
     if ensure_market:
         try:
+            if renew_lock is not None and not renew_lock():
+                return {
+                    "status": REASON_RECOVERY_LOCK_LOST,
+                    "reason": REASON_RECOVERY_LOCK_LOST,
+                    "started_at": started.isoformat(),
+                    "finished_at": (clock or _utcnow)().isoformat(),
+                    "portfolios": [],
+                    "market_ensure": None,
+                }
             market_ensure = ensure_market_data_for_catchup(session)
             if commit_each_session:
                 session.commit()
@@ -476,18 +505,32 @@ def run_all_shadow_catchup(
             .order_by(ShadowPortfolio.id)
         )
     )
-    results = [
-        run_portfolio_session_catchup(
-            session,
-            p.id,
-            clock=clock,
-            ensure_market=False,
-            commit_each_session=commit_each_session,
+    results: list[dict[str, Any]] = []
+    for p in rows:
+        if renew_lock is not None and not renew_lock():
+            results.append(
+                {
+                    "status": REASON_RECOVERY_LOCK_LOST,
+                    "reason": REASON_RECOVERY_LOCK_LOST,
+                    "portfolio_id": p.id,
+                    "sessions_replayed": [],
+                }
+            )
+            break
+        results.append(
+            run_portfolio_session_catchup(
+                session,
+                p.id,
+                clock=clock,
+                ensure_market=False,
+                commit_each_session=commit_each_session,
+                renew_lock=renew_lock,
+            )
         )
-        for p in rows
-    ]
     statuses = {r.get("status") for r in results}
-    if CATCH_UP_BLOCKED in statuses:
+    if REASON_RECOVERY_LOCK_LOST in statuses:
+        overall = REASON_RECOVERY_LOCK_LOST
+    elif CATCH_UP_BLOCKED in statuses:
         overall = CATCH_UP_BLOCKED
     elif CATCH_UP_PARTIAL in statuses:
         overall = CATCH_UP_PARTIAL

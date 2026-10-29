@@ -10,6 +10,7 @@ recorded LIVE history.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from typing import Any
@@ -141,6 +142,89 @@ def recovery_lock_held() -> bool:
         return False
 
 
+class RecoveryLockLease:
+    """Owner-token lease with background heartbeat during long recovery stages.
+
+    Stage-boundary renew alone is insufficient: market backfill / Forward / Shadow
+    loops can exceed ``RECOVERY_LOCK_TTL_SECONDS``. The heartbeat thread extends the
+    Redis TTL while work continues; ``still_owned()`` also renews before commits so
+    a lost lease stops further financial writes.
+    """
+
+    def __init__(
+        self,
+        token: str,
+        *,
+        ttl: int = RECOVERY_LOCK_TTL_SECONDS,
+        heartbeat_seconds: float = RECOVERY_HEARTBEAT_SECONDS,
+        renew_fn: Callable[[str], bool] | None = None,
+    ) -> None:
+        self.token = token
+        self.ttl = int(ttl)
+        self.heartbeat_seconds = float(heartbeat_seconds)
+        self._renew_fn = renew_fn or (lambda t: renew_recovery_lock(t, ttl=self.ttl))
+        self._stop = threading.Event()
+        self._owned = True
+        self._guard = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self.renew_count = 0
+        self.lost_at: datetime | None = None
+
+    @property
+    def owned(self) -> bool:
+        with self._guard:
+            return self._owned
+
+    def start(self) -> RecoveryLockLease:
+        if self._thread is not None:
+            return self
+        self._thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name=f"recovery-lock-{self.token[:8]}",
+            daemon=True,
+        )
+        self._thread.start()
+        return self
+
+    def _mark_lost(self) -> None:
+        with self._guard:
+            if self._owned:
+                self._owned = False
+                self.lost_at = datetime.now(UTC)
+        logger.warning(
+            "shadow_recovery_lease_lost",
+            extra={"token": self.token[:8], "renew_count": self.renew_count},
+        )
+
+    def _heartbeat_loop(self) -> None:
+        # First wait then renew — acquisition already set TTL; keep extending mid-stage.
+        while not self._stop.wait(self.heartbeat_seconds):
+            if not self._renew_fn(self.token):
+                self._mark_lost()
+                return
+            with self._guard:
+                self.renew_count += 1
+
+    def still_owned(self) -> bool:
+        """Fence before a transactional write: renew now; False ⇒ abort further writes."""
+        with self._guard:
+            if not self._owned:
+                return False
+        if not self._renew_fn(self.token):
+            self._mark_lost()
+            return False
+        with self._guard:
+            self.renew_count += 1
+            return True
+
+    def stop(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=max(2.0, self.heartbeat_seconds + 1.0))
+        self._thread = None
+
+
 def _ensure_features(session: Session) -> dict[str, Any]:
     """Compute Analytics/Technical using the same pins as Daily Research Cycle / Forward."""
     from app.modules.analytics.application.compute import FeatureComputeService
@@ -216,6 +300,8 @@ def _stamp_new_batch_counterfactual(
 def _backfill_forward_as_of(
     session: Session,
     sessions: list[date],
+    *,
+    renew_lock: Callable[[], bool] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate immutable Forward batches for each recovery session (PIT as_of).
 
@@ -224,6 +310,20 @@ def _backfill_forward_as_of(
     """
     results: list[dict[str, Any]] = []
     for day in sessions:
+        if renew_lock is not None and not renew_lock():
+            results.append(
+                {
+                    "as_of": day.isoformat(),
+                    "status": "RECOVERY_LOCK_LOST",
+                    "batch_id": None,
+                    "generated_at": None,
+                    "history_kind": HISTORY_KIND_RECORDED_LIVE,
+                    "reconstruction": False,
+                    "lineage_mutated": False,
+                    "error": "lock_lost_before_forward_session",
+                }
+            )
+            break
         gen_at = _session_as_of_clock(day)
         out = run_forward_signal_v0(session, as_of=day, generated_at=gen_at)
         history_kind = HISTORY_KIND_RECORDED_LIVE
@@ -371,8 +471,30 @@ def run_market_shadow_recovery(
                 if observed:
                     sessions = observed
             try:
-                forward_rows = _backfill_forward_as_of(session, sessions)
+                forward_rows = _backfill_forward_as_of(
+                    session, sessions, renew_lock=_still_owner
+                )
+                if any(r.get("status") == "RECOVERY_LOCK_LOST" for r in forward_rows):
+                    return {
+                        "status": "RECOVERY_LOCK_LOST",
+                        "started_at": started.isoformat(),
+                        "finished_at": now_fn().isoformat(),
+                        "market": market,
+                        "features": features,
+                        "forward_as_of": forward_rows,
+                        "reason": "lock_lost_during_forward",
+                    }
                 if commit_each_session:
+                    if not _still_owner():
+                        return {
+                            "status": "RECOVERY_LOCK_LOST",
+                            "started_at": started.isoformat(),
+                            "finished_at": now_fn().isoformat(),
+                            "market": market,
+                            "features": features,
+                            "forward_as_of": forward_rows,
+                            "reason": "lock_lost_before_forward_commit",
+                        }
                     session.commit()
             except Exception as exc:  # noqa: BLE001
                 forward_rows = [{"error": str(exc)[:500]}]
@@ -393,7 +515,19 @@ def run_market_shadow_recovery(
             clock=clock,
             ensure_market=False,
             commit_each_session=commit_each_session,
+            renew_lock=_still_owner,
         )
+        if (shadow or {}).get("status") == "RECOVERY_LOCK_LOST":
+            return {
+                "status": "RECOVERY_LOCK_LOST",
+                "started_at": started.isoformat(),
+                "finished_at": now_fn().isoformat(),
+                "market": market,
+                "features": features,
+                "forward_as_of": forward_rows,
+                "shadow": shadow,
+                "reason": "lock_lost_during_shadow",
+            }
         if commit_each_session:
             if not _still_owner():
                 return {
@@ -467,6 +601,7 @@ __all__ = [
     "HISTORY_KIND_RECORDED_LIVE",
     "RECOVERY_HEARTBEAT_SECONDS",
     "RECOVERY_LOCK_TTL_SECONDS",
+    "RecoveryLockLease",
     "publish_recovery_status",
     "read_recovery_status",
     "recovery_lock_held",
