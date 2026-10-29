@@ -19,13 +19,33 @@ export interface PortfolioCard {
   cash_rub: string;
   positions_count: number;
   // Collection view is unpriced — NAV and valuation labels come from the
-  // single-portfolio summary, never from the list.
+  // hub-valuations batch (or single-portfolio summary), never invented on the client.
   known_nav_rub?: string | null;
   valuation_partial?: boolean;
   valuation_label?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
   is_test?: boolean;
+}
+
+/** Batch market marks for `/portfolio` hub cards only — not PortfolioSwitcher. */
+export interface HubValuationCard {
+  portfolio_id: number;
+  cash_rub: string;
+  securities_value_rub: string;
+  known_nav_rub: string;
+  /** Authoritative total only when valuation_complete; otherwise null. */
+  total_nav_rub: string | null;
+  valuation_complete: boolean;
+  valuation_partial: boolean;
+  valuation_unavailable: boolean;
+  valuation_as_of: string | null;
+  valuation_from?: string | null;
+  valuation_to?: string | null;
+  valuation_label: string | null;
+  missing_price_count: number;
+  positions_count: number;
+  error?: string | null;
 }
 
 export interface PersonalSummary {
@@ -157,6 +177,20 @@ function qs(owner: boolean, test: boolean): string {
 export function listPersonalPortfolios(opts?: { test?: boolean; signal?: AbortSignal }) {
   return apiRequest<{ items: PortfolioCard[]; count: number }>(
     `/personal-portfolios${qs(false, !!opts?.test)}`,
+    { signal: opts?.signal },
+  );
+}
+
+export function getHubValuations(
+  portfolioIds: number[],
+  opts?: { test?: boolean; signal?: AbortSignal },
+) {
+  const p = new URLSearchParams();
+  if (opts?.test) p.set("test", "true");
+  for (const id of portfolioIds) p.append("ids", String(id));
+  const q = p.toString();
+  return apiRequest<{ items: HubValuationCard[]; count: number }>(
+    `/personal-portfolios/hub-valuations${q ? `?${q}` : ""}`,
     { signal: opts?.signal },
   );
 }
