@@ -19,8 +19,10 @@ import {
   type PersonalOperationType,
   type PersonalSummary,
 } from "../../api/personalPortfolios";
+import { SignedMoney } from "../../components/SignedMoney";
 import { EmptyState, MetricCard, PageState, StatusBadge } from "../../components/Ui";
 import { useKrakenRole } from "../../role/KrakenRoleContext";
+import { formatRub } from "../../utils/format";
 import { BrokerSettingsPanel } from "./BrokerSettingsPanel";
 
 function isEquityHolding(position: { asset_class?: string | null }): boolean {
@@ -63,11 +65,18 @@ export const USER_CREATABLE_OPERATION_TYPES: readonly PersonalOperationType[] = 
   "COMMISSION",
 ];
 
-function money(v: string | null | undefined): string {
+function money(v: string | number | null | undefined): string {
   if (v == null || v === "") return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return v;
-  return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽`;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return formatRub(n);
+}
+
+function pnlNode(v: string | number | null | undefined, partial = false) {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return <SignedMoney value={n} partial={partial} />;
 }
 
 function newIdempotencyKey(): string {
@@ -433,7 +442,7 @@ function DraftPositionsTable({
                     Себестоимость не указана
                   </span>
                 ) : p.unrealized_pnl != null ? (
-                  money(p.unrealized_pnl)
+                  pnlNode(p.unrealized_pnl)
                 ) : (
                   <span className="muted" title={p.pnl_unavailable_reason || undefined}>
                     {p.price_available ? "Недоступно" : "Нет текущей цены"}
@@ -528,7 +537,7 @@ function PositionsTable({
                 ) : basisUnknown ? (
                   <span className="muted">Нет себестоимости — P&amp;L недоступен</span>
                 ) : p.unrealized_pnl != null ? (
-                  money(p.unrealized_pnl)
+                  pnlNode(p.unrealized_pnl)
                 ) : isBond ? (
                   <span className="muted" title={p.pnl_unavailable_reason || undefined}>
                     Недоступно
@@ -1363,7 +1372,10 @@ export function PersonalPortfolioPanel({
                       data.summary.investment_pnl_message ??
                       "Не хватает цены по части позиций."
                     }`
-                  : money(data.summary.investment_pnl_rub)
+                  : pnlNode(
+                      data.summary.investment_pnl_rub,
+                      Boolean(data.summary.valuation_partial || !data.summary.valuation_complete),
+                    )
               }
               hint="Без учёта пополнений и выводов как «прибыли»"
             />

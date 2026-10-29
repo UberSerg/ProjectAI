@@ -8,6 +8,7 @@ import {
 } from "../api/personalPortfolios";
 import { ExplanationCard, HeroCard, PageHeader, PageState } from "../components/Ui";
 import { usePortfolioContext } from "../portfolio/PortfolioContext";
+import { formatRub } from "../utils/format";
 
 function lifecycleLabel(state: string | undefined): string {
   if (state === "ACTIVE") return "Учёт включён";
@@ -133,7 +134,7 @@ export function PortfolioPage() {
               <p className="portfolio-card-meta">
                 <span>{lifecycleLabel(p.lifecycle_state)}</span>
                 <span>
-                  Кэш {p.cash_rub} ₽ · активов {p.positions_count}
+                  Кэш {formatRub(p.cash_rub)} · активов {p.positions_count}
                 </span>
               </p>
               <div className="portfolio-card-actions">

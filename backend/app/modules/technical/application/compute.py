@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -37,6 +38,14 @@ from app.modules.technical.technical_config import (
 logger = get_logger(__name__, component="technical-compute")
 
 
+class TechnicalComputeLockLost(Exception):
+    """Raised when ``commit_guard`` denies a technical compute commit."""
+
+    def __init__(self, reason: str = "commit_guard_denied") -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 def _dec(value: float | None) -> Decimal | None:
     if value is None:
         return None
@@ -44,18 +53,30 @@ def _dec(value: float | None) -> Decimal | None:
 
 
 class TechnicalComputeService:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        commit_guard: Callable[[], bool] | None = None,
+    ) -> None:
         self.session = session
+        self.commit_guard = commit_guard
+
+    def _commit(self) -> None:
+        if self.commit_guard is not None and not self.commit_guard():
+            self.session.rollback()
+            raise TechnicalComputeLockLost("recovery_lock_lost")
+        self.session.commit()
 
     def _mark(self, workflow: Workflow, step_name: str, status: str) -> None:
         update_step(self.session, get_step(workflow, step_name), status)
-        self.session.commit()
+        self._commit()
 
     def _heartbeat(self, workflow: Workflow, **meta: Any) -> None:
         current = dict(workflow.meta or {})
         current.update(meta)
         workflow.meta = current
-        self.session.commit()
+        self._commit()
 
     def run_backfill(
         self,
@@ -173,7 +194,7 @@ class TechnicalComputeService:
                 tech_run.finished_at = datetime.now(UTC)
                 self._mark(workflow, "Finish", "SUCCESS")
                 finish_workflow(self.session, workflow, "SUCCESS")
-                self.session.commit()
+                self._commit()
                 return {
                     "workflow_id": workflow.id,
                     "technical_run_id": tech_run.id,
@@ -440,7 +461,7 @@ class TechnicalComputeService:
                 },
                 trace_id=(workflow.meta or {}).get("trace_id"),
             )
-            self.session.commit()
+            self._commit()
             return {
                 "workflow_id": workflow.id,
                 "technical_run_id": tech_run.id,
@@ -450,6 +471,9 @@ class TechnicalComputeService:
                 "invalid_signals": invalid_signals,
                 "duration_sec": round(time.perf_counter() - started, 2),
             }
+        except TechnicalComputeLockLost:
+            self.session.rollback()
+            raise
         except Exception as exc:
             logger.exception("technical_compute_failed")
             write_event(
@@ -468,7 +492,10 @@ class TechnicalComputeService:
                 finish_workflow(self.session, workflow, "ERROR", error=str(exc)[:2000])
             except Exception:
                 pass
-            self.session.commit()
+            try:
+                self._commit()
+            except TechnicalComputeLockLost:
+                self.session.rollback()
             raise
 
     def _resolve_workflow(self, workflow_id: int | None, run_type: str) -> Workflow:

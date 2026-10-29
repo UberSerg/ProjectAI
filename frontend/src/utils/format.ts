@@ -71,7 +71,30 @@ export function formatPercentPoints(value?: number | null, digits = 1): string {
   }).format(value * 100)} п.п.`;
 }
 
+/**
+ * Unified RUB money formatter for the investor UI.
+ *
+ * - null / NaN → "—"
+ * - whole rubles → no fraction digits ("500 000 ₽")
+ * - kopecks kept when significant ("3 340,50 ₽", "3,34 ₽")
+ * - never pads six technical DB decimals
+ */
+export function formatRub(value?: number | string | null): string {
+  if (value == null || value === "") return "—";
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const hasFraction = Math.abs(abs - Math.round(abs)) > 1e-9;
+  const formatted = new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: hasFraction ? 2 : 0,
+  }).format(n);
+  return `${formatted} ₽`;
+}
+
+/** @deprecated Prefer formatRub for investor money; kept for non-RUB callers. */
 export function formatMoney(value?: number | null, currency = "RUB"): string {
+  if (currency === "RUB" || currency === "RUR") return formatRub(value);
   if (value == null || Number.isNaN(value)) return "—";
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",

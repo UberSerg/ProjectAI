@@ -883,6 +883,17 @@ tr.selected, tr.clickable.selected { background: var(--accent-soft); }
 /* Simulator dashboard */
 .value-negative { color: var(--error); }
 .value-positive { color: var(--success); }
+
+.signed-money {
+  font-variant-numeric: tabular-nums;
+}
+.signed-money-positive { color: var(--success); }
+.signed-money-negative { color: var(--error); }
+.signed-money-neutral { color: var(--ink); }
+.signed-money-partial {
+  color: var(--warning);
+  font-weight: 500;
+}
 .value-excess {
   color: var(--ink);
   font-variant-numeric: tabular-nums;

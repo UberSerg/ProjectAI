@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -47,6 +48,15 @@ from app.modules.market.application.workflows import (
 from app.modules.market.universe import SERIES as SERIES_DEFS
 
 logger = get_logger(__name__, component="market-ingest")
+
+
+class MarketIngestionLockLost(Exception):
+    """Raised when ``commit_guard`` denies a progress commit (e.g. recovery lease lost)."""
+
+    def __init__(self, reason: str = "commit_guard_denied") -> None:
+        self.reason = reason
+        super().__init__(reason)
+
 
 BACKFILL_STEPS = [
     "Resolve instruments",
@@ -187,6 +197,7 @@ class MarketIngestionService:
         raw_store: RawStore | None = None,
         pause_seconds: float | None = None,
         commit_progress: bool = True,
+        commit_guard: Callable[[], bool] | None = None,
     ) -> None:
         self.session = session
         self.settings = get_settings()
@@ -195,6 +206,17 @@ class MarketIngestionService:
         self.cbr = cbr or CbrProvider()
         self.pause_seconds = 0.15 if pause_seconds is None else pause_seconds
         self.commit_progress = commit_progress
+        # Optional fence before durable writes (recovery lease / ownership).
+        self.commit_guard = commit_guard
+
+    def _commit_if_allowed(self) -> None:
+        """Commit progress only while the optional ownership guard still allows it."""
+        if not self.commit_progress:
+            return
+        if self.commit_guard is not None and not self.commit_guard():
+            self.session.rollback()
+            raise MarketIngestionLockLost("recovery_lock_lost")
+        self.session.commit()
 
     def run_backfill(
         self,
@@ -279,17 +301,21 @@ class MarketIngestionService:
             update_step(self.session, get_step(workflow, "Finish"), "SUCCESS")
             final = "WARNING" if dq_status == "WARNING" else "SUCCESS"
             finish_workflow(self.session, workflow, final)
-            if self.commit_progress:
-                self.session.commit()
+            self._commit_if_allowed()
             return {"workflow_id": workflow.id, "status": final, "stats": stats}
+        except MarketIngestionLockLost:
+            # Ownership lost: do not persist further workflow ERROR rows.
+            self.session.rollback()
+            raise
         except Exception as exc:  # noqa: BLE001
             self.session.rollback()
             try:
                 failed = self.session.get(Workflow, workflow_pk) if workflow_pk is not None else None
                 if failed is not None:
                     finish_workflow(self.session, failed, "ERROR", error=str(exc)[:2000])
-                    if self.commit_progress:
-                        self.session.commit()
+                    self._commit_if_allowed()
+            except MarketIngestionLockLost:
+                self.session.rollback()
             except Exception:
                 logger.exception("market_ingest_workflow_finish_failed")
                 self.session.rollback()
@@ -422,8 +448,7 @@ class MarketIngestionService:
                         "updated": written["updated"],
                     }
                 )
-            if self.commit_progress:
-                self.session.commit()
+            self._commit_if_allowed()
         moex_batch.meta = {
             "endpoint_template": (
                 "{base}/iss/history/engines/stock/markets/{market}"

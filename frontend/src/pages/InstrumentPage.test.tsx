@@ -44,6 +44,38 @@ describe("InstrumentPage", () => {
     expect(screen.getByRole("button", { name: "Котировки" })).toBeInTheDocument();
   });
 
+  it("keeps page usable when DQ request fails", async () => {
+    vi.mocked(marketApi.getInstrument).mockResolvedValue({
+      id: "45",
+      symbol: "LKOH",
+      name: "Lukoil",
+      asset_class: "equity",
+      exchange: "MOEX",
+      currency: "RUB",
+      sources: ["MOEX"],
+      first_timestamp: "2024-01-03T00:00:00Z",
+      last_timestamp: "2026-08-20T00:00:00Z",
+      records_count: 670,
+      is_active: true,
+      last_close: 7000,
+      mappings: [{ source: "MOEX", source_symbol: "LKOH" }],
+    });
+    vi.mocked(marketApi.getCandles).mockResolvedValue([]);
+    vi.mocked(marketApi.getBatches).mockResolvedValue([]);
+    vi.mocked(marketApi.getDataQualityIssues).mockRejectedValue(new Error("DQ down"));
+
+    render(
+      <MemoryRouter initialEntries={["/market/instruments/45"]}>
+        <Routes>
+          <Route path="/market/instruments/:instrumentId" element={<InstrumentPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Lukoil")).toBeInTheDocument();
+    expect(screen.getByText(/Не удалось загрузить/i)).toBeInTheDocument();
+  });
+
   it("does not crash when detail API omits sources", async () => {
     vi.mocked(marketApi.getInstrument).mockResolvedValue({
       id: "44",
