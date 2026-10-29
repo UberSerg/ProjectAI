@@ -93,15 +93,23 @@ export function journalCandidateHumanReason(input: {
   const replacement = input.replacement_ticker?.trim().toUpperCase() || null;
   const edge = formatEdge(input.net_edge);
 
-  if (action === "REVIEW_HOLD" || action.startsWith("REVIEW")) {
-    const why = reasons || "структурные причины не сохранены";
+  if (action === "REVIEW_HOLD") {
+    // Explicit REVIEW_HOLD only — do not imply HOLD from bare REVIEW.
+    const why = reasons || JOURNAL_MISSING_REASON_RU;
     const alt = replacement ? ` Кандидат на замену: ${replacement}.` : "";
     return `Ревизия: позиция удержана — ${why}.${alt}${edge}`.trim();
   }
+  if (action === "REVIEW" || action.startsWith("REVIEW")) {
+    const alt = replacement ? ` Кандидат на замену: ${replacement}.` : "";
+    if (reasons) return `Ревизия: ${reasons}.${alt}${edge}`.trim();
+    return `Ревизия.${alt}${edge}`.trim() || JOURNAL_MISSING_REASON_RU;
+  }
   if (action === "ROTATE" || action.startsWith("ROTATE")) {
     const target = replacement ? ` на ${replacement}` : "";
-    const why = reasons || "чистый edge после издержек";
-    return `Ротация${target}: ${why}.`;
+    // Never invent "чистый edge" when reason codes are absent.
+    if (reasons) return `Ротация${target}: ${reasons}.`;
+    if (replacement) return `Ротация на ${replacement}.`;
+    return "Ротация.";
   }
   if (action === "BUY" || action === "ENTER") {
     const base = action === "ENTER" ? "Вход в позицию" : "Покупка";
@@ -256,12 +264,42 @@ export type DecisionChainLink = {
   decisionId: number | null;
   order: ShadowJournalOrder | null;
   fills: ShadowJournalFill[];
+  /** True only when order.status is an open/pending state — never inferred from missing fills alone. */
   pending: boolean;
 };
 
+const PENDING_ORDER_STATUSES = new Set([
+  "PENDING",
+  "NEW",
+  "OPEN",
+  "SUBMITTED",
+  "WORKING",
+  "PARTIAL",
+  "PARTIALLY_FILLED",
+]);
+const TERMINAL_ORDER_STATUSES = new Set([
+  "FILLED",
+  "CANCELLED",
+  "CANCELED",
+  "REJECTED",
+  "EXPIRED",
+]);
+
+/** Pending is a real order status — absence of same-day fills is not proof of pending. */
+export function isJournalOrderPendingStatus(status?: string | null): boolean {
+  const st = (status ?? "").trim().toUpperCase();
+  if (!st) return false;
+  return PENDING_ORDER_STATUSES.has(st);
+}
+
+export function isJournalOrderTerminalStatus(status?: string | null): boolean {
+  const st = (status ?? "").trim().toUpperCase();
+  return TERMINAL_ORDER_STATUSES.has(st);
+}
+
 /**
- * Build Decision → Order → Fill links by real IDs. Pending orders have no fills.
- * Fills without a matching day order are listed with order=null but real order_id.
+ * Build Decision → Order → Fill links by real IDs.
+ * Pending uses order.status; FILLED/CANCELLED/REJECTED without same-day fills stay non-pending.
  */
 export function buildDecisionOrderFillChains(day: ShadowJournalDay): DecisionChainLink[] {
   const fillsByOrder = new Map<number, ShadowJournalFill[]>();
@@ -281,14 +319,14 @@ export function buildDecisionOrderFillChains(day: ShadowJournalDay): DecisionCha
       decisionId: order.decision_id ?? null,
       order,
       fills,
-      pending: fills.length === 0,
+      pending: isJournalOrderPendingStatus(order.status),
     });
   }
 
   for (const [orderId, fills] of fillsByOrder) {
     if (seenOrders.has(orderId)) continue;
     links.push({
-      decisionId: fills[0]?.decision_at ? null : null,
+      decisionId: null,
       order: null,
       fills,
       pending: false,

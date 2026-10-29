@@ -731,4 +731,120 @@ describe("DecisionJournalPanel V4", () => {
       }),
     ).toMatch(/Удержание позиции/i);
   });
+
+  it("does not invent ROTATE edge or claim REVIEW means HOLD without confirmation", () => {
+    expect(journalCandidateHumanReason({ action: "ROTATE", reason_codes: [] })).toBe("Ротация.");
+    expect(journalCandidateHumanReason({ action: "ROTATE", reason_codes: [] })).not.toMatch(/edge/i);
+    expect(
+      journalCandidateHumanReason({
+        action: "ROTATE",
+        reason_codes: ["NET_EDGE_POSITIVE"],
+        replacement_ticker: "ROSN",
+      }),
+    ).toMatch(/Ротация на ROSN:.*edge/i);
+    expect(journalCandidateHumanReason({ action: "REVIEW", reason_codes: [] })).toBe("Ревизия.");
+    expect(journalCandidateHumanReason({ action: "REVIEW", reason_codes: [] })).not.toMatch(
+      /удержан/i,
+    );
+    expect(
+      journalCandidateHumanReason({
+        action: "REVIEW",
+        reason_codes: ["REVIEW_TRIGGER"],
+      }),
+    ).toMatch(/^Ревизия:/);
+    expect(
+      journalCandidateHumanReason({
+        action: "REVIEW_HOLD",
+        reason_codes: ["EXIT_BAND_INSUFFICIENT_EDGE"],
+      }),
+    ).toMatch(/позиция удержана/i);
+  });
+
+  it("treats FILLED/CANCELLED/REJECTED without same-day fills as non-pending", async () => {
+    vi.mocked(shadowApi.getShadowJournal).mockResolvedValue(
+      journalPayload({
+        days: [
+          baseDay({
+            date: "2026-09-10",
+            candidates: [{ ticker: "SBER", decision_action: "BUY", reason_codes: ["TOP_ENTRY_BAND"] }],
+            orders: [
+              {
+                id: 701,
+                decision_id: 10,
+                instrument_id: 1,
+                ticker: "SBER",
+                side: "BUY",
+                quantity: 3,
+                target_weight: 0.03,
+                target_notional: 15_000,
+                status: "FILLED",
+                min_execution_date: "2026-09-11",
+                execution_date: "2026-09-11",
+              },
+              {
+                id: 702,
+                decision_id: 10,
+                instrument_id: 2,
+                ticker: "LKOH",
+                side: "SELL",
+                quantity: 1,
+                target_weight: 0,
+                target_notional: 0,
+                status: "CANCELLED",
+                min_execution_date: "2026-09-11",
+                execution_date: null,
+              },
+              {
+                id: 703,
+                decision_id: 10,
+                instrument_id: 3,
+                ticker: "GAZP",
+                side: "BUY",
+                quantity: 2,
+                target_weight: 0.02,
+                target_notional: 10_000,
+                status: "REJECTED",
+                min_execution_date: "2026-09-11",
+                execution_date: null,
+              },
+              {
+                id: 704,
+                decision_id: 10,
+                instrument_id: 1,
+                ticker: "ROSN",
+                side: "BUY",
+                quantity: 1,
+                target_weight: 0.01,
+                target_notional: 5_000,
+                status: "PENDING",
+                min_execution_date: "2026-09-11",
+                execution_date: null,
+              },
+            ],
+            fills: [],
+            counts: {
+              buy: 3,
+              sell: 1,
+              hold: 0,
+              review: 0,
+              candidates_reviewed: 1,
+              orders: 4,
+              fills: 0,
+            },
+          }),
+        ],
+        returned_days: 1,
+      }),
+    );
+
+    render(<DecisionJournalPanel portfolioId={3} />);
+    const day = await expandDay("2026-09-10");
+    expect(within(day).queryByTestId("shadow-journal-pending-701")).not.toBeInTheDocument();
+    expect(within(day).queryByTestId("shadow-journal-pending-702")).not.toBeInTheDocument();
+    expect(within(day).queryByTestId("shadow-journal-pending-703")).not.toBeInTheDocument();
+    expect(within(day).getByTestId("shadow-journal-order-outcome-701")).toHaveTextContent(/FILLED/);
+    expect(within(day).getByTestId("shadow-journal-order-outcome-702")).toHaveTextContent(/CANCELLED/);
+    expect(within(day).getByTestId("shadow-journal-order-outcome-703")).toHaveTextContent(/REJECTED/);
+    expect(within(day).getByTestId("shadow-journal-pending-704")).toHaveTextContent(/Pending/i);
+  });
 });

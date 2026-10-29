@@ -84,23 +84,32 @@
   letter-spacing: 0.02em;
 }
 
+/* Align with Design System V2 action tokens when present (PR #98). */
 .dj-chip-action-buy,
 .dj-chip-action-enter {
-  border-color: color-mix(in srgb, #1a7f4b 35%, var(--dj-line));
+  color: var(--action-buy, #1a7f4b);
+  background: var(--action-buy-bg, color-mix(in srgb, #1a7f4b 12%, var(--dj-surface)));
+  border-color: color-mix(in srgb, var(--action-buy, #1a7f4b) 35%, var(--dj-line));
 }
 
 .dj-chip-action-sell,
 .dj-chip-action-exit {
-  border-color: color-mix(in srgb, #b42318 35%, var(--dj-line));
+  color: var(--action-sell, #b42318);
+  background: var(--action-sell-bg, color-mix(in srgb, #b42318 12%, var(--dj-surface)));
+  border-color: color-mix(in srgb, var(--action-sell, #b42318) 35%, var(--dj-line));
 }
 
 .dj-chip-action-hold {
-  border-color: color-mix(in srgb, #667085 40%, var(--dj-line));
+  color: var(--action-hold, #667085);
+  background: var(--action-hold-bg, color-mix(in srgb, #667085 10%, var(--dj-surface)));
+  border-color: color-mix(in srgb, var(--action-hold, #667085) 40%, var(--dj-line));
 }
 
 .dj-chip-action-review,
 .dj-chip-action-rotate {
-  border-color: color-mix(in srgb, var(--dj-accent) 40%, var(--dj-line));
+  color: var(--action-review, var(--dj-accent));
+  background: var(--action-review-bg, color-mix(in srgb, var(--dj-accent) 12%, var(--dj-surface)));
+  border-color: color-mix(in srgb, var(--action-review, var(--dj-accent)) 40%, var(--dj-line));
 }
 
 .dj-chip-muted {
@@ -113,7 +122,15 @@
 }
 
 .dj-chip-provenance-live {
-  border-color: color-mix(in srgb, #1a7f4b 40%, var(--dj-line));
+  color: var(--provenance-live, #1a7f4b);
+  background: var(--provenance-live-bg, color-mix(in srgb, #1a7f4b 12%, var(--dj-surface)));
+  border-color: color-mix(in srgb, var(--provenance-live, #1a7f4b) 40%, var(--dj-line));
+}
+
+.dj-chip-provenance-unknown {
+  color: var(--provenance-unknown, #667085);
+  background: var(--provenance-unknown-bg, color-mix(in srgb, #667085 10%, var(--dj-surface)));
+  border-color: color-mix(in srgb, var(--provenance-unknown, #667085) 40%, var(--dj-line));
 }
 
 .dj-chip-provenance-replay {

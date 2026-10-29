@@ -97,7 +97,9 @@ function ProvenanceChips({ day }: { day: JournalDayQualityView }) {
       ? "dj-chip dj-chip-provenance-live"
       : kind && (kind.includes("COUNTERFACTUAL") || kind === "REPLAY")
         ? "dj-chip dj-chip-provenance-replay"
-        : "dj-chip";
+        : kind
+          ? "dj-chip dj-chip-provenance-unknown"
+          : "dj-chip";
 
   return (
     <>
@@ -387,12 +389,7 @@ function BlockD({ day }: { day: ShadowJournalDay }) {
                   <span className="dj-id">#{orderId ?? "—"}</span>
                 )}
               </div>
-              {link.pending ? (
-                <div className="dj-chain-step" data-testid={order ? `shadow-journal-pending-${order.id}` : undefined}>
-                  <span className="dj-pending-label">Pending</span>
-                  <span className="muted">исполнение ещё не зафиксировано</span>
-                </div>
-              ) : (
+              {link.fills.length > 0 ? (
                 link.fills.map((f) => (
                   <div
                     key={f.id}
@@ -409,7 +406,23 @@ function BlockD({ day }: { day: ShadowJournalDay }) {
                     <span className="muted">{formatDate(f.execution_date)}</span>
                   </div>
                 ))
-              )}
+              ) : link.pending ? (
+                <div className="dj-chain-step" data-testid={order ? `shadow-journal-pending-${order.id}` : undefined}>
+                  <span className="dj-pending-label">Pending</span>
+                  <span className="muted">
+                    статус ордера: {order?.status ?? "PENDING"} — исполнение ещё не зафиксировано
+                  </span>
+                </div>
+              ) : order ? (
+                <div
+                  className="dj-chain-step"
+                  data-testid={`shadow-journal-order-outcome-${order.id}`}
+                >
+                  <span className="muted">
+                    Исполнений за этот день нет · статус ордера: {order.status}
+                  </span>
+                </div>
+              ) : null}
             </li>
           );
         })}
