@@ -9,8 +9,8 @@
 
 | Wave | Status | Notes |
 |---|---|---|
-| 0 Audit / Baseline | **IN_PROGRESS** | Docs in `ux/audit-product-map`; browser baselines → Agent 09 |
-| 1 Foundations | **STARTING** | Agents 01 + 02 + 05 prep |
+| 0 Audit / Baseline | **IN_PROGRESS** | Docs PR [#97](https://github.com/UberSerg/ProjectAI/pull/97); browser baselines → Agent 09 |
+| 1 Foundations | **IN_PROGRESS** | Agent 01 PR [#98](https://github.com/UberSerg/ProjectAI/pull/98) READY_FOR_REVIEW; Agent 02 Journal V4 running |
 | 2 Vertical UX | PLANNED | After token contract stable |
 | 3 Integration | PLANNED | Orchestrator only |
 | 4 Polish | PLANNED | Mobile/a11y/copy |
@@ -39,9 +39,9 @@
 | A0-1 | P0 | Screen passports + issue matrix | 00 | audit | — | DONE (docs) | Merged docs PR |
 | A0-2 | P0 | IA + glossary + ownership | 00 | audit | — | DONE (docs) | Merged docs PR |
 | A0-3 | P0 | Sprint board + kickoff context | 00 | audit | — | DONE | Context updated |
-| A1-1 | P0 | Token contract + cascade plan | 01 | design-system | A0 | **IN_PROGRESS** | Doc + tokens in CSS |
-| A1-2 | P0 | Primitives: Money/Status/Empty/Accordion | 01 | design-system | A1-1 | QUEUED | Light+dark desktop/mobile |
-| A2-1 | P0 | Journal V4 closed card | 02 | decision-journal | A1 tokens preferred | **IN_PROGRESS** | Screenshots + tests |
+| A1-1 | P0 | Token contract + cascade plan | 01 | design-system | A0 | **READY_FOR_OWNER_REVIEW** PR [#98](https://github.com/UberSerg/ProjectAI/pull/98) `ade6b27` | Doc + tokens in CSS |
+| A1-2 | P0 | Primitives: Money/Status/Empty/Accordion | 01 | design-system | A1-1 | **READY_FOR_OWNER_REVIEW** (same PR #98) | Light+dark desktop/mobile |
+| A2-1 | P0 | Journal V4 closed card | 02 | decision-journal | Prefer Ui from #98 | **IN_PROGRESS** | Screenshots + tests |
 | A2-2 | P0 | Expand A/B/C/D + reason mapping | 02 | decision-journal | A2-1 | QUEUED | No fabricated why |
 | A2-3 | P0 | Stale request fence + a11y | 02 | decision-journal | A2-1 | QUEUED | Abort/stale tests |
 | A5-1 | P1 | Dashboard hierarchy + USER nav | 05 | dashboard | A1 | QUEUED | Investor-first hero |
