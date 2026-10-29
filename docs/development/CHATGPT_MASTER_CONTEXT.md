@@ -37,14 +37,14 @@ Never erase the activity history to make the current picture look cleaner. Updat
 
 If a context update cannot be committed or merged (missing GitHub access, failed CI, approval requirement, concurrent edit), explicitly report **CONTEXT_UPDATE_PENDING**, its location and the exact reason. Do not claim the master context is up to date until merged to main.
 
-### Current position — 2026-10-29 (Cursor review-fix checkpoint)
+### Current position — 2026-10-29 (Cursor review fixes READY_FOR_OWNER_REVIEW)
 
 - **Verified main:** `7a4ae4a36cd6e5bf6cf191c0228db10c7f36a040` (docs PR #93). Snapshot — re-verify before next task.
-- **PR #85** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/85)): review P1 fencing landed — `MarketIngestionService.commit_guard` / `MarketIngestionLockLost`, `run_eod_market_recovery(..., commit_guard=)`, `TechnicalComputeService.commit_guard` / `TechnicalComputeLockLost`, recovery aborts market/features on lease loss with rollback. Merged `origin/main`. **DO NOT MERGE** without fresh Owner approval. Exact HEAD + CI: see latest Activity Log entry after push.
-- **PR #91** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/91)): securities unknown shows «Оценка недоступна»/«—» (not `0 ₽`); `build_hub_valuations` applies `include_test=False` even with explicit ids. Merged `origin/main`. Exact HEAD + CI: see latest Activity Log entry after push.
-- **PR B / PR C:** still **PLANNED**. Decision Journal Variant 4 UX chosen but not authorized in these PRs.
+- **PR #85** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/85)): HEAD `ebe6100914c55bd7a14e00bf65612f9b02582d2a`. Market ingest + technical/features commit fencing on lease loss; merged `origin/main`. Exact-HEAD CI [40858833749](https://github.com/UberSerg/ProjectAI/actions/runs/40858833749) **success** (backend/frontend/docker). Status: **READY_FOR_OWNER_REVIEW**. **DO NOT MERGE** without fresh Owner approval. Live catch-up backlog unchanged.
+- **PR #91** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/91)): HEAD `d6481c4d41f86aa296c09e42cad321862c9b7edb`. Securities unknown≠0; `include_test=False` with explicit ids; merged `origin/main`. Exact-HEAD CI [40858838564](https://github.com/UberSerg/ProjectAI/actions/runs/40858838564) **success**. Status: **READY_FOR_OWNER_REVIEW**. Review artifacts remain at `review-artifacts/pr-91-portfolio-hub-balance/` (`e21bf39`).
+- **PR B / PR C:** still **PLANNED**. Decision Journal Variant 4 UX not authorized here.
 - **CONTEXT_UPDATE_PENDING** on feature branches until docs reach main.
-- **Next action:** ChatGPT re-review new HEADs; Owner decide PR #85 merge. No auto-merge.
+- **Next action:** ChatGPT re-review; Owner decide PR #85. No auto-merge.
 
 ---
 
@@ -141,6 +141,8 @@ Acceptance tasks:
 - **Mandatory checkpoint gate:** after every significant event involving Owner, Cursor or ChatGPT, refresh the current-position snapshot AND append dated activity log with evidence before calling the checkpoint complete. No background monitoring; record what was learned during active work. If not merged, state CONTEXT_UPDATE_PENDING and why.
 
 ## Activity log
+
+- **2026-10-29 — Cursor (review fixes complete):** PR #85 HEAD `ebe6100914c55bd7a14e00bf65612f9b02582d2a`; CI `40858833749` success. Fenced market ingest (`commit_guard` / `MarketIngestionLockLost`) and technical/features commits (`TechnicalComputeLockLost` + pre-commit ownership check); regression tests in `test_recovery_lock.py`. PR #91 HEAD `d6481c4d41f86aa296c09e42cad321862c9b7edb`; CI `40858838564` success. Hub securities error/missing → «Оценка недоступна»/«—»; test portfolios excluded when ids + `include_test=False`. Both **READY_FOR_OWNER_REVIEW**; **PR #85 DO NOT MERGE** without Owner approval. **CONTEXT_UPDATE_PENDING**.
 
 - **2026-10-29 — Cursor (review fixes):** Merged `origin/main` (`7a4ae4a`) into PR #85 and PR #91 (resolved master-context conflicts; preserved Activity Log history). PR #85: market ingest + technical/features commit fencing on lease loss + regression tests in `test_recovery_lock.py`. PR #91: hub securities error/missing UI + test-portfolio filter with ids + tests. Both left **OPEN / NOT MERGED**; PR #85 still requires distinct Owner approval. Exact SHAs and CI runs recorded in the following tip commits after push.
 
