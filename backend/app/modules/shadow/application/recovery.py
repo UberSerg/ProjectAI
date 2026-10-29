@@ -28,6 +28,7 @@ from app.modules.market.application.eod_gap import (
     trading_sessions_between,
 )
 from app.modules.market.application.eod_recovery import (
+    MARKET_BACKFILL_LOCK_LOST,
     MARKET_BACKFILL_NOOP,
     run_eod_market_recovery,
 )
@@ -40,6 +41,7 @@ from app.modules.shadow.application.session_catchup import (
     build_catchup_status,
     run_all_shadow_catchup,
 )
+from app.modules.technical.application.compute import TechnicalComputeLockLost
 
 Clock = Callable[[], datetime]
 logger = get_logger(__name__, component="shadow_recovery")
@@ -225,7 +227,11 @@ class RecoveryLockLease:
         self._thread = None
 
 
-def _ensure_features(session: Session) -> dict[str, Any]:
+def _ensure_features(
+    session: Session,
+    *,
+    renew_lock: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
     """Compute Analytics/Technical using the same pins as Daily Research Cycle / Forward."""
     from app.modules.analytics.application.compute import FeatureComputeService
     from app.modules.prediction.application.forward_config import (
@@ -247,7 +253,8 @@ def _ensure_features(session: Session) -> dict[str, Any]:
         feature_set_code=ANALYTICS_CODE or FORWARD_BASIC_FS_CODE,
         feature_set_version=ANALYTICS_VERSION or FORWARD_BASIC_FS_VERSION,
     )
-    technical = TechnicalComputeService(session).run_update(
+    # Technical compute commits internally — fence each durable write with renew_lock.
+    technical = TechnicalComputeService(session, commit_guard=renew_lock).run_update(
         model_code=TECHNICAL_MODEL_CODE or FORWARD_TECH_MODEL_CODE,
         model_version=TECHNICAL_MODEL_VERSION or FORWARD_TECH_MODEL_VERSION,
     )
@@ -402,9 +409,23 @@ def run_market_shadow_recovery(
 
     gap_before = detect_market_eod_gap(session, now=started)
 
-    market = run_eod_market_recovery(session, now=started, commit_progress=commit_each_session)
+    market = run_eod_market_recovery(
+        session,
+        now=started,
+        commit_progress=commit_each_session,
+        commit_guard=_still_owner,
+    )
+    if market.get("status") == MARKET_BACKFILL_LOCK_LOST or market.get("lock_lost"):
+        return {
+            "status": "RECOVERY_LOCK_LOST",
+            "started_at": started.isoformat(),
+            "finished_at": now_fn().isoformat(),
+            "market": market,
+            "reason": "lock_lost_during_market",
+        }
     if commit_each_session:
         if not _still_owner():
+            session.rollback()
             return {
                 "status": "RECOVERY_LOCK_LOST",
                 "started_at": started.isoformat(),
@@ -440,9 +461,29 @@ def run_market_shadow_recovery(
                 "reason": "lock_lost_before_features",
             }
         try:
-            features = _ensure_features(session)
+            features = _ensure_features(session, renew_lock=_still_owner)
             if commit_each_session:
+                if not _still_owner():
+                    session.rollback()
+                    return {
+                        "status": "RECOVERY_LOCK_LOST",
+                        "started_at": started.isoformat(),
+                        "finished_at": now_fn().isoformat(),
+                        "market": market,
+                        "features": features,
+                        "reason": "lock_lost_before_features_commit",
+                    }
                 session.commit()
+        except TechnicalComputeLockLost:
+            session.rollback()
+            return {
+                "status": "RECOVERY_LOCK_LOST",
+                "started_at": started.isoformat(),
+                "finished_at": now_fn().isoformat(),
+                "market": market,
+                "features": {"error": "recovery_lock_lost"},
+                "reason": "lock_lost_during_features",
+            }
         except Exception as exc:  # noqa: BLE001
             features = {"error": str(exc)[:500]}
 

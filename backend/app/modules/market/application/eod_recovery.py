@@ -6,6 +6,7 @@ One recovery run must download the full missing trading-session range
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -17,13 +18,14 @@ from app.modules.market.application.eod_gap import (
     detect_market_eod_gap,
     instruments_with_moex_history,
 )
-from app.modules.market.application.ingest import MarketIngestionService
+from app.modules.market.application.ingest import MarketIngestionLockLost, MarketIngestionService
 from app.modules.prediction.application.forward_readiness import select_latest_complete_as_of
 
 MARKET_BACKFILL_NOOP = "NO_OP"
 MARKET_BACKFILL_SUCCESS = "SUCCESS"
 MARKET_BACKFILL_PARTIAL = "PARTIAL"
 MARKET_BACKFILL_FAILED = "FAILED"
+MARKET_BACKFILL_LOCK_LOST = "RECOVERY_LOCK_LOST"
 
 
 def run_eod_market_recovery(
@@ -31,6 +33,7 @@ def run_eod_market_recovery(
     *,
     now: datetime | None = None,
     commit_progress: bool = True,
+    commit_guard: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Backfill all missing EOD candles for MOEX-mapped instruments in one run."""
     before = detect_market_eod_gap(session, now=now)
@@ -50,29 +53,49 @@ def run_eod_market_recovery(
     # Anchor on COMPLETE EOD, not raw max. A single instrument ahead (partial probe)
     # must not skip multi-day backfill for the rest of the universe.
     date_from = before.local_complete_eod or before.local_raw_max
-    if date_from is None:
-        # Cold start: let default backfill_from handle range via run_update symbols filter
-        ingest = MarketIngestionService(session, commit_progress=commit_progress).run_update()
-    else:
-        # Inclusive multi-day backfill from day after local complete through expected.
-        start = date.fromordinal(date_from.toordinal() + 1)
-        if start > expected:
-            # Completeness may still lag expected while raw max looks current — force update.
+    try:
+        if date_from is None:
+            # Cold start: let default backfill_from handle range via run_update symbols filter
             ingest = MarketIngestionService(
-                session, commit_progress=commit_progress
-            ).run_backfill(
-                symbols=symbols or None,
-                date_from=expected,
-                date_to=expected,
-            )
+                session,
+                commit_progress=commit_progress,
+                commit_guard=commit_guard,
+            ).run_update()
         else:
-            ingest = MarketIngestionService(
-                session, commit_progress=commit_progress
-            ).run_backfill(
-                symbols=symbols or None,
-                date_from=start,
-                date_to=expected,
-            )
+            # Inclusive multi-day backfill from day after local complete through expected.
+            start = date.fromordinal(date_from.toordinal() + 1)
+            if start > expected:
+                # Completeness may still lag expected while raw max looks current — force update.
+                ingest = MarketIngestionService(
+                    session,
+                    commit_progress=commit_progress,
+                    commit_guard=commit_guard,
+                ).run_backfill(
+                    symbols=symbols or None,
+                    date_from=expected,
+                    date_to=expected,
+                )
+            else:
+                ingest = MarketIngestionService(
+                    session,
+                    commit_progress=commit_progress,
+                    commit_guard=commit_guard,
+                ).run_backfill(
+                    symbols=symbols or None,
+                    date_from=start,
+                    date_to=expected,
+                )
+    except MarketIngestionLockLost as exc:
+        after = detect_market_eod_gap(session, now=now)
+        return {
+            "status": MARKET_BACKFILL_LOCK_LOST,
+            "gap_before": before.to_dict(),
+            "gap_after": after.to_dict(),
+            "ingest": None,
+            "symbols": symbols,
+            "reason": str(exc.reason),
+            "lock_lost": True,
+        }
 
     after = detect_market_eod_gap(session, now=now)
     complete = select_latest_complete_as_of(session)
@@ -123,6 +146,7 @@ def _downloaded_sessions(before, after) -> list[str]:
 
 __all__ = [
     "MARKET_BACKFILL_FAILED",
+    "MARKET_BACKFILL_LOCK_LOST",
     "MARKET_BACKFILL_NOOP",
     "MARKET_BACKFILL_PARTIAL",
     "MARKET_BACKFILL_SUCCESS",
