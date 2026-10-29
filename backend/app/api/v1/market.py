@@ -307,13 +307,25 @@ def get_batch(batch_id: int) -> dict[str, Any]:
 @router.get("/data-quality")
 def list_data_quality(
     severity: str | None = None,
+    instrument_id: int | None = None,
+    include_resolved: bool = False,
     page: int = 1,
     page_size: int = 50,
 ) -> dict[str, Any]:
+    if page < 1:
+        raise HTTPException(status_code=422, detail="page must be >= 1")
+    if page_size < 1 or page_size > 200:
+        raise HTTPException(status_code=422, detail="page_size must be 1..200")
     with core_session() as session:
         stmt = select(DataQualityIssue)
         if severity:
             stmt = stmt.where(DataQualityIssue.severity == severity)
+        if instrument_id is not None:
+            if instrument_id < 1:
+                raise HTTPException(status_code=422, detail="instrument_id must be >= 1")
+            stmt = stmt.where(DataQualityIssue.instrument_id == instrument_id)
+        if not include_resolved:
+            stmt = stmt.where(DataQualityIssue.resolved_at.is_(None))
         total = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         rows = session.scalars(
             stmt.order_by(DataQualityIssue.created_at.desc())
@@ -336,6 +348,8 @@ def list_data_quality(
             "total": total,
             "page": page,
             "page_size": page_size,
+            "instrument_id": instrument_id,
+            "include_resolved": include_resolved,
         }
 
 

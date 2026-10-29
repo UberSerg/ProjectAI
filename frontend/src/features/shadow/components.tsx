@@ -6,6 +6,7 @@ import type {
   ShadowPendingOrderReason,
   ShadowPortfolioSummary,
 } from "../../api/shadow";
+import { SignedMoney } from "../../components/SignedMoney";
 import { MetricCard } from "../../components/Ui";
 import { MetricHelp } from "../../help";
 import {
@@ -15,6 +16,7 @@ import {
   formatPercent,
   formatPrice,
   formatRelativeTime,
+  formatRub,
 } from "../../utils/format";
 import { labels } from "../../utils/labels";
 import {
@@ -28,6 +30,8 @@ import {
   mskTradingDateFromClock,
   nextSessionPrepCode,
   nextSessionStageTone,
+  operationalStateFromOps,
+  operationalStateTone,
   operationalStages,
   orderActionLabel,
   orderLotsFromMeta,
@@ -108,9 +112,21 @@ export function ReadinessBanner({
   error?: string | null;
 }) {
   const headline = readinessHeadline(ops);
+  const opState = operationalStateFromOps(ops);
   const reasonCode = ops?.blocker_code ?? ops?.status_code;
   const reasonText = reasonCode ? labels.shadowReadinessStatus(reasonCode) : headline.short;
-  const tone = headline.ready ? "success" : "warning";
+  const tone = opState
+    ? operationalStateTone(opState)
+    : headline.ready
+      ? "success"
+      : "warning";
+  const badge =
+    opState ??
+    (headline.ready
+      ? reasonCode === "PENDING_ORDERS_AWAITING_OPEN"
+        ? "WAITING_MARKET_OPEN"
+        : "READY"
+      : "NOT READY");
 
   return (
     <div
@@ -119,7 +135,7 @@ export function ReadinessBanner({
     >
       <div className="shadow-readiness-main">
         <span className={`badge badge-${tone}`} data-testid="shadow-readiness-badge">
-          {headline.ready ? "READY" : "NOT READY"}
+          {badge}
         </span>
         <div>
           <h2 className="sim-section-title" style={{ margin: 0 }}>
@@ -129,11 +145,13 @@ export function ReadinessBanner({
           <p className="shadow-readiness-reason" data-testid="shadow-readiness-reason">
             {error
               ? `Статус временно недоступен: ${error}`
-              : headline.ready
-                ? reasonCode === "PENDING_ORDERS_AWAITING_OPEN"
-                  ? labels.shadowReadinessStatus("PENDING_ORDERS_AWAITING_OPEN")
-                  : "Готов к следующей сессии"
-                : reasonText}
+              : ops?.operational_state?.required_action
+                ? `${reasonText} — ${ops.operational_state.required_action}`
+                : headline.ready
+                  ? reasonCode === "PENDING_ORDERS_AWAITING_OPEN"
+                    ? labels.shadowReadinessStatus("PENDING_ORDERS_AWAITING_OPEN")
+                    : "Готов к следующей сессии"
+                  : reasonText}
           </p>
         </div>
       </div>
@@ -145,7 +163,30 @@ export function ReadinessBanner({
           </div>
           <div>
             <dt>След. сессия</dt>
-            <dd>{formatDate(ops.next_execution_session)}</dd>
+            <dd data-testid="shadow-next-session">
+              {ops.next_execution_session
+                ? formatDate(ops.next_execution_session)
+                : ops.operational_state?.backlog_without_recovery ||
+                    (ops.operational_state?.missing_sessions ?? 0) > 0
+                  ? "backlog / recovery"
+                  : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt>Обработано / пропуск</dt>
+            <dd data-testid="shadow-catchup-progress">
+              {formatDate(ops.operational_state?.last_processed_session)}
+              {" → "}
+              {formatDate(ops.operational_state?.expected_session)}
+              {ops.operational_state?.missing_sessions
+                ? ` · пропущено ${ops.operational_state.missing_sessions}`
+                : ""}
+              {ops.operational_state?.recovery?.running
+                ? ` · recovery: ${ops.operational_state.recovery.phase ?? "RUNNING"}`
+                : ops.operational_state?.backlog_without_recovery
+                  ? " · recovery не выполняется"
+                  : ""}
+            </dd>
           </div>
           <div>
             <dt>
@@ -162,6 +203,12 @@ export function ReadinessBanner({
             </dt>
             <dd>{ops.order_plan_status ?? "—"}</dd>
           </div>
+          {ops.operational_state?.stop_reason ? (
+            <div>
+              <dt>Остановка</dt>
+              <dd data-testid="shadow-stop-reason">{ops.operational_state.stop_reason}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : null}
     </div>
@@ -227,35 +274,81 @@ export function CashCard({ portfolio }: { portfolio: ShadowPortfolioSummary }) {
 export function PnLCards({ portfolio }: { portfolio: ShadowPortfolioSummary }) {
   const live = portfolio.live;
   const breakdown = portfolio.cash_breakdown;
-  const nav = portfolio.live_nav ?? live?.nav ?? portfolio.nav;
+  const navComplete = portfolio.nav_is_complete ?? live?.nav_is_complete ?? true;
+  const valuationStatus = (
+    portfolio.valuation_status ??
+    live?.valuation_status ??
+    (navComplete ? "FULL" : "PARTIAL")
+  ).toUpperCase();
+  const valuationFreshness = (
+    portfolio.valuation_freshness ??
+    live?.valuation_freshness ??
+    ""
+  ).toUpperCase();
+  const coverageLabel =
+    valuationFreshness && valuationStatus === "FULL"
+      ? `${valuationStatus} · ${valuationFreshness}`
+      : valuationStatus;
+  const partial = valuationStatus === "PARTIAL" || valuationStatus === "UNAVAILABLE" || !navComplete;
+  const staleFull = valuationStatus === "FULL" && valuationFreshness === "STALE";
+  const nav = navComplete && !staleFull ? (portfolio.live_nav ?? live?.nav ?? portfolio.nav) : null;
   const initial = portfolio.initial_capital;
   const totalPnl =
-    nav != null && initial != null
+    !partial && nav != null && initial != null
       ? nav - initial
-      : breakdown?.realized_pnl != null && breakdown?.unrealized_pnl != null
-        ? breakdown.realized_pnl + breakdown.unrealized_pnl
-        : live?.unrealized_pnl;
-  const unrealized = live?.unrealized_pnl ?? breakdown?.unrealized_pnl;
+      : null;
+  const unrealized = partial
+    ? (live?.partial_unrealized_pnl ?? null)
+    : (live?.unrealized_pnl ?? breakdown?.unrealized_pnl);
   const realized = live?.realized_pnl ?? breakdown?.realized_pnl;
   const fees = live?.fees_paid ?? breakdown?.fees_paid;
+  const knownNav = live?.known_nav ?? breakdown?.known_nav;
+  const unpriced = live?.unpriced_positions?.length ?? 0;
 
   return (
-    <div className="card-grid sim-metrics-grid" data-testid="shadow-pnl-cards">
-      <MetricCard
-        label="P&L всего"
-        value={totalPnl == null ? "—" : formatMoney(totalPnl)}
-        helpId="realized_pnl"
-      />
-      <MetricCard
-        label="Нереализованный"
-        value={unrealized == null ? "—" : formatMoney(unrealized)}
-      />
-      <MetricCard
-        label="Реализованный"
-        value={realized == null ? "—" : formatMoney(realized)}
-        helpId="realized_pnl"
-      />
-      <MetricCard label="Комиссии" value={fees == null ? "—" : formatMoney(fees)} />
+    <div data-testid="shadow-pnl-cards">
+      {partial ? (
+        <p className="muted" data-testid="shadow-partial-valuation-warning">
+          Оценка неполная ({coverageLabel}
+          {unpriced > 0 ? ` · без котировок: ${unpriced}` : ""}
+          {knownNav != null ? ` · известная часть ≈ ${formatRub(knownNav)}` : ""}). Общий P&amp;L и
+          drawdown по начальному капиталу не считаются.
+        </p>
+      ) : null}
+      {staleFull ? (
+        <p className="muted" data-testid="shadow-stale-valuation-warning">
+          Покрытие полное, но котировки устарели ({coverageLabel}
+          {live?.marks_as_of ? ` · as of ${live.marks_as_of}` : ""}). Не использовать как актуальную
+          цену исполнения или текущую risk valuation.
+        </p>
+      ) : null}
+      {portfolio.history_kind ? (
+        <p className="muted" data-testid="shadow-history-kind">
+          История:{" "}
+          {String(portfolio.history_kind).toUpperCase() === "COUNTERFACTUAL_REPLAY"
+            ? "реконструкция (не recorded LIVE)"
+            : "recorded LIVE"}
+        </p>
+      ) : null}
+      <div className="card-grid sim-metrics-grid">
+        <MetricCard
+          label="P&L всего"
+          value={<SignedMoney value={totalPnl} partial={false} data-testid="shadow-total-pnl" />}
+          helpId="realized_pnl"
+        />
+        <MetricCard
+          label={partial ? "Нереализованный (частично)" : "Нереализованный"}
+          value={
+            <SignedMoney value={unrealized} partial={partial} data-testid="shadow-unrealized-pnl" />
+          }
+        />
+        <MetricCard
+          label="Реализованный"
+          value={<SignedMoney value={realized} data-testid="shadow-realized-pnl" />}
+          helpId="realized_pnl"
+        />
+        <MetricCard label="Комиссии" value={fees == null ? "—" : formatRub(fees)} />
+      </div>
     </div>
   );
 }
@@ -324,9 +417,11 @@ export function LivePortfolioTable({
                 </td>
                 <td className="numeric">{formatPrice(avgEntry)}</td>
                 <td className="numeric">{formatPrice(row.mark_price)}</td>
-                <td className="numeric">{formatMoney(row.market_value)}</td>
                 <td className="numeric">
-                  {row.unrealized_pnl == null ? "—" : formatMoney(row.unrealized_pnl)}
+                  {row.market_value == null ? "—" : formatRub(row.market_value)}
+                </td>
+                <td className="numeric">
+                  <SignedMoney value={row.unrealized_pnl} />
                 </td>
                 <td className="numeric">{weight == null ? "—" : formatPercent(weight)}</td>
                 <td>{quoteAt ? formatRelativeTime(quoteAt) : "—"}</td>
@@ -456,7 +551,7 @@ export function CompactReadinessCard({
 }) {
   const headline = readinessHeadline(ops);
   const prep = nextSessionPrepCode(ops);
-  const stage = mapNextSessionStage(prep);
+  const stage = mapNextSessionStage(prep, operationalStateFromOps(ops));
   const warning = automationWarningText(ops);
   const stageTone = nextSessionStageTone(stage);
   return (
@@ -657,7 +752,8 @@ export function NextSessionPanel({
   error?: string | null;
 }) {
   const prep = nextSessionPrepCode(ops);
-  const stage = mapNextSessionStage(prep);
+  const opState = operationalStateFromOps(ops);
+  const stage = mapNextSessionStage(prep, opState);
   const tone = nextSessionStageTone(stage);
   const summary = ops?.next_session_summary ?? ops?.pipeline?.next_session_summary;
   const marks = pipelineWatermarks(ops);
@@ -765,7 +861,7 @@ export function EodPipelineCard({
   error?: string | null;
 }) {
   const prep = nextSessionPrepCode(ops);
-  const stage = mapNextSessionStage(prep);
+  const stage = mapNextSessionStage(prep, operationalStateFromOps(ops));
   const tone = nextSessionStageTone(stage);
   const marks = pipelineWatermarks(ops);
   const warning = automationWarningText(ops);

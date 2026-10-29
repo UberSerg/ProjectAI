@@ -11,21 +11,11 @@ import {
 } from "../api/personalPortfolios";
 import { ExplanationCard, HeroCard, PageHeader, PageState } from "../components/Ui";
 import { usePortfolioContext } from "../portfolio/PortfolioContext";
+import { formatRub } from "../utils/format";
 
 function lifecycleLabel(state: string | undefined): string {
   if (state === "ACTIVE") return "Учёт включён";
   return "Настройка";
-}
-
-/** RUB with kopecks — "3.340000" → "3,34 ₽", never "3 340 ₽". */
-function formatRub(value: string | number | null | undefined): string {
-  if (value == null || value === "") return "—";
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return `${n.toLocaleString("ru-RU", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ₽`;
 }
 
 function formatAsOf(iso: string | null | undefined): string | null {

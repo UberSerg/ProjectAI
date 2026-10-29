@@ -30,12 +30,22 @@ export interface ShadowLiveSnapshot {
   cash: number;
   invested_cost?: number | null;
   market_value: number;
-  nav: number;
+  known_market_value?: number | null;
+  known_nav?: number | null;
+  nav: number | null;
+  nav_is_complete?: boolean | null;
+  valuation_status?: "FULL" | "PARTIAL" | "UNAVAILABLE" | string | null;
+  valuation_freshness?: "FRESH" | "STALE" | "MIXED" | "UNAVAILABLE" | string | null;
+  nav_is_fresh?: boolean | null;
+  marks_as_of?: string | null;
   unrealized_pnl?: number | null;
   unrealized_pnl_pct?: number | null;
+  partial_unrealized_pnl?: number | null;
   realized_pnl?: number | null;
   fees_paid?: number | null;
   quote_coverage?: number | null;
+  value_coverage?: number | null;
+  unpriced_positions?: Array<Record<string, unknown>> | null;
   warnings?: string[];
   as_of?: string | null;
   positions: ShadowLivePosition[];
@@ -45,10 +55,15 @@ export interface ShadowCashBreakdown {
   cash?: number | null;
   invested_cost?: number | null;
   market_value?: number | null;
+  known_market_value?: number | null;
+  known_nav?: number | null;
   nav?: number | null;
+  nav_is_complete?: boolean | null;
+  valuation_status?: string | null;
   fees_paid?: number | null;
   realized_pnl?: number | null;
   unrealized_pnl?: number | null;
+  partial_unrealized_pnl?: number | null;
 }
 
 export interface ShadowOrderPlanSkipped {
@@ -137,6 +152,11 @@ export interface ShadowPortfolioSummary {
   live?: ShadowLiveSnapshot | null;
   live_nav?: number | null;
   live_market_value?: number | null;
+  nav_is_complete?: boolean | null;
+  nav_is_fresh?: boolean | null;
+  valuation_status?: string | null;
+  valuation_freshness?: string | null;
+  history_kind?: string | null;
   cash_breakdown?: ShadowCashBreakdown | null;
   order_plan?: ShadowOrderPlan | null;
   skipped?: ShadowOrderPlanSkipped[] | null;
@@ -202,8 +222,38 @@ export interface ShadowAutomationFlags {
   daily_research_cycle_minute?: number | null;
   eod_readiness_retry_enabled?: boolean | null;
   eod_readiness_retry_minutes?: number | null;
+  shadow_startup_recovery_enabled?: boolean | null;
   intraday_market_enabled?: boolean | null;
   warning?: string | null;
+}
+
+export interface ShadowRecoveryRuntime {
+  running?: boolean | null;
+  lock_held?: boolean | null;
+  task_id?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  phase?: string | null;
+  last_completed_session?: string | null;
+  remaining_sessions?: number | null;
+  blocking_session?: string | null;
+  blocker?: string | null;
+  status_state?: string | null;
+}
+
+export interface ShadowOperationalState {
+  state?: string | null;
+  backend_prep_code?: string | null;
+  backend_current_code?: string | null;
+  last_processed_session?: string | null;
+  expected_session?: string | null;
+  missing_sessions?: number | null;
+  catch_up_status?: string | null;
+  stop_reason?: string | null;
+  order_plan_status?: string | null;
+  required_action?: string | null;
+  recovery?: ShadowRecoveryRuntime | null;
+  backlog_without_recovery?: boolean | null;
 }
 
 export interface ShadowDailyOperations {
@@ -229,6 +279,7 @@ export interface ShadowDailyOperations {
     completeness?: Record<string, unknown> | null;
   } | null;
   automation?: ShadowAutomationFlags | null;
+  operational_state?: ShadowOperationalState | null;
   last_eod_cycle?: {
     workflow_id?: number | null;
     status?: string | null;

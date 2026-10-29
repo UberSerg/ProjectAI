@@ -44,24 +44,40 @@ export function InstrumentPage() {
     searchParams.get("from") && searchParams.get("to") ? "quotes" : "overview",
   );
 
+  const [dqError, setDqError] = useState<string | null>(null);
+  const [dqLoading, setDqLoading] = useState(false);
+
   useEffect(() => {
     const controller = new AbortController();
     setData(null);
     setError(null);
+    setDqError(null);
+    setDqLoading(true);
     Promise.all([
       getInstrument(instrumentId, controller.signal),
-      getCandles(instrumentId, 50, controller.signal),
-      getBatches(instrumentId, controller.signal),
-      getDataQualityIssues(instrumentId, controller.signal),
+      getCandles(instrumentId, 50, controller.signal).catch(() => [] as Candle[]),
+      getBatches(instrumentId, controller.signal).catch(() => [] as Batch[]),
       getInstrumentFeaturesLatest(instrumentId, controller.signal).catch(() => null),
       getInstrumentTechnicalLatest(instrumentId, controller.signal).catch(() => null),
     ])
-      .then(([instrument, sparkCandles, batches, issues, features, technical]) =>
-        setData({ instrument, sparkCandles, batches, issues, features, technical }),
+      .then(([instrument, sparkCandles, batches, features, technical]) =>
+        setData({ instrument, sparkCandles, batches, issues: [], features, technical }),
       )
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) setError(errorMessage(reason));
       });
+
+    getDataQualityIssues(instrumentId, controller.signal)
+      .then((issues) => {
+        setDqError(null);
+        setData((prev) => (prev ? { ...prev, issues } : prev));
+      })
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        setDqError(errorMessage(reason));
+      })
+      .finally(() => setDqLoading(false));
+
     return () => controller.abort();
   }, [instrumentId]);
 
@@ -99,8 +115,18 @@ export function InstrumentPage() {
         <MetricCard label="Количество свечей" value={formatNumber(instrument.records_count)} />
         <MetricCard
           label="Качество данных"
-          value={issues.some((i) => i.severity === "error") ? "Ошибки" : issues.length ? "Есть предупреждения" : "Без замечаний"}
-          hint={`${issues.length} записей DQ`}
+          value={
+            dqLoading
+              ? "Загрузка…"
+              : dqError
+                ? "Не удалось загрузить"
+                : issues.some((i) => i.severity === "error")
+                  ? "Ошибки"
+                  : issues.length
+                    ? "Есть предупреждения"
+                    : "Без замечаний"
+          }
+          hint={dqError ? dqError : `${issues.length} записей DQ`}
           helpId="data_quality"
         />
       </div>
@@ -205,14 +231,21 @@ export function InstrumentPage() {
       ) : null}
 
       {tab === "quality" ? (
-        <article className="panel">
+        <article className="panel" data-testid="instrument-dq-panel">
           <h2>
             Проблемы качества <MetricHelp metricId="data_quality" />
           </h2>
-          <p className="muted">Показаны доступные записи DQ. Модель append-only — исторические записи могут накапливаться.</p>
-          {issues.length ? (
+          <p className="muted">
+            Показаны незакрытые записи DQ только для этого инструмента. Модель append-only — исторические
+            записи могут накапливаться.
+          </p>
+          {dqLoading ? (
+            <PageState kind="loading" title="Загрузка качества данных…" />
+          ) : dqError ? (
+            <PageState kind="error">{`Не удалось загрузить DQ: ${dqError}`}</PageState>
+          ) : issues.length ? (
             issues.map((issue) => (
-              <div className="issue" key={issue.id}>
+              <div className="issue" key={issue.id} data-testid="instrument-dq-issue">
                 <StatusBadge status={issue.severity} />
                 <div>
                   <strong>{labels.issueType(issue.issue_type)}</strong>
@@ -224,7 +257,7 @@ export function InstrumentPage() {
               </div>
             ))
           ) : (
-            <p className="muted">Замечаний нет.</p>
+            <PageState kind="empty" title="Замечаний по этому инструменту нет" />
           )}
         </article>
       ) : null}

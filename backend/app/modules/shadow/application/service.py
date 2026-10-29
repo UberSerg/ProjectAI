@@ -28,6 +28,12 @@ from app.modules.shadow.application.execution_eligibility import (
     iso_week_key,
     min_execution_market_date,
 )
+from app.modules.shadow.application.history_provenance import (
+    HISTORY_KIND_RECORDED_LIVE,
+    batch_history_kind,
+    merge_provenance,
+    provenance_from_batch,
+)
 from app.modules.shadow.application.lot_aware import (
     EXECUTION_VERSION_LOT_AWARE_V2,
     apply_lot_aware_fill_to_portfolio,
@@ -328,6 +334,11 @@ def session_has_eod_candles(session: Session, day: date) -> bool:
     return row is not None
 
 
+REASON_MISSING_EOD_CLOSE = "MISSING_EOD_CLOSE"
+STATUS_NAV_BLOCKED = "BLOCKED_INCOMPLETE_MARKS"
+STATUS_NAV_OK = "OK"
+
+
 def process_shadow_market_day(
     session: Session,
     portfolio: ShadowPortfolio,
@@ -341,16 +352,52 @@ def process_shadow_market_day(
     Same production path as ``advance_shadow_portfolio`` day loop:
     corporate actions → pending fills → NAV watermark.
     Idempotent under unique constraints on fills/NAV.
+
+    Fail-closed: if EOD marks are incomplete after CA/fills, the nested savepoint
+    rolls back so the day leaves no partial fills, NAV, peak/DD, or watermark advance.
     """
     activation_date = ensure_aware_utc(portfolio.activated_at).date()
     if day <= activation_date:
         portfolio.last_processed_market_date = day
         portfolio.updated_at = now
-        return {"day": day.isoformat(), "skipped": "pre_activation", "fills": 0}
-    _apply_ca_for_day(session, portfolio, day)
-    fills = _fill_pending_orders(session, portfolio, spec, day, now=now)
-    _mark_nav(session, portfolio, spec, day, now=now)
-    return {"day": day.isoformat(), "skipped": None, "fills": fills}
+        return {"day": day.isoformat(), "skipped": "pre_activation", "fills": 0, "status": STATUS_NAV_OK}
+
+    nested = session.begin_nested()
+    try:
+        _apply_ca_for_day(session, portfolio, day)
+        fills = _fill_pending_orders(session, portfolio, spec, day, now=now)
+        mark = _mark_nav(session, portfolio, spec, day, now=now)
+        if mark.get("status") == STATUS_NAV_BLOCKED:
+            nested.rollback()
+            return {
+                "day": day.isoformat(),
+                "skipped": None,
+                "fills": 0,
+                "status": STATUS_NAV_BLOCKED,
+                "blocker": {
+                    "session_date": day.isoformat(),
+                    "portfolio_id": portfolio.id,
+                    "missing_instrument_ids": mark.get("missing_instrument_ids") or [],
+                    "reason": mark.get("reason") or REASON_MISSING_EOD_CLOSE,
+                    "last_successful_session": (
+                        portfolio.last_processed_market_date.isoformat()
+                        if portfolio.last_processed_market_date
+                        else None
+                    ),
+                },
+            }
+        nested.commit()
+        return {
+            "day": day.isoformat(),
+            "skipped": None,
+            "fills": fills,
+            "status": STATUS_NAV_OK,
+            "nav": mark.get("nav"),
+            "drawdown": mark.get("drawdown"),
+        }
+    except Exception:
+        nested.rollback()
+        raise
 
 
 def _apply_ca_for_day(session: Session, portfolio: ShadowPortfolio, day: date) -> None:
@@ -367,6 +414,27 @@ def _apply_ca_for_day(session: Session, portfolio: ShadowPortfolio, day: date) -
         _set_position(portfolio, iid, ticker, qty)
 
 
+def _collect_same_day_closes(
+    session: Session,
+    portfolio: ShadowPortfolio,
+    day: date,
+) -> tuple[dict[int, float], list[int]]:
+    """Return (closes_by_id, missing_ids) for all held positions — Missing ≠ Zero."""
+    closes: dict[int, float] = {}
+    missing: list[int] = []
+    for pos in _positions_dict(portfolio).values():
+        iid = int(pos["instrument_id"])
+        qty = float(pos["quantity"])
+        if abs(qty) < 1e-12:
+            continue
+        _o, close = _candle_open_close(session, iid, day)
+        if close is None:
+            missing.append(iid)
+            continue
+        closes[iid] = close
+    return closes, missing
+
+
 def _mark_nav(
     session: Session,
     portfolio: ShadowPortfolio,
@@ -375,15 +443,32 @@ def _mark_nav(
     *,
     now: datetime,
 ) -> dict[str, Any]:
+    """Persist full-day NAV only when every held position has a same-day EOD close.
+
+    Incomplete marks must not invent zero market value, must not update peak/DD/risk,
+    must not write ShadowNavDaily, and must not advance ``last_processed_market_date``.
+    """
+    closes, missing = _collect_same_day_closes(session, portfolio, day)
+    if missing:
+        return {
+            "status": STATUS_NAV_BLOCKED,
+            "reason": REASON_MISSING_EOD_CLOSE,
+            "missing_instrument_ids": sorted(set(missing)),
+            "nav": None,
+            "cash": float(portfolio.cash),
+            "market_value": None,
+            "drawdown": None,
+            "gross": None,
+        }
+
     mv = 0.0
     pos_count = 0
     for pos in _positions_dict(portfolio).values():
         iid = int(pos["instrument_id"])
         qty = float(pos["quantity"])
-        _o, close = _candle_open_close(session, iid, day)
-        if close is None:
+        if abs(qty) < 1e-12:
             continue
-        mv += qty * close
+        mv += qty * closes[iid]
         pos_count += 1
     nav = float(portfolio.cash) + mv
     if portfolio.peak_nav <= 0:
@@ -445,9 +530,50 @@ def _mark_nav(
                 position_count=pos_count,
             )
         )
+    # Trace NAV session to last decision / Forward provenance (no schema change).
+    hist_kind = HISTORY_KIND_RECORDED_LIVE
+    hist_batch_id = getattr(portfolio, "last_processed_prediction_batch_id", None)
+    last_decision_id = getattr(portfolio, "last_decision_id", None)
+    if last_decision_id is not None:
+        last_dec = session.get(ShadowDecision, last_decision_id)
+        if last_dec is not None:
+            dmeta = last_dec.metadata_ or {}
+            hist_kind = str(dmeta.get("history_kind") or HISTORY_KIND_RECORDED_LIVE)
+            hist_batch_id = int(dmeta.get("forward_batch_id") or last_dec.forward_batch_id)
+    elif hist_batch_id is not None:
+        batch = session.get(ForwardPredictionBatch, int(hist_batch_id))
+        hist_kind = batch_history_kind(batch)
+    prov = dict(getattr(portfolio, "provenance", None) or {})
+    marks = dict(prov.get("nav_history_kinds") or {})
+    marks[day.isoformat()] = {
+        "history_kind": hist_kind,
+        "forward_batch_id": hist_batch_id,
+        "session_date": day.isoformat(),
+    }
+    # Keep a bounded trail (last ~120 sessions) for reporting without unbounded growth.
+    if len(marks) > 120:
+        for old_key in sorted(marks.keys())[: len(marks) - 120]:
+            marks.pop(old_key, None)
+    prov["nav_history_kinds"] = marks
+    prov["last_nav_history_kind"] = hist_kind
+    prov["last_nav_as_of"] = day.isoformat()
+    portfolio.provenance = prov
+    if hasattr(portfolio, "provenance"):
+        try:
+            flag_modified(portfolio, "provenance")
+        except Exception:  # noqa: BLE001
+            pass
     portfolio.last_processed_market_date = day
     portfolio.updated_at = now
-    return {"nav": nav, "cash": portfolio.cash, "market_value": mv, "drawdown": dd, "gross": gross}
+    return {
+        "status": STATUS_NAV_OK,
+        "nav": nav,
+        "cash": portfolio.cash,
+        "market_value": mv,
+        "drawdown": dd,
+        "gross": gross,
+        "history_kind": hist_kind,
+    }
 
 
 def _build_decision_and_orders(
@@ -515,15 +641,15 @@ def _build_decision_and_orders(
             max_single_weight=float(spec.max_single_weight),
         )
 
-    # Size against current NAV estimate using latest known closes if any; else cash-only
+    # Size against complete NAV only — Missing ≠ Zero for held positions.
     closes: dict[int, float] = {}
     price_as_of = portfolio.last_processed_market_date or batch.as_of_date
-    for pos in _positions_dict(portfolio).values():
-        iid = int(pos["instrument_id"])
-        if price_as_of is not None:
-            _o, c = _candle_open_close(session, iid, price_as_of)
-            if c is not None:
-                closes[iid] = c
+    held_closes, held_missing = (
+        _collect_same_day_closes(session, portfolio, price_as_of)
+        if price_as_of is not None
+        else ({}, sorted(_held_ids(portfolio)))
+    )
+    closes.update(held_closes)
     # Also fetch closes for policy targets / candidates (needed by V3 economics).
     for d in risk_out.decisions:
         meta = dict(d.metadata or {})
@@ -539,10 +665,28 @@ def _build_decision_and_orders(
             if c is not None:
                 closes[iid] = c
 
-    mv = sum(_position_qty(portfolio, iid) * px for iid, px in closes.items())
-    nav = float(portfolio.cash) + mv
-    if nav <= 0:
-        nav = float(spec.initial_capital)
+    if held_missing:
+        # Prefer last persisted complete NAV; never invent sizing from initial_capital
+        # while positions are open but unpriced.
+        last_nav = session.scalar(
+            select(ShadowNavDaily)
+            .where(ShadowNavDaily.portfolio_id == portfolio.id)
+            .order_by(ShadowNavDaily.as_of_date.desc())
+            .limit(1)
+        )
+        if last_nav is None:
+            return None  # cannot size safely — skip this week's decision
+        nav = float(last_nav.nav)
+        decision_nav_source = "last_complete_shadow_nav_daily"
+    else:
+        mv = sum(_position_qty(portfolio, iid) * px for iid, px in held_closes.items())
+        nav = float(portfolio.cash) + mv
+        decision_nav_source = "same_day_marks"
+        if nav <= 0 and not _held_ids(portfolio):
+            nav = float(spec.initial_capital)
+            decision_nav_source = "initial_capital_cash_only"
+        elif nav <= 0:
+            return None
 
     targets: list[dict[str, Any]] = []
     for d in risk_out.decisions:
@@ -563,14 +707,26 @@ def _build_decision_and_orders(
             }
         )
 
-    decision_meta: dict[str, Any] = {
-        "eligible_n": policy_out.metadata.get("eligible_n"),
-        "selected_k": policy_out.metadata.get("selected_k"),
-        "k_entry": policy_out.metadata.get("k_entry"),
-        "k_max": policy_out.metadata.get("k_max"),
-        "prediction_hash": batch.prediction_hash,
-        "kind": SHADOW_KIND,
-    }
+    decision_meta: dict[str, Any] = merge_provenance(
+        {
+            "eligible_n": policy_out.metadata.get("eligible_n"),
+            "selected_k": policy_out.metadata.get("selected_k"),
+            "k_entry": policy_out.metadata.get("k_entry"),
+            "k_max": policy_out.metadata.get("k_max"),
+            "prediction_hash": batch.prediction_hash,
+            "kind": SHADOW_KIND,
+            "nav_source": decision_nav_source,
+            "nav_as_of": price_as_of.isoformat() if price_as_of is not None else None,
+            "held_missing_marks": held_missing,
+        },
+        provenance_from_batch(
+            batch,
+            session_date=batch.as_of_date,
+            policy_name=getattr(spec, "policy_name", None),
+            risk_name=getattr(spec, "risk_name", None),
+            execution_version=execution_version_for_spec(spec),
+        ),
+    )
 
     # V3 only: rank exit-band breach → review trigger; economic sell gate filters targets.
     if is_sell_economics_v3_spec(spec):
@@ -988,14 +1144,24 @@ def _persist_fractional_orders(
                 eligible_count=eligible_count,
                 decision_at=decision_at,
                 min_execution_date=min_exec,
-                metadata_={
-                    "forward_batch_id": batch.id,
-                    "signal_as_of": batch.as_of_date.isoformat(),
-                    "signal_generated_at": ensure_aware_utc(batch.generated_at or decision_at).isoformat(),
-                    "policy": spec.policy_name,
-                    "risk_mode": portfolio.risk_mode,
-                    "kind": SHADOW_KIND,
-                },
+                metadata_=merge_provenance(
+                    {
+                        "forward_batch_id": batch.id,
+                        "signal_as_of": batch.as_of_date.isoformat(),
+                        "signal_generated_at": ensure_aware_utc(
+                            batch.generated_at or decision_at
+                        ).isoformat(),
+                        "policy": spec.policy_name,
+                        "risk_mode": portfolio.risk_mode,
+                        "kind": SHADOW_KIND,
+                    },
+                    provenance_from_batch(
+                        batch,
+                        session_date=batch.as_of_date,
+                        policy_name=getattr(spec, "policy_name", None),
+                        risk_name=getattr(spec, "risk_name", None),
+                    ),
+                ),
             )
         )
 
@@ -1294,27 +1460,37 @@ def _persist_lot_aware_orders(
                 decision_at=decision_at,
                 min_execution_date=min_exec,
                 metadata_=_order_fee_metadata(
-                    base={
-                        "forward_batch_id": batch.id,
-                        "signal_as_of": batch.as_of_date.isoformat(),
-                        "signal_generated_at": ensure_aware_utc(
-                            batch.generated_at or decision_at
-                        ).isoformat(),
-                        "policy": spec.policy_name,
-                        "risk_mode": portfolio.risk_mode,
-                        "kind": SHADOW_KIND,
-                        "execution_version": execution_version_for_spec(spec)
-                        or EXECUTION_VERSION_LOT_AWARE_V2,
-                        "lots": int(row.lots_delta),
-                        "lot_size": int(row.lot_size) if row.lot_size else None,
-                        "units": float(row.units_delta),
-                        "plan_reason": row.reason,
-                        "estimated_fee": float(row.estimated_fee),
-                        "gate_action": gate_action,
-                        "sell_allowed": (
-                            bool(perm.sell_allowed) if perm is not None else None
+                    base=merge_provenance(
+                        {
+                            "forward_batch_id": batch.id,
+                            "signal_as_of": batch.as_of_date.isoformat(),
+                            "signal_generated_at": ensure_aware_utc(
+                                batch.generated_at or decision_at
+                            ).isoformat(),
+                            "policy": spec.policy_name,
+                            "risk_mode": portfolio.risk_mode,
+                            "kind": SHADOW_KIND,
+                            "execution_version": execution_version_for_spec(spec)
+                            or EXECUTION_VERSION_LOT_AWARE_V2,
+                            "lots": int(row.lots_delta),
+                            "lot_size": int(row.lot_size) if row.lot_size else None,
+                            "units": float(row.units_delta),
+                            "plan_reason": row.reason,
+                            "estimated_fee": float(row.estimated_fee),
+                            "gate_action": gate_action,
+                            "sell_allowed": (
+                                bool(perm.sell_allowed) if perm is not None else None
+                            ),
+                        },
+                        provenance_from_batch(
+                            batch,
+                            session_date=batch.as_of_date,
+                            policy_name=getattr(spec, "policy_name", None),
+                            risk_name=getattr(spec, "risk_name", None),
+                            execution_version=execution_version_for_spec(spec)
+                            or EXECUTION_VERSION_LOT_AWARE_V2,
                         ),
-                    },
+                    ),
                     v3=v3,
                     fee_estimator=fee_estimator,
                     fee_profile_code=str(fee_profile_code) if fee_profile_code else None,
@@ -1618,6 +1794,21 @@ def _fill_pending_orders(
         if existing_fill is not None:
             continue
         fill_meta: dict[str, Any] = {"kind": SHADOW_KIND, "raw_open_source": "market.candles"}
+        ometa = dict(order.metadata_ or {})
+        for key in (
+            "history_kind",
+            "forward_batch_id",
+            "session_date",
+            "pit_as_of",
+            "reconstruction",
+            "reconstructed_at",
+            "pit_visibility_clock",
+            "pit_input_bound",
+            "policy_name",
+            "risk_name",
+        ):
+            if key in ometa and ometa[key] is not None:
+                fill_meta[key] = ometa[key]
         if lot_aware:
             fill_meta["execution_version"] = (
                 execution_version_for_spec(spec) or EXECUTION_VERSION_LOT_AWARE_V2
@@ -1917,8 +2108,15 @@ def advance_shadow_portfolio(
     days = _trading_days_after(session, portfolio.last_processed_market_date)
     fills_total = 0
     processed_days: list[str] = []
+    blocked_day: dict[str, Any] | None = None
     for day in days:
         day_result = process_shadow_market_day(session, portfolio, spec, day, now=now)
+        if day_result.get("status") == STATUS_NAV_BLOCKED:
+            blocked_day = day_result.get("blocker") or {
+                "session_date": day.isoformat(),
+                "reason": REASON_MISSING_EOD_CLOSE,
+            }
+            break
         fills_total += int(day_result.get("fills") or 0)
         if day_result.get("skipped") is None:
             processed_days.append(day.isoformat())
@@ -1932,6 +2130,7 @@ def advance_shadow_portfolio(
         summary={
             "decisions_made": decisions_made,
             "fills_this_advance": fills_total,
+            "nav_blocked": blocked_day,
             "pending_orders": int(
                 session.scalar(
                     select(func.count()).select_from(ShadowOrder).where(

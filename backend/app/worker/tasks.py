@@ -460,6 +460,58 @@ def eod_readiness_retry() -> dict:
         return maybe_trigger_cycle_if_ready(session)
 
 
+@celery_app.task(name="projectai.market_shadow_recovery", bind=True)
+def market_shadow_recovery(self) -> dict:
+    """Worker: EOD market gap → features → counterfactual Forward → Shadow session replay.
+
+    Used by SHADOW_STARTUP_RECOVERY_ENABLED. Single-flight via Redis lock; idempotent per session.
+    Never touches broker or personal portfolio ledger.
+    """
+    from uuid import uuid4
+
+    from app.modules.shadow.application.recovery import (
+        RecoveryLockLease,
+        publish_recovery_status,
+        release_recovery_lock,
+        run_market_shadow_recovery,
+        try_acquire_recovery_lock,
+    )
+
+    token = str(uuid4())
+    task_id = getattr(getattr(self, "request", None), "id", None)
+    if not try_acquire_recovery_lock(token):
+        return {"status": "ALREADY_RUNNING", "reason": "single_flight_lock", "task_id": task_id}
+    publish_recovery_status(
+        {
+            "state": "RUNNING",
+            "task_id": task_id,
+            "lock_token_prefix": token[:8],
+            "phase": "acquired",
+        }
+    )
+    lease = RecoveryLockLease(token).start()
+    try:
+        with core_session() as session:
+            result = run_market_shadow_recovery(
+                session,
+                commit_each_session=True,
+                lock_token=token,
+                renew_lock=lease.still_owned,
+                task_id=task_id,
+            )
+            if result.get("status") != "RECOVERY_LOCK_LOST":
+                session.commit()
+            return {
+                **result,
+                "task_id": task_id,
+                "lease_renew_count": lease.renew_count,
+                "lease_owned": lease.owned,
+            }
+    finally:
+        lease.stop()
+        release_recovery_lock(token)
+
+
 @celery_app.task(name="projectai.refresh_intraday_market")
 def refresh_intraday_market() -> dict:
     """Intraday quotes → Redis cache → shadow session-open fills. No research cycle."""

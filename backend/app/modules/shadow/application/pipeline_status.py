@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -64,7 +64,10 @@ _SUMMARY_RU = {
     WAITING_FOR_SHADOW_PLAN: "Ждём Shadow order plan / advance.",
     CYCLE_RUNNING: "Идёт Daily Research Cycle.",
     CYCLE_STALE: "Последний успешный цикл устарел относительно EOD.",
-    AUTOMATION_DISABLED: "Автоматизация выключена — catch-up не запустится без RESEARCH_LIVE_MODE.",
+    AUTOMATION_DISABLED: (
+        "Автоматизация выключена — включите SHADOW_STARTUP_RECOVERY_ENABLED "
+        "(восстановление после простоя) или RESEARCH_LIVE_MODE."
+    ),
     BLOCKED_CONSISTENCY: "Консистентность Shadow блокирует готовность.",
     NO_SHADOW_PORTFOLIOS: "Нет активных Shadow-портфелей.",
     PENDING_ORDERS_AWAITING_OPEN: "План готов; ордера ждут OPEN.",
@@ -202,6 +205,7 @@ def build_pipeline_status(
         settings.research_live_mode
         or settings.daily_research_cycle_enabled
         or settings.eod_readiness_retry_enabled
+        or settings.shadow_startup_recovery_enabled
     )
     lagging = False
     eod = readiness.latest_complete_eod_date
@@ -257,7 +261,30 @@ def build_pipeline_status(
     )
 
 
-def next_session_date_from_eod(eod: date | None) -> str | None:
+def next_session_date_from_eod(
+    eod: date | None,
+    *,
+    today: date | None = None,
+) -> str | None:
+    """Next MOEX equity trading day after completed EOD — never a past calendar day.
+
+    Returns None when calendar is unavailable or the next session is already in the past
+    (backlog / recovery required — do not invent a «upcoming» date).
+    """
     if eod is None:
         return None
-    return (eod + timedelta(days=1)).isoformat()
+    try:
+        from app.modules.market.infrastructure.ru_trading_calendar import (
+            get_moex_equity_trading_calendar,
+        )
+
+        cal = get_moex_equity_trading_calendar()
+        nxt = cal.next_trading_day(eod, inclusive=False)
+    except Exception:  # noqa: BLE001
+        return None
+    if nxt is None:
+        return None
+    clock_today = today or datetime.now(UTC).date()
+    if nxt < clock_today:
+        return None
+    return nxt.isoformat()
