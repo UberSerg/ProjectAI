@@ -10,7 +10,7 @@
 | Wave | Status | Notes |
 |---|---|---|
 | 0 Audit / Baseline | **IN_PROGRESS** | Docs PR [#97](https://github.com/UberSerg/ProjectAI/pull/97); browser baselines → Agent 09 |
-| 1 Foundations | **IN_PROGRESS** | Agent 01 PR [#98](https://github.com/UberSerg/ProjectAI/pull/98) READY_FOR_REVIEW; Agent 02 Journal V4 running |
+| 1 Foundations | **IN_PROGRESS** | Agent 01 [#98](https://github.com/UberSerg/ProjectAI/pull/98) + Agent 02 Journal V4 [#99](https://github.com/UberSerg/ProjectAI/pull/99) READY_FOR_OWNER_REVIEW |
 | 2 Vertical UX | PLANNED | After token contract stable |
 | 3 Integration | PLANNED | Orchestrator only |
 | 4 Polish | PLANNED | Mobile/a11y/copy |
@@ -41,9 +41,9 @@
 | A0-3 | P0 | Sprint board + kickoff context | 00 | audit | — | DONE | Context updated |
 | A1-1 | P0 | Token contract + cascade plan | 01 | design-system | A0 | **READY_FOR_OWNER_REVIEW** PR [#98](https://github.com/UberSerg/ProjectAI/pull/98) `ade6b27` | Doc + tokens in CSS |
 | A1-2 | P0 | Primitives: Money/Status/Empty/Accordion | 01 | design-system | A1-1 | **READY_FOR_OWNER_REVIEW** (same PR #98) | Light+dark desktop/mobile |
-| A2-1 | P0 | Journal V4 closed card | 02 | decision-journal | Prefer Ui from #98 | **IN_PROGRESS** | Screenshots + tests |
-| A2-2 | P0 | Expand A/B/C/D + reason mapping | 02 | decision-journal | A2-1 | QUEUED | No fabricated why |
-| A2-3 | P0 | Stale request fence + a11y | 02 | decision-journal | A2-1 | QUEUED | Abort/stale tests |
+| A2-1 | P0 | Journal V4 closed card | 02 | decision-journal | Prefer Ui from #98 | **READY_FOR_OWNER_REVIEW** PR [#99](https://github.com/UberSerg/ProjectAI/pull/99) `862330d` | Screenshots + tests |
+| A2-2 | P0 | Expand A/B/C/D + reason mapping | 02 | decision-journal | A2-1 | **READY_FOR_OWNER_REVIEW** (same #99) | No fabricated why |
+| A2-3 | P0 | Stale request fence + a11y | 02 | decision-journal | A2-1 | **READY_FOR_OWNER_REVIEW** (same #99) | Abort/stale tests |
 | A5-1 | P1 | Dashboard hierarchy + USER nav | 05 | dashboard | A1 | QUEUED | Investor-first hero |
 | A3-1 | P1 | Shadow NOW structure | 03 | shadow | A1 | QUEUED | No false recovery |
 | A4-1 | P1 | Personal portfolio cabinet | 04 | portfolio | A1 | QUEUED | No PR B mix |
