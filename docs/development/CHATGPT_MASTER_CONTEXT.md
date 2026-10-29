@@ -37,17 +37,17 @@ Never erase the activity history to make the current picture look cleaner. Updat
 
 If a context update cannot be committed or merged (missing GitHub access, failed CI, approval requirement, concurrent edit), explicitly report **CONTEXT_UPDATE_PENDING**, its location and the exact reason. Do not claim the master context is up to date until merged to main.
 
-### Current State — verified GitHub checkpoint 2026-10-29 (recheck live on next turn)
+### Current State — 2026-10-29 (UX Swarm Wave 0/1 kickoff)
 
-- **Verified main at start of this docs checkpoint:** `c54a6f1252815c3c5dece8a626a9a2f4642259d6`. It includes owner-approved, **MERGED PR #85** (Shadow & Portfolio Reliability, merge `a1c165b5d6378cff8e7cfae86a2aaf79199e4a1a`, feature head `4a271975f0953097480da5ba68171e35aa18bc8a`, exact-head CI `40863675688` all success) and **MERGED PR #91** (Portfolio Hub total NAV, merge `512628b2798bc81f91a480769e08adfcdbe6169d`, feature head `c56fd53e0af24e5f382484aff5d921b1552c02f7`, exact-head CI `40864314012` success). GitHub-verified; both PRs closed as merged.
-- **Owner decision:** authorized merges #85 and #91 and requested comprehensive **UX/UI product overhaul and multiagent Cursor swarm**; Decision Journal **Variant 4** is the approved reference. This is authorization to prepare and hand off UX development tasks, not blanket authorization to merge every new UX PR.
-- **Integration concurrency:** ChatGPT merged #85 after all CI success; Cursor concurrently synchronized and merged #91. ChatGPT's alternate integration PR [#95](https://github.com/UberSerg/ProjectAI/pull/95) was closed **WITHOUT MERGE** once #91 successfully reached main; no duplicate feature code.
-- **Active next work:** launch independent UX/UI audit + user-first redesign with Cursor multiagent worktrees. New code-based findings and ownership plan recorded in [docs/ui/KRAKEN_UX_SWARM_AUDIT_2026-10-29.md](../ui/KRAKEN_UX_SWARM_AUDIT_2026-10-29.md) (docs-only PR awaiting CI/merge as of this snapshot). Agent 02 leads Journal V4; Agent 01 owns global CSS/design tokens; other agents own separate features and QA. Browser evidence still required: this audit is source-based.
-- **Known product and safety constraints:** live 20-session Shadow/Forward catch-up remains **not independently confirmed complete**; historic NAV anomalies not rewritten; #91 partial valuation screenshot was a forced UI overlay, not real partial API proof; external E:\hds-live-store and personal ledger untouched. Financial invariants Missing≠Zero; Partial NAV≠Full; LIVE≠Counterfactual; Decision≠Order≠Fill.
-- **Backlog & separation:** PR B Personal Operations Integrity P1 and PR C Frontend Data Loading P2 still planned; UI swarm should report those bug classes separately and not silently overwrite ownership. Network, port/firewall/auth and DB reachability explicitly excluded.
-- **Next concrete action / done condition:** Cursor orchestrator creates UI audit/baselines, isolated worktrees, design-system contract, Journal V4 PR and parallel nonconflicting UI PRs; QA verifies mobile/desktop and investor demo on safe fixtures; exact-head CI + owner review; update Current State/Activity Log after significant milestones. No forced push or worktree cleanup.
-
-
+- **Verified main:** d211da0943518eaeea11dd7739902c60538cca6f (includes #85/#91 merges + UX swarm plan docs #96).
+- **PR #85 / #91:** **MERGED** (Owner-authorized).
+- **Active program:** Operation Human Interface — multiagent UX swarm. Orchestrator Agent 00 started.
+- **Worktrees created (isolated):** ux/audit-product-map, ux/design-system-v2, ux/decision-journal-v4, ux/shadow-experience, ux/personal-portfolio-experience, ux/dashboard-navigation under E:\!AI\ProjectAI-wt-ux-*.
+- **Wave 0:** audit docs KRAKEN_UX_AUDIT.md, KRAKEN_UX_INFORMATION_ARCHITECTURE.md, KRAKEN_UX_SPRINT_BOARD.md on branch ux/audit-product-map (PR pending).
+- **Wave 1 starting:** Agent 01 Design System V2; Agent 02 Decision Journal V4 (Owner Variant 4). Other verticals queued after token contract.
+- **Merge policy:** no auto-merge of UX PRs; Owner review required. Prior #85/#91 approval is not blanket.
+- **PR B / PR C:** still PLANNED — report defects, do not mix into UX.
+- **Next action:** land audit docs PR; Agent 01/02 implementation PRs with tests+screenshots+CI; Agent 09 baselines.
 
 ---
 
@@ -144,6 +144,8 @@ Acceptance tasks:
 - **Mandatory checkpoint gate:** after every significant event involving Owner, Cursor or ChatGPT, refresh the current-position snapshot AND append dated activity log with evidence before calling the checkpoint complete. No background monitoring; record what was learned during active work. If not merged, state CONTEXT_UPDATE_PENDING and why.
 
 ## Activity log
+
+- **2026-10-29 — Cursor (Agent 00 Orchestrator):** kicked off Operation Human Interface UX swarm on main d211da0. Created isolated worktrees for Agents 00–05. Published audit/IA/sprint board drafts. Starting Wave 1: Design System V2 + Decision Journal V4. No UX PR merges yet.
 
 - **2026-10-29 — Owner + ChatGPT + Cursor, GitHub-verified:** Owner granted fresh approval to merge #85 and #91. ChatGPT merged [#85](https://github.com/UberSerg/ProjectAI/pull/85) at `a1c165b5d6378cff8e7cfae86a2aaf79199e4a1a` after exact-head CI `40863675688` (backend/frontend/Docker success). Cursor independently merged [#91](https://github.com/UberSerg/ProjectAI/pull/91) at `512628b2798bc81f91a480769e08adfcdbe6169d` after exact-head CI `40864314012` success, resolving the overlap in `PortfolioPage.tsx`. Current main after Cursor's context update `c54a6f1252815c3c5dece8a626a9a2f4642259d6`. ChatGPT closed redundant integration [#95](https://github.com/UberSerg/ProjectAI/pull/95) unmerged to avoid duplication. Full live Shadow catch-up not executed as part of this merge.
 - **2026-10-29 — Owner decision, UX/UI:** requested a comprehensive human-first interface overhaul and a Cursor multiagent swarm, with approved **Decision Journal Variant 4** as the main showcase. ChatGPT performed code-based screen/CSS/route audit and provided a full Markdown swarm prompt (Orchestrator + Design System + Journal + Shadow + Portfolio + Navigation + Market + Research + System + QA; separated branches/files). [UX swarm audit/ownership contract](../ui/KRAKEN_UX_SWARM_AUDIT_2026-10-29.md) created as docs-only; visual/browser verification and implementation remain for Cursor. No new UX code changed in this checkpoint; PR B/C and networking exclusion preserved.
