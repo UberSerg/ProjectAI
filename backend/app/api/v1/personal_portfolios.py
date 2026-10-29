@@ -31,6 +31,7 @@ from app.modules.portfolio.application.personal_portfolio_service import (
     get_personal_summary,
     reconcile,
 )
+from app.modules.portfolio.application.hub_valuation import build_hub_valuations
 from app.modules.portfolio.application.user_portfolio_service import (
     activate_portfolio,
     add_draft_position,
@@ -157,6 +158,24 @@ def list_portfolios(
     with core_session() as session:
         items = list_user_portfolios(session, include_test=test)
         return {"items": items, "count": len(items)}
+
+
+@router.get("/hub-valuations")
+def hub_valuations(
+    ids: Annotated[list[int] | None, Query()] = None,
+    test: bool = Query(False),
+) -> dict[str, Any]:
+    """Batch market valuation for Portfolio Hub cards (not used by PortfolioSwitcher).
+
+    Does not replace the cheap ``GET /personal-portfolios`` list. Full NAV only when
+    ``valuation_complete``; partial books expose ``known_nav_rub`` as priced portion only.
+    """
+    with core_session() as session:
+        try:
+            items = build_hub_valuations(session, portfolio_ids=ids, include_test=test)
+            return {"items": items, "count": len(items)}
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=str(exc)[:500]) from exc
 
 
 @router.post("")
