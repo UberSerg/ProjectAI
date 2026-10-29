@@ -34,13 +34,34 @@ describe("Ui status / action / freshness resolvers", () => {
     expect(resolveDecisionAction("rotate")).toBe("review");
   });
 
+  it("does not map ENTER/EXIT/unknown actions to HOLD", () => {
+    expect(resolveDecisionAction("ENTER")).toBe("buy");
+    expect(resolveDecisionAction("EXIT")).toBe("sell");
+    expect(resolveDecisionAction("WEIRD_CUSTOM")).toBe("unknown");
+    expect(resolveDecisionAction(null)).toBe("unknown");
+    expect(resolveDecisionAction("")).toBe("unknown");
+    expect(resolveDecisionAction("ENTER")).not.toBe("hold");
+    expect(resolveDecisionAction("EXIT")).not.toBe("hold");
+    expect(resolveDecisionAction("FOO")).not.toBe("hold");
+  });
+
   it("maps freshness and provenance", () => {
     expect(resolveFreshnessTone("FRESH")).toBe("fresh");
     expect(resolveFreshnessTone("STALE")).toBe("stale");
     expect(resolveFreshnessTone("MIXED")).toBe("partial");
     expect(resolveFreshnessTone("SESSION_NOT_STARTED")).toBe("unavailable");
     expect(resolveProvenanceTone("LIVE")).toBe("live");
+    expect(resolveProvenanceTone("RECORDED_LIVE")).toBe("live");
     expect(resolveProvenanceTone("COUNTERFACTUAL_REPLAY")).toBe("counterfactual");
+  });
+
+  it("does not treat UNKNOWN/empty provenance as LIVE", () => {
+    expect(resolveProvenanceTone("UNKNOWN")).toBe("unknown");
+    expect(resolveProvenanceTone(null)).toBe("unknown");
+    expect(resolveProvenanceTone("")).toBe("unknown");
+    expect(resolveProvenanceTone("UNAVAILABLE")).toBe("unknown");
+    expect(resolveProvenanceTone("GARBAGE")).toBe("unknown");
+    expect(resolveProvenanceTone("UNKNOWN")).not.toBe("live");
   });
 });
 
@@ -63,10 +84,16 @@ describe("Ui badges and chips", () => {
       <>
         <FreshnessBadge value="STALE" />
         <ProvenanceBadge value="COUNTERFACTUAL_REPLAY" />
+        <ProvenanceBadge value="UNKNOWN" />
+        <DecisionActionChip action="ENTER" />
+        <DecisionActionChip action="MYSTERY" />
       </>,
     );
     expect(screen.getByText("STALE")).toHaveAttribute("data-freshness", "stale");
     expect(screen.getByText("COUNTERFACTUAL")).toHaveAttribute("data-provenance", "counterfactual");
+    expect(screen.getByText("UNKNOWN")).toHaveAttribute("data-provenance", "unknown");
+    expect(screen.getByText("BUY")).toHaveAttribute("data-action", "buy");
+    expect(screen.getByText("MYSTERY")).toHaveAttribute("data-action", "unknown");
   });
 });
 

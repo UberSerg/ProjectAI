@@ -823,6 +823,8 @@ td {
   --action-hold-bg: var(--neutral-bg);
   --action-review: var(--warning);
   --action-review-bg: var(--warning-bg);
+  --action-unknown: var(--ink-secondary);
+  --action-unknown-bg: var(--neutral-bg);
 
   /* —— Freshness: FRESH / STALE / PARTIAL / UNAVAILABLE —— */
   --freshness-fresh: var(--success);
@@ -839,6 +841,8 @@ td {
   --provenance-live-bg: var(--success-bg);
   --provenance-counterfactual: var(--research);
   --provenance-counterfactual-bg: var(--research-bg);
+  --provenance-unknown: var(--ink-secondary);
+  --provenance-unknown-bg: var(--neutral-bg);
 
   /* Charts + loading */
   --chart-surface: #f8fafc;
@@ -1255,6 +1259,11 @@ button.quiet-danger:hover {
   background: var(--action-review-bg);
 }
 
+.ds-action-unknown {
+  color: var(--action-unknown);
+  background: var(--action-unknown-bg);
+}
+
 .ds-freshness-badge {
   display: inline-flex;
   align-items: center;
@@ -1307,6 +1316,11 @@ button.quiet-danger:hover {
 .ds-provenance-counterfactual {
   color: var(--provenance-counterfactual);
   background: var(--provenance-counterfactual-bg);
+}
+
+.ds-provenance-unknown {
+  color: var(--provenance-unknown);
+  background: var(--provenance-unknown-bg);
 }
 
 .ds-data-quality-note {

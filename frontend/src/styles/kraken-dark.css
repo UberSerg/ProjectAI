@@ -139,6 +139,8 @@
   --action-hold-bg: var(--neutral-bg);
   --action-review: var(--warning);
   --action-review-bg: var(--warning-bg);
+  --action-unknown: var(--ink-secondary);
+  --action-unknown-bg: var(--neutral-bg);
   --freshness-fresh: var(--success);
   --freshness-fresh-bg: var(--success-bg);
   --freshness-stale: var(--warning);
@@ -151,6 +153,8 @@
   --provenance-live-bg: var(--success-bg);
   --provenance-counterfactual: var(--research);
   --provenance-counterfactual-bg: var(--research-bg);
+  --provenance-unknown: var(--ink-secondary);
+  --provenance-unknown-bg: var(--neutral-bg);
 
   /* V2 aliases for Agent 02+ */
   --kr-bg: var(--surface-background);

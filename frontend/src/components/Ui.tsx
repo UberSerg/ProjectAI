@@ -11,9 +11,9 @@ export type DsStatusTone =
   | "blocked"
   | "info";
 
-export type DecisionActionTone = "buy" | "sell" | "hold" | "review";
+export type DecisionActionTone = "buy" | "sell" | "hold" | "review" | "unknown";
 export type FreshnessTone = "fresh" | "stale" | "partial" | "unavailable";
-export type ProvenanceTone = "live" | "counterfactual";
+export type ProvenanceTone = "live" | "counterfactual" | "unknown";
 export type NoticeTone = "info" | "success" | "warning" | "danger";
 
 const STATUS_ALIASES: Record<string, DsStatusTone> = {
@@ -52,9 +52,11 @@ const STATUS_ALIASES: Record<string, DsStatusTone> = {
 
 const ACTION_ALIASES: Record<string, DecisionActionTone> = {
   buy: "buy",
+  enter: "buy",
   consider_increase: "buy",
   increase: "buy",
   sell: "sell",
+  exit: "sell",
   reduce: "sell",
   consider_reduce: "sell",
   hold: "hold",
@@ -80,6 +82,7 @@ const ACTION_LABELS: Record<DecisionActionTone, string> = {
   sell: "SELL",
   hold: "HOLD",
   review: "REVIEW",
+  unknown: "UNKNOWN",
 };
 
 const FRESHNESS_LABELS: Record<FreshnessTone, string> = {
@@ -95,12 +98,15 @@ export function resolveStatusTone(status?: string | null): DsStatusTone {
 }
 
 export function resolveDecisionAction(action?: string | null): DecisionActionTone {
-  const raw = (action ?? "hold").toLowerCase().replace(/[\s-]+/g, "_");
+  const raw = (action ?? "").toLowerCase().replace(/[\s-]+/g, "_").trim();
+  if (!raw) return "unknown";
   if (ACTION_ALIASES[raw]) return ACTION_ALIASES[raw];
-  if (raw.includes("buy") || raw.includes("increase")) return "buy";
-  if (raw.includes("sell") || raw.includes("reduce")) return "sell";
+  // ENTER/EXIT are directional — never collapse them to HOLD.
+  if (raw.includes("enter") || raw.includes("buy") || raw.includes("increase")) return "buy";
+  if (raw.includes("exit") || raw.includes("sell") || raw.includes("reduce")) return "sell";
   if (raw.includes("review") || raw.includes("rotate")) return "review";
-  return "hold";
+  if (raw.includes("hold") || raw.includes("abstain")) return "hold";
+  return "unknown";
 }
 
 export function resolveFreshnessTone(value?: string | null): FreshnessTone {
@@ -113,9 +119,15 @@ export function resolveFreshnessTone(value?: string | null): FreshnessTone {
 }
 
 export function resolveProvenanceTone(value?: string | null): ProvenanceTone {
-  const raw = (value ?? "").toUpperCase();
+  const raw = (value ?? "").trim().toUpperCase();
+  if (!raw || raw === "UNKNOWN" || raw === "UNAVAILABLE" || raw === "NONE" || raw === "N/A") {
+    return "unknown";
+  }
   if (raw.includes("COUNTERFACTUAL") || raw.includes("REPLAY")) return "counterfactual";
-  return "live";
+  if (raw === "LIVE" || raw === "RECORDED_LIVE" || raw.includes("RECORDED_LIVE")) return "live";
+  // Explicit LIVE token only — do not treat arbitrary/unknown strings as LIVE.
+  if (/(^|_)LIVE($|_)/.test(raw) && !raw.includes("COUNTER")) return "live";
+  return "unknown";
 }
 
 export function StatusBadge({ status, label }: { status?: string | null; label?: string }) {
@@ -157,9 +169,13 @@ export function DecisionActionChip({
   label?: string;
 }) {
   const tone = resolveDecisionAction(action);
+  const fallback =
+    tone === "unknown" && action && String(action).trim()
+      ? String(action).trim().toUpperCase()
+      : ACTION_LABELS[tone];
   return (
     <span className={`ds-action-chip ds-action-${tone}`} data-action={tone}>
-      {label ?? ACTION_LABELS[tone]}
+      {label ?? fallback}
     </span>
   );
 }
@@ -187,9 +203,11 @@ export function ProvenanceBadge({
   label?: string;
 }) {
   const tone = resolveProvenanceTone(value);
+  const fallback =
+    tone === "counterfactual" ? "COUNTERFACTUAL" : tone === "live" ? "LIVE" : "UNKNOWN";
   return (
     <span className={`ds-provenance-badge ds-provenance-${tone}`} data-provenance={tone}>
-      {label ?? (tone === "counterfactual" ? "COUNTERFACTUAL" : "LIVE")}
+      {label ?? fallback}
     </span>
   );
 }
