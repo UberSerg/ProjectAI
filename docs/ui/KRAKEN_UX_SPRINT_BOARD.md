@@ -41,7 +41,7 @@
 | A0-3 | P0 | Sprint board + kickoff context | 00 | audit | — | DONE | Context updated |
 | A1-1 | P0 | Token contract + cascade plan | 01 | design-system | A0 | **READY_FOR_OWNER_REVIEW** PR [#98](https://github.com/UberSerg/ProjectAI/pull/98) `ade6b27` | Doc + tokens in CSS |
 | A1-2 | P0 | Primitives: Money/Status/Empty/Accordion | 01 | design-system | A1-1 | **READY_FOR_OWNER_REVIEW** (same PR #98) | Light+dark desktop/mobile |
-| A2-1 | P0 | Journal V4 closed card | 02 | decision-journal | Prefer Ui from #98 | **READY_FOR_OWNER_REVIEW** PR [#99](https://github.com/UberSerg/ProjectAI/pull/99) `862330d` | Screenshots + tests |
+| A2-1 | P0 | Journal V4 closed card | 02 | decision-journal | Prefer Ui from #98 | **READY_FOR_OWNER_REVIEW** PR [#99](https://github.com/UberSerg/ProjectAI/pull/99) `77e45a7` CI green | Screenshots + tests |
 | A2-2 | P0 | Expand A/B/C/D + reason mapping | 02 | decision-journal | A2-1 | **READY_FOR_OWNER_REVIEW** (same #99) | No fabricated why |
 | A2-3 | P0 | Stale request fence + a11y | 02 | decision-journal | A2-1 | **READY_FOR_OWNER_REVIEW** (same #99) | Abort/stale tests |
 | A5-1 | P1 | Dashboard hierarchy + USER nav | 05 | dashboard | A1 | QUEUED | Investor-first hero |
