@@ -570,7 +570,7 @@ describe("DecisionJournalPanel V4", () => {
   });
 
   it("ignores outdated journal responses on rapid portfolio/filter change", async () => {
-    let resolveSlow: ((v: ShadowJournalResponse) => void) | null = null;
+    let resolveSlow!: (v: ShadowJournalResponse) => void;
     const slow = new Promise<ShadowJournalResponse>((resolve) => {
       resolveSlow = resolve;
     });
@@ -602,7 +602,7 @@ describe("DecisionJournalPanel V4", () => {
     expect(screen.getByTestId("shadow-journal-day-tickers")).toHaveTextContent("GAZP");
 
     // Late slow response for the first request must not overwrite filtered result.
-    resolveSlow?.(journalPayload({ portfolio_id: 3 }));
+    resolveSlow(journalPayload({ portfolio_id: 3 }));
     await waitFor(() => {
       expect(screen.queryByTestId("shadow-journal-day-2026-09-02")).not.toBeInTheDocument();
     });
