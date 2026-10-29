@@ -147,4 +147,57 @@ describe("PortfolioPage hub balance", () => {
     expect(screen.getByTestId("hub-total-1")).not.toHaveTextContent(/Общая стоимость:.*100/);
     expect(screen.getByTestId("hub-total-2")).toHaveTextContent(/недоступна/i);
   });
+
+  it("does not show 0 ₽ for securities when hub valuation API fails", async () => {
+    getHubValuations.mockRejectedValue(new Error("network down"));
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hub-total-1")).toHaveTextContent(/временно недоступна/i);
+    });
+    expect(screen.getByTestId("hub-securities-1")).toHaveTextContent(/Оценка недоступна/);
+    expect(screen.getByTestId("hub-securities-1")).not.toHaveTextContent(/0/);
+    expect(screen.getByTestId("hub-securities-2")).toHaveTextContent(/Оценка недоступна/);
+  });
+
+  it("shows dash for securities when a portfolio is missing from hub response", async () => {
+    getHubValuations.mockResolvedValue({
+      items: [
+        {
+          portfolio_id: 1,
+          cash_rub: "3.34",
+          securities_value_rub: "0",
+          known_nav_rub: "3.34",
+          total_nav_rub: "3.34",
+          valuation_complete: true,
+          valuation_partial: false,
+          valuation_unavailable: false,
+          valuation_as_of: null,
+          valuation_label: "Только денежные средства",
+          missing_price_count: 0,
+          positions_count: 0,
+        },
+        // portfolio 2 deliberately omitted
+      ],
+      count: 1,
+    });
+
+    render(
+      <MemoryRouter>
+        <PortfolioPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hub-total-1")).toHaveTextContent(/3,34/);
+    });
+    expect(screen.getByTestId("hub-total-2")).toHaveTextContent(/недоступна/i);
+    expect(screen.getByTestId("hub-securities-2")).toHaveTextContent(/Оценка недоступна|—/);
+    expect(screen.getByTestId("hub-securities-2")).not.toHaveTextContent(/^0/);
+  });
 });

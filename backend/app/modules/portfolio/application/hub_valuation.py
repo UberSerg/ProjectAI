@@ -36,7 +36,8 @@ def build_hub_valuations(
         if not portfolio_ids:
             return []
         q = q.where(ManualPortfolio.id.in_([int(i) for i in portfolio_ids]))
-    elif not include_test:
+    # Always exclude test books unless explicitly requested — including when ids are passed.
+    if not include_test:
         q = q.where(ManualPortfolio.is_test.is_(False))
     q = q.order_by(ManualPortfolio.updated_at.desc().nullslast(), ManualPortfolio.id.desc())
     portfolios = list(session.scalars(q).all())

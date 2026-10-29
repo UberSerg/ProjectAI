@@ -114,6 +114,24 @@ def test_partial_does_not_expose_total_nav() -> None:
     assert row["missing_price_count"] == 1
 
 
+def test_explicit_ids_exclude_test_portfolios_by_default() -> None:
+    session = MagicMock()
+    real = _book(10, "100")
+    captured: dict[str, object] = {}
+
+    def scalars(stmt):  # noqa: ANN001
+        if "stmt" not in captured:
+            captured["stmt"] = stmt
+            return MagicMock(all=lambda: [real])
+        return MagicMock(all=lambda: [])
+
+    session.scalars.side_effect = scalars
+    out = build_hub_valuations(session, portfolio_ids=[10, 11], include_test=False)
+    assert [row["portfolio_id"] for row in out] == [10]
+    compiled = str(captured["stmt"].compile(compile_kwargs={"literal_binds": True}))
+    assert "is_test" in compiled.lower() or "false" in compiled.lower()
+
+
 def test_all_quotes_missing_unavailable() -> None:
     session = MagicMock()
     book = _book(4, "50000")

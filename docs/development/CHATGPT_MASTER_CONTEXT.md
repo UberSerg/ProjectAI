@@ -37,14 +37,14 @@ Never erase the activity history to make the current picture look cleaner. Updat
 
 If a context update cannot be committed or merged (missing GitHub access, failed CI, approval requirement, concurrent edit), explicitly report **CONTEXT_UPDATE_PENDING**, its location and the exact reason. Do not claim the master context is up to date until merged to main.
 
-### Current position — 2026-10-29 (Cursor review fixes in progress)
+### Current position — 2026-10-29 (Cursor review-fix checkpoint)
 
-- **Verified main:** 7a4ae4a36cd6e5bf6cf191c0228db10c7f36a040 (docs PR #93). Snapshot — re-verify before next task.
-- **PR #85** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/85)): integrating latest main; fixing independent-review P1 — market ingest commit_guard + features commit fencing before writes. Prior HEAD 3cb324aee6b97348b0a5688d44aa0cadaa782c1. **DO NOT MERGE** without fresh Owner approval. Review: [6489938556](https://github.com/UberSerg/ProjectAI/pull/85#issuecomment-6489938556).
-- **PR #91** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/91)): integrating latest main; fixing securities unknown≠0 UI and include_test=False with explicit ids. Prior HEAD f27bb748362ca04b518233b91259b1617deada8. Review: [6489939237](https://github.com/UberSerg/ProjectAI/pull/91#issuecomment-6489939237).
-- **PR B / PR C:** still **PLANNED**. Decision Journal Variant 4 UX chosen but not authorized here.
+- **Verified main:** `7a4ae4a36cd6e5bf6cf191c0228db10c7f36a040` (docs PR #93). Snapshot — re-verify before next task.
+- **PR #85** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/85)): review P1 fencing landed — `MarketIngestionService.commit_guard` / `MarketIngestionLockLost`, `run_eod_market_recovery(..., commit_guard=)`, `TechnicalComputeService.commit_guard` / `TechnicalComputeLockLost`, recovery aborts market/features on lease loss with rollback. Merged `origin/main`. **DO NOT MERGE** without fresh Owner approval. Exact HEAD + CI: see latest Activity Log entry after push.
+- **PR #91** ([OPEN, NOT MERGED](https://github.com/UberSerg/ProjectAI/pull/91)): securities unknown shows «Оценка недоступна»/«—» (not `0 ₽`); `build_hub_valuations` applies `include_test=False` even with explicit ids. Merged `origin/main`. Exact HEAD + CI: see latest Activity Log entry after push.
+- **PR B / PR C:** still **PLANNED**. Decision Journal Variant 4 UX chosen but not authorized in these PRs.
 - **CONTEXT_UPDATE_PENDING** on feature branches until docs reach main.
-- **Next action:** finish review fixes + exact-HEAD CI; ChatGPT re-review; Owner decide PR #85.
+- **Next action:** ChatGPT re-review new HEADs; Owner decide PR #85 merge. No auto-merge.
 
 ---
 
@@ -141,6 +141,8 @@ Acceptance tasks:
 - **Mandatory checkpoint gate:** after every significant event involving Owner, Cursor or ChatGPT, refresh the current-position snapshot AND append dated activity log with evidence before calling the checkpoint complete. No background monitoring; record what was learned during active work. If not merged, state CONTEXT_UPDATE_PENDING and why.
 
 ## Activity log
+
+- **2026-10-29 — Cursor (review fixes):** Merged `origin/main` (`7a4ae4a`) into PR #85 and PR #91 (resolved master-context conflicts; preserved Activity Log history). PR #85: market ingest + technical/features commit fencing on lease loss + regression tests in `test_recovery_lock.py`. PR #91: hub securities error/missing UI + test-portfolio filter with ids + tests. Both left **OPEN / NOT MERGED**; PR #85 still requires distinct Owner approval. Exact SHAs and CI runs recorded in the following tip commits after push.
 
 - **2026-10-29 — Cursor (REPORTED_BY_CURSOR) / Owner relay:** PR #85 HEAD `a3cb324aee6b97348b0a5688d44aa0cadaa782c1` marked READY_FOR_OWNER_REVIEW; implementation reports `RecoveryLockLease`, 600-second Redis TTL with background heartbeat and ownership checks around Forward/Shadow writes. Full live Shadow catch-up incomplete and no historical ledger rewrite. GitHub independently verified exact HEAD and completed successful backend/frontend/Docker [run 40829597628](https://github.com/UberSerg/ProjectAI/actions/runs/40829597628); PR remained open and unmerged.
 - **2026-10-29 — Cursor (REPORTED_BY_CURSOR) / Owner relay:** PR #91 HEAD `bf27bb748362ca04b518233b91259b1617deada8` marked READY_FOR_OWNER_REVIEW; implemented batch Portfolio Hub valuations, full/partial/unavailable views, RUB cents, frontend/backend tests and screenshots in `review-artifacts/pr-91-portfolio-hub-balance/` (commit reported `e21bf39d0124516becb0dff1d9f531e82480396a`). Partial-browser screenshot was forced via an overlay, explicitly **not** genuine backend partial-data proof. GitHub independently verified exact HEAD and successful backend/frontend/Docker [run 40829575021](https://github.com/UberSerg/ProjectAI/actions/runs/40829575021); no merge.

@@ -135,7 +135,13 @@ function PortfolioHubCard({
         <div>
           <dt>Стоимость активов</dt>
           <dd data-testid={`hub-securities-${portfolio.id}`}>
-            {securities == null && loading ? "…" : formatRub(securities ?? "0")}
+            {loading
+              ? "…"
+              : err
+                ? "Оценка недоступна"
+                : securities == null
+                  ? "—"
+                  : formatRub(securities)}
           </dd>
         </div>
         <div>
