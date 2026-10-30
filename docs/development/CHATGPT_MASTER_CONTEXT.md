@@ -37,19 +37,18 @@ Never erase the activity history to make the current picture look cleaner. Updat
 
 If a context update cannot be committed or merged (missing GitHub access, failed CI, approval requirement, concurrent edit), explicitly report **CONTEXT_UPDATE_PENDING**, its location and the exact reason. Do not claim the master context is up to date until merged to main.
 
-### Current State — 2026-10-30 (UX Wave 1 remediation → Owner Review)
+### Current State — 2026-10-30 (UX Wave 1 #98/#99 MERGED)
 
-- **Verified main:** `d211da0943518eaeea11dd7739902c60538cca6f` (includes #85/#91 merges + UX swarm plan docs #96).
-- **PR #85 / #91:** **MERGED** (Owner-authorized earlier).
-- **Active program:** Operation Human Interface — UX swarm Wave 1.
-- **PR #97 (Agent 00 audit docs):** OPEN — https://github.com/UberSerg/ProjectAI/pull/97 — HEAD `08e6be1799607c4044f9717104c4336f7eaea700`.
-- **PR #98 (Agent 01 Design System V2):** **READY_FOR_OWNER_REVIEW** — https://github.com/UberSerg/ProjectAI/pull/98 — HEAD `eeba431b3aa4e62168bef6713548425f709684e5`; exact-head CI [40927696166](https://github.com/UberSerg/ProjectAI/actions/runs/40927696166) **success**. P1 remediations: `UNKNOWN` provenance ≠ `LIVE`; `ENTER`/`EXIT`/unknown actions ≠ auto-`HOLD`. Ownership of global CSS + `Ui.tsx` retained by Agent 01.
-- **PR #99 (Agent 02 Decision Journal V4):** **READY_FOR_OWNER_REVIEW** — https://github.com/UberSerg/ProjectAI/pull/99 — HEAD `e7e201dd9b9291e3ad224259e34fa7b24574c34b`; exact-head CI [40927914670](https://github.com/UberSerg/ProjectAI/actions/runs/40927914670) **success**. P1 remediations: no invented `ROTATE` edge without reason codes; bare `REVIEW` ≠ hold claim; pending by `order.status` (not merely missing same-day fills); FILLED/CANCELLED/REJECTED/PENDING regressions covered. Did not edit `ShadowPage`, `helpers.ts`, or global CSS.
-- **Live smoke (REPORTED_BY_CURSOR):** temporary overlay of #98/#99 frontend files onto Docker-mounted `ProjectAI-wt-shadow-reliability` src; Shadow `/shadow` journal day `2026-09-03` showed FILLED×8 + CANCELLED×1 with copy «Исполнений за этот день нет · статус ордера: …» and **no** false Pending. Overlay restored; mount left clean.
-- **Merge policy:** **do not merge** #98/#99 without Owner Review. No auto-merge of UX PRs.
-- **Worktrees:** Agent 02 stays in `E:\!AI\ProjectAI-wt-ux-decision-journal`. Root `dark-dashboard` worktree option 1 — do not touch unless needed. No stash/reset/clean/force across foreign trees.
+- **Verified main:** `95f2fd857764448168343d22bacf8e49ed445d29` (merge of #99 after #98).
+- **PR #85 / #91:** **MERGED** (earlier Owner-authorized).
+- **PR #98 (Design System V2):** **MERGED** — feature tip `eeba431b3aa4e62168bef6713548425f709684e5` → merge commit `8fbea8d5d2b3098658b85689ca1ed04126c9d290` (Owner «мерджи», 2026-10-30T06:27:37Z). Prior exact-head CI [40927696166](https://github.com/UberSerg/ProjectAI/actions/runs/40927696166) success.
+- **PR #99 (Decision Journal V4):** **MERGED** — feature tip `e7e201dd9b9291e3ad224259e34fa7b24574c34b` → merge commit `95f2fd857764448168343d22bacf8e49ed445d29` (same Owner authorization, 2026-10-30T06:27:42Z). Prior exact-head CI [40927914670](https://github.com/UberSerg/ProjectAI/actions/runs/40927914670) success.
+- **PR #97 (Agent 00 audit docs):** still OPEN — https://github.com/UberSerg/ProjectAI/pull/97 — rebase/update against new main as needed.
+- **Active program:** Operation Human Interface — Wave 1 DS+Journal landed on main; remaining verticals (Shadow/Portfolio/Dashboard/…) continue on isolated worktrees after token contract now on main.
+- **Merge policy:** no auto-merge of further UX PRs; each needs Owner authorization.
+- **Worktrees:** do not touch root `dark-dashboard` unless tasked; no stash/reset/clean/force across foreign trees.
 - **PR B / PR C:** still PLANNED — out of UX scope.
-- **Next action:** Owner Review of #98 then #99; Agent 00 keep registry current; other vertical agents continue without file conflicts.
+- **Next action:** Agent 00 sync audit docs / registry to main; other UX agents rebase verticals onto `95f2fd8` when starting work; Owner sets next vertical priority.
 
 ---
 
@@ -146,6 +145,8 @@ Acceptance tasks:
 - **Mandatory checkpoint gate:** after every significant event involving Owner, Cursor or ChatGPT, refresh the current-position snapshot AND append dated activity log with evidence before calling the checkpoint complete. No background monitoring; record what was learned during active work. If not merged, state CONTEXT_UPDATE_PENDING and why.
 
 ## Activity log
+
+- **2026-10-30 — Owner + Cursor:** Owner authorized «мерджи». Cursor merged [#98](https://github.com/UberSerg/ProjectAI/pull/98) (merge commit `8fbea8d5d2b3098658b85689ca1ed04126c9d290`, feature `eeba431b3aa4e62168bef6713548425f709684e5`) then [#99](https://github.com/UberSerg/ProjectAI/pull/99) (merge commit `95f2fd857764448168343d22bacf8e49ed445d29`, feature `e7e201dd9b9291e3ad224259e34fa7b24574c34b`) with ordinary merge commits via GitHub API. Verified main tip `95f2fd8`. Both PRs closed/merged. Master context Current State updated.
 
 - **2026-10-30 — Cursor (Agent 00 / remediation checkpoint, GitHub-verified CI):** GitHub review of [#98](https://github.com/UberSerg/ProjectAI/pull/98) and [#99](https://github.com/UberSerg/ProjectAI/pull/99) found P1 finance-display defects despite green CI. Agent 01 fixed #98 HEAD `eeba431b3aa4e62168bef6713548425f709684e5` (UNKNOWN≠LIVE; ENTER/EXIT≠HOLD + regressions); exact-head CI [40927696166](https://github.com/UberSerg/ProjectAI/actions/runs/40927696166) success. Agent 02 fixed #99 HEAD `e7e201dd9b9291e3ad224259e34fa7b24574c34b` (honest ROTATE/REVIEW copy; pending by order status + FILLED/CANCELLED/REJECTED/PENDING tests); exact-head CI [40927914670](https://github.com/UberSerg/ProjectAI/actions/runs/40927914670) success. Both OPEN/mergeable; status **READY_FOR_OWNER_REVIEW**. Live smoke REPORTED_BY_CURSOR on real frontend confirmed FILLED/CANCELLED without same-day fills are not shown as Pending. **No merge** of UX PRs. Master context Current State refreshed in this checkpoint.
 
@@ -273,6 +274,8 @@ Acceptance tasks:
 - **Mandatory checkpoint gate:** after every significant event involving Owner, Cursor or ChatGPT, refresh the current-position snapshot AND append dated activity log with evidence before calling the checkpoint complete. No background monitoring; record what was learned during active work. If not merged, state CONTEXT_UPDATE_PENDING and why.
 
 ## Activity log
+
+- **2026-10-30 — Owner + Cursor:** Owner authorized «мерджи». Cursor merged [#98](https://github.com/UberSerg/ProjectAI/pull/98) (merge commit `8fbea8d5d2b3098658b85689ca1ed04126c9d290`, feature `eeba431b3aa4e62168bef6713548425f709684e5`) then [#99](https://github.com/UberSerg/ProjectAI/pull/99) (merge commit `95f2fd857764448168343d22bacf8e49ed445d29`, feature `e7e201dd9b9291e3ad224259e34fa7b24574c34b`) with ordinary merge commits via GitHub API. Verified main tip `95f2fd8`. Both PRs closed/merged. Master context Current State updated.
 
 - **2026-10-30 — Cursor (Agent 00 / remediation checkpoint, GitHub-verified CI):** GitHub review of [#98](https://github.com/UberSerg/ProjectAI/pull/98) and [#99](https://github.com/UberSerg/ProjectAI/pull/99) found P1 finance-display defects despite green CI. Agent 01 fixed #98 HEAD `eeba431b3aa4e62168bef6713548425f709684e5` (UNKNOWN≠LIVE; ENTER/EXIT≠HOLD + regressions); exact-head CI [40927696166](https://github.com/UberSerg/ProjectAI/actions/runs/40927696166) success. Agent 02 fixed #99 HEAD `e7e201dd9b9291e3ad224259e34fa7b24574c34b` (honest ROTATE/REVIEW copy; pending by order status + FILLED/CANCELLED/REJECTED/PENDING tests); exact-head CI [40927914670](https://github.com/UberSerg/ProjectAI/actions/runs/40927914670) success. Both OPEN/mergeable; status **READY_FOR_OWNER_REVIEW**. Live smoke REPORTED_BY_CURSOR on real frontend confirmed FILLED/CANCELLED without same-day fills are not shown as Pending. **No merge** of UX PRs. Master context Current State refreshed in this checkpoint.
 
