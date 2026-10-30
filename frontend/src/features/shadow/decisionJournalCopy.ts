@@ -22,10 +22,26 @@ export const JOURNAL_ACTION_LABELS: Record<string, string> = {
   EXIT: "Выход",
   HOLD: "Удержание",
   SKIP: "Пропуск",
-  REVIEW_HOLD: "Ревизия: удержать",
-  REVIEW: "Ревизия",
+  REVIEW_HOLD: "Проверка решения: удержать",
+  REVIEW: "Проверка решения",
   ROTATE: "Ротация",
   DATA_HOLD: "Удержание (данные)",
+  ENTER_TOP20: "Вход",
+};
+
+export const JOURNAL_ORDER_STATUS_LABELS: Record<string, string> = {
+  FILLED: "Исполнено",
+  PENDING: "Ожидает исполнения",
+  OPEN: "Ожидает исполнения",
+  NEW: "Ожидает исполнения",
+  SUBMITTED: "Ожидает исполнения",
+  WORKING: "Ожидает исполнения",
+  CANCELLED: "Отменено",
+  CANCELED: "Отменено",
+  REJECTED: "Отклонено",
+  PARTIAL: "Частично исполнено",
+  PARTIALLY_FILLED: "Частично исполнено",
+  EXPIRED: "Истёк срок заявки",
 };
 
 export const JOURNAL_REASON_LABELS: Record<string, string> = {
@@ -46,17 +62,41 @@ export const JOURNAL_REASON_LABELS: Record<string, string> = {
   REPLACEMENT_DATA_INCOMPLETE: "Данные по замене неполные",
   FEE_MODEL_MISSING: "Нет модели комиссий для оценки",
   POLICY_ENTER_FREE_CAPACITY: "Вход при свободной ёмкости",
+  ENTER_TOP20: "Вход в топ по рейтингу стратегии",
+  REBALANCE_BUY: "Ребалансировка: покупка",
+  REBALANCE_SELL: "Ребалансировка: продажа",
 };
 
 export function journalDecisionActionLabel(action?: string | null): string {
   const key = (action ?? "").trim().toUpperCase();
   if (!key) return "—";
   if (JOURNAL_ACTION_LABELS[key]) return JOURNAL_ACTION_LABELS[key];
-  if (key.startsWith("REVIEW")) return "Ревизия";
+  if (key.startsWith("REVIEW")) return "Проверка решения";
   if (key.startsWith("ROTATE_TO_")) {
     return `Ротация → ${key.slice("ROTATE_TO_".length)}`;
   }
+  if (key.startsWith("ENTER")) return "Вход";
+  if (key.startsWith("EXIT")) return "Выход";
   return key;
+}
+
+/** Human order/fill status. Unknown → neutral label; raw stays for technical disclosure. */
+export function journalOrderStatusLabel(status?: string | null): string {
+  const key = (status ?? "").trim().toUpperCase();
+  if (!key) return "Статус не определён";
+  if (JOURNAL_ORDER_STATUS_LABELS[key]) return JOURNAL_ORDER_STATUS_LABELS[key];
+  return "Статус не определён";
+}
+
+export function formatJournalDayTitle(isoDate?: string | null): string {
+  if (!isoDate) return "—";
+  const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(d);
 }
 
 export function journalReasonCodeLabel(code?: string | null): string {
@@ -301,6 +341,11 @@ export function isJournalOrderTerminalStatus(status?: string | null): boolean {
  * Build Decision → Order → Fill links by real IDs.
  * Pending uses order.status; FILLED/CANCELLED/REJECTED without same-day fills stay non-pending.
  */
+export function orderLinkedFills(order: ShadowJournalOrder, day: ShadowJournalDay): ShadowJournalFill[] {
+  if (Array.isArray(order.fills) && order.fills.length > 0) return order.fills;
+  return day.fills.filter((f) => f.order_id === order.id);
+}
+
 export function buildDecisionOrderFillChains(day: ShadowJournalDay): DecisionChainLink[] {
   const fillsByOrder = new Map<number, ShadowJournalFill[]>();
   for (const f of day.fills) {
@@ -308,13 +353,22 @@ export function buildDecisionOrderFillChains(day: ShadowJournalDay): DecisionCha
     list.push(f);
     fillsByOrder.set(f.order_id, list);
   }
+  for (const order of day.orders) {
+    if (Array.isArray(order.fills)) {
+      for (const f of order.fills) {
+        const list = fillsByOrder.get(order.id) ?? [];
+        if (!list.some((x) => x.id === f.id)) list.push(f);
+        fillsByOrder.set(order.id, list);
+      }
+    }
+  }
 
   const links: DecisionChainLink[] = [];
   const seenOrders = new Set<number>();
 
   for (const order of day.orders) {
     seenOrders.add(order.id);
-    const fills = fillsByOrder.get(order.id) ?? [];
+    const fills = orderLinkedFills(order, day);
     links.push({
       decisionId: order.decision_id ?? null,
       order,
@@ -334,6 +388,80 @@ export function buildDecisionOrderFillChains(day: ShadowJournalDay): DecisionCha
   }
 
   return links;
+}
+
+/** Closed-card headline from confirmed order counts only. */
+export function dayClosedHeadline(day: ShadowJournalDay): string {
+  const buy = day.counts.buy_orders ?? day.counts.buy ?? 0;
+  const sell = day.counts.sell_orders ?? day.counts.sell ?? 0;
+  const orders = day.counts.orders ?? day.orders.length;
+  if (buy > 0 && sell === 0) {
+    return `Kraken сформировал ${buy} ${pluralZayavki(buy)} на покупку`;
+  }
+  if (sell > 0 && buy === 0) {
+    return `Kraken сформировал ${sell} ${pluralZayavki(sell)} на продажу`;
+  }
+  if (orders > 0) {
+    return `Kraken сформировал ${orders} ${pluralZayavki(orders)}`;
+  }
+  if (day.decision) return "Kraken зафиксировал решение без заявок";
+  return "За этот день отдельных заявок нет";
+}
+
+export function dayWhatHappenedSummary(day: ShadowJournalDay): string {
+  const buy = day.counts.buy_orders ?? day.counts.buy ?? 0;
+  const filled = day.counts.filled_orders ?? 0;
+  const cancelled = day.counts.cancelled_orders ?? 0;
+  const later = day.orders.some((o) => o.execution_timing === "later");
+  const parts: string[] = [];
+  if (buy > 0) {
+    parts.push(`Система сформировала ${buy} ${pluralZayavki(buy)} на покупку`);
+  } else if (day.counts.orders > 0) {
+    parts.push(`Система сформировала ${day.counts.orders} ${pluralZayavki(day.counts.orders)}`);
+  } else {
+    parts.push("Отдельных заявок за день не было");
+  }
+  if (filled > 0 && later) {
+    parts.push("Часть из них получила подтверждённое исполнение позднее");
+  } else if (filled > 0) {
+    parts.push(`Подтверждено исполнений по заявкам: ${filled}`);
+  }
+  if (cancelled > 0) {
+    parts.push(`Отменено заявок: ${cancelled}`);
+  }
+  const level = (day.evidence_level ?? "").toUpperCase();
+  if (level === "PARTIAL" || level === "LIMITED" || (!day.detail_available && day.decision)) {
+    parts.push("Подробные причины отбора в этой исторической записи сохранились не полностью");
+  }
+  return `${parts.join(". ")}.`;
+}
+
+function pluralZayavki(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "заявку";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "заявки";
+  return "заявок";
+}
+
+export function instrumentResultLabel(order: ShadowJournalOrder): {
+  label: string;
+  tone: "ok" | "warn" | "muted" | "danger";
+} {
+  const fills = order.fills ?? [];
+  const timing = order.execution_timing;
+  if (fills.length > 0) {
+    if (timing === "later") return { label: "Исполнено позднее", tone: "ok" };
+    return { label: "Исполнено", tone: "ok" };
+  }
+  if (timing === "status_fill_mismatch") {
+    return { label: "Статус без исполнения", tone: "warn" };
+  }
+  const st = (order.status ?? "").toUpperCase();
+  if (st === "CANCELLED" || st === "CANCELED") return { label: "Отменено", tone: "muted" };
+  if (st === "REJECTED") return { label: "Отклонено", tone: "danger" };
+  if (isJournalOrderPendingStatus(st)) return { label: "Ожидает исполнения", tone: "warn" };
+  return { label: journalOrderStatusLabel(order.status), tone: "muted" };
 }
 
 export function candidatePlanFields(c: ShadowJournalCandidateTrace): Array<{ label: string; value: string }> {
@@ -360,10 +488,13 @@ export function candidatePlanFields(c: ShadowJournalCandidateTrace): Array<{ lab
 }
 
 export function dayHasWhyEvidence(day: ShadowJournalDay): boolean {
-  if (!day.detail_available) return false;
   if (day.candidates.some((c) => (c.reason_codes?.length ?? 0) > 0 || c.decision_action)) {
     return true;
   }
+  const facts = day.recorded_facts;
+  if (facts?.targets?.length || facts?.order_plan_rows?.length || facts?.order_reasons?.length) {
+    return true;
+  }
   const d = day.decision;
-  return Boolean(d?.policy_name || d?.risk_name || d?.risk_mode);
+  return Boolean(d?.policy_name || d?.risk_name || d?.risk_mode || (d?.targets?.length ?? 0) > 0);
 }
