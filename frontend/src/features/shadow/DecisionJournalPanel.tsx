@@ -1,4 +1,4 @@
-/** Shadow Decision Journal V4 — expandable day cards with traceable WHY (read-only). */
+/** Shadow Decision Journal V4.1 — human-first expandable day cards (read-only). */
 
 import { useEffect, useId, useRef, useState } from "react";
 
@@ -6,812 +6,543 @@ import { errorMessage } from "../../api/client";
 import {
   getShadowCandidateHistory,
   getShadowJournal,
-  type ShadowCandidateHistoryResponse,
-  type ShadowJournalCandidateTrace,
   type ShadowJournalDay,
+  type ShadowJournalOrder,
   type ShadowJournalResponse,
 } from "../../api/shadow";
-import { formatDate, formatMoney, formatPercent, formatPrice } from "../../utils/format";
+import { formatDate, formatDateTime, formatMoney, formatNumber, formatPercent, formatPrice } from "../../utils/format";
 import {
-  buildDecisionOrderFillChains,
-  candidatePlanFields,
-  dayHasWhyEvidence,
-  dayHistoryKind,
+  dayClosedHeadline,
   dayTickers,
-  dayValuationFreshness,
-  drawdownQualityWarning,
+  dayWhatHappenedSummary,
+  formatJournalDayTitle,
   hasTrustworthyNav,
-  historyKindLabel,
+  instrumentResultLabel,
   JOURNAL_MISSING_REASON_RU,
   journalCandidateHumanReason,
   journalDecisionActionLabel,
+  journalOrderStatusLabel,
   journalReasonCodeLabel,
+  orderLinkedFills,
   riskModeLabel,
-  valuationFreshnessLabel,
   type JournalDayQualityView,
 } from "./decisionJournalCopy";
 import "./decisionJournal.css";
 
 const ACTION_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "Все действия" },
-  { value: "BUY", label: "Покупка / вход" },
-  { value: "SELL", label: "Продажа / выход" },
+  { value: "BUY", label: "Покупка" },
+  { value: "SELL", label: "Продажа" },
   { value: "HOLD", label: "Удержание" },
-  { value: "REVIEW", label: "Ревизия" },
+  { value: "REVIEW", label: "Проверка решения" },
   { value: "ROTATE", label: "Ротация" },
-  { value: "ENTER", label: "ENTER" },
-  { value: "EXIT", label: "EXIT" },
 ];
 
-function actionChipClass(action: string): string {
-  const a = action.toUpperCase();
-  if (a === "BUY" || a === "ENTER") return "dj-chip dj-chip-action-buy";
-  if (a === "SELL" || a === "EXIT") return "dj-chip dj-chip-action-sell";
-  if (a === "HOLD" || a === "DATA_HOLD") return "dj-chip dj-chip-action-hold";
-  if (a.startsWith("REVIEW")) return "dj-chip dj-chip-action-review";
-  if (a.startsWith("ROTATE")) return "dj-chip dj-chip-action-rotate";
-  return "dj-chip";
+function CompactStats({ day }: { day: ShadowJournalDay }) {
+  const c = day.counts;
+  const filled = c.filled_orders ?? 0;
+  const cancelled = c.cancelled_orders ?? 0;
+  const pending = c.pending_orders ?? 0;
+  const orders = c.orders ?? day.orders.length;
+  return (
+    <ul className="dj-stats" data-testid="shadow-journal-counts">
+      <li>
+        Заявки: <strong>{orders}</strong>
+      </li>
+      <li>
+        Исполнено: <strong>{filled}</strong>
+      </li>
+      <li>
+        Отменено: <strong>{cancelled}</strong>
+      </li>
+      {pending > 0 ? (
+        <li>
+          Ожидает: <strong>{pending}</strong>
+        </li>
+      ) : null}
+    </ul>
+  );
 }
 
-function CountChips({ day }: { day: ShadowJournalDay }) {
-  const c = day.counts;
+function PortfolioValue({ day }: { day: JournalDayQualityView }) {
+  if (!hasTrustworthyNav(day) || !day.nav) {
+    return (
+      <p className="dj-nav-line muted" data-testid="shadow-journal-day-nav-missing">
+        Общая стоимость портфеля: нет достоверной оценки на этот день
+      </p>
+    );
+  }
   return (
-    <div className="dj-chip-row" data-testid="shadow-journal-counts">
-      <span className={actionChipClass("BUY")}>BUY {c.buy}</span>
-      <span className={actionChipClass("SELL")}>SELL {c.sell}</span>
-      <span className={actionChipClass("HOLD")}>HOLD {c.hold}</span>
-      <span className={actionChipClass("REVIEW")}>REVIEW {c.review}</span>
-      <span className="dj-chip">Ордера {c.orders}</span>
-      <span className="dj-chip">Исполнения {c.fills ?? day.fills.length}</span>
+    <p className="dj-nav-line" data-testid="shadow-journal-day-nav">
+      Общая стоимость портфеля: <strong>{formatMoney(day.nav.nav)}</strong>
+      {day.nav.drawdown != null ? (
+        <span className="muted"> · просадка {formatPercent(day.nav.drawdown)}</span>
+      ) : null}
+    </p>
+  );
+}
+
+function DataStateLine({ day }: { day: ShadowJournalDay }) {
+  const level = (day.evidence_level ?? (day.detail_available ? "FULL" : "PARTIAL")).toUpperCase();
+  let text = "Состояние данных: полный журнал причин";
+  if (level === "PARTIAL") text = "Состояние данных: частичные исторические сведения";
+  else if (level === "LIMITED") text = "Состояние данных: ограниченные сведения";
+  else if (level === "NONE") text = "Состояние данных: содержательных сведений нет";
+  return (
+    <p className="dj-data-state muted" data-testid="shadow-journal-evidence-level">
+      {text}
+    </p>
+  );
+}
+
+function InstrumentRow({
+  day,
+  order,
+  expanded,
+  onToggle,
+}: {
+  day: ShadowJournalDay;
+  order: ShadowJournalOrder;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const fills = orderLinkedFills(order, day);
+  const result = instrumentResultLabel({ ...order, fills });
+  const qty = formatNumber(order.quantity);
+  const panelId = `dj-instr-${order.id}`;
+  const candidate = day.candidates.find(
+    (c) => (c.ticker ?? "").toUpperCase() === (order.ticker ?? "").toUpperCase(),
+  );
+  const primaryFill = fills[0] ?? null;
+
+  return (
+    <div className="dj-instr" data-testid={`shadow-journal-order-${order.id}`}>
+      <button
+        type="button"
+        className="dj-instr-row"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={onToggle}
+        data-testid={`shadow-journal-instr-toggle-${order.ticker}`}
+      >
+        <span className="dj-instr-ticker">{order.ticker}</span>
+        <span className="dj-instr-action">{journalDecisionActionLabel(order.side)}</span>
+        <span className="dj-instr-qty">{qty} шт.</span>
+        <span className={`dj-instr-result dj-tone-${result.tone}`}>{result.label}</span>
+        <span className="dj-instr-chevron" aria-hidden>
+          {expanded ? "▴" : "▾"}
+        </span>
+      </button>
+      {expanded ? (
+        <div id={panelId} className="dj-instr-detail" data-testid={`shadow-journal-instr-detail-${order.ticker}`}>
+          <dl className="dj-kv">
+            <div>
+              <dt>Решение принято</dt>
+              <dd>{formatDateTime(order.decision_at ?? day.decision?.decision_at)}</dd>
+            </div>
+            <div>
+              <dt>Планируемое количество</dt>
+              <dd>{qty} шт.</dd>
+            </div>
+            {primaryFill ? (
+              <>
+                <div>
+                  <dt>Фактически исполнено</dt>
+                  <dd>{formatNumber(primaryFill.quantity)} шт.</dd>
+                </div>
+                <div>
+                  <dt>Цена сделки</dt>
+                  <dd>{formatPrice(primaryFill.fill_price)}</dd>
+                </div>
+                <div>
+                  <dt>Сумма</dt>
+                  <dd>{formatMoney(primaryFill.notional)}</dd>
+                </div>
+                <div>
+                  <dt>Комиссия</dt>
+                  <dd>{formatMoney(primaryFill.commission)}</dd>
+                </div>
+                <div>
+                  <dt>Дата исполнения</dt>
+                  <dd>
+                    {formatDate(primaryFill.execution_date)}
+                    {order.execution_timing === "later" ? " · исполнено позднее даты решения" : ""}
+                  </dd>
+                </div>
+              </>
+            ) : (
+              <div>
+                <dt>Исполнение</dt>
+                <dd>
+                  {order.execution_timing === "status_fill_mismatch"
+                    ? `В данных указан статус «${journalOrderStatusLabel(order.status)}», но запись исполнения не найдена.`
+                    : order.status?.toUpperCase() === "CANCELLED" ||
+                        order.status?.toUpperCase() === "CANCELED"
+                      ? "Заявка отменена; записи исполнения нет."
+                      : "Подтверждённая запись исполнения отсутствует."}
+                </dd>
+              </div>
+            )}
+            <div>
+              <dt>Почему выбран инструмент</dt>
+              <dd data-testid={`shadow-journal-human-reason-${order.ticker}`}>
+                {candidate
+                  ? journalCandidateHumanReason({
+                      action: candidate.decision_action,
+                      reason_codes: candidate.reason_codes,
+                      replacement_ticker: candidate.replacement_ticker,
+                      net_edge: candidate.net_edge,
+                    })
+                  : order.reason
+                    ? `Сохранённый код заявки: ${journalReasonCodeLabel(order.reason)}. Подробное обоснование отбора не сохранялось.`
+                    : JOURNAL_MISSING_REASON_RU}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function ClosedNavRow({ day }: { day: JournalDayQualityView }) {
-  if (!hasTrustworthyNav(day) || !day.nav) {
-    return <span className="dj-chip dj-chip-muted" data-testid="shadow-journal-day-nav-missing">NAV нет</span>;
+function WhyBlock({ day }: { day: ShadowJournalDay }) {
+  const facts = day.recorded_facts;
+  const codes = new Set<string>();
+  for (const c of day.candidates) {
+    for (const code of c.reason_codes ?? []) codes.add(String(code));
   }
-  const ddWarn = drawdownQualityWarning(day, day.nav);
-  return (
-    <>
-      <span className="dj-chip" data-testid="shadow-journal-day-nav">
-        NAV {formatMoney(day.nav.nav)} · кэш {formatMoney(day.nav.cash)} · DD{" "}
-        {formatPercent(day.nav.drawdown)}
-      </span>
-      {ddWarn ? (
-        <span className="dj-chip dj-chip-warn" data-testid="shadow-journal-dd-warning" title={ddWarn}>
-          DD: ограничено
-        </span>
-      ) : null}
-    </>
-  );
-}
-
-function ProvenanceChips({ day }: { day: JournalDayQualityView }) {
-  const kind = dayHistoryKind(day);
-  const kindLabel = historyKindLabel(kind);
-  const freshness = dayValuationFreshness(day);
-  const freshnessLabel = valuationFreshnessLabel(freshness);
-  const provenanceClass =
-    kind && (kind === "LIVE" || kind === "RECORDED_LIVE")
-      ? "dj-chip dj-chip-provenance-live"
-      : kind && (kind.includes("COUNTERFACTUAL") || kind === "REPLAY")
-        ? "dj-chip dj-chip-provenance-replay"
-        : kind
-          ? "dj-chip dj-chip-provenance-unknown"
-          : "dj-chip";
+  for (const reason of facts?.order_reasons ?? []) codes.add(String(reason));
+  const targets = facts?.targets?.length ? facts.targets : day.decision?.targets ?? [];
+  const hasConfirmed =
+    codes.size > 0 || (targets?.length ?? 0) > 0 || (facts?.order_plan_rows?.length ?? 0) > 0;
 
   return (
-    <>
-      {kindLabel ? (
-        <span className={provenanceClass} data-testid="shadow-journal-history-kind">
-          {kindLabel}
-        </span>
-      ) : null}
-      {freshnessLabel ? (
-        <span className="dj-chip" data-testid="shadow-journal-valuation-freshness">
-          {freshnessLabel}
-        </span>
-      ) : null}
-    </>
-  );
-}
-
-function BlockA({ day }: { day: JournalDayQualityView }) {
-  const decision = day.decision;
-  const kind = dayHistoryKind(day);
-  const kindLabel = historyKindLabel(kind);
-  const freshness = valuationFreshnessLabel(dayValuationFreshness(day));
-  return (
-    <section className="dj-block" data-testid="shadow-journal-block-a">
-      <h4 className="dj-block-title">
-        <span className="dj-block-letter">A</span>
-        Что знал Kraken
-      </h4>
-      <dl className="dj-kv">
-        <dt>Дата дня</dt>
-        <dd>{formatDate(day.date)}</dd>
-        <dt>Сигнал as-of</dt>
-        <dd>{formatDate(day.signal_as_of_date ?? day.date)}</dd>
-        {decision?.decision_at ? (
-          <>
-            <dt>Решение at</dt>
-            <dd>{decision.decision_at}</dd>
-          </>
-        ) : null}
-        {decision?.iso_week ? (
-          <>
-            <dt>Неделя</dt>
-            <dd>{decision.iso_week}</dd>
-          </>
-        ) : null}
-        {decision?.policy_name ? (
-          <>
-            <dt>Политика</dt>
-            <dd>{decision.policy_name}</dd>
-          </>
-        ) : null}
-        {decision?.risk_name ? (
-          <>
-            <dt>Риск-модуль</dt>
-            <dd>{decision.risk_name}</dd>
-          </>
-        ) : null}
-        {kindLabel ? (
-          <>
-            <dt>Провенанс</dt>
-            <dd data-testid="shadow-journal-block-a-provenance">{kindLabel}</dd>
-          </>
-        ) : null}
-        {freshness ? (
-          <>
-            <dt>Свежесть оценки</dt>
-            <dd data-testid="shadow-journal-block-a-freshness">{freshness}</dd>
-          </>
-        ) : null}
-      </dl>
+    <section className="dj-block" data-testid="shadow-journal-block-why">
+      <h4>Почему Kraken так решил</h4>
+      <div className="dj-why-grid">
+        <div>
+          <h5>Подтверждённые причины</h5>
+          {hasConfirmed ? (
+            <ul className="dj-why-list">
+              {Array.from(codes).map((code) => (
+                <li key={code}>{journalReasonCodeLabel(code)}</li>
+              ))}
+              {(targets ?? []).slice(0, 12).map((t, idx) => {
+                const ticker = String((t as { ticker?: string }).ticker ?? "").toUpperCase();
+                const rank = (t as { rank?: number }).rank;
+                const action = (t as { action?: string }).action;
+                if (!ticker) return null;
+                return (
+                  <li key={`${ticker}-${idx}`}>
+                    {ticker}
+                    {rank != null ? ` · место ${rank}` : ""}
+                    {action ? ` · ${journalDecisionActionLabel(action)}` : ""}
+                  </li>
+                );
+              })}
+              {facts?.policy_name ? <li>Стратегия: {facts.policy_name}</li> : null}
+              {facts?.risk_name ? <li>Ограничение риска: {facts.risk_name}</li> : null}
+            </ul>
+          ) : (
+            <p className="muted">Подтверждённых кодов причин нет.</p>
+          )}
+        </div>
+        <div>
+          <h5>Исторические ограничения</h5>
+          <p data-testid="shadow-journal-missing-reason">
+            {day.message_ru ||
+              (day.detail_available
+                ? "Доступны сохранённые факты по этому дню."
+                : "Для решений этого периода не сохранялось подробное обоснование отбора каждой бумаги. При этом могли сохраниться состав заявок и параметры стратегии.")}
+          </p>
+        </div>
+      </div>
     </section>
   );
 }
 
-function CandidateDecisionCard({
-  candidate,
-  onOpenHistory,
-}: {
-  candidate: ShadowJournalCandidateTrace;
-  onOpenHistory: (ticker: string) => void;
-}) {
-  const ticker = (candidate.ticker ?? "").toUpperCase();
-  const action = candidate.decision_action ?? null;
-  const human = journalCandidateHumanReason({
-    action,
-    reason_codes: candidate.reason_codes,
-    replacement_ticker: candidate.replacement_ticker,
-    net_edge: candidate.net_edge,
-  });
-  const plan = candidatePlanFields(candidate);
-
+function TechnicalBlock({ day, ownerMode }: { day: ShadowJournalDay; ownerMode: boolean }) {
+  if (!ownerMode) return null;
+  const [open, setOpen] = useState(false);
   return (
-    <li
-      className="dj-decision-item"
-      data-testid={`shadow-journal-candidate-${ticker || "unknown"}`}
-    >
-      <div className="dj-decision-item-head">
-        {ticker ? (
-          <button
-            type="button"
-            className="dj-ticker-btn"
-            data-testid={`shadow-journal-drill-${ticker}`}
-            onClick={() => onOpenHistory(ticker)}
-          >
-            {ticker}
-          </button>
-        ) : (
-          <strong>—</strong>
-        )}
-        <span className={actionChipClass(action ?? "")}>{journalDecisionActionLabel(action)}</span>
-      </div>
-      <p
-        className="dj-why"
-        data-testid={ticker ? `shadow-journal-human-reason-${ticker}` : undefined}
-      >
-        {human}
-      </p>
-      {plan.length > 0 ? (
-        <div className="dj-plan" data-testid={ticker ? `shadow-journal-plan-${ticker}` : undefined}>
-          {plan.map((row) => (
-            <span key={row.label} className="dj-chip dj-chip-muted">
-              {row.label}: {row.value}
-            </span>
-          ))}
+    <section className="dj-block dj-tech" data-testid="shadow-journal-block-tech">
+      <button type="button" className="dj-tech-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        Технические сведения {open ? "▴" : "▾"}
+      </button>
+      {open ? (
+        <div className="dj-tech-body">
+          <dl className="dj-kv">
+            <div>
+              <dt>Решение Kraken (ID)</dt>
+              <dd>{day.decision?.id ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Forward Batch ID</dt>
+              <dd>{day.decision?.forward_batch_id ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Стратегия</dt>
+              <dd>{day.decision?.policy_name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Риск-модуль</dt>
+              <dd>{day.decision?.risk_name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>ISO время решения</dt>
+              <dd>{day.decision?.decision_at ?? "—"}</dd>
+            </div>
+          </dl>
+          <ul className="dj-tech-orders">
+            {day.orders.map((o) => (
+              <li key={o.id}>
+                {o.ticker}: заявка #{o.id}, статус {o.status}
+                {(o.fills ?? []).map((f) => (
+                  <span key={f.id}> · исполнение #{f.id} {f.execution_date}</span>
+                ))}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
-    </li>
-  );
-}
-
-function BlockB({
-  day,
-  onOpenHistory,
-}: {
-  day: ShadowJournalDay;
-  onOpenHistory: (ticker: string) => void;
-}) {
-  return (
-    <section className="dj-block" data-testid="shadow-journal-block-b">
-      <h4 className="dj-block-title">
-        <span className="dj-block-letter">B</span>
-        Что решил
-      </h4>
-      {day.candidates.length > 0 ? (
-        <ul className="dj-decision-list" data-testid="shadow-journal-candidates">
-          {day.candidates.map((c, idx) => (
-            <CandidateDecisionCard
-              key={`${c.ticker ?? "x"}-${c.decision_action ?? "a"}-${idx}`}
-              candidate={c}
-              onOpenHistory={onOpenHistory}
-            />
-          ))}
-        </ul>
-      ) : day.detail_available ? (
-        <p className="muted">Кандидаты за день не сохранены.</p>
-      ) : (
-        <p className="muted">Детализация решения за день недоступна.</p>
-      )}
-    </section>
-  );
-}
-
-function BlockC({ day }: { day: ShadowJournalDay }) {
-  const hasWhy = dayHasWhyEvidence(day);
-  const decision = day.decision;
-  const codeLines = day.candidates.flatMap((c) =>
-    (c.reason_codes ?? []).map((code) => ({
-      ticker: (c.ticker ?? "").toUpperCase() || "—",
-      code,
-      label: journalReasonCodeLabel(code),
-    })),
-  );
-
-  return (
-    <section className="dj-block" data-testid="shadow-journal-block-c">
-      <h4 className="dj-block-title">
-        <span className="dj-block-letter">C</span>
-        Почему
-      </h4>
-      {!hasWhy ? (
-        <p className="muted" data-testid="shadow-journal-missing-reason">
-          {day.message_ru?.trim() || JOURNAL_MISSING_REASON_RU}
-        </p>
-      ) : (
-        <>
-          {(decision?.policy_name || decision?.risk_name || day.risk_mode) && (
-            <dl className="dj-kv" data-testid="shadow-journal-why-policy">
-              {decision?.policy_name ? (
-                <>
-                  <dt>Policy</dt>
-                  <dd>{decision.policy_name}</dd>
-                </>
-              ) : null}
-              {decision?.risk_name ? (
-                <>
-                  <dt>Risk</dt>
-                  <dd>{decision.risk_name}</dd>
-                </>
-              ) : null}
-              {day.risk_mode || decision?.risk_mode ? (
-                <>
-                  <dt>Режим риска</dt>
-                  <dd>{riskModeLabel(day.risk_mode ?? decision?.risk_mode)}</dd>
-                </>
-              ) : null}
-            </dl>
-          )}
-          {codeLines.length > 0 ? (
-            <ul className="dj-decision-list" data-testid="shadow-journal-why-codes">
-              {codeLines.map((row, idx) => (
-                <li key={`${row.ticker}-${row.code}-${idx}`} className="dj-decision-item">
-                  <div className="dj-decision-item-head">
-                    <strong>{row.ticker}</strong>
-                    <span className="dj-chip dj-id">{row.code}</span>
-                  </div>
-                  <p className="dj-why">{row.label}</p>
-                </li>
-              ))}
-            </ul>
-          ) : !decision?.policy_name && !decision?.risk_name && !day.risk_mode ? (
-            <p className="muted" data-testid="shadow-journal-missing-reason">
-              {JOURNAL_MISSING_REASON_RU}
-            </p>
-          ) : null}
-        </>
-      )}
-    </section>
-  );
-}
-
-function BlockD({ day }: { day: ShadowJournalDay }) {
-  const chains = buildDecisionOrderFillChains(day);
-  const costs = day.total_modeled_costs;
-
-  if (chains.length === 0) {
-    return (
-      <section className="dj-block" data-testid="shadow-journal-block-d">
-        <h4 className="dj-block-title">
-          <span className="dj-block-letter">D</span>
-          Что произошло
-        </h4>
-        <p className="muted" data-testid="shadow-journal-no-orders">
-          Сделок и ордеров за этот день нет.
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="dj-block" data-testid="shadow-journal-block-d">
-      <h4 className="dj-block-title">
-        <span className="dj-block-letter">D</span>
-        Что произошло
-      </h4>
-      <ul className="dj-chain" data-testid="shadow-journal-transactions">
-        {chains.map((link, idx) => {
-          const order = link.order;
-          const orderId = order?.id ?? link.fills[0]?.order_id;
-          return (
-            <li
-              key={`chain-${orderId ?? "x"}-${idx}`}
-              className="dj-chain-item"
-              data-testid={
-                order
-                  ? `shadow-journal-order-${order.id}`
-                  : link.fills[0]
-                    ? `shadow-journal-fill-${link.fills[0].id}`
-                    : undefined
-              }
-            >
-              <div className="dj-chain-step">
-                <strong>Decision</strong>
-                <span className="dj-id" data-testid={order ? `shadow-journal-decision-id-${order.decision_id}` : undefined}>
-                  #{link.decisionId ?? order?.decision_id ?? "—"}
-                </span>
-                <span aria-hidden>→</span>
-                <strong>Order</strong>
-                {order ? (
-                  <>
-                    <span className="dj-id">#{order.id}</span>
-                    <span>{order.ticker}</span>
-                    <span className={actionChipClass(order.side)}>{journalDecisionActionLabel(order.side)}</span>
-                    <span>× {order.quantity}</span>
-                    <span className="muted">{order.status}</span>
-                  </>
-                ) : (
-                  <span className="dj-id">#{orderId ?? "—"}</span>
-                )}
-              </div>
-              {link.fills.length > 0 ? (
-                link.fills.map((f) => (
-                  <div
-                    key={f.id}
-                    className="dj-chain-step"
-                    data-testid={`shadow-journal-fill-${f.id}`}
-                  >
-                    <strong>Fill</strong>
-                    <span className="dj-id">#{f.id}</span>
-                    <span>{f.ticker}</span>
-                    <span className={actionChipClass(f.side)}>{journalDecisionActionLabel(f.side)}</span>
-                    <span>
-                      {f.quantity} @ {formatPrice(f.fill_price)}
-                    </span>
-                    <span className="muted">{formatDate(f.execution_date)}</span>
-                  </div>
-                ))
-              ) : link.pending ? (
-                <div className="dj-chain-step" data-testid={order ? `shadow-journal-pending-${order.id}` : undefined}>
-                  <span className="dj-pending-label">Pending</span>
-                  <span className="muted">
-                    статус ордера: {order?.status ?? "PENDING"} — исполнение ещё не зафиксировано
-                  </span>
-                </div>
-              ) : order ? (
-                <div
-                  className="dj-chain-step"
-                  data-testid={`shadow-journal-order-outcome-${order.id}`}
-                >
-                  <span className="muted">
-                    Исполнений за этот день нет · статус ордера: {order.status}
-                  </span>
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-      {(costs.total > 0 || day.fills.length > 0) && (
-        <p className="muted" data-testid="shadow-journal-day-costs">
-          Модельные издержки дня: комиссия {formatMoney(costs.commission)}, проскальзывание{" "}
-          {formatMoney(costs.slippage_cost)}, всего {formatMoney(costs.total)}.
-        </p>
-      )}
     </section>
   );
 }
 
 function DayCard({
   day,
-  onOpenHistory,
+  expanded,
+  onToggle,
+  ownerMode,
 }: {
-  day: JournalDayQualityView;
-  onOpenHistory: (ticker: string) => void;
+  day: ShadowJournalDay;
+  expanded: boolean;
+  onToggle: () => void;
+  ownerMode: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const panelId = useId();
+  const panelId = `dj-day-panel-${day.date}`;
   const tickers = dayTickers(day);
-  const mode = riskModeLabel(day.risk_mode ?? day.decision?.risk_mode);
-  const ddWarn = drawdownQualityWarning(day, day.nav);
+  const [openTicker, setOpenTicker] = useState<string | null>(null);
+  const headline = dayClosedHeadline(day);
+  const buyOrders = day.counts.buy_orders ?? day.counts.buy;
 
   return (
     <article className="dj-day" data-testid={`shadow-journal-day-${day.date}`}>
       <div className="dj-day-closed">
         <div className="dj-day-topline">
           <strong className="dj-day-date" data-testid="shadow-journal-day-date">
-            {formatDate(day.date)}
+            {formatJournalDayTitle(day.date)}
           </strong>
-          <span className="dj-chip" data-testid="shadow-journal-day-mode">
-            {mode}
+          <span className="dj-mode" data-testid="shadow-journal-day-mode">
+            {riskModeLabel(day.risk_mode ?? day.decision?.risk_mode)}
           </span>
-          <ProvenanceChips day={day} />
         </div>
-
+        <p className="dj-headline" data-testid="shadow-journal-day-headline">
+          {headline}
+        </p>
         {tickers.length > 0 ? (
-          <div className="dj-chip-row" data-testid="shadow-journal-day-tickers">
-            {tickers.map((t) => (
-              <span key={t} className="dj-chip dj-chip-ticker">
-                {t}
-              </span>
-            ))}
-          </div>
+          <p className="dj-tickers-line" data-testid="shadow-journal-day-tickers">
+            Тикеры: {tickers.join(", ")}.
+          </p>
         ) : null}
-
-        <CountChips day={day} />
-
-        <div className="dj-chip-row">
-          <ClosedNavRow day={day} />
-        </div>
-
+        <CompactStats day={day} />
+        <PortfolioValue day={day} />
+        <DataStateLine day={day} />
         <button
           type="button"
-          className="dj-cta"
-          aria-expanded={open}
+          className="dj-expand"
+          aria-expanded={expanded}
           aria-controls={panelId}
-          data-testid="shadow-journal-day-toggle"
-          onClick={() => setOpen((v) => !v)}
+          onClick={onToggle}
+          data-testid="shadow-journal-day-expand"
         >
-          Детали решения
-          <span className="dj-chevron" aria-hidden>
-            ▾
-          </span>
+          {buyOrders && buyOrders > 0 ? "Почему Kraken выбрал эти бумаги?" : "Детали решения"}{" "}
+          <span aria-hidden>{expanded ? "▴" : "▾"}</span>
         </button>
       </div>
 
-      {open ? (
-        <div className="dj-day-body" id={panelId} data-testid="shadow-journal-day-expanded">
-          {!day.detail_available && day.message_ru ? (
-            <p className="banner banner-warning" data-testid="shadow-journal-legacy-message">
-              {day.message_ru}
-            </p>
-          ) : null}
-          {ddWarn ? (
-            <p className="banner banner-warning" data-testid="shadow-journal-dd-warning-body">
-              {ddWarn}
-            </p>
-          ) : null}
-          <BlockA day={day} />
-          <BlockB day={day} onOpenHistory={onOpenHistory} />
-          <BlockC day={day} />
-          <BlockD day={day} />
+      {expanded ? (
+        <div id={panelId} className="dj-day-open" data-testid={`shadow-journal-day-panel-${day.date}`}>
+          <section className="dj-block" data-testid="shadow-journal-block-summary">
+            <h4>Что Kraken сделал?</h4>
+            <p data-testid="shadow-journal-day-summary">{dayWhatHappenedSummary(day)}</p>
+          </section>
+
+          <section className="dj-block" data-testid="shadow-journal-block-instruments">
+            <h4>Что произошло с бумагами</h4>
+            {day.orders.length === 0 ? (
+              <p className="muted" data-testid="shadow-journal-no-orders">
+                Заявок за этот день нет.
+              </p>
+            ) : (
+              <div className="dj-instr-table" role="table" aria-label="Заявки дня">
+                <div className="dj-instr-head" role="row">
+                  <span role="columnheader">Бумага</span>
+                  <span role="columnheader">Действие</span>
+                  <span role="columnheader">Количество</span>
+                  <span role="columnheader">Результат</span>
+                  <span aria-hidden />
+                </div>
+                {day.orders.map((order) => (
+                  <InstrumentRow
+                    key={order.id}
+                    day={day}
+                    order={order}
+                    expanded={openTicker === order.ticker}
+                    onToggle={() =>
+                      setOpenTicker((cur) => (cur === order.ticker ? null : order.ticker))
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <WhyBlock day={day} />
+          <TechnicalBlock day={day} ownerMode={ownerMode} />
         </div>
       ) : null}
     </article>
   );
 }
 
-function CandidateHistoryPanel({
-  portfolioId,
-  ticker,
-  onClose,
-}: {
-  portfolioId: string | number;
-  ticker: string;
-  onClose: () => void;
-}) {
-  const [data, setData] = useState<ShadowCandidateHistoryResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const requestSeq = useRef(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const seq = ++requestSeq.current;
-    const expectedPortfolioId = String(portfolioId);
-    const expectedTicker = ticker.toUpperCase();
-    setLoading(true);
-    setError(null);
-    setData(null);
-    void getShadowCandidateHistory(portfolioId, ticker, 100, controller.signal)
-      .then((resp) => {
-        if (controller.signal.aborted || seq !== requestSeq.current) return;
-        if (String(resp.portfolio_id) !== expectedPortfolioId) return;
-        if ((resp.ticker ?? "").toUpperCase() !== expectedTicker) return;
-        setData(resp);
-        setLoading(false);
-      })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted || seq !== requestSeq.current) return;
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setError(errorMessage(reason));
-        setLoading(false);
-      });
-    return () => controller.abort();
-  }, [portfolioId, ticker]);
-
-  return (
-    <aside className="panel dj-history" data-testid="shadow-journal-candidate-history">
-      <header className="dj-history-head">
-        <h3 className="sim-section-title" style={{ margin: 0 }}>
-          История кандидата {ticker}
-        </h3>
-        <button type="button" className="secondary" onClick={onClose} data-testid="shadow-journal-history-close">
-          Закрыть
-        </button>
-      </header>
-      {loading ? <p className="muted">Загрузка истории…</p> : null}
-      {error ? <p className="banner banner-warning">{error}</p> : null}
-      {data && !data.detail_available && data.message_ru ? (
-        <p className="banner banner-warning" data-testid="shadow-journal-history-legacy">
-          {data.message_ru}
-        </p>
-      ) : null}
-      {data ? (
-        <>
-          <p className="muted" data-testid="shadow-journal-history-summary">
-            Событий: {data.summary.event_count}
-            {data.summary.first_seen ? ` · с ${formatDate(data.summary.first_seen)}` : ""}
-            {data.summary.last_seen ? ` · по ${formatDate(data.summary.last_seen)}` : ""}
-          </p>
-          {data.events.length === 0 ? (
-            <p className="muted">Событий по тикеру нет.</p>
-          ) : (
-            <ol className="dj-timeline" data-testid="shadow-journal-timeline">
-              {data.events.map((ev, idx) => (
-                <li
-                  key={`${ev.decision_id}-${ev.signal_as_of_date}-${idx}`}
-                  data-testid={`shadow-journal-event-${ev.signal_as_of_date}`}
-                >
-                  <div className="dj-timeline-meta">
-                    <strong>{formatDate(ev.signal_as_of_date)}</strong>
-                    <span className={actionChipClass(ev.action ?? "")}>
-                      {journalDecisionActionLabel(ev.action)}
-                    </span>
-                    {ev.rank != null ? <span className="muted">ранг {ev.rank}</span> : null}
-                  </div>
-                  {!ev.detail_available && ev.message_ru ? (
-                    <p className="muted">{ev.message_ru}</p>
-                  ) : (
-                    <p data-testid={`shadow-journal-event-reason-${ev.signal_as_of_date}`}>
-                      {journalCandidateHumanReason({
-                        action: ev.action,
-                        reason_codes: ev.reason_codes,
-                        replacement_ticker: ev.replacement_ticker,
-                        net_edge: ev.net_edge,
-                      })}
-                    </p>
-                  )}
-                  {ev.fill ? (
-                    <p className="muted">
-                      Исполнение: {journalDecisionActionLabel(ev.fill.side)} {ev.fill.quantity} @{" "}
-                      {formatPrice(ev.fill.fill_price)} ({formatDate(ev.fill.execution_date)})
-                    </p>
-                  ) : ev.order ? (
-                    <p className="muted">
-                      Ордер: {journalDecisionActionLabel(ev.order.side)} {ev.order.quantity} ·{" "}
-                      {ev.order.status}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          )}
-        </>
-      ) : null}
-    </aside>
-  );
-}
-
-type AppliedFilters = {
-  dateFrom: string;
-  dateTo: string;
-  ticker: string;
-  action: string;
-};
-
-function filtersKey(portfolioId: string | number, applied: AppliedFilters): string {
-  return [
-    String(portfolioId),
-    applied.dateFrom,
-    applied.dateTo,
-    applied.ticker,
-    applied.action,
-  ].join("|");
-}
-
 export function DecisionJournalPanel({
   portfolioId,
   portfolioLabel,
+  ownerMode = false,
 }: {
-  portfolioId: string | number;
-  portfolioLabel?: string | null;
+  portfolioId: number | null;
+  portfolioLabel?: string;
+  ownerMode?: boolean;
 }) {
   const formId = useId();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [ticker, setTicker] = useState("");
   const [action, setAction] = useState("");
-  const [applied, setApplied] = useState<AppliedFilters>({
-    dateFrom: "",
-    dateTo: "",
-    ticker: "",
-    action: "",
-  });
-  const [journal, setJournal] = useState<ShadowJournalResponse | null>(null);
+  const [applied, setApplied] = useState({ dateFrom: "", dateTo: "", ticker: "", action: "" });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [drillTicker, setDrillTicker] = useState<string | null>(null);
+  const [journal, setJournal] = useState<ShadowJournalResponse | null>(null);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [historyTicker, setHistoryTicker] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getShadowCandidateHistory>> | null>(
+    null,
+  );
   const requestSeq = useRef(0);
-  const activeKeyRef = useRef(filtersKey(portfolioId, applied));
-
-  // Clear drill-down / filters when portfolio arm changes (no stale cross-portfolio journal).
-  useEffect(() => {
-    setDrillTicker(null);
-    setJournal(null);
-    setError(null);
-    setLoading(true);
-    setDateFrom("");
-    setDateTo("");
-    setTicker("");
-    setAction("");
-    setApplied({ dateFrom: "", dateTo: "", ticker: "", action: "" });
-  }, [portfolioId]);
 
   useEffect(() => {
-    const controller = new AbortController();
+    if (portfolioId == null) {
+      setJournal(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     const seq = ++requestSeq.current;
-    const expectedKey = filtersKey(portfolioId, applied);
-    activeKeyRef.current = expectedKey;
-    const expectedPortfolioId = String(portfolioId);
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-
     void getShadowJournal(
       portfolioId,
       {
         date_from: applied.dateFrom || undefined,
         date_to: applied.dateTo || undefined,
-        ticker: applied.ticker.trim() || undefined,
+        ticker: applied.ticker || undefined,
         action: applied.action || undefined,
         limit: 60,
       },
       controller.signal,
     )
-      .then((resp) => {
-        // Ignore aborted / superseded requests (portfolio OR filter changes).
-        if (controller.signal.aborted || seq !== requestSeq.current) return;
-        if (activeKeyRef.current !== expectedKey) return;
-        if (String(resp.portfolio_id) !== expectedPortfolioId) return;
-        setJournal(resp);
-        setLoading(false);
+      .then((payload) => {
+        if (seq !== requestSeq.current) return;
+        setJournal(payload);
       })
-      .catch((reason: unknown) => {
+      .catch((err) => {
         if (controller.signal.aborted || seq !== requestSeq.current) return;
-        if (activeKeyRef.current !== expectedKey) return;
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setError(errorMessage(reason));
-        setLoading(false);
+        setJournal(null);
+        setError(errorMessage(err));
+      })
+      .finally(() => {
+        if (seq === requestSeq.current) setLoading(false);
       });
-
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [portfolioId, applied]);
 
-  const applyFilters = () => {
-    setDrillTicker(null);
-    setApplied({
-      dateFrom,
-      dateTo,
-      ticker: ticker.trim().toUpperCase(),
-      action,
-    });
-  };
+  useEffect(() => {
+    setExpandedDay(null);
+    setHistory(null);
+    setHistoryError(null);
+  }, [portfolioId]);
 
-  const resetFilters = () => {
-    setDateFrom("");
-    setDateTo("");
-    setTicker("");
-    setAction("");
-    setDrillTicker(null);
-    setApplied({ dateFrom: "", dateTo: "", ticker: "", action: "" });
-  };
+  if (portfolioId == null) {
+    return (
+      <section className="panel shadow-journal dj-panel" data-testid="shadow-decision-journal">
+        <p className="muted">Выберите плечо эксперимента, чтобы открыть журнал решений.</p>
+      </section>
+    );
+  }
+
+  const daysDesc = [...(journal?.days ?? [])].reverse();
 
   return (
-    <div className="panel shadow-journal dj-panel" data-testid="shadow-decision-journal">
-      <header className="dj-head shadow-journal-head">
-        <div>
-          <h2 className="sim-section-title">Журнал решений</h2>
-          <p className="muted">
-            Decision → кандидаты → ордера → исполнения → NAV
-            {portfolioLabel ? (
-              <>
-                {" "}
-                · плечо <strong>{portfolioLabel}</strong>
-              </>
-            ) : null}{" "}
-            · portfolio_id <code data-testid="shadow-journal-portfolio-id">{String(portfolioId)}</code>
-          </p>
-        </div>
+    <section className="panel shadow-journal dj-panel" data-testid="shadow-decision-journal">
+      <header className="dj-head">
+        <h2 className="sim-section-title">Журнал решений</h2>
+        <p className="muted">
+          Решение → заявки → исполнения → стоимость портфеля
+          {portfolioLabel ? ` · ${portfolioLabel}` : ""} · portfolio_id{" "}
+          <code data-testid="shadow-journal-portfolio-id">{portfolioId}</code>
+        </p>
       </header>
 
       <form
-        className="form-row dj-filters shadow-journal-filters"
+        id={formId}
+        className="dj-filters"
         data-testid="shadow-journal-filters"
         onSubmit={(e) => {
           e.preventDefault();
-          applyFilters();
+          setApplied({ dateFrom, dateTo, ticker: ticker.trim().toUpperCase(), action });
         }}
       >
-        <label htmlFor={`${formId}-from`}>
+        <label>
           С даты
           <input
-            id={`${formId}-from`}
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
             data-testid="shadow-journal-date-from"
           />
         </label>
-        <label htmlFor={`${formId}-to`}>
+        <label>
           По дату
           <input
-            id={`${formId}-to`}
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
             data-testid="shadow-journal-date-to"
           />
         </label>
-        <label htmlFor={`${formId}-ticker`}>
+        <label>
           Тикер
           <input
-            id={`${formId}-ticker`}
-            type="text"
             value={ticker}
-            placeholder="SBER"
-            autoComplete="off"
             onChange={(e) => setTicker(e.target.value)}
+            placeholder="SBER"
             data-testid="shadow-journal-ticker"
           />
         </label>
-        <label htmlFor={`${formId}-action`}>
+        <label>
           Действие
           <select
-            id={`${formId}-action`}
             value={action}
             onChange={(e) => setAction(e.target.value)}
             data-testid="shadow-journal-action"
           >
-            {ACTION_FILTER_OPTIONS.map((opt) => (
-              <option key={opt.value || "all"} value={opt.value}>
-                {opt.label}
+            {ACTION_FILTER_OPTIONS.map((o) => (
+              <option key={o.value || "all"} value={o.value}>
+                {o.label}
               </option>
             ))}
           </select>
@@ -819,7 +550,18 @@ export function DecisionJournalPanel({
         <button type="submit" data-testid="shadow-journal-apply">
           Применить
         </button>
-        <button type="button" className="secondary" onClick={resetFilters} data-testid="shadow-journal-reset">
+        <button
+          type="button"
+          className="secondary"
+          data-testid="shadow-journal-reset"
+          onClick={() => {
+            setDateFrom("");
+            setDateTo("");
+            setTicker("");
+            setAction("");
+            setApplied({ dateFrom: "", dateTo: "", ticker: "", action: "" });
+          }}
+        >
           Сбросить
         </button>
       </form>
@@ -830,41 +572,74 @@ export function DecisionJournalPanel({
         </p>
       ) : null}
       {error ? (
-        <p className="banner banner-warning" data-testid="shadow-journal-error">
+        <p className="error-text" data-testid="shadow-journal-error">
           {error}
         </p>
       ) : null}
-
-      {!loading && !error && journal ? (
-        journal.days.length === 0 ? (
-          <p className="muted" data-testid="shadow-journal-empty">
-            За выбранный период дней журнала нет.
-          </p>
-        ) : (
-          <div className="dj-layout shadow-journal-layout">
-            <div className="dj-days shadow-journal-days" data-testid="shadow-journal-days">
-              {journal.truncated ? (
-                <p className="muted">Показаны последние {journal.returned_days} дней (лимит).</p>
-              ) : null}
-              {journal.days.map((day) => (
-                <DayCard
-                  key={day.date}
-                  day={day as JournalDayQualityView}
-                  onOpenHistory={setDrillTicker}
-                />
-              ))}
-            </div>
-            {drillTicker ? (
-              <CandidateHistoryPanel
-                key={`${portfolioId}-${drillTicker}`}
-                portfolioId={portfolioId}
-                ticker={drillTicker}
-                onClose={() => setDrillTicker(null)}
-              />
-            ) : null}
-          </div>
-        )
+      {!loading && !error && daysDesc.length === 0 ? (
+        <p className="muted" data-testid="shadow-journal-empty">
+          Нет дней журнала для выбранных фильтров.
+        </p>
       ) : null}
-    </div>
+
+      <div className="dj-days" data-testid="shadow-journal-days">
+        {daysDesc.map((day) => (
+          <DayCard
+            key={day.date}
+            day={day}
+            expanded={expandedDay === day.date}
+            onToggle={() => setExpandedDay((cur) => (cur === day.date ? null : day.date))}
+            ownerMode={ownerMode}
+          />
+        ))}
+      </div>
+
+      <div className="dj-history" data-testid="shadow-journal-history">
+        <h3>История по бумаге</h3>
+        <form
+          className="dj-filters"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = historyTicker.trim().toUpperCase();
+            if (!t || portfolioId == null) return;
+            setHistoryLoading(true);
+            setHistoryError(null);
+            void getShadowCandidateHistory(portfolioId, t)
+              .then((payload) => setHistory(payload))
+              .catch((err) => {
+                setHistory(null);
+                setHistoryError(errorMessage(err));
+              })
+              .finally(() => setHistoryLoading(false));
+          }}
+        >
+          <label>
+            Тикер
+            <input
+              value={historyTicker}
+              onChange={(e) => setHistoryTicker(e.target.value)}
+              placeholder="MGNT"
+              data-testid="shadow-journal-history-ticker"
+            />
+          </label>
+          <button type="submit" data-testid="shadow-journal-history-load">
+            Показать
+          </button>
+        </form>
+        {historyLoading ? <p className="muted">Загрузка…</p> : null}
+        {historyError ? <p className="error-text">{historyError}</p> : null}
+        {history ? (
+          <ul data-testid="shadow-journal-history-events">
+            {history.events.map((ev, idx) => (
+              <li key={`${ev.decision_id}-${idx}`}>
+                {formatDate(ev.signal_as_of_date)} · {journalDecisionActionLabel(ev.action)}
+                {ev.order ? ` · заявка ${ev.order.ticker}` : ""}
+                {ev.fill ? ` · исполнение ${formatDate(ev.fill.execution_date)}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </section>
   );
 }
