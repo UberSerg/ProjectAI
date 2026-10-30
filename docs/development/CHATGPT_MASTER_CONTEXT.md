@@ -37,18 +37,17 @@ Never erase the activity history to make the current picture look cleaner. Updat
 
 If a context update cannot be committed or merged (missing GitHub access, failed CI, approval requirement, concurrent edit), explicitly report **CONTEXT_UPDATE_PENDING**, its location and the exact reason. Do not claim the master context is up to date until merged to main.
 
-### Current State — 2026-10-30 (UX Wave 1 #98/#99 MERGED)
+### Current State — 2026-10-30 (Journal V4.1 in progress — Owner rejected V4 UX)
 
-- **Verified main:** `95f2fd857764448168343d22bacf8e49ed445d29` (merge of #99 after #98).
-- **PR #85 / #91:** **MERGED** (earlier Owner-authorized).
-- **PR #98 (Design System V2):** **MERGED** — feature tip `eeba431b3aa4e62168bef6713548425f709684e5` → merge commit `8fbea8d5d2b3098658b85689ca1ed04126c9d290` (Owner «мерджи», 2026-10-30T06:27:37Z). Prior exact-head CI [40927696166](https://github.com/UberSerg/ProjectAI/actions/runs/40927696166) success.
-- **PR #99 (Decision Journal V4):** **MERGED** — feature tip `e7e201dd9b9291e3ad224259e34fa7b24574c34b` → merge commit `95f2fd857764448168343d22bacf8e49ed445d29` (same Owner authorization, 2026-10-30T06:27:42Z). Prior exact-head CI [40927914670](https://github.com/UberSerg/ProjectAI/actions/runs/40927914670) success.
-- **PR #97 (Agent 00 audit docs):** still OPEN — https://github.com/UberSerg/ProjectAI/pull/97 — rebase/update against new main as needed.
-- **Active program:** Operation Human Interface — Wave 1 DS+Journal landed on main; remaining verticals (Shadow/Portfolio/Dashboard/…) continue on isolated worktrees after token contract now on main.
-- **Merge policy:** no auto-merge of further UX PRs; each needs Owner authorization.
-- **Worktrees:** do not touch root `dark-dashboard` unless tasked; no stash/reset/clean/force across foreign trees.
-- **PR B / PR C:** still PLANNED — out of UX scope.
-- **Next action:** Agent 00 sync audit docs / registry to main; other UX agents rebase verticals onto `95f2fd8` when starting work; Owner sets next vertical priority.
+- **Verified origin/main (fetch):** `53013c3619bc3bd147d0196424cf6124b4e6b4f3` (includes #98/#99 merges + owner rejection notes). Re-verify before merge.
+- **Owner decision:** PR #99 visual result rejected — needs Human-First V4.1 (not font cosmetics).
+- **RO diagnosis (portfolio 5 · 2026-09-03):** no `candidate_traces`; PARTIAL facts via targets(9), order_plan, 9 orders (8 FILLED+fill on 2026-09-08, 1 CANCELLED); no NAV on decision day.
+- **PR #100 backend read-model V4.1:** OPEN — https://github.com/UberSerg/ProjectAI/pull/100 — HEAD `5d65ebb49853f9432ef19e0feca3140a0cdbeea3` — evidence_level + order-linked fills. Merge **first**.
+- **PR #101 frontend Journal V4.1:** OPEN — https://github.com/UberSerg/ProjectAI/pull/101 — HEAD `88eb135f8720cbc9283eeb4a27d89bc678f1d42e` — human-first RU UI. Merge **after #100**.
+- **Browser acceptance (REPORTED_BY_CURSOR):** `/shadow` shows closed card «9 заявок на покупку», Исполнено 8 / Отменено 1, «Исполнено позднее», no FILLED/Decision# dump. Screenshots under FE worktree `.tmp/journal-v41-acceptance/`.
+- **Merge policy:** no auto-merge; Owner Review required.
+- **PR B / PR C:** still PLANNED.
+- **Next action:** Owner Review #100 → #101; Agent 09 independent visual QA.
 
 ---
 
