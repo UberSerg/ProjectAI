@@ -1,13 +1,14 @@
-"""Shadow Decision Journal read models (Decision → traces → Orders → Fills → NAV).
+"""Shadow Decision Journal read models (Decision → Orders → Fills → NAV).
 
-Read-only. Does not invent fills or candidate traces. Legacy decisions without
-``candidate_traces`` degrade with an honest ``detail_available=false`` flag.
+Read-only. Does not invent fills, reason codes, or candidate traces.
+Legacy decisions without ``candidate_traces`` remain ``detail_available=false``
+but may still expose structured evidence via ``evidence_level`` (PARTIAL/LIMITED).
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -20,9 +21,25 @@ from app.modules.shadow.infrastructure.models import (
     ShadowPortfolio,
 )
 
+EvidenceLevel = Literal["FULL", "PARTIAL", "LIMITED", "NONE"]
+ExecutionTiming = Literal["same_day", "later", "none", "status_fill_mismatch"]
+
 LEGACY_TRACE_MESSAGE_RU = (
     "Подробный decision trace для этой исторической версии не сохранялся."
 )
+
+PARTIAL_EVIDENCE_MESSAGE_RU = (
+    "Для решений этого периода не сохранялось подробное обоснование отбора "
+    "каждой бумаги. При этом сохранились состав заявок и параметры стратегии. "
+    "Ниже показаны доступные факты."
+)
+
+LIMITED_EVIDENCE_MESSAGE_RU = (
+    "По этому дню сохранились лишь отдельные сведения о решении. "
+    "Подробное обоснование отбора бумаг недоступно."
+)
+
+NONE_EVIDENCE_MESSAGE_RU = "Содержательных сведений о решении за этот день нет."
 
 # Explicit product fields only — never expose free-form / CoT blobs.
 _TRACE_PUBLIC_KEYS: frozenset[str] = frozenset(
@@ -60,6 +77,11 @@ _TRACE_PUBLIC_KEYS: frozenset[str] = frozenset(
     }
 )
 
+_FILLED_STATUSES = frozenset({"FILLED", "PARTIAL", "PARTIALLY_FILLED"})
+_CANCELLED_STATUSES = frozenset({"CANCELLED", "CANCELED"})
+_PENDING_STATUSES = frozenset({"PENDING", "OPEN", "NEW", "SUBMITTED", "WORKING"})
+_REJECTED_STATUSES = frozenset({"REJECTED", "EXPIRED"})
+
 
 def _iso_date(value: date | datetime | None) -> str | None:
     if value is None:
@@ -80,6 +102,10 @@ def _normalize_ticker(value: str | None) -> str:
 
 
 def _normalize_action(value: str | None) -> str:
+    return (value or "").strip().upper()
+
+
+def _normalize_status(value: str | None) -> str:
     return (value or "").strip().upper()
 
 
@@ -110,30 +136,109 @@ def _extract_candidate_traces(metadata: dict[str, Any] | None) -> list[dict[str,
 
 
 def _decision_has_detail(metadata: dict[str, Any] | None) -> bool:
+    """Compat: True iff candidate_traces key was persisted (even if empty list)."""
     traces = _extract_candidate_traces(metadata)
     return traces is not None
 
 
-def _serialize_order(order: ShadowOrder) -> dict[str, Any]:
-    return {
-        "id": int(order.id),
-        "decision_id": int(order.decision_id),
-        "instrument_id": int(order.instrument_id),
-        "ticker": order.ticker,
-        "side": order.side,
-        "quantity": float(order.quantity),
-        "target_weight": float(order.target_weight),
-        "target_notional": float(order.target_notional),
-        "reason": order.reason,
-        "status": order.status,
-        "rank": order.rank,
-        "predicted_return_20d": order.predicted_return_20d,
-        "eligible_count": order.eligible_count,
-        "decision_at": _iso_dt(order.decision_at),
-        "min_execution_date": order.min_execution_date.isoformat(),
-        "execution_date": _iso_date(order.execution_date),
-        "metadata": order.metadata_ or {},
-    }
+def _public_targets(targets: Any) -> list[dict[str, Any]]:
+    if not isinstance(targets, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in targets:
+        if not isinstance(item, dict):
+            continue
+        row: dict[str, Any] = {}
+        for key in (
+            "ticker",
+            "instrument_id",
+            "rank",
+            "action",
+            "policy",
+            "target_weight",
+            "predicted_return_20d",
+        ):
+            if key in item:
+                row[key] = item[key]
+        if row:
+            out.append(row)
+    return out
+
+
+def _order_plan_rows(metadata: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(metadata, dict):
+        return []
+    plan = metadata.get("order_plan")
+    if not isinstance(plan, dict):
+        return []
+    rows = plan.get("rows")
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        row: dict[str, Any] = {}
+        for key in (
+            "ticker",
+            "instrument_id",
+            "rank",
+            "action",
+            "reason",
+            "lot_size",
+            "lots_delta",
+            "units_delta",
+            "target_weight",
+            "current_weight",
+            "estimated_notional",
+            "estimated_fee",
+        ):
+            if key in item:
+                row[key] = item[key]
+        if row:
+            out.append(row)
+    return out
+
+
+def classify_evidence_level(
+    decision: ShadowDecision | None,
+    *,
+    orders: list[ShadowOrder] | None = None,
+) -> EvidenceLevel:
+    """Multi-level evidence without inventing missing why-codes."""
+    if decision is None:
+        return "NONE"
+    meta = decision.metadata_ if isinstance(decision.metadata_, dict) else {}
+    traces = _extract_candidate_traces(meta)
+    if traces is not None and len(traces) > 0:
+        return "FULL"
+    # Empty candidate_traces list still means the V3 field existed.
+    if traces is not None:
+        targets = _public_targets(decision.targets)
+        if targets or orders or _order_plan_rows(meta):
+            return "PARTIAL"
+        return "LIMITED"
+
+    targets = _public_targets(decision.targets)
+    plan_rows = _order_plan_rows(meta)
+    if targets or plan_rows or orders:
+        return "PARTIAL"
+    if decision.policy_name or decision.risk_name or meta:
+        return "LIMITED"
+    return "NONE"
+
+
+def evidence_message_ru(level: EvidenceLevel, *, detail_available: bool) -> str | None:
+    if level == "FULL" and detail_available:
+        return None
+    if level == "PARTIAL":
+        return PARTIAL_EVIDENCE_MESSAGE_RU
+    if level == "LIMITED":
+        return LIMITED_EVIDENCE_MESSAGE_RU
+    if level == "NONE":
+        return NONE_EVIDENCE_MESSAGE_RU
+    # FULL with empty traces edge — keep legacy wording for compat consumers.
+    return LEGACY_TRACE_MESSAGE_RU if not detail_available else None
 
 
 def _serialize_fill(fill: ShadowFill) -> dict[str, Any]:
@@ -152,6 +257,59 @@ def _serialize_fill(fill: ShadowFill) -> dict[str, Any]:
         "execution_date": fill.execution_date.isoformat(),
         "filled_at": _iso_dt(fill.filled_at),
         "decision_at": _iso_dt(fill.decision_at),
+    }
+
+
+def _execution_timing(
+    *,
+    signal_day: date | None,
+    status: str,
+    fills: list[ShadowFill],
+) -> ExecutionTiming:
+    status_u = _normalize_status(status)
+    if fills:
+        if signal_day is None:
+            return "later"
+        dates = {f.execution_date for f in fills}
+        if dates == {signal_day}:
+            return "same_day"
+        return "later"
+    if status_u in _FILLED_STATUSES:
+        return "status_fill_mismatch"
+    return "none"
+
+
+def _serialize_order(
+    order: ShadowOrder,
+    *,
+    fills: list[ShadowFill],
+    signal_day: date | None,
+) -> dict[str, Any]:
+    fills_sorted = sorted(fills, key=lambda f: (f.execution_date, int(f.id)))
+    timing = _execution_timing(signal_day=signal_day, status=order.status, fills=fills_sorted)
+    return {
+        "id": int(order.id),
+        "decision_id": int(order.decision_id),
+        "instrument_id": int(order.instrument_id),
+        "ticker": order.ticker,
+        "side": order.side,
+        "quantity": float(order.quantity),
+        "target_weight": float(order.target_weight),
+        "target_notional": float(order.target_notional),
+        "reason": order.reason,
+        "status": order.status,
+        "rank": order.rank,
+        "predicted_return_20d": order.predicted_return_20d,
+        "eligible_count": order.eligible_count,
+        "decision_at": _iso_dt(order.decision_at),
+        "min_execution_date": order.min_execution_date.isoformat()
+        if order.min_execution_date
+        else None,
+        "execution_date": _iso_date(order.execution_date),
+        "metadata": order.metadata_ or {},
+        "fills": [_serialize_fill(f) for f in fills_sorted],
+        "has_confirmed_fill": bool(fills_sorted),
+        "execution_timing": timing,
     }
 
 
@@ -183,7 +341,7 @@ def _serialize_decision_summary(decision: ShadowDecision) -> dict[str, Any]:
         "exposure_cap": float(decision.exposure_cap),
         "policy_name": decision.policy_name,
         "risk_name": decision.risk_name,
-        "targets": decision.targets or [],
+        "targets": _public_targets(decision.targets),
     }
 
 
@@ -195,7 +353,6 @@ def _action_matches(filter_action: str, *, decision_action: str | None, order_si
     side = _normalize_action(order_side)
     if da == fa or side == fa:
         return True
-    # REVIEW matches REVIEW_HOLD / REVIEW_TRIGGER etc.
     if da.startswith(fa + "_") or da.startswith(fa + "-"):
         return True
     return False
@@ -208,26 +365,53 @@ def _ticker_matches(filter_ticker: str, *tickers: str | None) -> bool:
     return any(_normalize_ticker(t) == ft for t in tickers if t)
 
 
-def _count_actions(candidates: list[dict[str, Any]], orders: list[dict[str, Any]]) -> dict[str, int]:
+def _count_actions(
+    candidates: list[dict[str, Any]],
+    orders: list[dict[str, Any]],
+) -> dict[str, int]:
     buy = sell = hold = review = 0
     for c in candidates:
         action = _normalize_action(str(c.get("decision_action") or ""))
-        if action in {"BUY", "ENTER"}:
+        if action in {"BUY", "ENTER"} or action.startswith("ENTER"):
             buy += 1
-        elif action in {"SELL", "EXIT", "ROTATE"}:
+        elif action in {"SELL", "EXIT", "ROTATE"} or action.startswith("EXIT"):
             sell += 1
         elif action.startswith("REVIEW"):
             review += 1
         elif action.startswith("HOLD") or action == "SKIP":
             hold += 1
-    # Fall back to orders when traces absent
+
+    buy_orders = sell_orders = 0
+    filled_orders = cancelled_orders = pending_orders = rejected_orders = 0
+    fill_records = 0
+    for o in orders:
+        side = _normalize_action(str(o.get("side") or ""))
+        if side == "BUY":
+            buy_orders += 1
+        elif side == "SELL":
+            sell_orders += 1
+        status = _normalize_status(str(o.get("status") or ""))
+        fills = o.get("fills") if isinstance(o.get("fills"), list) else []
+        fill_records += len(fills)
+        if fills:
+            filled_orders += 1
+        elif status in _CANCELLED_STATUSES:
+            cancelled_orders += 1
+        elif status in _REJECTED_STATUSES:
+            rejected_orders += 1
+        elif status in _PENDING_STATUSES or status == "":
+            pending_orders += 1
+        elif status in _FILLED_STATUSES:
+            # Status claims fill but no ShadowFill — count neither as confirmed fill.
+            pass
+        else:
+            pending_orders += 1
+
+    # Compat buy/sell: prefer candidate actions; else order sides (labelled as orders in UI).
     if not candidates:
-        for o in orders:
-            side = _normalize_action(str(o.get("side") or ""))
-            if side == "BUY":
-                buy += 1
-            elif side == "SELL":
-                sell += 1
+        buy = buy_orders
+        sell = sell_orders
+
     return {
         "buy": buy,
         "sell": sell,
@@ -235,6 +419,14 @@ def _count_actions(candidates: list[dict[str, Any]], orders: list[dict[str, Any]
         "review": review,
         "candidates_reviewed": len(candidates),
         "orders": len(orders),
+        "buy_orders": buy_orders,
+        "sell_orders": sell_orders,
+        "filled_orders": filled_orders,
+        "cancelled_orders": cancelled_orders,
+        "pending_orders": pending_orders,
+        "rejected_orders": rejected_orders,
+        "fill_records": fill_records,
+        "fills": fill_records,
     }
 
 
@@ -245,6 +437,46 @@ def _modeled_costs(fills: list[dict[str, Any]]) -> dict[str, float]:
         "commission": commission,
         "slippage_cost": slippage,
         "total": commission + slippage,
+    }
+
+
+def _recorded_facts(
+    decision: ShadowDecision | None,
+    *,
+    evidence_level: EvidenceLevel,
+    orders_ser: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if decision is None:
+        return {
+            "evidence_level": evidence_level,
+            "has_candidate_traces": False,
+            "targets": [],
+            "order_plan_rows": [],
+            "policy_name": None,
+            "risk_name": None,
+            "risk_mode": None,
+            "order_reasons": [],
+        }
+    meta = decision.metadata_ if isinstance(decision.metadata_, dict) else {}
+    reasons = sorted(
+        {
+            str(o.get("reason")).strip()
+            for o in orders_ser
+            if o.get("reason") is not None and str(o.get("reason")).strip()
+        }
+    )
+    return {
+        "evidence_level": evidence_level,
+        "has_candidate_traces": _decision_has_detail(meta),
+        "targets": _public_targets(decision.targets),
+        "order_plan_rows": _order_plan_rows(meta),
+        "policy_name": decision.policy_name,
+        "risk_name": decision.risk_name,
+        "risk_mode": decision.risk_mode,
+        "eligible_n": meta.get("eligible_n"),
+        "k_entry": meta.get("k_entry"),
+        "k_max": meta.get("k_max"),
+        "order_reasons": reasons,
     }
 
 
@@ -278,6 +510,7 @@ def build_shadow_journal(
         )
     )
 
+    # Calendar-window fills (for fill-only days / same-day cost rollups).
     fill_q = select(ShadowFill).where(ShadowFill.portfolio_id == portfolio_id)
     if date_from is not None:
         fill_q = fill_q.where(ShadowFill.execution_date >= date_from)
@@ -285,17 +518,16 @@ def build_shadow_journal(
         fill_q = fill_q.where(ShadowFill.execution_date <= date_to)
     if filter_ticker:
         fill_q = fill_q.where(ShadowFill.ticker == filter_ticker)
-    fills = list(
+    window_fills = list(
         session.scalars(fill_q.order_by(ShadowFill.execution_date.asc(), ShadowFill.id.asc()))
     )
 
-    # Bound orders: by ticker and/or by decision/fill windows (avoid loading full history).
     order_q = select(ShadowOrder).where(ShadowOrder.portfolio_id == portfolio_id)
     if filter_ticker:
         order_q = order_q.where(ShadowOrder.ticker == filter_ticker)
     if date_from is not None or date_to is not None:
         decision_ids = [int(d.id) for d in decisions]
-        fill_order_ids = [int(f.order_id) for f in fills]
+        fill_order_ids = [int(f.order_id) for f in window_fills]
         id_filters = []
         if decision_ids:
             id_filters.append(ShadowOrder.decision_id.in_(decision_ids))
@@ -304,8 +536,30 @@ def build_shadow_journal(
         if id_filters:
             order_q = order_q.where(or_(*id_filters))
         else:
-            order_q = order_q.where(ShadowOrder.id == -1)  # empty window
+            order_q = order_q.where(ShadowOrder.id == -1)
     orders = list(session.scalars(order_q.order_by(ShadowOrder.id.asc())))
+
+    # Batch-load ALL fills for displayed orders (may be outside the calendar window).
+    order_ids = [int(o.id) for o in orders]
+    linked_fills: list[ShadowFill] = []
+    if order_ids:
+        linked_fills = list(
+            session.scalars(
+                select(ShadowFill)
+                .where(
+                    ShadowFill.portfolio_id == portfolio_id,
+                    ShadowFill.order_id.in_(order_ids),
+                )
+                .order_by(ShadowFill.execution_date.asc(), ShadowFill.id.asc())
+            )
+        )
+
+    fills_by_order: dict[int, list[ShadowFill]] = {}
+    for fill in linked_fills:
+        # Defend against cross-portfolio leakage even if query is scoped.
+        if int(fill.portfolio_id) != int(portfolio_id):
+            continue
+        fills_by_order.setdefault(int(fill.order_id), []).append(fill)
 
     nav_q = select(ShadowNavDaily).where(ShadowNavDaily.portfolio_id == portfolio_id)
     if date_from is not None:
@@ -319,7 +573,7 @@ def build_shadow_journal(
         orders_by_decision.setdefault(int(order.decision_id), []).append(order)
 
     fills_by_date: dict[date, list[ShadowFill]] = {}
-    for fill in fills:
+    for fill in window_fills:
         fills_by_date.setdefault(fill.execution_date, []).append(fill)
 
     nav_by_date: dict[date, ShadowNavDaily] = {n.as_of_date: n for n in nav_rows}
@@ -327,7 +581,6 @@ def build_shadow_journal(
     for d in decisions:
         decisions_by_date.setdefault(d.signal_as_of_date, []).append(d)
 
-    # Days = union of decision signal dates, fill execution dates, NAV dates
     day_set: set[date] = set(decisions_by_date) | set(fills_by_date) | set(nav_by_date)
     if date_from is not None:
         day_set = {d for d in day_set if d >= date_from}
@@ -340,7 +593,6 @@ def build_shadow_journal(
         day_fills_raw = fills_by_date.get(day, [])
         day_nav = nav_by_date.get(day)
 
-        # Orders linked to decisions on this signal day OR filled today
         day_orders_raw: list[ShadowOrder] = []
         seen_order_ids: set[int] = set()
         for decision in day_decisions:
@@ -356,11 +608,14 @@ def build_shadow_journal(
                 day_orders_raw.append(order)
 
         primary = day_decisions[-1] if day_decisions else None
-        detail_available = _decision_has_detail(primary.metadata_ if primary else None)
+        detail_available = (
+            _decision_has_detail(primary.metadata_) if primary is not None else False
+        )
         traces_raw = (
             _extract_candidate_traces(primary.metadata_) if primary is not None else None
         )
         candidates: list[dict[str, Any]] = list(traces_raw) if traces_raw is not None else []
+        evidence_level = classify_evidence_level(primary, orders=day_orders_raw)
 
         if filter_ticker or filter_action:
             cand_hit = [
@@ -395,10 +650,21 @@ def build_shadow_journal(
             day_orders_raw = order_hit
             day_fills_raw = fill_hit
 
-        orders_ser = [_serialize_order(o) for o in day_orders_raw]
+        signal_day = primary.signal_as_of_date if primary is not None else day
+        orders_ser = [
+            _serialize_order(
+                o,
+                fills=fills_by_order.get(int(o.id), []),
+                signal_day=signal_day if primary is not None else None,
+            )
+            for o in day_orders_raw
+        ]
+        # Day-level fills: calendar fills for this date (unchanged source dates).
         fills_ser = [_serialize_fill(f) for f in day_fills_raw]
+        # Costs for decision-centric view: prefer linked fills on orders of this day.
+        linked_fill_ser = [f for o in orders_ser for f in (o.get("fills") or [])]
+        costs_source = linked_fill_ser if primary is not None and linked_fill_ser else fills_ser
         counts = _count_actions(candidates, orders_ser)
-        counts["fills"] = len(fills_ser)
 
         day_payload: dict[str, Any] = {
             "date": day.isoformat(),
@@ -408,14 +674,19 @@ def build_shadow_journal(
             "risk_mode": primary.risk_mode if primary else None,
             "nav": _serialize_nav(day_nav),
             "detail_available": bool(detail_available) if primary is not None else False,
-            "message_ru": None
-            if (primary is None or detail_available)
-            else LEGACY_TRACE_MESSAGE_RU,
+            "evidence_level": evidence_level if primary is not None else "NONE",
+            "message_ru": evidence_message_ru(
+                evidence_level if primary is not None else "NONE",
+                detail_available=bool(detail_available) if primary is not None else False,
+            ),
+            "recorded_facts": _recorded_facts(
+                primary, evidence_level=evidence_level, orders_ser=orders_ser
+            ),
             "candidates": candidates,
             "orders": orders_ser,
             "fills": fills_ser,
             "counts": counts,
-            "total_modeled_costs": _modeled_costs(fills_ser),
+            "total_modeled_costs": _modeled_costs(costs_source),
         }
         days_out.append(day_payload)
 
@@ -486,7 +757,9 @@ def build_candidate_history(
             )
         )
     )
-    fills_by_order = {int(f.order_id): f for f in fills}
+    fills_by_order: dict[int, list[ShadowFill]] = {}
+    for f in fills:
+        fills_by_order.setdefault(int(f.order_id), []).append(f)
     orders_by_decision: dict[int, list[ShadowOrder]] = {}
     for order in orders:
         orders_by_decision.setdefault(int(order.decision_id), []).append(order)
@@ -512,10 +785,12 @@ def build_candidate_history(
         if not matching_traces and not matching_orders:
             continue
 
+        evidence = classify_evidence_level(decision, orders=matching_orders)
+
         if matching_traces:
             for trace in matching_traces:
                 order = matching_orders[0] if matching_orders else None
-                fill = fills_by_order.get(int(order.id)) if order is not None else None
+                order_fills = fills_by_order.get(int(order.id), []) if order is not None else []
                 events.append(
                     {
                         "decision_id": int(decision.id),
@@ -533,16 +808,22 @@ def build_candidate_history(
                         "review_trigger": trace.get("review_trigger"),
                         "trace": trace,
                         "detail_available": True,
+                        "evidence_level": evidence,
                         "message_ru": None,
-                        "order": _serialize_order(order) if order else None,
-                        "fill": _serialize_fill(fill) if fill else None,
+                        "order": _serialize_order(
+                            order,
+                            fills=order_fills,
+                            signal_day=decision.signal_as_of_date,
+                        )
+                        if order
+                        else None,
+                        "fill": _serialize_fill(order_fills[0]) if order_fills else None,
                         "nav_at_signal": _serialize_nav(nav_rows.get(decision.signal_as_of_date)),
                     }
                 )
         else:
-            # Legacy: orders only, honest degradation
             for order in matching_orders:
-                fill = fills_by_order.get(int(order.id))
+                order_fills = fills_by_order.get(int(order.id), [])
                 events.append(
                     {
                         "decision_id": int(decision.id),
@@ -560,9 +841,14 @@ def build_candidate_history(
                         "review_trigger": None,
                         "trace": None,
                         "detail_available": False,
-                        "message_ru": LEGACY_TRACE_MESSAGE_RU,
-                        "order": _serialize_order(order),
-                        "fill": _serialize_fill(fill) if fill else None,
+                        "evidence_level": evidence,
+                        "message_ru": evidence_message_ru(evidence, detail_available=False),
+                        "order": _serialize_order(
+                            order,
+                            fills=order_fills,
+                            signal_day=decision.signal_as_of_date,
+                        ),
+                        "fill": _serialize_fill(order_fills[0]) if order_fills else None,
                         "nav_at_signal": _serialize_nav(nav_rows.get(decision.signal_as_of_date)),
                     }
                 )

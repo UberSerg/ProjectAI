@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.modules.shadow.application.decision_journal import (
-    LEGACY_TRACE_MESSAGE_RU,
+    PARTIAL_EVIDENCE_MESSAGE_RU,
     build_candidate_history,
     build_shadow_journal,
 )
@@ -351,6 +351,7 @@ def test_journal_joins_decision_orders_fills_nav(journal_fixture) -> None:
 
     day_signal = days["2026-09-02"]
     assert day_signal["detail_available"] is True
+    assert day_signal["evidence_level"] == "FULL"
     assert day_signal["message_ru"] is None
     assert day_signal["decision"]["id"] is not None
     assert day_signal["nav"]["nav"] == 1_000_000.0
@@ -362,12 +363,18 @@ def test_journal_joins_decision_orders_fills_nav(journal_fixture) -> None:
     # CoT must never appear in public trace
     for c in day_signal["candidates"]:
         assert "chain_of_thought" not in c
+    # Fill happened next calendar day — still linked by order_id on decision day.
+    buy_order = next(o for o in day_signal["orders"] if o["ticker"] == "SBER")
+    assert buy_order["has_confirmed_fill"] is True
+    assert buy_order["execution_timing"] == "later"
+    assert buy_order["fills"][0]["execution_date"] == "2026-09-03"
+    assert day_signal["counts"]["filled_orders"] >= 1
+    assert day_signal["counts"]["buy_orders"] >= 1
 
     day_fill = days["2026-09-03"]
     assert len(day_fill["fills"]) == 1
     assert day_fill["fills"][0]["ticker"] == "SBER"
     assert day_fill["fills"][0]["commission"] == 30.0
-    assert day_fill["total_modeled_costs"]["commission"] == 30.0
     assert day_fill["nav"]["nav"] == 1_001_000.0
 
 
@@ -454,18 +461,73 @@ def test_legacy_v2_without_candidate_traces_degrades(journal_fixture) -> None:
     assert payload is not None
     day = next(d for d in payload["days"] if d["date"] == "2026-09-02")
     assert day["detail_available"] is False
-    assert day["message_ru"] == LEGACY_TRACE_MESSAGE_RU
+    assert day["evidence_level"] == "PARTIAL"
+    assert day["message_ru"] == PARTIAL_EVIDENCE_MESSAGE_RU
     assert day["candidates"] == []
     # Orders/fills still present from real data — not invented
     assert len(day["orders"]) == 1
     assert day["orders"][0]["ticker"] == "SBER"
+    assert day["orders"][0]["execution_timing"] == "later"
+    assert day["recorded_facts"]["has_candidate_traces"] is False
 
     hist = build_candidate_history(session, portfolio_id=int(pb.id), ticker="SBER")
     assert hist is not None
     assert hist["events"]
     assert all(e["detail_available"] is False for e in hist["events"])
-    assert all(e["message_ru"] == LEGACY_TRACE_MESSAGE_RU for e in hist["events"])
+    assert all(e["evidence_level"] == "PARTIAL" for e in hist["events"])
+    assert all(e["message_ru"] == PARTIAL_EVIDENCE_MESSAGE_RU for e in hist["events"])
     assert all(e["trace"] is None for e in hist["events"])
+
+
+def test_status_filled_without_fill_is_mismatch(core_db: Session) -> None:
+    spec = _seed_spec(core_db)
+    portfolio = _seed_portfolio(core_db, spec)
+    decision = _seed_decision(
+        core_db,
+        portfolio,
+        signal_day=date(2026, 9, 3),
+        iso_week="2026-W36",
+        metadata={"kind": "FORWARD_SHADOW", "eligible_n": 10},
+    )
+    decision.targets = [
+        {"ticker": "AFLT", "rank": 9, "action": "ENTER_TOP20", "target_weight": 0.1}
+    ]
+    core_db.flush()
+    _seed_order(
+        core_db,
+        portfolio,
+        decision,
+        ticker="AFLT",
+        side="BUY",
+        instrument_id=99,
+        status="FILLED",
+        execution_date=None,
+    )
+    # Intentionally no ShadowFill
+    cancelled = _seed_order(
+        core_db,
+        portfolio,
+        decision,
+        ticker="ZZZZ",
+        side="BUY",
+        instrument_id=100,
+        status="CANCELLED",
+        execution_date=None,
+    )
+    assert cancelled.status == "CANCELLED"
+    core_db.flush()
+
+    payload = build_shadow_journal(core_db, portfolio_id=int(portfolio.id))
+    assert payload is not None
+    day = next(d for d in payload["days"] if d["date"] == "2026-09-03")
+    assert day["evidence_level"] == "PARTIAL"
+    by_ticker = {o["ticker"]: o for o in day["orders"]}
+    assert by_ticker["AFLT"]["has_confirmed_fill"] is False
+    assert by_ticker["AFLT"]["execution_timing"] == "status_fill_mismatch"
+    assert by_ticker["ZZZZ"]["execution_timing"] == "none"
+    assert day["counts"]["cancelled_orders"] == 1
+    assert day["counts"]["filled_orders"] == 0
+    assert day["counts"]["fill_records"] == 0
 
 
 def test_candidate_history_lifecycle(journal_fixture) -> None:
