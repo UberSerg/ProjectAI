@@ -1,7 +1,8 @@
-/* Kraken Personal V1 — polished dark cockpit (desktop)
+/* Kraken Design System V2 — dark theme owner (desktop cockpit)
 
-   Tokens + hierarchy for premium fintech feel.
-   Blue = interactive accent only. Semantics for +/- / warning.
+   Loaded last after design-system.css. Owns [data-theme="dark"] tokens.
+   Blue = interactive accent only. Color encodes meaning (P&L / action / freshness).
+   Contract: docs/ui/KRAKEN_DESIGN_SYSTEM_V2.md
 */
 
 @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap");
@@ -27,6 +28,8 @@
   --warning-bg: rgba(240, 180, 41, 0.12);
   --error: #ff6b7a;
   --error-bg: rgba(255, 107, 122, 0.12);
+  --danger: var(--error);
+  --danger-bg: var(--error-bg);
   --risk: #ff8f5c;
   --risk-bg: rgba(255, 143, 92, 0.12);
   --unknown: #8a95a5;
@@ -41,6 +44,9 @@
   --sidebar: #0c1016;
   --shadow: none;
   --shadow-soft: none;
+  --elevation-0: none;
+  --elevation-1: none;
+  --elevation-2: 0 0 0 1px var(--line-strong);
   --equity: #5b9bff;
   --fi: #3dd68c;
   --cash: #d4b44a;
@@ -61,14 +67,26 @@
   --text-lg: 1.15rem;
   --text-xl: 1.55rem;
   --text-hero: clamp(2.4rem, 3.6vw, 3.15rem);
-  /* Semantic surfaces — dark counterpart of the light baseline in design-system.css. */
+  --text-number: 1.45rem;
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --bp-sm: 520px;
+  --bp-md: 900px;
+  --bp-lg: 1100px;
+  --bp-xl: 1180px;
+
+  /* Surfaces — dark counterpart of design-system.css light contract */
   --surface-page: #0a0d12;
+  --surface-background: var(--surface-page);
   --page-gradient:
     radial-gradient(900px 420px at 12% -12%, rgba(77, 143, 255, 0.09), transparent 55%),
     radial-gradient(700px 380px at 95% 0%, rgba(61, 214, 140, 0.05), transparent 50%),
     var(--surface-page);
   --surface-elevated: #161e28;
   --surface-panel: var(--panel);
+  --surface: var(--surface-panel);
   --surface-raised: #1a222d;
   --surface-subtle: rgba(255, 255, 255, 0.035);
   --surface-sunken: rgba(255, 255, 255, 0.07);
@@ -83,9 +101,21 @@
   --sidebar-footer-bg: rgba(0, 0, 0, 0.18);
   --row-hover: rgba(255, 255, 255, 0.04);
   --overlay: rgba(3, 6, 11, 0.62);
+
+  /* Text / border / focus */
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-secondary);
+  --text-muted: var(--muted);
+  --text-inverse: #0a0d12;
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --focus-ring: var(--accent);
+  --focus-ring-offset: 2px;
+
   --link: var(--accent-text);
   --link-hover: #d0e4ff;
   --nav-active-ink: var(--ink);
+  --info: var(--running);
   --info-bg: rgba(77, 143, 255, 0.08);
   --info-line: rgba(77, 143, 255, 0.22);
   --info-ink: var(--ink-secondary);
@@ -96,8 +126,52 @@
   --success-line: rgba(61, 214, 140, 0.35);
   --warning-line: rgba(240, 180, 41, 0.35);
   --error-line: rgba(255, 107, 122, 0.35);
+  --danger-line: var(--error-line);
   --risk-line: rgba(255, 143, 92, 0.35);
   --danger-quiet-bg: rgba(255, 107, 122, 0.1);
+
+  /* Decision / freshness / provenance */
+  --action-buy: var(--success);
+  --action-buy-bg: var(--success-bg);
+  --action-sell: var(--danger);
+  --action-sell-bg: var(--danger-bg);
+  --action-hold: var(--ink-secondary);
+  --action-hold-bg: var(--neutral-bg);
+  --action-review: var(--warning);
+  --action-review-bg: var(--warning-bg);
+  --action-unknown: var(--ink-secondary);
+  --action-unknown-bg: var(--neutral-bg);
+  --freshness-fresh: var(--success);
+  --freshness-fresh-bg: var(--success-bg);
+  --freshness-stale: var(--warning);
+  --freshness-stale-bg: var(--warning-bg);
+  --freshness-partial: var(--info);
+  --freshness-partial-bg: var(--info-bg);
+  --freshness-unavailable: var(--unknown);
+  --freshness-unavailable-bg: var(--unknown-bg);
+  --provenance-live: var(--success);
+  --provenance-live-bg: var(--success-bg);
+  --provenance-counterfactual: var(--research);
+  --provenance-counterfactual-bg: var(--research-bg);
+  --provenance-unknown: var(--ink-secondary);
+  --provenance-unknown-bg: var(--neutral-bg);
+
+  /* V2 aliases for Agent 02+ */
+  --kr-bg: var(--surface-background);
+  --kr-surface: var(--surface);
+  --kr-elevated: var(--surface-elevated);
+  --kr-overlay: var(--overlay);
+  --kr-text: var(--text-primary);
+  --kr-text-secondary: var(--text-secondary);
+  --kr-text-muted: var(--text-muted);
+  --kr-border: var(--border);
+  --kr-border-strong: var(--border-strong);
+  --kr-focus: var(--focus-ring);
+  --kr-success: var(--success);
+  --kr-danger: var(--danger);
+  --kr-warning: var(--warning);
+  --kr-info: var(--info);
+
   font-family: var(--font);
   color: var(--ink);
   min-height: 100vh;

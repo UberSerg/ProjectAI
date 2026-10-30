@@ -1,4 +1,7 @@
-/* Kraken Design System V1 — Apple-like analytical product */
+/* Kraken Design System V2 — token contract + primitives
+   Cascade: styles.css (legacy chrome) → this file (light owner) → kraken-dark.css
+   Contract: docs/ui/KRAKEN_DESIGN_SYSTEM_V2.md
+*/
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
@@ -21,6 +24,8 @@
   --warning-bg: rgba(184, 110, 0, 0.12);
   --error: #d70015;
   --error-bg: rgba(215, 0, 21, 0.08);
+  --danger: var(--error);
+  --danger-bg: var(--error-bg);
   --risk: #c93400;
   --risk-bg: rgba(201, 52, 0, 0.1);
   --unknown: #6e6e73;
@@ -35,6 +40,9 @@
   --sidebar: rgba(251, 251, 253, 0.92);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.04);
   --shadow-soft: 0 2px 12px rgba(0, 0, 0, 0.06);
+  --elevation-0: none;
+  --elevation-1: var(--shadow);
+  --elevation-2: var(--shadow-soft);
   --radius-sm: 10px;
   --radius-md: 16px;
   --radius-lg: 22px;
@@ -46,6 +54,14 @@
   --space-6: 2rem;
   --font: "Inter", "Segoe UI", system-ui, sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", ui-monospace, monospace;
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --bp-sm: 520px;
+  --bp-md: 900px;
+  --bp-lg: 1100px;
+  --bp-xl: 1180px;
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.47;
@@ -731,23 +747,25 @@ td {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Semantic theme tokens — light baseline.
-   Dark counterparts live in styles/kraken-dark.css under [data-theme="dark"]
-   (imported last, so it wins at equal specificity).
-   Components must reference these instead of literal surface colours.
+   Design System V2 — light token contract.
+   Dark counterparts: styles/kraken-dark.css [data-theme="dark"] (loaded last).
+   Prefer semantic --kr-*, --surface-*, --action-*, --freshness-*, --provenance-*.
+   Legacy --bg / --panel / --ink / --error remain aliases for compatibility.
    ═══════════════════════════════════════════════════════════════════════ */
 :root,
 [data-theme="light"] {
   color-scheme: light;
 
-  /* Page + surfaces */
+  /* —— Surfaces: Background / Surface / Elevated / Overlay —— */
   --surface-page: #f5f5f7;
+  --surface-background: var(--surface-page);
   --page-gradient:
     radial-gradient(1200px 600px at 10% -10%, rgba(0, 113, 227, 0.06), transparent 55%),
     radial-gradient(900px 500px at 100% 0%, rgba(88, 86, 214, 0.05), transparent 50%),
     var(--surface-page);
   --surface-elevated: #ffffff;
   --surface-panel: var(--panel);
+  --surface: var(--surface-panel);
   --surface-raised: #fbfbfd;
   --surface-subtle: #f7f9fb;
   --surface-sunken: #eef2f6;
@@ -757,6 +775,7 @@ td {
   --surface-tooltip: #1d1d1f;
   --ink-tooltip: #ffffff;
   --sidebar-footer-bg: rgba(0, 0, 0, 0.025);
+  --overlay: rgba(16, 24, 40, 0.35);
 
   /* Form controls */
   --surface-input: #ffffff;
@@ -766,23 +785,64 @@ td {
   --surface-table-head: #fafafa;
   --row-hover: rgba(0, 0, 0, 0.035);
 
+  /* —— Text —— */
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-secondary);
+  --text-muted: var(--muted);
+  --text-inverse: #ffffff;
+
+  /* —— Border / focus —— */
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --focus-ring: var(--accent);
+  --focus-ring-offset: 2px;
+
   /* Chrome */
-  --overlay: rgba(16, 24, 40, 0.35);
   --link: var(--accent);
   --link-hover: #0059b3;
   --nav-active-ink: var(--accent);
 
-  /* Status hairlines (badges already own their bg/fg tokens) */
+  /* —— Status: Success / Danger / Warning / Info —— */
   --success-line: rgba(31, 138, 76, 0.28);
   --warning-line: rgba(184, 110, 0, 0.28);
   --error-line: rgba(215, 0, 21, 0.2);
+  --danger-line: var(--error-line);
   --risk-line: rgba(201, 52, 0, 0.28);
   --danger-quiet-bg: rgba(215, 0, 21, 0.06);
-
-  /* Informational surfaces */
+  --info: var(--running);
   --info-bg: #eef4f8;
   --info-line: #c5d5e0;
   --info-ink: #1a3a55;
+
+  /* —— Decision actions: BUY / SELL / HOLD / REVIEW —— */
+  --action-buy: var(--success);
+  --action-buy-bg: var(--success-bg);
+  --action-sell: var(--danger);
+  --action-sell-bg: var(--danger-bg);
+  --action-hold: var(--ink-secondary);
+  --action-hold-bg: var(--neutral-bg);
+  --action-review: var(--warning);
+  --action-review-bg: var(--warning-bg);
+  --action-unknown: var(--ink-secondary);
+  --action-unknown-bg: var(--neutral-bg);
+
+  /* —— Freshness: FRESH / STALE / PARTIAL / UNAVAILABLE —— */
+  --freshness-fresh: var(--success);
+  --freshness-fresh-bg: var(--success-bg);
+  --freshness-stale: var(--warning);
+  --freshness-stale-bg: var(--warning-bg);
+  --freshness-partial: var(--info);
+  --freshness-partial-bg: var(--info-bg);
+  --freshness-unavailable: var(--unknown);
+  --freshness-unavailable-bg: var(--unknown-bg);
+
+  /* —— Provenance: LIVE / COUNTERFACTUAL —— */
+  --provenance-live: var(--success);
+  --provenance-live-bg: var(--success-bg);
+  --provenance-counterfactual: var(--research);
+  --provenance-counterfactual-bg: var(--research-bg);
+  --provenance-unknown: var(--ink-secondary);
+  --provenance-unknown-bg: var(--neutral-bg);
 
   /* Charts + loading */
   --chart-surface: #f8fafc;
@@ -790,7 +850,7 @@ td {
   --skeleton-base: #ececef;
   --skeleton-shine: #f7f7f8;
 
-  /* Asset-class accents and the type scale (dark used to declare these alone) */
+  /* Asset-class accents + type scale */
   --equity: #0071e3;
   --fi: #5856d6;
   --cash: #8e8e93;
@@ -801,6 +861,23 @@ td {
   --text-lg: 1.15rem;
   --text-xl: 1.55rem;
   --text-hero: clamp(2.4rem, 3.6vw, 3.15rem);
+  --text-number: 1.45rem;
+
+  /* —— Stable V2 aliases (Agent 02+ should prefer these) —— */
+  --kr-bg: var(--surface-background);
+  --kr-surface: var(--surface);
+  --kr-elevated: var(--surface-elevated);
+  --kr-overlay: var(--overlay);
+  --kr-text: var(--text-primary);
+  --kr-text-secondary: var(--text-secondary);
+  --kr-text-muted: var(--text-muted);
+  --kr-border: var(--border);
+  --kr-border-strong: var(--border-strong);
+  --kr-focus: var(--focus-ring);
+  --kr-success: var(--success);
+  --kr-danger: var(--danger);
+  --kr-warning: var(--warning);
+  --kr-info: var(--info);
 }
 
 /* ——— Button aliases used across pages (.btn was previously unstyled) ——— */
@@ -1093,4 +1170,312 @@ button.quiet-danger:hover {
 
 .portfolio-switcher-form input {
   width: 100%;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Design System V2 — shared primitives (Ui.tsx)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.ds-inline-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 0.75rem 0.95rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--kr-border);
+  background: var(--surface-raised);
+  color: var(--kr-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  margin-bottom: var(--space-3);
+}
+
+.ds-inline-notice strong {
+  display: block;
+  color: var(--kr-text);
+  font-size: var(--text-sm);
+  margin-bottom: 0.15rem;
+}
+
+.ds-inline-notice p {
+  margin: 0;
+}
+
+.ds-inline-notice-info {
+  border-color: var(--info-line);
+  background: var(--info-bg);
+  color: var(--info-ink);
+}
+
+.ds-inline-notice-success {
+  border-color: var(--success-line);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.ds-inline-notice-warning {
+  border-color: var(--warning-line);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.ds-inline-notice-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.ds-action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.ds-action-buy {
+  color: var(--action-buy);
+  background: var(--action-buy-bg);
+}
+
+.ds-action-sell {
+  color: var(--action-sell);
+  background: var(--action-sell-bg);
+}
+
+.ds-action-hold {
+  color: var(--action-hold);
+  background: var(--action-hold-bg);
+}
+
+.ds-action-review {
+  color: var(--action-review);
+  background: var(--action-review-bg);
+}
+
+.ds-action-unknown {
+  color: var(--action-unknown);
+  background: var(--action-unknown-bg);
+}
+
+.ds-freshness-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.16rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ds-freshness-fresh {
+  color: var(--freshness-fresh);
+  background: var(--freshness-fresh-bg);
+}
+
+.ds-freshness-stale {
+  color: var(--freshness-stale);
+  background: var(--freshness-stale-bg);
+}
+
+.ds-freshness-partial {
+  color: var(--freshness-partial);
+  background: var(--freshness-partial-bg);
+}
+
+.ds-freshness-unavailable {
+  color: var(--freshness-unavailable);
+  background: var(--freshness-unavailable-bg);
+}
+
+.ds-provenance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.16rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ds-provenance-live {
+  color: var(--provenance-live);
+  background: var(--provenance-live-bg);
+}
+
+.ds-provenance-counterfactual {
+  color: var(--provenance-counterfactual);
+  background: var(--provenance-counterfactual-bg);
+}
+
+.ds-provenance-unknown {
+  color: var(--provenance-unknown);
+  background: var(--provenance-unknown-bg);
+}
+
+.ds-data-quality-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.35rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--info-line);
+  background: var(--surface-subtle);
+  color: var(--kr-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.ds-data-quality-note[data-tone="warning"] {
+  border-left-color: var(--warning);
+}
+
+.ds-data-quality-note[data-tone="danger"] {
+  border-left-color: var(--danger);
+}
+
+.ds-data-quality-note[data-tone="success"] {
+  border-left-color: var(--success);
+}
+
+.ds-data-quality-note strong {
+  color: var(--kr-text);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.ds-accordion {
+  border: 1px solid var(--kr-border);
+  border-radius: var(--radius-md);
+  background: var(--kr-surface);
+  box-shadow: var(--elevation-1);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+}
+
+.ds-accordion > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0.85rem 1rem;
+  font-weight: 650;
+  color: var(--kr-text);
+  user-select: none;
+}
+
+.ds-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ds-accordion > summary::after {
+  content: "▸";
+  color: var(--kr-text-muted);
+  font-size: 0.85rem;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.ds-accordion[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.ds-accordion-body {
+  padding: 0 1rem 1rem;
+  color: var(--kr-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  border-top: 1px solid var(--kr-border);
+}
+
+.ds-error-state {
+  padding: 1.25rem 1.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.ds-error-state strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--danger);
+}
+
+.ds-error-state p {
+  margin: 0;
+  color: var(--kr-text-secondary);
+}
+
+.ds-loading-skeleton {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ds-loading-skeleton .skeleton {
+  min-height: 5.5rem;
+}
+
+.ds-number {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+  font-size: var(--text-number);
+  font-weight: 650;
+  color: var(--kr-text);
+}
+
+.metric-value {
+  font-size: var(--text-number);
+}
+
+.signed-money {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.signed-money-positive {
+  color: var(--kr-success);
+}
+
+.signed-money-negative {
+  color: var(--kr-danger);
+}
+
+.signed-money-neutral {
+  color: var(--kr-text);
+}
+
+.signed-money-partial {
+  color: var(--kr-warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .hub-link,
+  .nav,
+  .switch-segment,
+  .ds-accordion > summary::after,
+  .why-toggle {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .skeleton {
+    background: var(--skeleton-base);
+  }
 }

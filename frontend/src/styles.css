@@ -1,3 +1,11 @@
+/*
+  Cascade (main.tsx): styles.css → design-system.css → styles/kraken-dark.css
+  Token contract owner: design-system.css (light) + kraken-dark.css (dark).
+  This file keeps legacy layout/feature chrome. Prefer --surface-*, --kr-*,
+  --action-*, --freshness-*, --provenance-* from the V2 contract — do not
+  invent new global colour literals here.
+  Docs: docs/ui/KRAKEN_DESIGN_SYSTEM_V2.md
+*/
 :root {
   color-scheme: light;
   --bg: #eef1f5;
