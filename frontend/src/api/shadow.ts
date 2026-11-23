@@ -488,6 +488,14 @@ export interface ShadowJournalCandidateTrace {
   limitation_codes?: string[] | null;
 }
 
+export type ShadowJournalExecutionTiming =
+  | "same_day"
+  | "later"
+  | "none"
+  | "status_fill_mismatch";
+
+export type ShadowJournalEvidenceLevel = "FULL" | "PARTIAL" | "LIMITED" | "NONE";
+
 export interface ShadowJournalOrder {
   id: number;
   decision_id: number;
@@ -506,6 +514,10 @@ export interface ShadowJournalOrder {
   min_execution_date?: string | null;
   execution_date?: string | null;
   metadata?: Record<string, unknown> | null;
+  /** Linked fills by order_id (may be on a later calendar date). */
+  fills?: ShadowJournalFill[];
+  has_confirmed_fill?: boolean;
+  execution_timing?: ShadowJournalExecutionTiming;
 }
 
 export interface ShadowJournalFill {
@@ -559,6 +571,27 @@ export interface ShadowJournalDayCounts {
   candidates_reviewed: number;
   orders: number;
   fills?: number;
+  buy_orders?: number;
+  sell_orders?: number;
+  filled_orders?: number;
+  cancelled_orders?: number;
+  pending_orders?: number;
+  rejected_orders?: number;
+  fill_records?: number;
+}
+
+export interface ShadowJournalRecordedFacts {
+  evidence_level?: ShadowJournalEvidenceLevel;
+  has_candidate_traces?: boolean;
+  targets?: Array<Record<string, unknown>>;
+  order_plan_rows?: Array<Record<string, unknown>>;
+  policy_name?: string | null;
+  risk_name?: string | null;
+  risk_mode?: string | null;
+  eligible_n?: number | null;
+  k_entry?: number | null;
+  k_max?: number | null;
+  order_reasons?: string[];
 }
 
 export interface ShadowJournalModeledCosts {
@@ -575,7 +608,9 @@ export interface ShadowJournalDay {
   risk_mode?: string | null;
   nav?: ShadowJournalNav | null;
   detail_available: boolean;
+  evidence_level?: ShadowJournalEvidenceLevel;
   message_ru?: string | null;
+  recorded_facts?: ShadowJournalRecordedFacts | null;
   candidates: ShadowJournalCandidateTrace[];
   orders: ShadowJournalOrder[];
   fills: ShadowJournalFill[];
