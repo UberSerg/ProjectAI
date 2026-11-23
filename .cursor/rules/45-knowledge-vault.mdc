@@ -1,0 +1,46 @@
+# KRAKEN Knowledge Vault (in-repo)
+
+Canonical human knowledge base lives in the **same** ProjectAI repository:
+
+`knowledge-vault/`
+
+Obsidian opens that folder. It is **not** a second product SoT for code/PR/CI.
+
+| Layer | Authority |
+|---|---|
+| GitHub code / PR / CI / Issues | ProjectAI git |
+| Project status | `docs/development/CHATGPT_MASTER_CONTEXT.md` |
+| Human encyclopedia, history, problems, backlog, roadmap | `knowledge-vault/` |
+
+## Start of work (Vault sync-in)
+
+Before non-trivial work that may need or update Vault notes:
+
+1. `git fetch origin`
+2. Update your branch / worktree with latest `origin/main` (or rebase/merge as usual)
+3. Ensure `knowledge-vault/` matches remote — if others pushed Vault changes, **pull them before editing**
+
+Do not edit a stale local Vault while `origin/main` already has newer `knowledge-vault/` commits.
+
+## After significant change (Vault sync-out)
+
+If the change is meaningful for understanding Kraken (feature, bugfix, Owner decision, architecture, finance invariant, UX acceptance, new epic/task status):
+
+1. Update the relevant Vault notes (module passport / term / problem / task / history event / roadmap) — not six full copies; link instead
+2. Keep evidence levels honest (`GITHUB_VERIFIED` / `REPORTED_*` / `PROPOSED`)
+3. **Commit** Vault updates with the feature PR **or** a focused `docs(vault): …` commit
+4. **Push** promptly so other developers/agents see an actual knowledge base
+
+Trivial CSS spacing / typo-only edits do not require a Vault ceremony.
+
+## Do not
+
+- Put secrets, `.env`, tokens, personal ledger dumps into Vault
+- Declare PR merged or feature accepted only because a Vault note says so
+- Auto-start backlog implementation because a Vault epic exists
+- Maintain a long-lived divergent copy outside git (e.g. forgotten `E:\kraken Vault` fork)
+
+## Local path
+
+Preferred Obsidian root: `<clone>/knowledge-vault/`  
+Optional Windows junction `E:\kraken Vault` → that folder is fine **only if** it points at a current clone/worktree of this repo.
