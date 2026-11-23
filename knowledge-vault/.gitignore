@@ -1,0 +1,24 @@
+# Obsidian local UI state — do not share
+.obsidian/workspace
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/workspaces.json
+.obsidian/cache
+.obsidian/plugins/
+.trash/
+
+# OS / editors
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
+*.bak
+
+# Local QA run output
+_meta/QA/check_vault_last_run.txt
+
+# Never commit secrets or personal finance dumps
+.env
+*.pem
+*credentials*
+*secret*

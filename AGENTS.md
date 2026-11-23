@@ -23,8 +23,10 @@ First read the documents below and verify the **current GitHub state**.
 | What a PR contains | exact PR HEAD SHA + diff + CI for that SHA |
 | What Cursor “reported” | **not** proof — independent GitHub verification required |
 | What localhost shows | not proof until the serving worktree/container/HEAD is identified |
+| Human knowledge / history / backlog narration | `knowledge-vault/` (Obsidian); not a substitute for GitHub facts |
 
-GitHub is the durable project memory. Chat history is ephemeral.
+GitHub is the durable project memory. Chat history is ephemeral.  
+Vault sync rules: `.cursor/rules/45-knowledge-vault.mdc`.
 
 ## Before any non-trivial work
 
@@ -32,8 +34,9 @@ GitHub is the durable project memory. Chat history is ephemeral.
 2. Read `KRAKEN_CURRENT_STATE.md` for baseline SHA and next milestone
 3. Inspect open PRs / CI on GitHub
 4. Confirm local branch / HEAD / worktree
-5. If UI acceptance matters: identify what serves `localhost:5173` (process, Docker mount, branch, HEAD)
-6. Take the **explicit current Owner/curator task** as scope — do not invent the next roadmap stage
+5. Pull latest `knowledge-vault/` changes if others may have pushed Vault updates
+6. If UI acceptance matters: identify what serves `localhost:5173` (process, Docker mount, branch, HEAD)
+7. Take the **explicit current Owner/curator task** as scope — do not invent the next roadmap stage
 
 ## Hard behavioural rules
 
